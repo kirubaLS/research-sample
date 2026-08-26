@@ -1,0 +1,301 @@
+<title>Yaadhum Backend Sprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;0,700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{--paper:#F5F7F8;--surface:#FFFFFF;--surface-2:#EDF1F3;--ink:#16222F;--ink-2:#425466;--ink-3:#6F8296;
+--rule:#D8E0E5;--rule-2:#B9C6CF;--mark:#C0392B;--verify:#0E6B62;--chip:#E7EDF0;
+--shadow:0 1px 2px rgba(22,34,47,.06),0 8px 24px -16px rgba(22,34,47,.25)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#11161B;--surface:#171E25;--surface-2:#1E262E;
+--ink:#E3E9ED;--ink-2:#AAB8C4;--ink-3:#7F8F9D;--rule:#2A343D;--rule-2:#3E4B56;--mark:#E7796A;--verify:#5FBDAF;--chip:#232C34;
+--shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8)}}
+:root[data-theme="dark"]{--paper:#11161B;--surface:#171E25;--surface-2:#1E262E;
+--ink:#E3E9ED;--ink-2:#AAB8C4;--ink-3:#7F8F9D;--rule:#2A343D;--rule-2:#3E4B56;--mark:#E7796A;--verify:#5FBDAF;--chip:#232C34;
+--shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Source Sans 3",-apple-system,sans-serif;font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1180px;margin:0 auto;padding:0 26px 90px}
+header.mast{border-bottom:2px solid var(--ink);padding:48px 0 22px}
+.kicker{font-family:"JetBrains Mono",monospace;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mark);margin-bottom:16px}
+h1{font-family:Spectral,Georgia,serif;font-weight:700;font-size:clamp(34px,5.4vw,54px);line-height:1.05;letter-spacing:-.02em;margin:0 0 12px;text-wrap:balance}
+.dek{font-size:18.5px;color:var(--ink-2);max-width:66ch;margin:0 0 26px}
+.budget{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.budget div{background:var(--paper);padding:11px 14px}
+.budget dt{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0 0 3px}
+.budget dd{margin:0;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+section{padding:46px 0 8px;border-top:1px solid var(--rule)}
+section:first-of-type{border-top:none}
+.shead{display:flex;align-items:baseline;gap:13px;margin-bottom:4px}
+.snum{font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:600;color:var(--mark);border:1px solid var(--rule-2);padding:2px 7px;flex:none}
+h2{font-family:Spectral,serif;font-weight:600;font-size:clamp(24px,3.2vw,31px);letter-spacing:-.015em;margin:0;line-height:1.15}
+.ssub{color:var(--ink-3);font-size:15px;margin:0 0 24px;font-style:italic;font-family:Spectral,serif;max-width:74ch}
+h3{font-family:Spectral,serif;font-size:19px;font-weight:600;margin:30px 0 8px}
+p{margin:0 0 13px;max-width:72ch}
+ul{max-width:72ch;padding-left:20px;margin:0 0 13px}li{margin-bottom:6px}
+a{color:var(--mark);text-decoration-thickness:1px;text-underline-offset:2px}
+code{font-family:"JetBrains Mono",monospace;font-size:.84em;background:var(--chip);padding:1px 5px;border-radius:2px}
+pre{background:var(--surface);border:1px solid var(--rule);padding:15px 17px;overflow-x:auto;font-size:12.5px;line-height:1.55;margin:0 0 18px}
+pre code{background:none;padding:0}
+.tw{overflow-x:auto;margin:0 0 20px;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:14px;background:var(--surface)}
+th{text-align:left;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);padding:10px 13px;border-bottom:1px solid var(--rule-2);font-weight:600;white-space:nowrap}
+td{padding:10px 13px;border-bottom:1px solid var(--rule);vertical-align:top;color:var(--ink-2)}
+tr:last-child td{border-bottom:none}
+td:first-child{color:var(--ink);font-weight:600;white-space:nowrap}
+.hrs{font-family:"JetBrains Mono",monospace;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:600;text-align:right;white-space:nowrap}
+/* task board */
+.board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin:24px 0 8px}
+@media(max-width:940px){.board{grid-template-columns:1fr}}
+.day{border:1px solid var(--rule);background:var(--surface);box-shadow:var(--shadow);display:flex;flex-direction:column}
+.dhead{padding:14px 16px;border-bottom:2px solid var(--mark);display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.dhead .dn{font-family:Spectral,serif;font-size:19px;font-weight:600}
+.dhead .dt{font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+.dgoal{padding:10px 16px;background:var(--chip);font-size:13.5px;color:var(--ink-2);border-bottom:1px solid var(--rule)}
+.task{padding:14px 16px;border-bottom:1px solid var(--rule)}
+.task:last-child{border-bottom:none}
+.trow{display:flex;justify-content:space-between;gap:10px;align-items:baseline;margin-bottom:5px}
+.tid{font-family:"JetBrains Mono",monospace;font-size:10.5px;font-weight:600;color:var(--mark);letter-spacing:.06em}
+.th{font-size:15.5px;font-weight:700;margin:0 0 6px;line-height:1.3}
+.tb{font-size:13.5px;color:var(--ink-2);margin:0 0 8px;line-height:1.5}
+.tmeta{font-family:"JetBrains Mono",monospace;font-size:10.5px;color:var(--ink-3);letter-spacing:.04em;line-height:1.7}
+.tmeta b{color:var(--verify);font-weight:600}
+.tmeta i{font-style:normal;color:var(--ink-2)}
+.dfoot{margin-top:auto;padding:12px 16px;border-top:1px solid var(--rule-2);font-family:"JetBrains Mono",monospace;font-size:11px;color:var(--ink-3);display:flex;justify-content:space-between}
+.dfoot b{color:var(--ink)}
+.note{border-left:2px solid var(--verify);background:var(--surface);padding:13px 17px;margin:0 0 18px;font-size:15px;color:var(--ink-2);max-width:78ch}
+.note.risk{border-left-color:var(--mark)}
+.note .tag{display:block;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--verify);margin-bottom:5px;font-weight:600}
+.note.risk .tag{color:var(--mark)}
+.note p:last-child{margin-bottom:0}
+.cut td:first-child{color:var(--ink-3);text-decoration:line-through}
+footer{margin-top:58px;padding-top:20px;border-top:2px solid var(--ink);font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.05em;color:var(--ink-3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+:focus-visible{outline:2px solid var(--mark);outline-offset:2px}
+</style>
+<div class="wrap">
+<header class="mast">
+  <div class="kicker">Project Yaadhum · backend only · 3-day sprint</div>
+  <h1>Backend in 72 hours</h1>
+  <p class="dek">Fifteen tasks, one dependency chain, one stack. Everything here is buildable in three working days by one backend developer. Everything that isn’t, is listed in the cut table with the date it comes back.</p>
+  <dl class="budget">
+    <div><dt>Tasks</dt><dd>15</dd></div>
+    <div><dt>Estimated</dt><dd>24 h</dd></div>
+    <div><dt>Devs</dt><dd>1 (or 2, split)</dd></div>
+    <div><dt>Endpoints</dt><dd>11</dd></div>
+    <div><dt>Tables</dt><dd>9</dd></div>
+    <div><dt>New services</dt><dd>0</dd></div>
+  </dl>
+</header>
+
+<section id="warning">
+<div class="shead"><span class="snum">00</span><h2>Read this before you start the clock</h2></div>
+<p class="ssub">The backend is not the critical path. The blueprint is.</p>
+<div class="note risk"><span class="tag">The real 3-day risk</span>
+<p>The code below runs in three days. The pilot does not go live in three days, because it also needs <strong>every question in Unit Test II classified to a sub-topic and a tier, by two independent reviewers</strong> — roughly 30 questions × 2 reviewers, plus adjudication. That is a human task of about 2–3 person-days, and it needs <em>zero</em> backend code to begin.</p>
+<p><strong>Start it on the morning of Day 1, in a spreadsheet, in parallel.</strong> If it starts after the backend is done, you have a six-day project, not a three-day one. Task B3 below expects that spreadsheet to exist by Day 3 morning — the backend just imports it.</p>
+</div>
+<p>Second constraint worth stating plainly: three days buys you the <strong>deterministic</strong> product — ingest, validate, analyse, report. It does not buy OCR, LLM classification, or psychometrics. That is the right trade: the deterministic layer is the part a teacher will check by hand and the part that must be exactly right, and it is also 100% of what the free pilot output promises.</p>
+</section>
+
+<section id="stack">
+<div class="shead"><span class="snum">01</span><h2>The stack, and nothing else</h2></div>
+<p class="ssub">Nine dependencies. Every one of them is boring on purpose — three days has no room for a library you have to learn.</p>
+<div class="tw"><table>
+<thead><tr><th>Layer</th><th>Choice</th><th>Version</th><th>Why this one</th><th>Docs</th></tr></thead>
+<tbody>
+<tr><td>Language</td><td>Python</td><td>3.12</td><td>Same language as the analysis layer later — no rewrite at v1</td><td><a href="https://docs.python.org/3/">docs.python.org</a></td></tr>
+<tr><td>API</td><td>FastAPI</td><td>0.115+</td><td>OpenAPI and request validation come free; the docs page is your Day-3 demo</td><td><a href="https://fastapi.tiangolo.com/">fastapi.tiangolo.com</a></td></tr>
+<tr><td>Server</td><td>Uvicorn</td><td>0.30+</td><td>One command, no config</td><td><a href="https://www.uvicorn.org/">uvicorn.org</a></td></tr>
+<tr><td>Schemas</td><td>Pydantic v2</td><td>2.9+</td><td>The contract between every stage; catches the errors you’d otherwise find on Day 3</td><td><a href="https://docs.pydantic.dev/latest/">docs.pydantic.dev</a></td></tr>
+<tr><td>Config</td><td>pydantic-settings</td><td>2.5+</td><td>Env vars typed, no <code>os.getenv</code> sprawl</td><td><a href="https://docs.pydantic.dev/latest/concepts/pydantic_settings/">pydantic-settings</a></td></tr>
+<tr><td>ORM</td><td>SQLAlchemy</td><td>2.0</td><td>2.0 typed style; raw SQL stays available for the analyzer</td><td><a href="https://docs.sqlalchemy.org/en/20/">docs.sqlalchemy.org</a></td></tr>
+<tr><td>Migrations</td><td>Alembic</td><td>1.13+</td><td>Non-negotiable from commit one — the schema will change on Day 2</td><td><a href="https://alembic.sqlalchemy.org/en/latest/">alembic.sqlalchemy.org</a></td></tr>
+<tr><td>Driver</td><td>psycopg 3</td><td>3.2+</td><td>Current generation; binary extras for speed</td><td><a href="https://www.psycopg.org/psycopg3/docs/">psycopg.org/psycopg3</a></td></tr>
+<tr><td>Database</td><td>PostgreSQL</td><td>16</td><td>Constraints, <code>ltree</code>, and later <code>pgvector</code> — one engine for the whole pilot</td><td><a href="https://www.postgresql.org/docs/16/">postgresql.org/docs/16</a></td></tr>
+<tr><td>Analysis</td><td>pandas + SciPy</td><td>2.2 / 1.14</td><td>Point-biserial, χ², Wilson intervals — already implemented, don’t hand-roll</td><td><a href="https://docs.scipy.org/doc/scipy/reference/stats.html">scipy.stats</a></td></tr>
+<tr><td>Tests</td><td>pytest + httpx</td><td>8.3 / 0.27</td><td>Golden-file tests on the analyzer are the whole quality strategy</td><td><a href="https://docs.pytest.org/en/stable/">docs.pytest.org</a></td></tr>
+<tr><td>Lint/format</td><td>Ruff</td><td>0.6+</td><td>One tool replaces four; zero config to start</td><td><a href="https://docs.astral.sh/ruff/">docs.astral.sh/ruff</a></td></tr>
+<tr><td>Packaging</td><td>uv</td><td>0.4+</td><td>Installs the whole env in seconds — matters when you have 24 hours</td><td><a href="https://docs.astral.sh/uv/">docs.astral.sh/uv</a></td></tr>
+<tr><td>Local infra</td><td>Docker Compose</td><td>v2</td><td>One Postgres container. No Kubernetes, no cloud account needed on Day 1</td><td><a href="https://docs.docker.com/compose/">docs.docker.com/compose</a></td></tr>
+<tr><td>PDF <i>(stretch)</i></td><td>Jinja2 + WeasyPrint</td><td>3.1 / 62+</td><td>Only if Day 3 runs early; JSON reports are the actual deliverable</td><td><a href="https://doc.courtbouillon.org/weasyprint/stable/">weasyprint docs</a></td></tr>
+</tbody></table></div>
+<pre><code># the entire setup
+uv init yaadhum-api &amp;&amp; cd yaadhum-api
+uv add fastapi uvicorn[standard] sqlalchemy alembic "psycopg[binary]" \
+       pydantic-settings pandas scipy python-multipart
+uv add --dev pytest httpx ruff
+docker compose up -d db &amp;&amp; uv run alembic upgrade head
+uv run uvicorn app.main:app --reload</code></pre>
+</section>
+
+<section id="board">
+<div class="shead"><span class="snum">02</span><h2>The board</h2></div>
+<p class="ssub">Fifteen tasks. Each has a done-when that is a test, not an opinion.</p>
+
+<div class="board">
+
+  <div class="day">
+    <div class="dhead"><span class="dn">Day 1</span><span class="dt">Foundation</span></div>
+    <div class="dgoal"><strong>Goal:</strong> a running API with the real schema and the real Class X Maths taxonomy loaded.</div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B1</span><span class="hrs">1.0 h</span></div>
+      <p class="th">Repo, Compose, config, health</p>
+      <p class="tb">FastAPI skeleton, Postgres 16 container, typed settings, Ruff, pytest wired.</p>
+      <p class="tmeta"><i>STACK</i> uv · fastapi · compose · ruff<br><b>DONE WHEN</b> <code>docker compose up</code> then <code>GET /health</code> → 200 with a live DB ping</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B2</span><span class="hrs">2.5 h</span></div>
+      <p class="th">Schema + first migration</p>
+      <p class="tb">Nine tables: <code>school</code>, <code>section</code>, <code>student</code>, <code>taxonomy_node</code>, <code>chapter_weight</code>, <code>assessment</code>, <code>question</code>, <code>question_skill</code>, <code>mark_event</code>. Plus <code>data_quality_flag</code> and <code>analysis_run</code>.</p>
+      <p class="tmeta"><i>STACK</i> sqlalchemy 2.0 · alembic<br><b>DONE WHEN</b> <code>alembic upgrade head</code> and <code>downgrade base</code> both run clean on an empty DB</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B3</span><span class="hrs">2.0 h</span></div>
+      <p class="th">Taxonomy + board weights seeder</p>
+      <p class="tb">YAML → DB loader for Class X Maths: 15 chapters, sub-topics, the three CBSE tiers, and the board chapter-weight table with a source URL per row.</p>
+      <p class="tmeta"><i>STACK</i> pyyaml · sqlalchemy<br><b>DONE WHEN</b> seeder is idempotent, and a test asserts board weights sum to 100</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B4</span><span class="hrs">1.5 h</span></div>
+      <p class="th">Assessment + Q-matrix API</p>
+      <p class="tb"><code>POST /assessments</code> and bulk <code>POST /assessments/{id}/questions</code> carrying max_marks, sub-topic code, tier code. Codes are FK-resolved, never free text.</p>
+      <p class="tmeta"><i>STACK</i> fastapi · pydantic v2<br><b>DONE WHEN</b> an unknown sub-topic code returns 422 naming the bad row</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B5</span><span class="hrs">1.0 h</span></div>
+      <p class="th">Tenancy + auth stub</p>
+      <p class="tb">API key → <code>school_id</code> in request context; a single dependency injects it and every query filters on it. Real OIDC and Postgres RLS come later — the column and the discipline start now.</p>
+      <p class="tmeta"><i>STACK</i> fastapi depends<br><b>DONE WHEN</b> a test reading school B’s assessment with school A’s key returns 404, not 403</p>
+    </div>
+
+    <div class="dfoot"><span>SUBTOTAL</span><span><b>8.0 h</b></span></div>
+  </div>
+
+  <div class="day">
+    <div class="dhead"><span class="dn">Day 2</span><span class="dt">Ingest &amp; validate</span></div>
+    <div class="dgoal"><strong>Goal:</strong> marks go in from a CSV, bad data cannot get through, and synthetic data exists for Day 3.</div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B6</span><span class="hrs">2.0 h</span></div>
+      <p class="th">Append-only mark events + projection</p>
+      <p class="tb">Bulk <code>POST /marks</code>. Every write is an insert with <code>source</code>, <code>actor_id</code>, <code>ts</code>. A view resolves the current value by precedence <code>verified &gt; teacher &gt; ocr</code>.</p>
+      <p class="tmeta"><i>STACK</i> sqlalchemy core · postgres view<br><b>DONE WHEN</b> re-posting a corrected mark keeps both rows and the projection returns the newer one</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B7</span><span class="hrs">1.5 h</span></div>
+      <p class="th">Teacher CSV import</p>
+      <p class="tb">Student rows × question columns — the format teachers actually produce. Tolerant parser: blank = not attempted, <code>A</code> = absent, whitespace and stray slashes stripped. Returns a per-cell error list.</p>
+      <p class="tmeta"><i>STACK</i> pandas · python-multipart<br><b>DONE WHEN</b> a file with 2 bad cells imports the other 38 students and returns exactly 2 located errors</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B8</span><span class="hrs">2.5 h</span></div>
+      <p class="th">Validation engine</p>
+      <p class="tb">Five rules: per-student sum equals recorded total; mark within range and on a legal step; absent is explicit, never zero; every question classified; paper max_marks sums to the paper total. Failures write <code>data_quality_flag</code>.</p>
+      <p class="tmeta"><i>STACK</i> pure python · pytest<br><b>DONE WHEN</b> each rule has a unit test, and report generation returns 409 while any blocking flag is open for that student</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B9</span><span class="hrs">1.0 h</span></div>
+      <p class="th">Statistical anomaly scan</p>
+      <p class="tb">Items everyone got right or wrong; items with negative point-biserial. Advisory flags, not blocking — they route a human to look at a probable marking or entry error.</p>
+      <p class="tmeta"><i>STACK</i> scipy.stats.pointbiserialr<br><b>DONE WHEN</b> a planted mis-keyed item in the fixture raises the flag</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B10</span><span class="hrs">1.0 h</span></div>
+      <p class="th">Synthetic fixture generator</p>
+      <p class="tb">40 students, 30 questions, a realistic ability spread and a <em>planted</em> weakness in composite solids so the analyzer has a known right answer to find.</p>
+      <p class="tmeta"><i>STACK</i> numpy · a seeded RNG<br><b>DONE WHEN</b> one command produces a complete, valid assessment end to end</p>
+    </div>
+
+    <div class="dfoot"><span>SUBTOTAL</span><span><b>8.0 h</b></span></div>
+  </div>
+
+  <div class="day">
+    <div class="dhead"><span class="dn">Day 3</span><span class="dt">Analyse &amp; report</span></div>
+    <div class="dgoal"><strong>Goal:</strong> three report endpoints returning structured findings, provably correct against hand-computed numbers.</div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B11</span><span class="hrs">2.5 h</span></div>
+      <p class="th">Deterministic analyzer</p>
+      <p class="tb">Loss by chapter, sub-topic and tier — always with the denominator. The sub-topic × tier cross-tab. Class aggregates and the commonly-missed ranking. Wilson intervals on every rate, and the <strong>evidence floor</strong>: under 2 marks or 2 questions returns <code>insufficient_evidence</code>, never a percentage.</p>
+      <p class="tmeta"><i>STACK</i> pandas · scipy · raw SQL<br><b>DONE WHEN</b> a golden-file test matches numbers computed by hand for one fixture student</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B12</span><span class="hrs">1.0 h</span></div>
+      <p class="th">Board-weighted indicator</p>
+      <p class="tb">The scope formula, plus a credible interval and normalised share of total indicator mass. Chapters with zero marks in the paper emit a <code>coverage_gap</code> finding.</p>
+      <p class="tmeta"><i>STACK</i> scipy.stats.beta<br><b>DONE WHEN</b> a chapter with 0 marks and 12% board weight produces a coverage_gap, not a 0.0</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B13</span><span class="hrs">1.5 h</span></div>
+      <p class="th">Paper quality report</p>
+      <p class="tb">Per-item difficulty and point-biserial, Cronbach’s α, and observed-vs-target typology mix (54 / 24 / 22) by χ² plus a 0–1 alignment score.</p>
+      <p class="tmeta"><i>STACK</i> scipy.stats · pandas<br><b>DONE WHEN</b> α and χ² match a reference computation on the fixture to 4 dp</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B14</span><span class="hrs">2.0 h</span></div>
+      <p class="th">Three report endpoints</p>
+      <p class="tb"><code>GET /reports/student/{id}</code>, <code>/reports/class/{section_id}</code>, <code>/reports/paper/{assessment_id}</code> — all reading one findings table, ranked by <code>board_weight × evidence × actionability</code>, capped at 5. Same numbers, three projections.</p>
+      <p class="tmeta"><i>STACK</i> fastapi · pydantic response models<br><b>DONE WHEN</b> a contract test pins the response schema and the cap holds</p>
+    </div>
+
+    <div class="task">
+      <div class="trow"><span class="tid">B15</span><span class="hrs">1.0 h</span></div>
+      <p class="th">End-to-end test + handover</p>
+      <p class="tb">One pytest: seed → import CSV → validate → analyse → fetch all three reports. Plus a README with the four commands and the live OpenAPI page.</p>
+      <p class="tmeta"><i>STACK</i> pytest · httpx · OpenAPI<br><b>DONE WHEN</b> the single test is green from an empty database</p>
+    </div>
+
+    <div class="dfoot"><span>SUBTOTAL</span><span><b>8.0 h</b></span></div>
+  </div>
+
+</div>
+
+<h3>If you have two developers</h3>
+<p>Don’t split by day — split by dependency. <strong>Dev A</strong> takes the vertical: B1 → B2 → B4 → B5 → B6 → B7 → B14. <strong>Dev B</strong> starts with <strong>B10 on hour one</strong> (write the fixture generator against the schema in B2 as soon as it lands), then B8 → B9 → B11 → B12 → B13. They meet at B14. This finishes in roughly two days rather than 1.5, because B10-first lets Dev B build and test the entire analyzer without waiting for the ingestion path to exist.</p>
+</section>
+
+<section id="cut">
+<div class="shead"><span class="snum">03</span><h2>Explicitly cut — and when it returns</h2></div>
+<p class="ssub">Say these out loud to whoever is expecting a demo, before Day 1, not after Day 3.</p>
+<div class="tw"><table class="cut">
+<thead><tr><th>Cut</th><th>Why it doesn’t fit in 3 days</th><th>Returns</th></tr></thead>
+<tbody>
+<tr><td>OCR pipeline</td><td>Needs annotated scripts, a trained recogniser and a review UI — a two-week project on its own</td><td>v1. Use a pre-printed marks strip or teacher entry for the pilot</td></tr>
+<tr><td>LLM classification</td><td>Needs the validated library and a calibration set that don’t exist yet</td><td>Once ~200 adjudicated questions exist</td></tr>
+<tr><td>G-DINA / IRT</td><td>Model fitting plus identifiability work; the deterministic layer must be trusted first</td><td>v1, after cycle 2 data lands</td></tr>
+<tr><td>Bandit / RL</td><td>Needs multi-cycle logged outcomes; there are none</td><td>v2, at ~10 schools</td></tr>
+<tr><td>dbt, ClickHouse, Temporal, MLflow</td><td>Each is a service to operate; one school does not generate the load that justifies any of them</td><td>When school #3 signs</td></tr>
+<tr><td>Frontend</td><td>Not backend scope. The OpenAPI page is the Day-3 demo surface</td><td>Parallel track, separate estimate</td></tr>
+<tr><td>Postgres RLS, OIDC</td><td>The <code>school_id</code> column and the filter discipline land now; the enforcement layer is a day on its own</td><td>Before school #2</td></tr>
+</tbody></table></div>
+
+<div class="note"><span class="tag">One thing not to cut</span><p>Keep <code>mark_event</code> append-only even though a mutable <code>marks</code> table would save you about ninety minutes on Day 2. That ninety minutes is the difference between having an audit trail, OCR-vs-teacher reconciliation and correction history for free later, versus a painful migration once real school data is in the table.</p></div>
+</section>
+
+<section id="day4">
+<div class="shead"><span class="snum">04</span><h2>What Day 4 looks like</h2></div>
+<p class="ssub">So the sprint ends pointing somewhere.</p>
+<ul>
+<li><strong>Import the real blueprint</strong> from the reviewers’ spreadsheet (the parallel track from section 00) and re-run the analyzer against real Unit Test II questions instead of the fixture.</li>
+<li><strong>First real marks</strong> for one section, entered by one teacher, watched by you. Every friction point in that hour is worth more than a week of design.</li>
+<li><strong>Render one student report</strong> as a PDF and put it in front of a teacher with one question: <em>“would this change what you teach on Monday?”</em></li>
+<li><strong>Measure inter-reviewer κ</strong> on the blueprint you just imported. If it’s under 0.7 on sub-topic, the taxonomy is ambiguous — fix the taxonomy, not the model.</li>
+</ul>
+</section>
+
+<footer>
+  <span>Project Yaadhum · backend sprint · 15 tasks · 24 h</span>
+  <span>Companion to the architecture doc and systems atlas</span>
+</footer>
+</div>
