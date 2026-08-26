@@ -25,8 +25,7 @@ the full-script scan — carry the entire product. They must work without a safe
 This settles the open-source-versus-paid question, and it settles it in a way that is *not* a
 compromise:
 
-> **The paid multimodal model is the pilot. The open-source model is the destination.
-> The data-capture layer is the bridge between them, and it must be built on day one.**
+> **The paid multimodal model is the pilot. The open-source model is the destination. The data-capture layer is the bridge between them, and it must be built on day one.**
 
 Starting with open-source models means labelling several hundred crops by hand *before you can ship
 anything*. Starting with the paid model means you ship in two weeks, and every page it processes
@@ -43,8 +42,7 @@ even though it is not the most interesting one.
 
 You asked how the layers are separated. The organising principle is this:
 
-> **Exactly one layer contains a model. Every other layer is deterministic code that cannot
-> hallucinate, cannot drift, and cannot be wrong in a way you did not write yourself.**
+> **Exactly one layer contains a model. Every other layer is deterministic code that cannot hallucinate, cannot drift, and cannot be wrong in a way you did not write yourself.**
 
 That is what makes the whole system swappable between the free plan and the paid plan by changing a
 configuration value, and it is what makes the accuracy claims defensible.
@@ -201,10 +199,7 @@ pipeline — is simply not present in the image the mark detector looks at.
 **Anchors (student and printed masks).** Question labels: `6`, `6.`, `Q6`, `6)`, `6(a)`. Text
 detection over the mask, recognition on each candidate, then a strict regex parse.
 
-> **Closed-vocabulary filter.** A candidate is accepted as an anchor only if the parsed label exists
-> in the frozen Q-matrix for this paper. A hallucinated "Q47" on a thirty-question paper is
-> discarded automatically, by construction. This is the anti-hallucination control at the
-> localisation layer, and it costs nothing.
+> **Closed-vocabulary filter.** A candidate is accepted as an anchor only if the parsed label exists in the frozen Q-matrix for this paper. A hallucinated "Q47" on a thirty-question paper is discarded automatically, by construction. This is the anti-hallucination control at the localisation layer, and it costs nothing.
 
 Anchors must also be monotonic — non-decreasing question order down the page and across pages.
 Violations are flagged, never silently reordered; they usually mean a page is out of sequence, which
