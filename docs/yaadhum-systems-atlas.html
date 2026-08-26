@@ -1,0 +1,667 @@
+<title>Yaadhum Systems Atlas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;0,700;1,400&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{
+  --paper:#F5F7F8;--surface:#FFFFFF;--surface-2:#EDF1F3;
+  --ink:#16222F;--ink-2:#425466;--ink-3:#6F8296;
+  --rule:#D8E0E5;--rule-2:#B9C6CF;
+  --mark:#C0392B;--verify:#0E6B62;--chip:#E7EDF0;--scope:#E3EEF0;
+  --shadow:0 1px 2px rgba(22,34,47,.06),0 8px 24px -16px rgba(22,34,47,.25);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --paper:#11161B;--surface:#171E25;--surface-2:#1E262E;
+  --ink:#E3E9ED;--ink-2:#AAB8C4;--ink-3:#7F8F9D;
+  --rule:#2A343D;--rule-2:#3E4B56;
+  --mark:#E7796A;--verify:#5FBDAF;--chip:#232C34;--scope:#1D2E31;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+}}
+:root[data-theme="dark"]{
+  --paper:#11161B;--surface:#171E25;--surface-2:#1E262E;
+  --ink:#E3E9ED;--ink-2:#AAB8C4;--ink-3:#7F8F9D;
+  --rule:#2A343D;--rule-2:#3E4B56;
+  --mark:#E7796A;--verify:#5FBDAF;--chip:#232C34;--scope:#1D2E31;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font-family:"Source Sans 3",-apple-system,BlinkMacSystemFont,sans-serif;font-size:17px;line-height:1.62;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1060px;margin:0 auto;padding:0 28px 96px}
+header.mast{border-bottom:2px solid var(--ink);padding:52px 0 24px}
+.kicker{font-family:"JetBrains Mono",monospace;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mark);margin-bottom:18px}
+h1{font-family:Spectral,Georgia,serif;font-weight:700;font-size:clamp(36px,5.8vw,58px);line-height:1.05;letter-spacing:-.02em;margin:0 0 14px;text-wrap:balance}
+h1 em{font-style:italic;font-weight:400;color:var(--ink-2)}
+.dek{font-size:19px;color:var(--ink-2);max-width:64ch;margin:0}
+section{padding:52px 0 8px;border-top:1px solid var(--rule)}
+section:first-of-type{border-top:none}
+.shead{display:flex;align-items:baseline;gap:14px;margin-bottom:4px}
+.snum{font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:600;color:var(--mark);border:1px solid var(--rule-2);padding:2px 7px;flex:none}
+h2{font-family:Spectral,serif;font-weight:600;font-size:clamp(25px,3.3vw,33px);letter-spacing:-.015em;margin:0;line-height:1.15;text-wrap:balance}
+.ssub{color:var(--ink-3);font-size:15.5px;margin:0 0 26px;font-style:italic;font-family:Spectral,serif;max-width:72ch}
+h3{font-family:Spectral,serif;font-size:20px;font-weight:600;margin:32px 0 8px}
+h4{font-size:13.5px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:var(--ink-3);margin:26px 0 6px}
+p{margin:0 0 14px;max-width:70ch}
+ul,ol{max-width:70ch;padding-left:22px;margin:0 0 14px}li{margin-bottom:7px}
+a{color:var(--mark)}
+code{font-family:"JetBrains Mono",monospace;font-size:.85em;background:var(--chip);padding:1px 5px;border-radius:2px}
+pre{background:var(--surface);border:1px solid var(--rule);padding:16px 18px;overflow-x:auto;font-size:13px;line-height:1.55;margin:0 0 18px}
+pre code{background:none;padding:0}
+.tw{overflow-x:auto;margin:0 0 22px;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:14.5px;background:var(--surface)}
+th{text-align:left;font-family:"JetBrains Mono",monospace;font-size:10.5px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);padding:10px 14px;border-bottom:1px solid var(--rule-2);font-weight:600;white-space:nowrap}
+td{padding:10px 14px;border-bottom:1px solid var(--rule);vertical-align:top;color:var(--ink-2)}
+tr:last-child td{border-bottom:none}
+td:first-child{color:var(--ink);font-weight:600}
+.note{border-left:2px solid var(--verify);background:var(--surface);padding:14px 18px;margin:0 0 20px;font-size:15.5px;color:var(--ink-2);max-width:76ch}
+.note.risk{border-left-color:var(--mark)}
+.note .tag{display:block;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--verify);margin-bottom:5px;font-weight:600}
+.note.risk .tag{color:var(--mark)}
+.note p:last-child{margin-bottom:0}
+
+/* ---- figures ---- */
+figure{margin:26px 0 30px;border:1px solid var(--rule);background:var(--surface);padding:22px 20px 16px;box-shadow:var(--shadow)}
+figure .figwrap{overflow-x:auto}
+figure svg{display:block;width:100%;min-width:640px;max-width:100%;height:auto}
+figcaption{margin-top:14px;padding-top:12px;border-top:1px solid var(--rule);font-size:14px;color:var(--ink-3);max-width:80ch}
+figcaption b{color:var(--ink-2);font-weight:600}
+svg text{font-family:"Source Sans 3",sans-serif;font-size:12px;fill:var(--ink)}
+svg .lb{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.11em;fill:var(--ink-3);font-weight:600}
+svg .ttl{font-family:Spectral,serif;font-size:14.5px;font-weight:600;fill:var(--ink)}
+svg .sm{font-size:11px;fill:var(--ink-2)}
+svg .xs{font-size:10px;fill:var(--ink-3);font-family:"JetBrains Mono",monospace}
+svg .bx{fill:var(--surface-2);stroke:var(--rule-2);stroke-width:1.2}
+svg .bx-a{fill:var(--surface-2);stroke:var(--mark);stroke-width:1.8}
+svg .bx-v{fill:var(--surface-2);stroke:var(--verify);stroke-width:1.6}
+svg .band{fill:var(--chip);stroke:none}
+svg .field{fill:none;stroke:var(--rule-2);stroke-width:1;stroke-dasharray:3 3}
+svg .scope{fill:var(--scope);stroke:var(--verify);stroke-width:1;stroke-dasharray:4 3}
+svg .dot{fill:var(--rule-2)}
+svg .dot-hit{fill:var(--mark)}
+svg .dot-miss{fill:none;stroke:var(--mark);stroke-width:1.5;stroke-dasharray:2 2}
+svg .ar{stroke:var(--ink-3);stroke-width:1.3;fill:none;marker-end:url(#ah)}
+svg .ar-a{stroke:var(--mark);stroke-width:1.7;fill:none;marker-end:url(#ah-a)}
+svg .ar-v{stroke:var(--verify);stroke-width:1.5;fill:none;marker-end:url(#ah-v)}
+svg .ar-d{stroke:var(--ink-3);stroke-width:1.2;fill:none;stroke-dasharray:4 3;marker-end:url(#ah)}
+svg .rule{stroke:var(--rule-2);stroke-width:1}
+svg .note-txt{font-size:11.5px;fill:var(--ink-2)}
+svg .note-good{font-size:11.5px;fill:var(--verify);font-weight:600}
+svg .accent{fill:var(--mark)}
+svg .vfill{fill:var(--verify)}
+footer{margin-top:64px;padding-top:22px;border-top:2px solid var(--ink);font-family:"JetBrains Mono",monospace;font-size:11.5px;letter-spacing:.05em;color:var(--ink-3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+@media(prefers-reduced-motion:no-preference){a{transition:color .15s}}
+:focus-visible{outline:2px solid var(--mark);outline-offset:2px}
+</style>
+
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+<marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/></marker>
+<marker id="ah-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--mark)"/></marker>
+<marker id="ah-v" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--verify)"/></marker>
+</defs></svg>
+
+<div class="wrap">
+<header class="mast">
+  <div class="kicker">Project Yaadhum · systems atlas · diagrams</div>
+  <h1>Retrieval, scale<br><em>and the learning loop</em></h1>
+  <p class="dek">Nine diagrams answering the practical questions: how NCERT content is retrieved, how the whole pipeline runs end to end, how the reinforcement layer actually learns from data, how one subject becomes four, and how one school becomes a hundred.</p>
+</header>
+<section id="rag">
+<div class="shead"><span class="snum">01</span><h2>Should you vectorise the NCERT book?</h2></div>
+<p class="ssub">Yes — but never as a flat corpus, and vectors are the smaller half of the answer.</p>
+
+<p><strong>The short version: neither pure RAG nor a pure tree. Use the curriculum tree as a hard pre-filter, and vectors only <em>inside</em> the selected subtree.</strong> The NCERT book is not an unstructured document dump — it already has the exact hierarchy your product needs (Book → Chapter → Section → Worked Example → Exercise → Question). Throwing that structure away by chunking the PDF into 500-token blocks and running flat top-k is the single most common and most damaging RAG mistake in education products.</p>
+<figure><div class="figwrap"><svg viewBox="0 0 900 290" role="img" aria-label="Comparison of flat RAG, tree-only retrieval, and scope-filtered hybrid retrieval over the same corpus. Flat RAG returns hits outside the relevant sub-topic; tree-only misses paraphrases; the hybrid finds all relevant passages and nothing outside.">
+<text x="20" y="20" class="lb">OPTION A</text><text x="20" y="44" class="ttl">Flat RAG over the whole book</text><rect x="20" y="56" width="252" height="132" class="field"/><rect x="97" y="92" width="98" height="56" class="scope"/><circle cx="44" cy="78" r="4.5" class="dot-hit"/><circle cx="78" cy="78" r="3" class="dot"/><circle cx="112" cy="78" r="3" class="dot"/><circle cx="146" cy="78" r="3" class="dot"/><circle cx="180" cy="78" r="3" class="dot"/><circle cx="214" cy="78" r="3" class="dot"/><circle cx="44" cy="106" r="3" class="dot"/><circle cx="78" cy="106" r="4.5" class="dot-hit"/><circle cx="112" cy="106" r="4.5" class="dot-miss"/><circle cx="146" cy="106" r="4.5" class="dot-hit"/><circle cx="180" cy="106" r="3" class="dot"/><circle cx="214" cy="106" r="3" class="dot"/><circle cx="44" cy="134" r="3" class="dot"/><circle cx="78" cy="134" r="3" class="dot"/><circle cx="112" cy="134" r="3" class="dot"/><circle cx="146" cy="134" r="4.5" class="dot-miss"/><circle cx="180" cy="134" r="4.5" class="dot-hit"/><circle cx="214" cy="134" r="3" class="dot"/><circle cx="44" cy="162" r="3" class="dot"/><circle cx="78" cy="162" r="3" class="dot"/><circle cx="112" cy="162" r="4.5" class="dot-hit"/><circle cx="146" cy="162" r="3" class="dot"/><circle cx="180" cy="162" r="3" class="dot"/><circle cx="214" cy="162" r="3" class="dot"/><text x="20" y="210" class="note-txt">4 of 5 hits outside the relevant sub-topic</text><text x="20" y="227" class="note-txt">2 relevant passages missed entirely</text><text x="20" y="244" class="note-txt">Precision collapses as the corpus grows</text><text x="324" y="20" class="lb">OPTION B</text><text x="324" y="44" class="ttl">Tree / keyword walk only</text><rect x="324" y="56" width="252" height="132" class="field"/><rect x="401" y="92" width="98" height="56" class="scope"/><circle cx="348" cy="78" r="3" class="dot"/><circle cx="382" cy="78" r="3" class="dot"/><circle cx="416" cy="78" r="3" class="dot"/><circle cx="450" cy="78" r="3" class="dot"/><circle cx="484" cy="78" r="3" class="dot"/><circle cx="518" cy="78" r="3" class="dot"/><circle cx="348" cy="106" r="3" class="dot"/><circle cx="382" cy="106" r="3" class="dot"/><circle cx="416" cy="106" r="4.5" class="dot-hit"/><circle cx="450" cy="106" r="4.5" class="dot-miss"/><circle cx="484" cy="106" r="3" class="dot"/><circle cx="518" cy="106" r="3" class="dot"/><circle cx="348" cy="134" r="3" class="dot"/><circle cx="382" cy="134" r="3" class="dot"/><circle cx="416" cy="134" r="4.5" class="dot-miss"/><circle cx="450" cy="134" r="4.5" class="dot-hit"/><circle cx="484" cy="134" r="3" class="dot"/><circle cx="518" cy="134" r="3" class="dot"/><circle cx="348" cy="162" r="3" class="dot"/><circle cx="382" cy="162" r="3" class="dot"/><circle cx="416" cy="162" r="3" class="dot"/><circle cx="450" cy="162" r="3" class="dot"/><circle cx="484" cy="162" r="3" class="dot"/><circle cx="518" cy="162" r="3" class="dot"/><text x="324" y="210" class="note-txt">All hits in scope — but recall is poor</text><text x="324" y="227" class="note-txt">Misses paraphrase and reworded questions</text><text x="324" y="244" class="note-txt">No notion of semantic similarity</text><text x="628" y="20" class="lb">OPTION C</text><text x="628" y="44" class="ttl">Scope-filtered hybrid  ← use this</text><rect x="628" y="56" width="252" height="132" class="field"/><rect x="705" y="92" width="98" height="56" class="scope"/><circle cx="652" cy="78" r="3" class="dot"/><circle cx="686" cy="78" r="3" class="dot"/><circle cx="720" cy="78" r="3" class="dot"/><circle cx="754" cy="78" r="3" class="dot"/><circle cx="788" cy="78" r="3" class="dot"/><circle cx="822" cy="78" r="3" class="dot"/><circle cx="652" cy="106" r="3" class="dot"/><circle cx="686" cy="106" r="3" class="dot"/><circle cx="720" cy="106" r="4.5" class="dot-hit"/><circle cx="754" cy="106" r="4.5" class="dot-hit"/><circle cx="788" cy="106" r="3" class="dot"/><circle cx="822" cy="106" r="3" class="dot"/><circle cx="652" cy="134" r="3" class="dot"/><circle cx="686" cy="134" r="3" class="dot"/><circle cx="720" cy="134" r="4.5" class="dot-hit"/><circle cx="754" cy="134" r="4.5" class="dot-hit"/><circle cx="788" cy="134" r="3" class="dot"/><circle cx="822" cy="134" r="3" class="dot"/><circle cx="652" cy="162" r="3" class="dot"/><circle cx="686" cy="162" r="3" class="dot"/><circle cx="720" cy="162" r="3" class="dot"/><circle cx="754" cy="162" r="3" class="dot"/><circle cx="788" cy="162" r="3" class="dot"/><circle cx="822" cy="162" r="3" class="dot"/><text x="628" y="210" class="note-good">Every relevant passage found, none outside</text><text x="628" y="227" class="note-txt">Filter first, then rank inside the subtree</text><text x="628" y="244" class="note-txt">Precision holds at 10× the corpus size</text><g transform="translate(20,266)">
+<circle cx="6" cy="-4" r="4.5" class="dot-hit"/><text x="17" y="0" class="xs">RETRIEVED</text>
+<circle cx="126" cy="-4" r="4.5" class="dot-miss"/><text x="137" y="0" class="xs">RELEVANT, MISSED</text>
+<circle cx="292" cy="-4" r="3" class="dot"/><text x="303" y="0" class="xs">CORPUS PASSAGE</text>
+<rect x="440" y="-11" width="16" height="14" class="scope"/><text x="463" y="0" class="xs">CORRECT SUB-TOPIC SCOPE</text>
+</g>
+</svg></div>
+<figcaption><b>Figure 1 — the retrieval fork.</b> Same corpus, same query (“combination of cylinder and cone tent problem”), three strategies. The difference that matters is not the embedding model; it is <em>whether the search space was narrowed by the taxonomy before ranking began</em>. Option C is the only one whose precision survives growing from one chapter to fifteen subjects.</figcaption>
+</figure>
+
+<h3>What actually gets indexed, and how</h3>
+<div class="tw"><table>
+<thead><tr><th>Corpus</th><th>Chunking</th><th>Index</th><th>Retrieval method</th></tr></thead>
+<tbody>
+<tr><td>Validated Question Library</td><td>One question = one chunk (never split)</td><td>BM25 + dense (BGE-M3) + taxonomy metadata</td><td>Hybrid, RRF fusion, cross-encoder rerank on top 50 → top 5</td></tr>
+<tr><td>NCERT exercises</td><td>One numbered question = one chunk; parent = the exercise</td><td>Structured index keyed by <code>(subtopic, tier, difficulty)</code></td><td><strong>Structured lookup first.</strong> Vector search is the fallback, not the default</td></tr>
+<tr><td>NCERT explanatory text &amp; worked examples</td><td>Structural chunking on the book’s own headings; a worked example is one atomic chunk</td><td>Dense, with <code>subtopic_id</code> as a filterable payload field</td><td>Pre-filtered ANN inside the subtree, then parent-document expansion</td></tr>
+<tr><td>Figures &amp; diagrams</td><td>Asset + caption + referring paragraph</td><td>Caption embedded; asset stored by reference</td><td>Retrieved with its parent section, never alone</td></tr>
+</tbody></table></div>
+
+<div class="note risk"><span class="tag">Maths-specific gotcha</span><p>Formulae destroy naive embeddings. Normalise LaTeX/MathML before embedding, keep a symbolic form alongside the text, and index the <em>verbal</em> statement of a formula as well as the notation — students and teachers search in words. A chunk that is 80% notation should carry a generated one-line natural-language gloss, or it will never be retrieved.</p></div>
+</section>
+<section id="graph">
+<div class="shead"><span class="snum">02</span><h2>The retrieval architecture</h2></div>
+<p class="ssub">One curriculum knowledge graph. Three retrieval paths that consume it very differently.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 490" role="img" aria-label="A curriculum knowledge graph of subject, chapters, sub-topics and leaf assets, with prerequisite edges, feeding three distinct retrieval paths: question classification, practice recommendation, and concept explanation. Each path is scoped by a taxonomy node before any ranking occurs.">
+  <text x="20" y="18" class="lb">CURRICULUM KNOWLEDGE GRAPH · POSTGRES + LTREE, VERSIONED</text>
+  <line x1="20" y1="26" x2="470" y2="26" class="rule"/>
+
+  <rect x="20" y="40" width="160" height="30" class="bx"/><text x="30" y="59">Class X · Mathematics</text>
+  <path d="M60,70 L60,96" class="ar"/><path d="M100,70 L100,88 L205,88 L205,96" class="ar"/><path d="M120,70 L120,88 L315,88 L315,96" class="ar"/>
+
+  <rect x="20" y="98" width="150" height="34" class="bx-a"/><text x="30" y="112" class="sm">Surface Areas</text><text x="30" y="126" class="sm">&amp; Volumes</text>
+  <rect x="185" y="98" width="100" height="34" class="bx"/><text x="195" y="119" class="sm">Statistics</text>
+  <rect x="295" y="98" width="110" height="34" class="bx"/><text x="305" y="119" class="sm">Trigonometry</text>
+  <text x="418" y="119" class="xs">+12</text>
+
+  <path d="M50,132 L50,168" class="ar"/><path d="M85,132 L85,158 L140,158 L140,168" class="ar"/><path d="M120,132 L120,158 L245,158 L245,168" class="ar"/>
+
+  <rect x="20" y="170" width="80" height="34" class="bx"/><text x="30" y="191" class="sm">Cone</text>
+  <rect x="110" y="170" width="80" height="34" class="bx"/><text x="120" y="191" class="sm">Cylinder</text>
+  <rect x="200" y="170" width="120" height="34" class="bx-a"/><text x="210" y="185" class="sm">Composite</text><text x="210" y="198" class="sm">solids</text>
+  <text x="336" y="191" class="xs">+3</text>
+
+  <path d="M60,204 L60,222 L246,222 L246,206" class="ar-d"/>
+  <path d="M150,204 L150,216 L258,216 L258,206" class="ar-d"/>
+  <text x="66" y="236" class="xs">PREREQUISITE EDGES — REMEDIATION WALKS DOWN THESE</text>
+
+  <path d="M240,222 L240,252" class="ar"/><path d="M280,222 L280,244 L392,244 L392,252" class="ar"/>
+  <rect x="180" y="254" width="130" height="30" class="bx"/><text x="190" y="273" class="sm">Theory §13.2</text>
+  <rect x="322" y="254" width="140" height="30" class="bx"/><text x="332" y="273" class="sm">Worked eg. 13.4</text>
+  <rect x="180" y="292" width="130" height="30" class="bx"/><text x="190" y="311" class="sm">Exercise 13.2</text>
+  <rect x="322" y="292" width="140" height="30" class="bx"/><text x="332" y="311" class="sm">Library Q#4471</text>
+  <path d="M240,284 L240,290" class="ar"/><path d="M392,284 L392,290" class="ar"/>
+  <text x="180" y="340" class="xs">LEAF ASSETS — EMBEDDED, EACH CARRYING subtopic_id + tier_id</text>
+
+  <line x1="492" y1="26" x2="492" y2="440" class="rule"/>
+  <text x="520" y="18" class="lb">THREE RETRIEVAL PATHS · ALL NODE-SCOPED FIRST</text>
+
+  <rect x="520" y="40" width="360" height="122" class="bx-a"/>
+  <text x="534" y="62" class="ttl">A · Classify a new question</text>
+  <text x="534" y="83" class="sm">Corpus: validated Question Library — not the book.</text>
+  <text x="534" y="101" class="sm">Hybrid BM25 + BGE-M3 dense, RRF fusion,</text>
+  <text x="534" y="117" class="sm">cross-encoder rerank → 5 exemplars → constrained LLM.</text>
+  <text x="534" y="141" class="xs">FILTER: subject + grade   ·   OUTPUT: subtopic_id, tier_id, conformal set</text>
+
+  <rect x="520" y="178" width="360" height="122" class="bx-v"/>
+  <text x="534" y="200" class="ttl">B · Recommend practice</text>
+  <text x="534" y="221" class="sm">Corpus: exercise index keyed by (subtopic, tier, difficulty).</text>
+  <text x="534" y="239" class="sm">Structured lookup — a SQL query, not a similarity search.</text>
+  <text x="534" y="255" class="sm">Vectors are the fallback when the tag index is thin.</text>
+  <text x="534" y="279" class="xs">FILTER: subtopic_id + tier_id   ·   RANKED BY: the L9 bandit</text>
+
+  <rect x="520" y="316" width="360" height="122" class="bx"/>
+  <text x="534" y="338" class="ttl">C · Explain a concept</text>
+  <text x="534" y="359" class="sm">Corpus: NCERT passages and worked examples.</text>
+  <text x="534" y="377" class="sm">Pre-filtered ANN inside the subtree, then</text>
+  <text x="534" y="393" class="sm">parent-document expansion to the full section.</text>
+  <text x="534" y="417" class="xs">FILTER: subtopic_id (+ prerequisites)   ·   PHASE: v2, teacher-facing only</text>
+
+  <path d="M470,101 L512,101" class="ar-a"/><text x="418" y="94" class="xs">SCOPES</text>
+  <path d="M470,239 L512,239" class="ar-v"/>
+  <path d="M470,377 L512,377" class="ar"/>
+
+  <line x1="20" y1="452" x2="880" y2="452" class="rule"/>
+  <text x="20" y="472" class="sm">No path ever searches the whole corpus. The taxonomy filter runs first, in the database, for free — ranking only ever happens inside a subtree of a few hundred candidates.</text>
+</svg></div>
+<figcaption><b>Figure 2 — one graph, three consumers.</b> The important structural claim: <b>classification retrieves questions, recommendation retrieves exercises by tag, and only explanation retrieves book prose.</b> Conflating these into one “RAG over NCERT” index is what makes education RAG systems feel vague — each job has a different corpus, a different ranking method, and a different acceptable latency.</figcaption>
+</figure>
+
+<h3>Why the prerequisite edges matter more than the embeddings</h3>
+<p>The dashed edges in Figure 2 carry the product’s most valuable inference. When a student fails composite-solids application questions, the actionable question is <em>which</em> gap it is: the composite reasoning itself, or the prerequisite surface-area formula for a cone. Because the Q-matrix already records mastery on the prerequisite sub-topics, the system can walk down the graph and answer that — and remediation targets the real gap rather than the symptom. No amount of vector search substitutes for this; it comes from the graph, hand-curated once per subject, and it is the second compounding asset after the Question Library.</p>
+
+<div class="note"><span class="tag">Practical build order</span><p>For the pilot, the NCERT “vectorisation” you actually need is small: index the ~15 chapters’ exercise questions with their sub-topic and tier tags. That is a structured tagging exercise over roughly 400 items, not a document-AI project — and it powers the “suggested practice” section of every report. Passage-level embedding of the book’s prose can wait until v2, because nothing in the free pilot output requires it.</p></div>
+</section>
+<section id="arch">
+<div class="shead"><span class="snum">03</span><h2>Production system architecture</h2></div>
+<p class="ssub">Five planes, the store each one writes to, and the single feedback path that makes the system improve.</p>
+
+<figure><div class="figwrap"><svg viewBox="-46 0 946 626" role="img" aria-label="Five-plane system architecture: capture, intelligence, analytics, serving and learning, with the datastore each plane writes to and a feedback path from the learning plane back into the intelligence plane.">
+  <rect x="20" y="40" width="660" height="100" class="band"/>
+  <rect x="20" y="152" width="660" height="100" class="band"/>
+  <rect x="20" y="264" width="660" height="112" class="band"/>
+  <rect x="20" y="388" width="660" height="100" class="band"/>
+  <rect x="20" y="500" width="660" height="100" class="band"/>
+
+  <text x="32" y="62" class="lb">PLANE 1 · CAPTURE</text>
+  <rect x="32" y="72" width="150" height="52" class="bx"/><text x="42" y="92" class="sm">Marks grid</text><text x="42" y="108" class="xs">OFFLINE-FIRST, CELL EVENTS</text>
+  <rect x="194" y="72" width="150" height="52" class="bx"/><text x="204" y="92" class="sm">OCR cascade</text><text x="204" y="108" class="xs">DP CONSTRAINT SOLVER</text>
+  <rect x="356" y="72" width="150" height="52" class="bx"/><text x="366" y="92" class="sm">Blueprint editor</text><text x="366" y="108" class="xs">Q-MATRIX AUTHORING</text>
+  <rect x="518" y="72" width="150" height="52" class="bx"/><text x="528" y="92" class="sm">Roster / SIS sync</text><text x="528" y="108" class="xs">ABSENT ≠ ZERO</text>
+
+  <text x="32" y="174" class="lb">PLANE 2 · INTELLIGENCE</text>
+  <rect x="32" y="184" width="150" height="52" class="bx-a"/><text x="42" y="204" class="sm">Library retrieval</text><text x="42" y="220" class="xs">HASH · MINHASH · ANN</text>
+  <rect x="194" y="184" width="150" height="52" class="bx-a"/><text x="204" y="204" class="sm">Classifier ensemble</text><text x="204" y="220" class="xs">LLM + SETFIT HEAD</text>
+  <rect x="356" y="184" width="150" height="52" class="bx-a"/><text x="366" y="204" class="sm">Conformal gate</text><text x="366" y="220" class="xs">ABSTAIN AT 1−α</text>
+  <rect x="518" y="184" width="150" height="52" class="bx"/><text x="528" y="204" class="sm">Review queue</text><text x="528" y="220" class="xs">DUAL REVIEW · κ</text>
+
+  <text x="32" y="286" class="lb">PLANE 3 · ANALYTICS</text>
+  <rect x="32" y="296" width="150" height="60" class="bx"/><text x="42" y="316" class="sm">Validation</text><text x="42" y="332" class="xs">SUM RULE · CONTRACTS</text><text x="42" y="346" class="xs">QUARANTINE</text>
+  <rect x="194" y="296" width="150" height="60" class="bx"/><text x="204" y="316" class="sm">Deterministic</text><text x="204" y="331" class="sm">analyzer · dbt</text><text x="204" y="348" class="xs">EVIDENCE FLOOR</text>
+  <rect x="356" y="296" width="150" height="60" class="bx-a"/><text x="366" y="316" class="sm">Psychometrics</text><text x="366" y="332" class="xs">G-DINA · 2PL IRT</text><text x="366" y="346" class="xs">HIERARCHICAL POOLING</text>
+  <rect x="518" y="296" width="150" height="60" class="bx"/><text x="528" y="316" class="sm">Indicators</text><text x="528" y="332" class="xs">BOARD WEIGHT · χ²</text><text x="528" y="346" class="xs">ITEM ANALYSIS</text>
+
+  <text x="32" y="410" class="lb">PLANE 4 · SERVING</text>
+  <rect x="32" y="420" width="150" height="52" class="bx"/><text x="42" y="440" class="sm">Finding selector</text><text x="42" y="456" class="xs">RANK · CAP AT 5</text>
+  <rect x="194" y="420" width="150" height="52" class="bx"/><text x="204" y="440" class="sm">Narrative composer</text><text x="204" y="456" class="xs">JINJA + FIDELITY CHECK</text>
+  <rect x="356" y="420" width="150" height="52" class="bx"/><text x="366" y="440" class="sm">Role-scoped API</text><text x="366" y="456" class="xs">POSTGRES RLS</text>
+  <rect x="518" y="420" width="150" height="52" class="bx"/><text x="528" y="440" class="sm">Views &amp; PDFs</text><text x="528" y="456" class="xs">STUDENT · TEACHER · HEAD</text>
+
+  <text x="32" y="522" class="lb">PLANE 5 · LEARNING</text>
+  <rect x="32" y="532" width="150" height="52" class="bx-v"/><text x="42" y="552" class="sm">Label store</text><text x="42" y="568" class="xs">EVERY HUMAN CORRECTION</text>
+  <rect x="194" y="532" width="150" height="52" class="bx-v"/><text x="204" y="552" class="sm">Training + registry</text><text x="204" y="568" class="xs">MLFLOW · SHADOW MODE</text>
+  <rect x="356" y="532" width="150" height="52" class="bx-v"/><text x="366" y="552" class="sm">Bandit / offline RL</text><text x="366" y="568" class="xs">GATED BY OPE</text>
+  <rect x="518" y="532" width="150" height="52" class="bx-v"/><text x="528" y="552" class="sm">Drift monitor</text><text x="528" y="568" class="xs">+ RANDOM AUDIT SAMPLE</text>
+
+  <path d="M350,140 L350,150" class="ar"/><path d="M350,252 L350,262" class="ar"/>
+  <path d="M350,376 L350,386" class="ar"/><path d="M350,488 L350,498" class="ar"/>
+
+  <path d="M20,560 L-16,560 L-16,210 L26,210" class="ar-a"/>
+  <text x="-22" y="392" class="lb" transform="rotate(-90,-22,392)">RETRAIN · RECALIBRATE · PROMOTE</text>
+
+  <text x="712" y="30" class="lb">SYSTEM OF RECORD</text>
+  <rect x="700" y="42" width="180" height="118" class="bx"/><text x="712" y="64" class="sm">PostgreSQL + pgvector</text><text x="712" y="82" class="xs">mark_events (APPEND-ONLY)</text><text x="712" y="98" class="xs">taxonomy_node (SCD-2)</text><text x="712" y="114" class="xs">question_skill (Q-MATRIX)</text><text x="712" y="130" class="xs">classification (VERSIONED)</text><text x="712" y="148" class="xs">ROW-LEVEL SECURITY BY school_id</text>
+  <rect x="700" y="176" width="180" height="60" class="bx"/><text x="712" y="198" class="sm">Object store · S3</text><text x="712" y="216" class="xs">SCRIPTS · CROPS · PDFS</text><text x="712" y="230" class="xs">SSE-KMS · LIFECYCLE EXPIRY</text>
+  <rect x="700" y="252" width="180" height="72" class="bx"/><text x="712" y="274" class="sm">DuckDB → ClickHouse</text><text x="712" y="292" class="xs">dbt MODELS · run_id TAGGED</text><text x="712" y="308" class="xs">BIT-IDENTICAL REGENERATION</text>
+  <rect x="700" y="340" width="180" height="60" class="bx"/><text x="712" y="362" class="sm">Findings + posteriors</text><text x="712" y="380" class="xs">STRUCTURED, RE-RENDERABLE</text>
+  <rect x="700" y="416" width="180" height="60" class="bx-v"/><text x="712" y="438" class="sm">MLflow + LakeFS</text><text x="712" y="456" class="xs">DATASET SNAPSHOT PER RUN</text>
+  <rect x="700" y="492" width="180" height="72" class="bx-v"/><text x="712" y="514" class="sm">policy_decision</text><text x="712" y="532" class="xs">IMMUTABLE · PROPENSITY</text><text x="712" y="548" class="xs">FEATURES AS OF DECISION TIME</text>
+
+  <path d="M682,96 L694,96" class="ar-d"/><path d="M682,206 L694,206" class="ar-d"/>
+  <path d="M682,320 L694,320" class="ar-d"/><path d="M682,446 L694,446" class="ar-d"/>
+  <path d="M682,556 L694,556" class="ar-d"/>
+
+  <line x1="20" y1="612" x2="880" y2="612" class="rule"/>
+</svg></div>
+<figcaption><b>Figure 3 — the five planes.</b> Read the accent path on the left: it is the only arrow that goes <em>upward</em>, and it is what separates this from a reporting tool. Human corrections in plane 2 and outcomes in plane 4 flow into plane 5, which retrains the models and re-promotes them back into plane 2. Everything else is a one-way pipeline from marks to reports.</figcaption>
+</figure>
+</section>
+<section id="flow">
+<div class="shead"><span class="snum">04</span><h2>The assessment cycle, end to end</h2></div>
+<p class="ssub">Who does what, in what order, and the four gates that block a bad report from ever being generated.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 462" role="img" aria-label="Swimlane workflow across seven stages — setup, classify, capture, validate, analyse, compose, act — showing teacher, system and reviewer actions, four blocking quality gates, and what is written to storage at each stage.">
+  <text x="20" y="20" class="lb">ONE ASSESSMENT CYCLE · TYPICALLY 8–12 DAYS FROM PAPER TO REPORTS</text>
+  <line x1="20" y1="30" x2="880" y2="30" class="rule"/>
+  <text x="112" y="46" class="xs">0 · SET UP</text><text x="222" y="46" class="xs">1 · CLASSIFY</text><text x="332" y="46" class="xs">2 · CAPTURE</text>
+  <text x="442" y="46" class="xs">3 · VALIDATE</text><text x="552" y="46" class="xs">4 · ANALYSE</text><text x="662" y="46" class="xs">5 · COMPOSE</text><text x="772" y="46" class="xs">6 · ACT</text>
+  <line x1="20" y1="54" x2="880" y2="54" class="rule"/>
+  <line x1="20" y1="118" x2="880" y2="118" class="rule"/>
+  <line x1="20" y1="182" x2="880" y2="182" class="rule"/>
+  <line x1="20" y1="246" x2="880" y2="246" class="rule"/>
+  <line x1="20" y1="310" x2="880" y2="310" class="rule"/>
+  <line x1="20" y1="374" x2="880" y2="374" class="rule"/>
+
+  <text x="20" y="80" class="lb">TEACHER</text>
+  <text x="20" y="144" class="lb">SYSTEM</text>
+  <text x="20" y="208" class="lb">REVIEWER</text>
+  <text x="20" y="272" class="lb">GATE</text>
+  <text x="20" y="336" class="lb">WRITTEN</text>
+
+  <rect x="110" y="62" width="100" height="46" class="bx"/><text x="118" y="80" class="sm">Upload paper</text><text x="118" y="96" class="sm">+ marking key</text>
+  <rect x="330" y="62" width="100" height="46" class="bx"/><text x="338" y="80" class="sm">Enter marks</text><text x="338" y="96" class="xs">GRID · OFFLINE OK</text>
+  <rect x="770" y="62" width="100" height="46" class="bx-a"/><text x="778" y="80" class="sm">Reteach,</text><text x="778" y="96" class="sm">regroup, assign</text>
+
+  <rect x="110" y="126" width="100" height="46" class="bx"/><text x="118" y="144" class="sm">Split into</text><text x="118" y="160" class="sm">questions</text>
+  <rect x="220" y="126" width="100" height="46" class="bx-a"/><text x="228" y="144" class="sm">Retrieval +</text><text x="228" y="160" class="sm">ensemble</text>
+  <rect x="330" y="126" width="100" height="46" class="bx"/><text x="338" y="144" class="sm">OCR fallback</text><text x="338" y="160" class="xs">CONSTRAINT SOLVER</text>
+  <rect x="440" y="126" width="100" height="46" class="bx"/><text x="448" y="144" class="sm">Invariants +</text><text x="448" y="160" class="sm">anomaly scan</text>
+  <rect x="550" y="126" width="100" height="46" class="bx-a"/><text x="558" y="144" class="sm">dbt · G-DINA</text><text x="558" y="160" class="sm">IRT · indicators</text>
+  <rect x="660" y="126" width="100" height="46" class="bx"/><text x="668" y="144" class="sm">Select findings</text><text x="668" y="160" class="sm">+ narrate</text>
+
+  <rect x="220" y="190" width="100" height="46" class="bx"/><text x="228" y="208" class="sm">Adjudicate</text><text x="228" y="224" class="xs">ABSTAINS ONLY</text>
+  <rect x="440" y="190" width="100" height="46" class="bx"/><text x="448" y="208" class="sm">Fix flagged</text><text x="448" y="224" class="sm">cells</text>
+
+  <rect x="220" y="254" width="100" height="46" class="bx-a"/><text x="228" y="272" class="sm">κ ≥ 0.75</text><text x="228" y="288" class="xs">ELSE RE-REVIEW</text>
+  <rect x="440" y="254" width="100" height="46" class="bx-a"/><text x="448" y="272" class="sm">Σq = total</text><text x="448" y="288" class="xs">ELSE QUARANTINE</text>
+  <rect x="550" y="254" width="100" height="46" class="bx-a"/><text x="558" y="272" class="sm">Evidence floor</text><text x="558" y="288" class="xs">ELSE SUPPRESS CLAIM</text>
+  <rect x="660" y="254" width="100" height="46" class="bx-a"/><text x="668" y="272" class="sm">Numeric</text><text x="668" y="288" class="sm">fidelity check</text>
+
+  <rect x="110" y="318" width="100" height="46" class="bx"/><text x="118" y="336" class="sm">question rows</text><text x="118" y="352" class="xs">+ EMBEDDINGS</text>
+  <rect x="220" y="318" width="100" height="46" class="bx"/><text x="228" y="336" class="sm">Q-matrix v1</text><text x="228" y="352" class="xs">FROZEN, VERSIONED</text>
+  <rect x="330" y="318" width="100" height="46" class="bx"/><text x="338" y="336" class="sm">mark_events</text><text x="338" y="352" class="xs">APPEND-ONLY</text>
+  <rect x="440" y="318" width="100" height="46" class="bx"/><text x="448" y="336" class="sm">quality_flag</text>
+  <rect x="550" y="318" width="100" height="46" class="bx"/><text x="558" y="336" class="sm">posteriors</text><text x="558" y="352" class="xs">TAGGED run_id</text>
+  <rect x="660" y="318" width="100" height="46" class="bx"/><text x="668" y="336" class="sm">findings + PDFs</text>
+  <rect x="770" y="318" width="100" height="46" class="bx-v"/><text x="778" y="336" class="sm">policy_decision</text><text x="778" y="352" class="xs">FEEDS THE NEXT CYCLE</text>
+
+  <path d="M210,144 L216,144" class="ar"/><path d="M320,144 L326,144" class="ar"/><path d="M430,144 L436,144" class="ar"/>
+  <path d="M540,144 L546,144" class="ar"/><path d="M650,144 L656,144" class="ar"/>
+  <path d="M270,190 L270,180" class="ar"/><path d="M270,254 L270,242" class="ar"/>
+  <path d="M760,144 L790,144 L790,58" class="ar-a"/>
+
+  <path d="M840,344 L880,344 L880,420 L60,420 L60,404" class="ar-v"/>
+  <text x="330" y="440" class="sm">Cycle 2 begins here — with the Question Library, item parameters and mastery priors from cycle 1 already loaded.</text>
+</svg></div>
+<figcaption><b>Figure 4 — the cycle and its gates.</b> The four accent boxes in the GATE lane are hard stops, not warnings: classification below the agreement bar is re-reviewed, a script whose marks don’t sum is quarantined, a finding without enough marks behind it is suppressed rather than softened, and a narrative sentence containing a number not present in the source findings is rejected back to the template. Each gate blocks only the affected student or question, never the batch.</figcaption>
+</figure>
+</section>
+
+<section id="qmatrix">
+<div class="shead"><span class="snum">05</span><h2>What the Q-matrix actually buys you</h2></div>
+<p class="ssub">One student, six lost marks, two completely different diagnoses.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 400" role="img" aria-label="A five-question Q-matrix mapping questions to four sub-topics alongside one student's scores, feeding a DINA model that outputs mastery posteriors showing high mastery of cone and cylinder formulas but low mastery of composite solids and word problems.">
+  <text x="20" y="20" class="lb">Q-MATRIX × RESPONSE VECTOR · STUDENT 047</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <text x="76" y="58" class="xs">CONE</text><text x="140" y="58" class="xs">CYL</text><text x="196" y="58" class="xs">COMP</text><text x="256" y="58" class="xs">WORD</text>
+  <text x="322" y="58" class="xs">MAX</text><text x="380" y="58" class="xs">GOT</text>
+  <text x="20" y="58" class="xs">ITEM</text>
+
+  <rect x="66" y="66" width="252" height="150" class="field"/>
+
+  <text x="20" y="88" class="sm">Q4</text>
+  <text x="80" y="88">1</text><text x="142" y="88" class="xs">·</text><text x="202" y="88" class="xs">·</text><text x="262" y="88" class="xs">·</text>
+  <text x="326" y="88" class="sm">1</text><text x="384" y="88" class="sm">1</text>
+  <text x="20" y="118" class="sm">Q12</text>
+  <text x="80" y="118" class="xs">·</text><text x="142" y="118">1</text><text x="202" y="118" class="xs">·</text><text x="262" y="118" class="xs">·</text>
+  <text x="326" y="118" class="sm">2</text><text x="384" y="118" class="sm">2</text>
+  <text x="20" y="148" class="sm">Q19</text>
+  <text x="80" y="148">1</text><text x="142" y="148">1</text><text x="202" y="148">1</text><text x="262" y="148" class="xs">·</text>
+  <text x="326" y="148" class="sm">3</text><text x="384" y="148" class="sm accent">1</text>
+  <text x="20" y="178" class="sm">Q26</text>
+  <text x="80" y="178" class="xs">·</text><text x="142" y="178" class="xs">·</text><text x="202" y="178">1</text><text x="262" y="178">1</text>
+  <text x="326" y="178" class="sm">3</text><text x="384" y="178" class="sm accent">0</text>
+  <text x="20" y="208" class="sm">Q30</text>
+  <text x="80" y="208" class="xs">·</text><text x="142" y="208" class="xs">·</text><text x="202" y="208">1</text><text x="262" y="208">1</text>
+  <text x="326" y="208" class="sm">3</text><text x="384" y="208" class="sm accent">1</text>
+
+  <line x1="20" y1="226" x2="410" y2="226" class="rule"/>
+  <text x="20" y="248" class="sm">Chapter total</text><text x="326" y="248" class="sm">12</text><text x="384" y="248" class="sm">5</text>
+
+  <rect x="20" y="272" width="390" height="72" class="bx"/>
+  <text x="32" y="294" class="ttl">Marks-only reading</text>
+  <text x="32" y="315" class="sm">“Lost 7 of 12 marks in Surface Areas &amp; Volumes.”</text>
+  <text x="32" y="333" class="xs">ACTIONABLE CONTENT: RETEACH THE WHOLE CHAPTER. 6 PERIODS.</text>
+
+  <path d="M420,150 L470,150" class="ar-a"/>
+  <text x="418" y="138" class="xs">DINA · MCMC</text><text x="418" y="176" class="xs">Beta(2,10) PRIORS</text>
+
+  <rect x="482" y="60" width="398" height="160" class="bx-a"/>
+  <text x="496" y="84" class="ttl">Mastery posterior · P(mastered)</text>
+
+  <text x="496" y="112" class="sm">Cone SA</text>
+  <rect x="600" y="101" width="240" height="12" class="band"/><rect x="600" y="101" width="218" height="12" class="vfill"/><text x="850" y="112" class="xs">0.91</text>
+  <text x="496" y="138" class="sm">Cylinder SA</text>
+  <rect x="600" y="127" width="240" height="12" class="band"/><rect x="600" y="127" width="211" height="12" class="vfill"/><text x="850" y="138" class="xs">0.88</text>
+  <text x="496" y="164" class="sm">Composite solids</text>
+  <rect x="600" y="153" width="240" height="12" class="band"/><rect x="600" y="153" width="29" height="12" class="accent"/><text x="850" y="164" class="xs">0.12</text>
+  <text x="496" y="190" class="sm">Word-problem parsing</text>
+  <rect x="600" y="179" width="240" height="12" class="band"/><rect x="600" y="179" width="82" height="12" class="accent"/><text x="850" y="190" class="xs">0.34</text>
+  <text x="496" y="211" class="xs">POOLED ACROSS EVERY ITEM TOUCHING EACH SKILL · SLIP/GUESS ADJUSTED</text>
+
+  <rect x="482" y="272" width="398" height="72" class="bx-a"/>
+  <text x="496" y="294" class="ttl">Q-matrix reading</text>
+  <text x="496" y="315" class="sm">“Formulas are secure. The gap is composite reasoning.”</text>
+  <text x="496" y="333" class="xs">ACTIONABLE CONTENT: ONE TARGETED WORKSHEET. 1 PERIOD.</text>
+
+  <path d="M410,308 L474,308" class="ar-a"/>
+  <line x1="20" y1="362" x2="880" y2="362" class="rule"/>
+  <text x="20" y="384" class="sm">Note Q19: the student scored 1 of 3. Marks alone cannot say which of its three skills failed. The Q-matrix can, because Q4 and Q12 independently establish that cone and cylinder are intact.</text>
+</svg></div>
+<figcaption><b>Figure 5 — why the formalism is not academic.</b> Both readings are computed from the same five numbers. The left one sends a teacher to reteach a whole chapter; the right one identifies a single sub-skill and costs one period. That difference <em>is</em> the product.</figcaption>
+</figure>
+</section>
+<section id="rl">
+<div class="shead"><span class="snum">06</span><h2>How the reinforcement layer actually learns</h2></div>
+<p class="ssub">The reward is not a click. It is the change in measured mastery between two assessment cycles.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 486" role="img" aria-label="A closed reinforcement learning loop: assessment produces a mastery state, the policy proposes actions, the teacher accepts or rejects, classroom action follows, the next assessment measures change in mastery which becomes the reward, decisions are logged with propensities, and offline training promotes a new policy only after passing an off-policy evaluation gate.">
+  <text x="20" y="20" class="lb">THE CLOSED LOOP · ONE TURN = ONE ASSESSMENT CYCLE</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <rect x="30" y="56" width="140" height="56" class="bx"/><text x="40" y="78" class="sm">Assessment</text><text x="40" y="94" class="sm">cycle N</text>
+  <rect x="205" y="56" width="140" height="56" class="bx"/><text x="215" y="78" class="sm">Mastery state s</text><text x="215" y="96" class="xs">POSTERIOR VECTOR, L5</text>
+  <rect x="380" y="56" width="140" height="56" class="bx-a"/><text x="390" y="78" class="sm">Policy π(a | s)</text><text x="390" y="96" class="xs">THOMPSON SAMPLING</text>
+  <rect x="555" y="56" width="140" height="56" class="bx"/><text x="565" y="78" class="sm">Teacher review</text><text x="565" y="96" class="xs">ACCEPT · EDIT · REJECT</text>
+  <rect x="730" y="56" width="140" height="56" class="bx"/><text x="740" y="78" class="sm">Classroom</text><text x="740" y="94" class="sm">action</text>
+
+  <path d="M170,84 L199,84" class="ar"/><path d="M345,84 L374,84" class="ar"/>
+  <path d="M520,84 L549,84" class="ar-a"/><path d="M695,84 L724,84" class="ar"/>
+  <path d="M800,112 L800,150" class="ar"/>
+
+  <rect x="730" y="152" width="140" height="56" class="bx"/><text x="740" y="174" class="sm">Assessment</text><text x="740" y="190" class="sm">cycle N+1</text>
+  <rect x="555" y="152" width="140" height="56" class="bx-a"/><text x="565" y="174" class="sm">Reward r</text><text x="565" y="192" class="xs">Δ MASTERY, TARGETED SKILL</text>
+  <rect x="380" y="152" width="140" height="56" class="bx-v"/><text x="390" y="174" class="sm">Log (s, a, p, r)</text><text x="390" y="192" class="xs">PROPENSITY p IS MANDATORY</text>
+  <rect x="205" y="152" width="140" height="56" class="bx-v"/><text x="215" y="174" class="sm">Offline training</text><text x="215" y="192" class="xs">BANDIT → CQL / IQL</text>
+
+  <path d="M730,180 L701,180" class="ar"/><path d="M555,180 L526,180" class="ar-a"/><path d="M380,180 L351,180" class="ar-v"/>
+  <path d="M205,180 L120,180 L120,238" class="ar-v"/>
+
+  <rect x="30" y="240" width="330" height="56" class="bx-a"/>
+  <text x="42" y="262" class="sm">OPE gate — IPS · SNIPS · doubly-robust</text>
+  <text x="42" y="282" class="xs">PROMOTE ONLY IF DR LOWER BOUND &gt; INCUMBENT VALUE</text>
+  <path d="M360,268 L440,268 L440,118" class="ar-a"/>
+  <text x="368" y="258" class="xs">PROMOTE</text>
+
+  <rect x="380" y="240" width="490" height="56" class="bx"/>
+  <text x="392" y="262" class="sm">Teacher rejection is not noise — it is the densest reward signal you have.</text>
+  <text x="392" y="282" class="xs">IT ARRIVES IN MINUTES; Δ MASTERY ARRIVES IN WEEKS. USE BOTH, WEIGHTED.</text>
+
+  <line x1="20" y1="318" x2="880" y2="318" class="rule"/>
+  <text x="20" y="342" class="lb">REWARD COMPOSITION</text>
+  <rect x="20" y="354" width="530" height="86" class="bx"/>
+  <text x="34" y="378" class="sm">r  =  w_board · Δ P(mastered | targeted skill)</text>
+  <text x="34" y="398" class="sm">      + λ₁ · teacher_accepted   + λ₂ · completion_rate</text>
+  <text x="34" y="418" class="sm">      − λ₃ · teacher_minutes    − λ₄ · group_churn</text>
+
+  <rect x="566" y="354" width="304" height="86" class="bx-a"/>
+  <text x="578" y="378" class="sm">Reward hacking to watch for</text>
+  <text x="578" y="398" class="xs">A POLICY THAT FARMS EASY SUB-TOPICS TO</text>
+  <text x="578" y="412" class="xs">MAXIMISE Δ MASTERY. THE w_board TERM AND A</text>
+  <text x="578" y="426" class="xs">TARGETED-SKILL DISTRIBUTION MONITOR CATCH IT.</text>
+
+  <line x1="20" y1="458" x2="880" y2="458" class="rule"/>
+  <text x="20" y="478" class="sm">Cold start: with no logged data the policy is a rule — rank by board-weighted deficit. It still logs (s, a, p=1, r). That log is what makes learning possible later.</text>
+</svg></div>
+<figcaption><b>Figure 6 — the loop, honestly drawn.</b> Note the two timescales: the accept/reject signal closes in minutes and is what the bandit mostly learns from early on; Δmastery closes in weeks and is what actually defines success. Note also that <b>the loop only exists if cycle N and cycle N+1 share anchor items</b> — otherwise Δmastery is measuring two incomparable papers and the reward is noise.</figcaption>
+</figure>
+
+<div class="note risk"><span class="tag">The honest constraint</span><p>At one school, two cycles and forty students you will have roughly 80 (student × recommendation) tuples. That is not enough to learn a policy — it is enough to <em>validate the logging</em>. Treat Stage 0 as instrumentation work whose payoff arrives at school ten, not school one. Any vendor claiming an RL-driven intervention engine on pilot-scale data is describing a rule engine.</p></div>
+</section>
+
+<section id="subjects">
+<div class="shead"><span class="snum">07</span><h2>One subject becomes four</h2></div>
+<p class="ssub">The engine holds no subject logic. A subject is a data pack, and adding one should require no deployment.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 452" role="img" aria-label="Subject packs for Maths, Science, Social Science and English plug into a subject-agnostic core engine; the diagram lists what each pack must supply as data and notes that rubric-scored subjects require criteria as skills.">
+  <text x="20" y="20" class="lb">SUBJECT PACKS · PURE DATA, NO CODE</text>
+  <text x="330" y="20" class="lb">CORE ENGINE · DEPLOYED ONCE</text>
+  <text x="646" y="20" class="lb">PACK CONTENTS</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <rect x="20" y="46" width="180" height="52" class="bx-a"/><text x="32" y="68" class="sm">Class X · Mathematics</text><text x="32" y="86" class="xs">PILOT · 15 CHAPTERS, 41 SUB-TOPICS</text>
+  <rect x="20" y="110" width="180" height="52" class="bx"/><text x="32" y="132" class="sm">Class X · Science</text><text x="32" y="150" class="xs">3 STREAMS SHARE ONE TREE</text>
+  <rect x="20" y="174" width="180" height="52" class="bx"/><text x="32" y="196" class="sm">Class X · Social Science</text><text x="32" y="214" class="xs">SOURCE-BASED TIERS DIFFER</text>
+  <rect x="20" y="238" width="180" height="52" class="bx"/><text x="32" y="260" class="sm">Class X · English</text><text x="32" y="278" class="xs">RUBRIC-SCORED — SEE BELOW</text>
+
+  <path d="M200,72 L246,72 L246,150 L300,150" class="ar-a"/>
+  <path d="M200,136 L272,136 L272,160 L300,160" class="ar"/>
+  <path d="M200,200 L272,200 L272,180 L300,180" class="ar"/>
+  <path d="M200,264 L246,264 L246,192 L300,192" class="ar"/>
+
+  <rect x="300" y="46" width="300" height="304" class="bx-a"/>
+  <text x="314" y="70" class="ttl">Subject-agnostic core</text>
+  <text x="314" y="96" class="sm">· mark_events + validation invariants</text>
+  <text x="314" y="118" class="sm">· deterministic analyzer (dbt)</text>
+  <text x="314" y="140" class="sm">· G-DINA / IRT over any Q-matrix</text>
+  <text x="314" y="162" class="sm">· shrinkage + evidence floor</text>
+  <text x="314" y="184" class="sm">· board-weighted indicator math</text>
+  <text x="314" y="206" class="sm">· item analysis + alignment χ²</text>
+  <text x="314" y="228" class="sm">· finding selection + narration</text>
+  <text x="314" y="250" class="sm">· classification cascade + conformal gate</text>
+  <text x="314" y="272" class="sm">· bandit policy + OPE</text>
+  <text x="314" y="302" class="xs">CONTAINS ZERO REFERENCES TO “MATHS”.</text>
+  <text x="314" y="320" class="xs">A NEW SUBJECT IS A DATABASE INSERT AND A</text>
+  <text x="314" y="336" class="xs">REVIEWER’S WEEK — NOT A RELEASE.</text>
+
+  <path d="M600,196 L636,196" class="ar-a"/>
+
+  <rect x="646" y="46" width="234" height="304" class="bx"/>
+  <text x="660" y="70" class="ttl">A pack must supply</text>
+  <text x="660" y="96" class="sm">1 · Taxonomy tree, versioned</text>
+  <text x="660" y="118" class="sm">2 · Prerequisite edges between skills</text>
+  <text x="660" y="140" class="sm">3 · Board chapter-weight table + citation</text>
+  <text x="660" y="162" class="sm">4 · Tier definitions &amp; target mix</text>
+  <text x="660" y="184" class="sm">5 · Resource index, tagged by skill × tier</text>
+  <text x="660" y="206" class="sm">6 · ~200 seed library questions</text>
+  <text x="660" y="228" class="sm">7 · ~50 gold-labelled items for eval</text>
+  <text x="660" y="250" class="sm">8 · Report phrasing templates</text>
+  <text x="660" y="282" class="xs">ITEMS 6 AND 7 ARE THE ONLY EXPENSIVE ONES.</text>
+  <text x="660" y="298" class="xs">THEY ARE ALSO WHAT SETS THE CONFORMAL</text>
+  <text x="660" y="314" class="xs">THRESHOLD AND PROVES THE SUBJECT WORKS</text>
+  <text x="660" y="330" class="xs">BEFORE A SINGLE REPORT IS SHOWN.</text>
+
+  <line x1="20" y1="368" x2="880" y2="368" class="rule"/>
+  <text x="20" y="390" class="lb">THE ONE REAL DISCONTINUITY</text>
+  <text x="20" y="414" class="sm">Maths and Science are per-question scored, so “marks lost on question q” maps cleanly to a skill. English and Social long answers are rubric-scored — one</text>
+  <text x="20" y="432" class="sm">question, several criteria. Model each rubric criterion as its own skill and each criterion’s band as a partial-credit response; the Q-matrix formalism absorbs it unchanged.</text>
+</svg></div>
+<figcaption><b>Figure 7 — subjects as data.</b> The test of whether you built this right: adding Class X Science should require a taxonomy insert, a tagged resource list and a reviewer’s week — and zero code changes. If it needs a deployment, subject logic has leaked into the engine.</figcaption>
+</figure>
+</section>
+<section id="audiences">
+<div class="shead"><span class="snum">08</span><h2>One computation, three audiences</h2></div>
+<p class="ssub">Student, teacher and principal never see different numbers — only different projections of the same run.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 476" role="img" aria-label="One analysis run fans out to three role-scoped views — student, teacher and principal — each with its own aggregation level, hidden fields, row-level-security predicate and delivery channel, all derived from a single shared findings table.">
+  <rect x="280" y="36" width="340" height="52" class="bx-a"/>
+  <text x="294" y="58" class="sm">analysis_run #4471</text>
+  <text x="294" y="76" class="xs">CLASS X-A · UNIT TEST II · 40 STUDENTS · 30 QUESTIONS</text>
+
+  <path d="M380,88 L380,110 L155,110 L155,136" class="ar-a"/>
+  <path d="M450,88 L450,136" class="ar-a"/>
+  <path d="M520,88 L520,110 L735,110 L735,136" class="ar-a"/>
+
+  <rect x="20" y="138" width="270" height="266" class="bx"/>
+  <text x="34" y="162" class="ttl">Student view</text>
+  <text x="34" y="186" class="lb">GRAIN</text><text x="34" y="204" class="sm">One student × sub-topic</text>
+  <text x="34" y="228" class="lb">SHOWS</text><text x="34" y="246" class="sm">3–5 findings, own marks,</text><text x="34" y="262" class="sm">practice references, board note</text>
+  <text x="34" y="286" class="lb">NEVER SHOWS</text><text x="34" y="304" class="sm">Class rank, peer marks,</text><text x="34" y="320" class="sm">any student-level label</text>
+  <text x="34" y="344" class="lb">RLS PREDICATE</text><text x="34" y="362" class="xs">student_id = current_student()</text>
+  <text x="34" y="386" class="lb">DELIVERY</text><text x="150" y="386" class="sm">PDF via teacher</text>
+
+  <rect x="315" y="138" width="270" height="266" class="bx-a"/>
+  <text x="329" y="162" class="ttl">Teacher view</text>
+  <text x="329" y="186" class="lb">GRAIN</text><text x="329" y="204" class="sm">Class × sub-topic × tier</text>
+  <text x="329" y="228" class="lb">SHOWS</text><text x="329" y="246" class="sm">Heatmap, commonly-missed</text><text x="329" y="262" class="sm">items, remedial groups, drill-down</text>
+  <text x="329" y="286" class="lb">NEVER SHOWS</text><text x="329" y="304" class="sm">Other sections’ students</text><text x="329" y="320" class="sm">unless the teacher is HOD</text>
+  <text x="329" y="344" class="lb">RLS PREDICATE</text><text x="329" y="362" class="xs">section_id IN taught_sections()</text>
+  <text x="329" y="386" class="lb">DELIVERY</text><text x="445" y="386" class="sm">In-app, the primary surface</text>
+
+  <rect x="610" y="138" width="270" height="266" class="bx"/>
+  <text x="624" y="162" class="ttl">Principal view</text>
+  <text x="624" y="186" class="lb">GRAIN</text><text x="624" y="204" class="sm">School × class × chapter</text>
+  <text x="624" y="228" class="lb">SHOWS</text><text x="624" y="246" class="sm">Paper quality, class comparison,</text><text x="624" y="262" class="sm">coverage gaps, risk-group counts</text>
+  <text x="624" y="286" class="lb">NEVER SHOWS</text><text x="624" y="304" class="sm">Named students outside the</text><text x="624" y="320" class="sm">explicit intervention list</text>
+  <text x="624" y="344" class="lb">RLS PREDICATE</text><text x="624" y="362" class="xs">school_id = current_school()</text>
+  <text x="624" y="386" class="lb">DELIVERY</text><text x="740" y="386" class="sm">Dashboard + termly PDF</text>
+
+  <line x1="20" y1="424" x2="880" y2="424" class="rule"/>
+  <text x="20" y="446" class="sm">All three read the same <tspan class="accent">report_finding</tspan> and <tspan class="accent">skill_mastery_posterior</tspan> tables for run #4471. The difference is a GROUP BY and a security predicate — never a second calculation.</text>
+  <text x="20" y="466" class="xs">THIS IS WHY A TEACHER AND A PRINCIPAL CAN NEVER BE SHOWN CONTRADICTORY FIGURES — THE MOST COMMON TRUST FAILURE IN SCHOOL ANALYTICS PRODUCTS.</text>
+</svg></div>
+<figcaption><b>Figure 8 — projections, not pipelines.</b> The temptation is to build three report generators. Resist it: build one findings table and three read models over it. Tenancy and role scoping live in Postgres row-level security so a bug in the API layer cannot leak a class across a teacher boundary.</figcaption>
+</figure>
+</section>
+
+<section id="tenancy">
+<div class="shead"><span class="snum">09</span><h2>From one school to a hundred</h2></div>
+<p class="ssub">Student data is strictly isolated. Curriculum knowledge and item statistics deliberately pool — and that is the whole economic argument.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 466" role="img" aria-label="A shared curriculum and model layer above a hard tenant boundary, with three isolated school tenants below it. Anonymised item statistics flow upward and validated classifications, item priors and models flow down; no student-level rows cross the boundary.">
+  <text x="20" y="20" class="lb">SHARED LAYER · ONE COPY FOR ALL SCHOOLS</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <rect x="20" y="42" width="205" height="112" class="bx-a"/>
+  <text x="32" y="64" class="sm">Taxonomy + prereq graph</text>
+  <text x="32" y="86" class="xs">VERSIONED BY CURRICULUM</text>
+  <text x="32" y="104" class="xs">CURATED ONCE PER SUBJECT</text>
+  <text x="32" y="130" class="xs">GROWS: SLOWLY</text>
+
+  <rect x="238" y="42" width="205" height="112" class="bx-a"/>
+  <text x="250" y="64" class="sm">Question Library</text>
+  <text x="250" y="86" class="xs">VALIDATED CLASSIFICATIONS</text>
+  <text x="250" y="104" class="xs">+ EMBEDDINGS, ADJUDICATED</text>
+  <text x="250" y="130" class="xs">GROWS: EVERY ASSESSMENT</text>
+
+  <rect x="456" y="42" width="205" height="112" class="bx-a"/>
+  <text x="468" y="64" class="sm">Item parameters</text>
+  <text x="468" y="86" class="xs">DIFFICULTY, DISCRIMINATION,</text>
+  <text x="468" y="104" class="xs">SLIP/GUESS — HIERARCHICALLY POOLED</text>
+  <text x="468" y="130" class="xs">GROWS: EVERY RESPONSE</text>
+
+  <rect x="674" y="42" width="206" height="112" class="bx-a"/>
+  <text x="686" y="64" class="sm">Models + policy priors</text>
+  <text x="686" y="86" class="xs">CLASSIFIER, OCR, CONFORMAL</text>
+  <text x="686" y="104" class="xs">THRESHOLD, BANDIT PRIORS</text>
+  <text x="686" y="130" class="xs">GROWS: EVERY RETRAIN</text>
+
+  <line x1="20" y1="204" x2="880" y2="204" style="stroke:var(--mark);stroke-width:2"/>
+  <text x="20" y="196" class="lb">TENANT BOUNDARY — NO STUDENT-LEVEL ROW EVER CROSSES THIS LINE</text>
+  <text x="632" y="224" class="xs">CONSENT, RESIDENCY AND DELETION ARE ENFORCED BELOW IT</text>
+
+  <path d="M120,272 L120,238 L96,238 L96,160" class="ar-v"/>
+  <text x="128" y="252" class="xs">ANONYMISED ITEM STATS ↑</text>
+  <path d="M300,160 L300,238 L330,238 L330,272" class="ar-a"/>
+  <text x="340" y="252" class="xs">CLASSIFICATIONS, PRIORS, MODELS ↓</text>
+
+  <rect x="20" y="274" width="270" height="126" class="bx"/>
+  <text x="34" y="298" class="ttl">School A · pilot</text>
+  <text x="34" y="320" class="xs">OWN mark_events, STUDENTS, REPORTS</text>
+  <text x="34" y="338" class="xs">RLS: school_id = 'A'</text>
+  <text x="34" y="360" class="sm">Cold start: 380 questions</text>
+  <text x="34" y="378" class="sm">classified by hand. 3 reviewer-days.</text>
+
+  <rect x="315" y="274" width="270" height="126" class="bx"/>
+  <text x="329" y="298" class="ttl">School B · month 4</text>
+  <text x="329" y="320" class="xs">OWN mark_events, STUDENTS, REPORTS</text>
+  <text x="329" y="338" class="xs">RLS: school_id = 'B'</text>
+  <text x="329" y="360" class="sm">61% of questions matched the</text>
+  <text x="329" y="378" class="sm">library. 1 reviewer-day.</text>
+
+  <rect x="610" y="274" width="270" height="126" class="bx-v"/>
+  <text x="624" y="298" class="ttl">School C · month 9</text>
+  <text x="624" y="320" class="xs">OWN mark_events, STUDENTS, REPORTS</text>
+  <text x="624" y="338" class="xs">RLS: school_id = 'C'</text>
+  <text x="624" y="360" class="sm">84% matched, with item difficulty</text>
+  <text x="624" y="378" class="sm">already known. 2 reviewer-hours.</text>
+
+  <line x1="20" y1="422" x2="880" y2="422" class="rule"/>
+  <text x="20" y="444" class="sm">Onboarding cost falls with every school, because the shared layer already knows the questions. Marginal cost per school trending to near zero is the business model —</text>
+  <text x="20" y="462" class="sm">and it is a direct consequence of the storage decision to keep classifications and item parameters above the tenant boundary and student data strictly below it.</text>
+</svg></div>
+<figcaption><b>Figure 9 — what pools and what does not.</b> The upward arrow carries only item-level aggregates: how many students attempted question #4471, its difficulty, its discrimination. No name, no student ID, no mark row. The downward arrow carries validated classifications and priors. Draw this diagram for the DPO before you draw it for the investor — it is the same picture, and it is what makes the pooling defensible under the DPDP Act.</figcaption>
+</figure>
+
+<h3>What the numbers in Figure 9 imply operationally</h3>
+<div class="tw"><table>
+<thead><tr><th>School</th><th>Library match rate</th><th>Reviewer effort</th><th>Item params known</th><th>Diagnosis quality at day 1</th></tr></thead>
+<tbody>
+<tr><td>A · pilot</td><td>0% (cold)</td><td>~3 reviewer-days</td><td>None — estimated from 40 students</td><td>Wide credible intervals; heavy shrinkage</td></tr>
+<tr><td>B · month 4</td><td>~60%</td><td>~1 reviewer-day</td><td>Partial, pooled from School A</td><td>Noticeably tighter on reused items</td></tr>
+<tr><td>C · month 9</td><td>~85%</td><td>~2 reviewer-hours</td><td>Most items well-estimated</td><td>Usable from the first assessment</td></tr>
+</tbody></table></div>
+<p>These rates are the assumption to <em>test</em> in the pilot, not a promise. Measure the true match rate between cycle 1 and cycle 2 at the same school — if it comes in under about 40%, the compounding story is weaker than assumed and the question-normalisation step needs work before a second school is onboarded.</p>
+</section>
+
+<section id="answers">
+<div class="shead"><span class="snum">10</span><h2>Direct answers, one line each</h2></div>
+<p class="ssub">For the questions you asked, stripped of the diagrams.</p>
+<div class="tw"><table>
+<thead><tr><th>Question</th><th>Answer</th></tr></thead>
+<tbody>
+<tr><td>Vectorise NCERT?</td><td>Yes, but scoped. Tree filter first, vectors inside the subtree. Never flat top-k over the book.</td></tr>
+<tr><td>RAG or tree?</td><td>Both — the tree is the index, the vectors are the ranker. Figure 2.</td></tr>
+<tr><td>What gets embedded first?</td><td>The Question Library, not the textbook. Classification is the layer that pays for itself.</td></tr>
+<tr><td>How does it “learn”?</td><td>Four loops at four cadences (OCR, classification, psychometrics, policy). Only the fourth is RL, and it needs multi-school scale.</td></tr>
+<tr><td>Reward signal?</td><td>Δ mastery on the targeted sub-topic between cycles, weighted by board weight, plus teacher acceptance. Requires anchor items.</td></tr>
+<tr><td>Other subjects?</td><td>A subject is a data pack: taxonomy, prerequisites, weights, resource index, seed questions. Zero code.</td></tr>
+<tr><td>Rubric-scored subjects?</td><td>Each rubric criterion becomes a skill; each band becomes partial credit. Same Q-matrix.</td></tr>
+<tr><td>Per-student and whole-class?</td><td>One analysis run, three read models over one findings table, separated by row-level security. Figure 8.</td></tr>
+<tr><td>Principal visibility?</td><td>Aggregates plus paper quality; named students only in the explicit intervention list.</td></tr>
+<tr><td>Second school?</td><td>Student data isolated below a hard tenant boundary; taxonomy, library and item parameters pooled above it. Figure 9.</td></tr>
+</tbody></table></div>
+</section>
+
+<footer>
+  <span>Project Yaadhum · systems atlas · figures 1–9</span>
+  <span>Companion to the layer-by-layer architecture · L0 → L10</span>
+</footer>
+</div>
