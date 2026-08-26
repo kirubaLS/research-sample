@@ -1,0 +1,557 @@
+<title>Yaadhum Product Blueprint</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Spectral:ital,wght@0,400;0,600;0,700&family=Source+Sans+3:wght@400;600;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+:root{--paper:#F5F7F8;--surface:#FFFFFF;--surface-2:#EDF1F3;--ink:#16222F;--ink-2:#425466;--ink-3:#6F8296;
+--rule:#D8E0E5;--rule-2:#B9C6CF;--mark:#C0392B;--verify:#0E6B62;--warn:#8A6008;--chip:#E7EDF0;--scope:#E3EEF0;
+--shadow:0 1px 2px rgba(22,34,47,.06),0 8px 24px -16px rgba(22,34,47,.25)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--paper:#11161B;--surface:#171E25;--surface-2:#1E262E;
+--ink:#E3E9ED;--ink-2:#AAB8C4;--ink-3:#7F8F9D;--rule:#2A343D;--rule-2:#3E4B56;--mark:#E7796A;--verify:#5FBDAF;--warn:#D9A63F;--chip:#232C34;--scope:#1D2E31;
+--shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8)}}
+:root[data-theme="dark"]{--paper:#11161B;--surface:#171E25;--surface-2:#1E262E;
+--ink:#E3E9ED;--ink-2:#AAB8C4;--ink-3:#7F8F9D;--rule:#2A343D;--rule-2:#3E4B56;--mark:#E7796A;--verify:#5FBDAF;--warn:#D9A63F;--chip:#232C34;--scope:#1D2E31;
+--shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -16px rgba(0,0,0,.8)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Source Sans 3",-apple-system,sans-serif;font-size:16.5px;line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1120px;margin:0 auto;padding:0 26px 90px}
+header.mast{border-bottom:2px solid var(--ink);padding:50px 0 22px}
+.kicker{font-family:"JetBrains Mono",monospace;font-size:11.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--mark);margin-bottom:16px}
+h1{font-family:Spectral,Georgia,serif;font-weight:700;font-size:clamp(34px,5.4vw,55px);line-height:1.05;letter-spacing:-.02em;margin:0 0 12px;text-wrap:balance}
+h1 em{font-style:italic;font-weight:400;color:var(--ink-2)}
+.dek{font-size:18.5px;color:var(--ink-2);max-width:66ch;margin:0 0 24px}
+.budget{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:1px;background:var(--rule);border:1px solid var(--rule)}
+.budget div{background:var(--paper);padding:11px 14px}
+.budget dt{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3);margin:0 0 3px}
+.budget dd{margin:0;font-size:17px;font-weight:700;font-variant-numeric:tabular-nums}
+section{padding:48px 0 8px;border-top:1px solid var(--rule)}
+section:first-of-type{border-top:none}
+.shead{display:flex;align-items:baseline;gap:13px;margin-bottom:4px}
+.snum{font-family:"JetBrains Mono",monospace;font-size:12px;font-weight:600;color:var(--mark);border:1px solid var(--rule-2);padding:2px 7px;flex:none}
+h2{font-family:Spectral,serif;font-weight:600;font-size:clamp(24px,3.2vw,32px);letter-spacing:-.015em;margin:0;line-height:1.15;text-wrap:balance}
+.ssub{color:var(--ink-3);font-size:15px;margin:0 0 24px;font-style:italic;font-family:Spectral,serif;max-width:74ch}
+h3{font-family:Spectral,serif;font-size:20px;font-weight:600;margin:32px 0 8px}
+h4{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);margin:26px 0 6px}
+p{margin:0 0 13px;max-width:72ch}
+ul,ol{max-width:72ch;padding-left:21px;margin:0 0 13px}li{margin-bottom:6px}
+a{color:var(--mark);text-underline-offset:2px}
+code{font-family:"JetBrains Mono",monospace;font-size:.84em;background:var(--chip);padding:1px 5px;border-radius:2px}
+pre{background:var(--surface);border:1px solid var(--rule);padding:15px 17px;overflow-x:auto;font-size:12.5px;line-height:1.55;margin:0 0 18px}
+pre code{background:none;padding:0}
+.tw{overflow-x:auto;margin:0 0 20px;border:1px solid var(--rule)}
+table{border-collapse:collapse;width:100%;font-size:14px;background:var(--surface)}
+th{text-align:left;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.11em;text-transform:uppercase;color:var(--ink-3);padding:10px 13px;border-bottom:1px solid var(--rule-2);font-weight:600;white-space:nowrap}
+td{padding:10px 13px;border-bottom:1px solid var(--rule);vertical-align:top;color:var(--ink-2)}
+tr:last-child td{border-bottom:none}
+td:first-child{color:var(--ink);font-weight:600}
+td.nw{white-space:nowrap}
+.note{border-left:2px solid var(--verify);background:var(--surface);padding:13px 17px;margin:0 0 18px;font-size:15px;color:var(--ink-2);max-width:80ch}
+.note.risk{border-left-color:var(--mark)}
+.note.warn{border-left-color:var(--warn)}
+.note .tag{display:block;font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:var(--verify);margin-bottom:5px;font-weight:600}
+.note.risk .tag{color:var(--mark)}.note.warn .tag{color:var(--warn)}
+.note p:last-child{margin-bottom:0}
+figure{margin:24px 0 28px;border:1px solid var(--rule);background:var(--surface);padding:20px 18px 14px;box-shadow:var(--shadow)}
+figure .figwrap{overflow-x:auto}
+figure svg{display:block;width:100%;min-width:640px;max-width:100%;height:auto}
+figcaption{margin-top:13px;padding-top:11px;border-top:1px solid var(--rule);font-size:13.5px;color:var(--ink-3);max-width:82ch}
+figcaption b{color:var(--ink-2);font-weight:600}
+svg text{font-family:"Source Sans 3",sans-serif;font-size:12px;fill:var(--ink)}
+svg .lb{font-family:"JetBrains Mono",monospace;font-size:10px;letter-spacing:.11em;fill:var(--ink-3);font-weight:600}
+svg .ttl{font-family:Spectral,serif;font-size:14.5px;font-weight:600;fill:var(--ink)}
+svg .sm{font-size:11px;fill:var(--ink-2)}
+svg .xs{font-size:10px;fill:var(--ink-3);font-family:"JetBrains Mono",monospace}
+svg .bx{fill:var(--surface-2);stroke:var(--rule-2);stroke-width:1.2}
+svg .bx-a{fill:var(--surface-2);stroke:var(--mark);stroke-width:1.8}
+svg .bx-v{fill:var(--surface-2);stroke:var(--verify);stroke-width:1.6}
+svg .band{fill:var(--chip);stroke:none}
+svg .scope{fill:var(--scope);stroke:var(--verify);stroke-width:1;stroke-dasharray:4 3}
+svg .ar{stroke:var(--ink-3);stroke-width:1.3;fill:none;marker-end:url(#bh)}
+svg .ar-a{stroke:var(--mark);stroke-width:1.7;fill:none;marker-end:url(#bh-a)}
+svg .ar-v{stroke:var(--verify);stroke-width:1.5;fill:none;marker-end:url(#bh-v)}
+svg .ar-d{stroke:var(--ink-3);stroke-width:1.2;fill:none;stroke-dasharray:4 3;marker-end:url(#bh)}
+svg .rule{stroke:var(--rule-2);stroke-width:1}
+svg .accent{fill:var(--mark)}svg .vfill{fill:var(--verify)}
+footer{margin-top:58px;padding-top:20px;border-top:2px solid var(--ink);font-family:"JetBrains Mono",monospace;font-size:11px;letter-spacing:.05em;color:var(--ink-3);display:flex;justify-content:space-between;flex-wrap:wrap;gap:10px}
+:focus-visible{outline:2px solid var(--mark);outline-offset:2px}
+</style>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute"><defs>
+<marker id="bh" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/></marker>
+<marker id="bh-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--mark)"/></marker>
+<marker id="bh-v" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--verify)"/></marker>
+</defs></svg>
+<div class="wrap">
+<header class="mast">
+  <div class="kicker">Project Yaadhum · product blueprint · use case 1 + use case 2</div>
+  <h1>Interest test,<br><em>then the marks engine</em></h1>
+  <p class="dek">CBSE Class X, NCERT, Tamil Nadu. Two products in one website: a psychometric interest test students take themselves, and an OCR + LLM engine that reads question papers and answer scripts and produces a diagnostic report only the principal sees. Algorithms, stack, sprints and diagrams.</p>
+  <dl class="budget">
+    <div><dt>Use cases</dt><dd>2</dd></div>
+    <div><dt>Sprints</dt><dd>6</dd></div>
+    <div><dt>Calendar</dt><dd>~6 weeks</dd></div>
+    <div><dt>Test items</dt><dd>36</dd></div>
+    <div><dt>Test time</dt><dd>~8 min</dd></div>
+    <div><dt>Languages</dt><dd>EN + TA</dd></div>
+  </dl>
+</header>
+
+<section id="assume">
+<div class="shead"><span class="snum">00</span><h2>Assumptions I'm building on</h2></div>
+<p class="ssub">Four open questions. Rather than block, I've picked the defensible default for each — change any of them and I'll revise the affected layer.</p>
+<div class="tw"><table>
+<thead><tr><th>Question</th><th>Assumed</th><th>What changes if you disagree</th></tr></thead>
+<tbody>
+<tr><td>Interest instrument</td><td><strong>RIASEC / Holland</strong>, items adapted from the public-domain O*NET Interest Profiler, bilingual English + Tamil</td><td>Item bank and scoring maths. Everything else is unaffected.</td></tr>
+<tr><td>Marks on the answer script</td><td><strong>Hardest case</strong>: numbers written in the margin, no reliable cover grid</td><td>If a cover grid exists, extraction accuracy jumps and Sprint 4 halves. I've included a pre-printed marks strip that produces one.</td></tr>
+<tr><td>Vision / LLM provider</td><td><strong>Claude API</strong> (<code>claude-opus-5</code> for stakes, <code>claude-haiku-4-5</code> for volume) under zero-retention terms, student identity stripped before any call</td><td>A self-hosted-only requirement adds a GPU box and roughly two weeks, at materially lower Indian-handwriting accuracy.</td></tr>
+<tr><td>Accuracy posture</td><td><strong>Bounded error with guaranteed human review</strong> — auto-accept only what is provably confident, everything else to a one-click teacher queue</td><td>This is the load-bearing assumption. Section 06 explains why "fully automatic" cannot be made safe for a marks system.</td></tr>
+</tbody></table></div>
+<div class="note warn"><span class="tag">On "15 to 20 questions is enough"</span>
+<p>For a six-scale instrument, 15–20 items means 2–3 items per scale. Internal consistency at that length lands around α ≈ 0.5, which means roughly half the variance in a student's score is measurement noise — you would be giving stream advice from a coin flip, and it would not survive one sceptical parent.</p>
+<p><strong>36 items — six per scale — is the shortest honest design</strong>, and at a 5-point scale it takes a Class X student about eight minutes. That is still a single period activity. If you need shorter, 24 items (four per scale) is the floor I'd defend; below that, don't publish a recommendation, publish an exploration.</p></div>
+</section>
+<section id="uc1">
+<div class="shead"><span class="snum">01</span><h2>Use case 1 — the interest test site</h2></div>
+<p class="ssub">Five student screens ending at "thank you". Everything past that point belongs to the principal.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 396" role="img" aria-label="Student flow of five screens — landing and consent, profile form, take the test, the 36-item test, and a thank-you screen — separated by a hard boundary from the admin flow of login, roster, per-student report and cohort dashboard.">
+  <text x="20" y="20" class="lb">STUDENT · SELF-SERVICE · NO LOGIN, ONE-TIME ACCESS CODE PER CLASS</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <rect x="20" y="44" width="150" height="66" class="bx"/><text x="30" y="66" class="sm">1 · Landing</text><text x="30" y="84" class="xs">SCHOOL + YOUR LOGO</text><text x="30" y="99" class="xs">PARENTAL CONSENT NOTICE</text>
+  <rect x="196" y="44" width="150" height="66" class="bx-a"/><text x="206" y="66" class="sm">2 · Profile form</text><text x="206" y="84" class="xs">NAME · AGE · GENDER</text><text x="206" y="99" class="xs">CLASS · SECTION · ROLL NO</text>
+  <rect x="372" y="44" width="150" height="66" class="bx"/><text x="382" y="66" class="sm">3 · Take the test</text><text x="382" y="84" class="xs">INSTRUCTIONS · ~8 MIN</text><text x="382" y="99" class="xs">LANGUAGE TOGGLE EN/TA</text>
+  <rect x="548" y="44" width="150" height="66" class="bx-a"/><text x="558" y="66" class="sm">4 · The test</text><text x="558" y="84" class="xs">36 ITEMS, 6 PER SCREEN</text><text x="558" y="99" class="xs">AUTOSAVE EVERY ANSWER</text>
+  <rect x="724" y="44" width="150" height="66" class="bx-v"/><text x="734" y="66" class="sm">5 · Thank you</text><text x="734" y="84" class="xs">NO SCORE SHOWN</text><text x="734" y="99" class="xs">STUDENT JOURNEY ENDS</text>
+
+  <path d="M170,77 L190,77" class="ar"/><path d="M346,77 L366,77" class="ar"/>
+  <path d="M522,77 L542,77" class="ar"/><path d="M698,77 L718,77" class="ar"/>
+
+  <rect x="196" y="128" width="502" height="46" class="bx"/>
+  <text x="208" y="147" class="sm">Every answer is written the moment it is tapped — a closed tab or dead battery loses nothing.</text>
+  <text x="208" y="166" class="xs">RESUME BY ROLL NUMBER + CLASS CODE · PARTIAL SESSIONS ARE MARKED INCOMPLETE, NEVER SCORED</text>
+  <path d="M623,128 L623,116" class="ar-d"/>
+
+  <line x1="20" y1="204" x2="880" y2="204" style="stroke:var(--mark);stroke-width:2"/>
+  <text x="20" y="197" class="lb">HARD BOUNDARY · NO STUDENT ROUTE CROSSES THIS LINE — ENFORCED IN THE DATABASE, NOT THE UI</text>
+  <text x="596" y="222" class="xs">NO SCORE, CODE OR STREAM IS EVER RETURNED TO A STUDENT SESSION</text>
+
+  <text x="20" y="252" class="lb">PRINCIPAL / ADMIN · AUTHENTICATED</text>
+  <rect x="20" y="264" width="150" height="66" class="bx"/><text x="30" y="286" class="sm">Login</text><text x="30" y="304" class="xs">EMAIL + PASSWORD</text><text x="30" y="319" class="xs">ROLE: PRINCIPAL / ADMIN</text>
+  <rect x="196" y="264" width="150" height="66" class="bx"/><text x="206" y="286" class="sm">Class roster</text><text x="206" y="304" class="xs">40 STUDENTS · STATUS</text><text x="206" y="319" class="xs">COMPLETE / PARTIAL / FLAGGED</text>
+  <rect x="372" y="264" width="150" height="66" class="bx-a"/><text x="382" y="286" class="sm">Student report</text><text x="382" y="304" class="xs">HOLLAND CODE · PROFILE</text><text x="382" y="319" class="xs">STREAM FIT · CONFIDENCE</text>
+  <rect x="548" y="264" width="150" height="66" class="bx"/><text x="558" y="286" class="sm">Cohort dashboard</text><text x="558" y="304" class="xs">DISTRIBUTION ACROSS 6 TYPES</text><text x="558" y="319" class="xs">STREAM DEMAND FORECAST</text>
+  <rect x="724" y="264" width="150" height="66" class="bx"/><text x="734" y="286" class="sm">Export</text><text x="734" y="304" class="xs">PDF PER STUDENT</text><text x="734" y="319" class="xs">CSV FOR COUNSELLING</text>
+
+  <path d="M170,297 L190,297" class="ar"/><path d="M346,297 L366,297" class="ar"/>
+  <path d="M522,297 L542,297" class="ar"/><path d="M698,297 L718,297" class="ar"/>
+
+  <path d="M799,110 L799,150 L860,150 L860,180 L860,254" class="ar-a"/>
+  <text x="700" y="146" class="xs">RESPONSES →</text>
+
+  <line x1="20" y1="352" x2="880" y2="352" class="rule"/>
+  <text x="20" y="374" class="sm">The cohort dashboard is the artefact that sells the paid product: a principal planning next year's Science / Commerce / Humanities section sizes has, for the first time, evidence instead of last year's numbers.</text>
+</svg></div>
+<figcaption><b>Figure 1 — the five screens and the boundary.</b> The student path is deliberately a dead end. Withholding results from students is not a UI choice you can make in React — it has to be a database rule, because an interest score handed to a fifteen-year-old without a counsellor beside them is how this product does harm.</figcaption>
+</figure>
+
+<h3>The instrument</h3>
+<p><strong>RIASEC / Holland Codes</strong>, six interest types: Realistic, Investigative, Artistic, Social, Enterprising, Conventional. Chosen because it is the only widely-used career-interest model with fifty years of published validation, because O*NET's item set is US-government public domain so you can adapt items freely with no licence, and because six scores map cleanly onto the four post-Class-X routes a Tamil Nadu CBSE student actually chooses between.</p>
+<div class="tw"><table>
+<thead><tr><th>Design decision</th><th>Choice</th><th>Reason</th></tr></thead>
+<tbody>
+<tr><td class="nw">Item count</td><td>36 — six per scale</td><td>Shortest length that reaches α ≈ 0.75–0.80 per scale. Below this you are reporting noise.</td></tr>
+<tr><td class="nw">Item format</td><td>Activity statement, 5-point like/dislike</td><td>"Repair a bicycle brake." Free of aspiration bias — asks what they'd <em>do</em>, not what they'd <em>be</em>.</td></tr>
+<tr><td class="nw">Language</td><td>English + Tamil, toggle mid-test</td><td>Non-negotiable in Krishnagiri. Item text is stored per locale; the item ID and scale are language-neutral.</td></tr>
+<tr><td class="nw">Reverse-keyed pairs</td><td>3 pairs embedded</td><td>Catches straight-lining without adding a visible "attention check", which teenagers spot instantly.</td></tr>
+<tr><td class="nw">Order</td><td>Scale-interleaved, fixed seed per student</td><td>Prevents block effects; fixed seed makes a session reproducible for audit.</td></tr>
+<tr><td class="nw">Presentation</td><td>6 screens × 6 items</td><td>Progress is visible, autosave points are natural, and no screen feels like a wall of text on a phone.</td></tr>
+</tbody></table></div>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 430" role="img" aria-label="RIASEC scoring pipeline: raw scale sums, within-person ipsative centering, empirical Bayes normalisation, Holland code extraction, a differentiation and consistency gate that can withhold a recommendation, and a stream-fit matrix producing the final report.">
+  <text x="20" y="20" class="lb">SCORING ALGORITHM · DETERMINISTIC, NO LLM ANYWHERE IN THIS PATH</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <rect x="20" y="44" width="150" height="58" class="bx"/><text x="30" y="64" class="sm">Validity screen</text><text x="30" y="81" class="xs">LONG-STRING RUN &gt; 8</text><text x="30" y="95" class="xs">MEDIAN ITEM TIME &lt; 1.5 s</text>
+  <rect x="196" y="44" width="160" height="58" class="bx"/><text x="206" y="64" class="sm">Reverse-pair check</text><text x="206" y="81" class="xs">3 PAIRS · INCONSISTENCY</text><text x="206" y="95" class="xs">INDEX &gt; THRESHOLD → SUSPECT</text>
+  <rect x="382" y="44" width="180" height="58" class="bx-a"/><text x="392" y="64" class="sm">session_validity</text><text x="392" y="81" class="xs">VALID · SUSPECT · INVALID</text><text x="392" y="95" class="xs">INVALID → NO SCORING AT ALL</text>
+  <path d="M170,73 L190,73" class="ar"/><path d="M356,73 L376,73" class="ar"/>
+  <path d="M562,73 L620,73" class="ar-a"/>
+  <rect x="626" y="44" width="254" height="58" class="bx"/>
+  <text x="638" y="64" class="sm">Roughly 5–8% of Class X sessions</text><text x="638" y="81" class="sm">fail validity. Catching them is what</text><text x="638" y="96" class="sm">separates a test from a form.</text>
+
+  <line x1="20" y1="122" x2="880" y2="122" class="rule"/>
+
+  <rect x="20" y="140" width="150" height="62" class="bx"/><text x="30" y="161" class="sm">1 · Raw sums</text><text x="30" y="180" class="xs">S_d = Σ RESPONSES IN d</text><text x="30" y="195" class="xs">SIX SCORES, 6..30 EACH</text>
+  <rect x="196" y="140" width="170" height="62" class="bx-a"/><text x="206" y="161" class="sm">2 · Ipsative centering</text><text x="206" y="180" class="xs">S'_d = S_d − mean(S)</text><text x="206" y="195" class="xs">KILLS ELEVATION BIAS</text>
+  <rect x="392" y="140" width="170" height="62" class="bx"/><text x="402" y="161" class="sm">3 · Normalise</text><text x="402" y="180" class="xs">PERCENTILE VS COHORT,</text><text x="402" y="195" class="xs">EMPIRICAL-BAYES SHRUNK</text>
+  <rect x="588" y="140" width="150" height="62" class="bx"/><text x="598" y="161" class="sm">4 · Holland code</text><text x="598" y="180" class="xs">TOP 3 LETTERS OF S'</text><text x="598" y="195" class="xs">e.g. I R C</text>
+  <path d="M170,171 L190,171" class="ar"/><path d="M366,171 L386,171" class="ar-a"/><path d="M562,171 L582,171" class="ar"/>
+
+  <path d="M663,202 L663,224" class="ar-a"/>
+
+  <rect x="392" y="226" width="346" height="72" class="bx-a"/>
+  <text x="404" y="248" class="ttl">5 · Differentiation &amp; consistency gate</text>
+  <text x="404" y="268" class="sm">D = max(S') − min(S')   ·   C = hexagon adjacency of top two</text>
+  <text x="404" y="288" class="xs">LOW D → THE PROFILE IS FLAT. THERE IS NO REAL PREFERENCE TO REPORT.</text>
+
+  <path d="M392,262 L300,262 L300,300" class="ar-a"/>
+  <rect x="150" y="304" width="240" height="62" class="bx-a"/>
+  <text x="162" y="326" class="sm">Undifferentiated → no stream call</text>
+  <text x="162" y="344" class="xs">REPORT SAYS: "EXPLORATION NEEDED,</text><text x="162" y="358" class="xs">RECOMMEND COUNSELLING + RETEST"</text>
+
+  <path d="M738,262 L780,262 L780,300" class="ar-v"/>
+  <rect x="580" y="304" width="300" height="62" class="bx-v"/>
+  <text x="592" y="326" class="sm">6 · Stream fit = W · z</text>
+  <text x="592" y="344" class="xs">6×4 WEIGHT MATRIX → SCIENCE / COMMERCE /</text><text x="592" y="358" class="xs">HUMANITIES / VOCATIONAL, TOP TWO WITH MARGIN</text>
+
+  <line x1="20" y1="386" x2="880" y2="386" class="rule"/>
+  <text x="20" y="408" class="sm">The weight matrix W is <tspan class="accent">data, not code</tspan> — a table a counsellor can inspect and a school can tune. Nothing about "Investigative implies Science" is hardcoded anywhere.</text>
+</svg></div>
+<figcaption><b>Figure 2 — scoring, with the honesty gate in the middle.</b> Step 2 is the step cheap career tools skip: without within-person centering, a student who likes everything scores high on all six types and gets a meaningless "you could do anything" result. Step 5 is the other one — when the profile is genuinely flat, the correct output is <em>no recommendation</em>, and the system must be willing to say so.</figcaption>
+</figure>
+
+<h4>Data model for use case 1</h4>
+<pre><code>student_profile (id, school_id, name, age, gender, class, section, roll_no,
+                 consent_ref, created_at)          -- identity, restricted schema
+test_session    (id, student_id, instrument_version, locale, started_at,
+                 completed_at, validity, validity_detail jsonb)
+item_response   (session_id, item_id, value, shown_at, answered_at)  -- timing = validity signal
+scale_score     (session_id, scale, raw, centered, percentile, ci_low, ci_high)
+profile_result  (session_id, holland_code, differentiation, consistency,
+                 stream_fit jsonb, recommendation_withheld bool, reason)</code></pre>
+<p><code>item_response</code> stores <code>shown_at</code> and <code>answered_at</code>, not just the value. Those two timestamps are the entire validity layer — you cannot add them retroactively, so they go in on day one.</p>
+</section>
+<section id="uc2a">
+<div class="shead"><span class="snum">02</span><h2>Use case 2, pipeline A — reading the question paper</h2></div>
+<p class="ssub">Done once per paper and amortised over forty students. That economics is why this stage can afford to be paranoid.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 440" role="img" aria-label="Question paper ingest pipeline: capture and quality gate, structured extraction by a vision model, three verification gates on total marks, question sequence and dual-pass consensus, then taxonomy classification with abstention and a single teacher confirmation step producing a frozen Q-matrix.">
+  <text x="20" y="20" class="lb">PIPELINE A · QUESTION PAPER → FROZEN Q-MATRIX · ~8 MINUTES OF MACHINE TIME, ~5 OF TEACHER TIME</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <rect x="20" y="44" width="150" height="62" class="bx"/><text x="30" y="65" class="sm">1 · Capture</text><text x="30" y="84" class="xs">CAMERA OR PDF UPLOAD</text><text x="30" y="99" class="xs">DEWARP · DESKEW · 300 DPI</text>
+  <rect x="196" y="44" width="170" height="62" class="bx-a"/><text x="206" y="65" class="sm">2 · Structured extract</text><text x="206" y="84" class="xs">claude-opus-5 VISION</text><text x="206" y="99" class="xs">JSON SCHEMA, strict: true</text>
+  <rect x="392" y="44" width="170" height="62" class="bx-a"/><text x="402" y="65" class="sm">3 · Second pass</text><text x="402" y="84" class="xs">INDEPENDENT RE-EXTRACTION,</text><text x="402" y="99" class="xs">DIFFERENT PAGE ORDER</text>
+  <rect x="588" y="44" width="292" height="62" class="bx"/>
+  <text x="600" y="65" class="sm">Per question, the model returns only:</text>
+  <text x="600" y="84" class="xs">section · question_no · sub_part · text_verbatim</text>
+  <text x="600" y="99" class="xs">max_marks · has_diagram · choice_group_id</text>
+  <path d="M170,75 L190,75" class="ar"/><path d="M366,75 L386,75" class="ar-a"/><path d="M562,75 L582,75" class="ar-d"/>
+
+  <text x="20" y="136" class="lb">THREE VERIFICATION GATES — ALL ARITHMETIC, NONE OF IT DONE BY THE MODEL</text>
+  <rect x="20" y="148" width="272" height="76" class="bx-a"/>
+  <text x="32" y="170" class="sm">G1 · Marks reconcile</text>
+  <text x="32" y="190" class="xs">Σ max_marks (RESPECTING "OR" CHOICE</text>
+  <text x="32" y="205" class="xs">GROUPS) == THE TOTAL PRINTED ON PAGE 1</text>
+  <text x="32" y="219" class="xs">FAIL → THE PAPER IS NOT ACCEPTED</text>
+
+  <rect x="308" y="148" width="272" height="76" class="bx-a"/>
+  <text x="320" y="170" class="sm">G2 · Sequence intact</text>
+  <text x="320" y="190" class="xs">QUESTION NUMBERS FORM A COMPLETE</text>
+  <text x="320" y="205" class="xs">RUN — NO GAPS, NO DUPLICATES</text>
+  <text x="320" y="219" class="xs">A MISSED PAGE IS CAUGHT HERE</text>
+
+  <rect x="596" y="148" width="284" height="76" class="bx-a"/>
+  <text x="608" y="170" class="sm">G3 · Two-pass consensus</text>
+  <text x="608" y="190" class="xs">FIELD-LEVEL DIFF OF PASS 1 vs PASS 2</text>
+  <text x="608" y="205" class="xs">ANY DISAGREEMENT → HUMAN REVIEW</text>
+  <text x="608" y="219" class="xs">AGREEMENT ON A HALLUCINATION IS RARE</text>
+
+  <path d="M156,224 L156,244" class="ar-a"/><path d="M444,224 L444,244" class="ar-a"/><path d="M738,224 L738,244" class="ar-a"/>
+  <line x1="20" y1="246" x2="880" y2="246" class="rule"/>
+
+  <rect x="20" y="262" width="200" height="76" class="bx"/>
+  <text x="32" y="284" class="sm">4 · Retrieve exemplars</text>
+  <text x="32" y="303" class="xs">NEAREST VALIDATED QUESTIONS</text>
+  <text x="32" y="318" class="xs">FROM THE LIBRARY, SCOPED TO</text>
+  <text x="32" y="332" class="xs">CLASS X MATHS</text>
+
+  <rect x="236" y="262" width="200" height="76" class="bx-a"/>
+  <text x="248" y="284" class="sm">5 · Classify</text>
+  <text x="248" y="303" class="xs">CHAPTER · SUB-TOPIC · TIER</text>
+  <text x="248" y="318" class="xs">OUTPUT CONSTRAINED TO EXISTING</text>
+  <text x="248" y="332" class="xs">TAXONOMY IDs — FK-VALIDATED</text>
+
+  <rect x="452" y="262" width="200" height="76" class="bx-a"/>
+  <text x="464" y="284" class="sm">6 · Abstain or accept</text>
+  <text x="464" y="303" class="xs">SELF-CONSISTENCY k = 5</text>
+  <text x="464" y="318" class="xs">CONFORMAL SET SIZE 1 → ACCEPT</text>
+  <text x="464" y="332" class="xs">OTHERWISE → REVIEW QUEUE</text>
+
+  <rect x="668" y="262" width="212" height="76" class="bx-v"/>
+  <text x="680" y="284" class="sm">7 · Teacher confirms</text>
+  <text x="680" y="303" class="xs">ONE SCREEN, ~5 MINUTES</text>
+  <text x="680" y="318" class="xs">SHOWS THE CROP BESIDE EACH ROW</text>
+  <text x="680" y="332" class="xs">THEN THE Q-MATRIX IS FROZEN</text>
+
+  <path d="M220,300 L230,300" class="ar"/><path d="M436,300 L446,300" class="ar-a"/><path d="M652,300 L662,300" class="ar-a"/>
+
+  <line x1="20" y1="366" x2="880" y2="366" class="rule"/>
+  <text x="20" y="388" class="sm">R&amp;U / AP / AEC is the hardest of the three labels — tier is a judgement about cognitive demand, not a fact on the page. Expect the abstention rate on tier to be</text>
+  <text x="20" y="406" class="sm">roughly three times the rate on chapter, and budget the teacher's five minutes accordingly. That is the correct behaviour, not a defect.</text>
+  <text x="20" y="428" class="xs">THE FROZEN Q-MATRIX IS VERSIONED. RE-RUNNING A REPORT SIX MONTHS LATER USES THE MATRIX AS IT WAS CONFIRMED, NOT AS THE MODEL WOULD CLASSIFY IT TODAY.</text>
+</svg></div>
+<figcaption><b>Figure 3 — why hallucination is structurally hard here.</b> The model is never asked for a sum, never asked to invent a category, and never trusted on a single pass. Gate G1 is the strongest of the three: a hallucinated or missed question changes the mark total, and the paper itself prints the answer. The model cannot fake agreement with arithmetic it never sees.</figcaption>
+</figure>
+
+<div class="note"><span class="tag">The CBSE detail that breaks naive implementations</span><p>CBSE papers carry <em>internal choice</em> — "attempt any one of Q31 or Q32". A naive sum over <code>max_marks</code> then exceeds the paper total and gate G1 fails on a perfectly good extraction. That's why <code>choice_group_id</code> is in the schema from the start: questions sharing a group contribute their marks <strong>once</strong>. Handle this on day one or you will spend Sprint 2 debugging a gate that was right all along.</p></div>
+</section>
+
+<section id="uc2b">
+<div class="shead"><span class="snum">03</span><h2>Use case 2, pipeline B — the in-browser scanner</h2></div>
+<p class="ssub">Fifteen pages per student, forty students. The UX is the accuracy strategy: a bad photo caught at capture costs five seconds, and caught later costs a wrong report.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 420" role="img" aria-label="State machine for the multi-page answer script scanner: idle, capturing, automatic quality scoring, preview with retake or keep, completion, PDF assembly, student binding and extraction, with a retake loop that targets a single page.">
+  <text x="20" y="20" class="lb">SCANNER STATE MACHINE · RUNS ENTIRELY IN THE BROWSER UNTIL "COMPLETE"</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <rect x="20" y="48" width="130" height="56" class="bx"/><text x="30" y="70" class="sm">IDLE</text><text x="30" y="90" class="xs">PICK STUDENT OR SCAN QR</text>
+  <rect x="182" y="48" width="140" height="56" class="bx-a"/><text x="192" y="70" class="sm">CAPTURING</text><text x="192" y="90" class="xs">LIVE EDGE OVERLAY, PAGE n</text>
+  <rect x="354" y="48" width="160" height="56" class="bx-a"/><text x="364" y="70" class="sm">QUALITY SCORE</text><text x="364" y="90" class="xs">AUTOMATIC, &lt; 200 ms</text>
+  <rect x="546" y="48" width="150" height="56" class="bx"/><text x="556" y="70" class="sm">PREVIEW</text><text x="556" y="90" class="xs">THUMB STRIP OF ALL PAGES</text>
+
+  <path d="M150,76 L176,76" class="ar"/><path d="M322,76 L348,76" class="ar-a"/><path d="M514,76 L540,76" class="ar-a"/>
+
+  <path d="M600,104 L600,132 L252,132 L252,110" class="ar-a"/>
+  <text x="330" y="126" class="xs">RETAKE — RE-SHOOTS ONLY THAT PAGE, KEEPS ITS POSITION IN THE SEQUENCE</text>
+
+  <path d="M660,104 L660,150" class="ar-v"/>
+  <text x="668" y="128" class="xs">KEEP → PAGE n+1</text>
+
+  <rect x="546" y="154" width="150" height="52" class="bx-v"/><text x="556" y="176" class="sm">COMPLETE</text><text x="556" y="195" class="xs">EXPLICIT BUTTON</text>
+  <path d="M696,180 L726,180" class="ar-v"/>
+  <rect x="730" y="154" width="150" height="52" class="bx"/><text x="740" y="176" class="sm">ASSEMBLING</text><text x="740" y="195" class="xs">IMAGES → SINGLE PDF</text>
+
+  <rect x="20" y="152" width="480" height="56" class="bx"/>
+  <text x="32" y="173" class="sm">Quality score = blur (Laplacian variance) · glare fraction · corner detection · skew · resolution</text>
+  <text x="32" y="192" class="xs">BELOW THRESHOLD THE PAGE IS MARKED "RETAKE RECOMMENDED" IN AMBER — THE OPERATOR IS NEVER BLOCKED, ONLY WARNED</text>
+
+  <line x1="20" y1="228" x2="880" y2="228" class="rule"/>
+  <text x="20" y="250" class="lb">SERVER SIDE, AFTER "COMPLETE"</text>
+
+  <rect x="20" y="262" width="170" height="66" class="bx"/><text x="30" y="284" class="sm">Upload &amp; store</text><text x="30" y="303" class="xs">PAGES AS IMAGES + ONE PDF</text><text x="30" y="318" class="xs">ENCRYPTED, LIFECYCLE EXPIRY</text>
+  <rect x="216" y="262" width="170" height="66" class="bx-a"/><text x="226" y="284" class="sm">Bind to student</text><text x="226" y="303" class="xs">QR STICKER, OR ROLL NUMBER</text><text x="226" y="318" class="xs">CHECKED AGAINST THE ROSTER</text>
+  <rect x="412" y="262" width="170" height="66" class="bx"/><text x="422" y="284" class="sm">Locate mark regions</text><text x="422" y="303" class="xs">MARGIN NUMERALS AND/OR</text><text x="422" y="318" class="xs">COVER GRID → CROPS</text>
+  <rect x="608" y="262" width="272" height="66" class="bx-a"/><text x="618" y="284" class="sm">Extract → solve → route</text><text x="618" y="303" class="xs">PER-FIELD DISTRIBUTION OVER LEGAL VALUES,</text><text x="618" y="318" class="xs">THEN THE CONSTRAINT SOLVER — SEE FIGURE 5</text>
+
+  <path d="M190,295 L210,295" class="ar"/><path d="M386,295 L406,295" class="ar-a"/><path d="M582,295 L602,295" class="ar"/>
+
+  <line x1="20" y1="350" x2="880" y2="350" class="rule"/>
+  <text x="20" y="372" class="sm">Binding is where scripts get mixed up in every school system ever built. A printed QR sticker on the cover — one sheet of stickers per class — removes the</text>
+  <text x="20" y="390" class="sm">failure mode entirely and costs nothing. Handwritten-name matching is not an acceptable substitute and should never be offered as one.</text>
+  <text x="20" y="412" class="xs">OFFLINE: THE WHOLE CAPTURE FLOW WORKS WITH NO NETWORK. PAGES QUEUE IN INDEXEDDB AND UPLOAD WHEN CONNECTIVITY RETURNS.</text>
+</svg></div>
+<figcaption><b>Figure 4 — retake is per page, not per script.</b> The state machine detail that matters: pressing retake on page 12 of 15 re-shoots page 12 and keeps its position. A scanner that makes you start the script over is a scanner teachers abandon after the third student.</figcaption>
+</figure>
+</section>
+<section id="solver">
+<div class="shead"><span class="snum">04</span><h2>Use case 2, pipeline C — the constraint solver</h2></div>
+<p class="ssub">The single most important algorithm in the product. It converts an unreliable read into a provably consistent one.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 430" role="img" aria-label="Worked example of the mark constraint solver: five questions with probability distributions over legal mark values, a naive per-field argmax that sums to seven against a cover total of five, and the solver's constrained assignment that corrects question nineteen from three to one and reconciles exactly.">
+  <text x="20" y="20" class="lb">WORKED EXAMPLE · STUDENT 047 · SURFACE AREAS &amp; VOLUMES SECTION · COVER TOTAL READS 5</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+
+  <text x="20" y="52" class="xs">ITEM</text><text x="86" y="52" class="xs">MAX</text><text x="140" y="52" class="xs">MODEL'S DISTRIBUTION OVER LEGAL VALUES</text><text x="452" y="52" class="xs">NAIVE</text><text x="520" y="52" class="xs">SOLVED</text>
+
+  <text x="20" y="80" class="sm">Q4</text><text x="90" y="80" class="sm">1</text>
+  <text x="140" y="80" class="xs">1 → 0.94</text><rect x="200" y="70" width="188" height="11" class="band"/><rect x="200" y="70" width="177" height="11" class="vfill"/>
+  <text x="456" y="80" class="sm">1</text><text x="526" y="80" class="sm">1</text>
+
+  <text x="20" y="108" class="sm">Q12</text><text x="90" y="108" class="sm">2</text>
+  <text x="140" y="108" class="xs">2 → 0.88</text><rect x="200" y="98" width="188" height="11" class="band"/><rect x="200" y="98" width="165" height="11" class="vfill"/>
+  <text x="456" y="108" class="sm">2</text><text x="526" y="108" class="sm">2</text>
+
+  <text x="20" y="136" class="sm accent">Q19</text><text x="90" y="136" class="sm">3</text>
+  <text x="140" y="136" class="xs">3 → 0.52 · 1 → 0.44</text><rect x="200" y="126" width="188" height="11" class="band"/><rect x="200" y="126" width="98" height="11" class="accent"/><rect x="302" y="126" width="83" height="11" style="fill:var(--rule-2)"/>
+  <text x="456" y="136" class="sm accent">3</text><text x="526" y="136" class="sm vfill">1</text>
+
+  <text x="20" y="164" class="sm">Q26</text><text x="90" y="164" class="sm">3</text>
+  <text x="140" y="164" class="xs">0 → 0.91</text><rect x="200" y="154" width="188" height="11" class="band"/><rect x="200" y="154" width="171" height="11" class="vfill"/>
+  <text x="456" y="164" class="sm">0</text><text x="526" y="164" class="sm">0</text>
+
+  <text x="20" y="192" class="sm">Q30</text><text x="90" y="192" class="sm">3</text>
+  <text x="140" y="192" class="xs">1 → 0.83</text><rect x="200" y="182" width="188" height="11" class="band"/><rect x="200" y="182" width="156" height="11" class="vfill"/>
+  <text x="456" y="192" class="sm">1</text><text x="526" y="192" class="sm">1</text>
+
+  <line x1="20" y1="208" x2="600" y2="208" class="rule"/>
+  <text x="20" y="230" class="sm">SUM</text>
+  <text x="452" y="230" class="sm accent">7 ✗</text>
+  <text x="520" y="230" class="sm vfill">5 ✓</text>
+  <text x="596" y="230" class="xs">COVER TOTAL = 5</text>
+
+  <rect x="630" y="44" width="250" height="186" class="bx-a"/>
+  <text x="644" y="68" class="ttl">The solver</text>
+  <text x="644" y="92" class="sm">maximise  Σ log p_q(m_q)</text>
+  <text x="644" y="112" class="sm">subject to  Σ m_q = T</text>
+  <text x="644" y="132" class="sm">and  0 ≤ m_q ≤ max_q</text>
+  <text x="644" y="158" class="xs">EXACT DYNAMIC PROGRAMME OVER</text>
+  <text x="644" y="172" class="xs">INTEGER AND HALF-MARK VALUES.</text>
+  <text x="644" y="186" class="xs">RUNS IN MILLISECONDS.</text>
+  <text x="644" y="210" class="xs">NOT A HEURISTIC — IT RETURNS THE</text>
+  <text x="644" y="224" class="xs">GLOBAL OPTIMUM OR NOTHING.</text>
+
+  <line x1="20" y1="252" x2="880" y2="252" class="rule"/>
+  <rect x="20" y="268" width="420" height="90" class="bx-a"/>
+  <text x="32" y="290" class="ttl">What just happened</text>
+  <text x="32" y="312" class="sm">A handwritten 1 and 3 are the most confusable pair on an</text>
+  <text x="32" y="330" class="sm">Indian answer script. Per-field, the model preferred 3.</text>
+  <text x="32" y="348" class="sm">The arithmetic says otherwise, and the arithmetic is ground truth.</text>
+
+  <rect x="460" y="268" width="420" height="90" class="bx-v"/>
+  <text x="472" y="290" class="ttl">And when it can't reconcile</text>
+  <text x="472" y="312" class="sm">If no assignment reaches the likelihood floor, the script is</text>
+  <text x="472" y="330" class="sm">flagged, not guessed. A missing page, an unmarked question or</text>
+  <text x="472" y="348" class="sm">a mis-added total all surface here rather than silently corrupting.</text>
+
+  <line x1="20" y1="380" x2="880" y2="380" class="rule"/>
+  <text x="20" y="402" class="sm">This is why the cover total matters more than the recogniser. If the school does not currently write a per-section or overall total, ask for one —</text>
+  <text x="20" y="420" class="sm">a single number per script converts the whole extraction from a guess into a constrained problem with a verifiable answer.</text>
+</svg></div>
+<figcaption><b>Figure 5 — the arithmetic is the oracle.</b> No amount of better handwriting recognition gets you what this gets you: a hard, externally verifiable constraint that the model's output must satisfy. It is the difference between "the model is usually right" and "the answer is consistent with a number the teacher wrote by hand".</figcaption>
+</figure>
+</section>
+
+<section id="halluc">
+<div class="shead"><span class="snum">05</span><h2>The anti-hallucination stack</h2></div>
+<p class="ssub">You asked for an algorithm that can't be beaten. This is the honest version of that: eight independent layers, each catching a different failure, and a measured residual that always reaches a human.</p>
+
+<figure><div class="figwrap"><svg viewBox="0 0 900 500" role="img" aria-label="Eight defence layers against model error, each labelled with its mechanism and the specific failure it catches, with a narrowing error channel down the left and a final residual routed to human review rather than into a report.">
+  <text x="20" y="20" class="lb">DEFENCE IN DEPTH · EACH LAYER CATCHES A FAILURE THE OTHERS CANNOT</text>
+  <line x1="20" y1="28" x2="880" y2="28" class="rule"/>
+  <text x="20" y="50" class="xs">MODEL ERRORS ENTER HERE</text>
+  <path d="M96,58 L96,430" class="ar-a"/>
+
+  <rect x="140" y="44" width="740" height="46" class="bx"/>
+  <text x="152" y="64" class="sm">L1 · The model never does arithmetic</text>
+  <text x="152" y="82" class="xs">EVERY SUM, RATE AND WEIGHT IS COMPUTED IN PYTHON OR SQL · CATCHES: FABRICATED TOTALS, THE MOST COMMON LLM NUMERIC FAILURE</text>
+
+  <rect x="140" y="98" width="740" height="46" class="bx"/>
+  <text x="152" y="118" class="sm">L2 · Constrained output</text>
+  <text x="152" y="136" class="xs">JSON SCHEMA + strict TOOLS, THEN FOREIGN-KEY VALIDATION · CATCHES: INVENTED CHAPTERS AND SUB-TOPICS — THE MODEL LITERALLY CANNOT EMIT ONE</text>
+
+  <rect x="140" y="152" width="740" height="46" class="bx-a"/>
+  <text x="152" y="172" class="sm">L3 · Verifiable invariants</text>
+  <text x="152" y="190" class="xs">Σ max_marks = PRINTED TOTAL · Σ AWARDED = COVER TOTAL · m ≤ max · CATCHES: MISSED QUESTIONS, MISSED PAGES, MISREAD DIGITS</text>
+
+  <rect x="140" y="206" width="740" height="46" class="bx"/>
+  <text x="152" y="226" class="sm">L4 · Redundant extraction</text>
+  <text x="152" y="244" class="xs">TWO INDEPENDENT PASSES, FIELD-LEVEL DIFF · CATCHES: ONE-OFF HALLUCINATIONS — TWO PASSES RARELY INVENT THE SAME THING</text>
+
+  <rect x="140" y="260" width="740" height="46" class="bx"/>
+  <text x="152" y="280" class="sm">L5 · Self-consistency sampling</text>
+  <text x="152" y="298" class="xs">k = 5 SAMPLES ON EVERY CLASSIFICATION, MAJORITY VOTE, SPREAD AS AN UNCERTAINTY SIGNAL · CATCHES: BORDERLINE TIER CALLS</text>
+
+  <rect x="140" y="314" width="740" height="46" class="bx-a"/>
+  <text x="152" y="334" class="sm">L6 · Conformal abstention</text>
+  <text x="152" y="352" class="xs">CALIBRATED SO THE RETURNED SET CONTAINS TRUTH WITH PROBABILITY ≥ 1−α · CATCHES: CONFIDENT WRONGNESS, WITH A COVERAGE GUARANTEE</text>
+
+  <rect x="140" y="368" width="740" height="46" class="bx"/>
+  <text x="152" y="388" class="sm">L7 · Provenance to pixels</text>
+  <text x="152" y="406" class="xs">EVERY NUMBER LINKS TO THE IMAGE CROP IT CAME FROM · CATCHES: EVERYTHING ELSE, BECAUSE A HUMAN CAN CHECK IN ONE SECOND</text>
+
+  <rect x="140" y="422" width="740" height="46" class="bx"/>
+  <text x="152" y="442" class="sm">L8 · Numeric fidelity check on the narrative</text>
+  <text x="152" y="460" class="xs">EVERY NUMBER IN GENERATED PROSE MUST EXIST IN THE SOURCE FINDINGS, ELSE FALL BACK TO THE TEMPLATE · CATCHES: PLAUSIBLE INVENTED SENTENCES</text>
+
+  <path d="M96,430 L96,476 L134,476" class="ar-a"/>
+  <text x="20" y="494" class="xs">RESIDUAL → HUMAN REVIEW QUEUE, NEVER INTO A REPORT</text>
+</svg></div>
+<figcaption><b>Figure 6 — what "can't be beaten" honestly means.</b> No pipeline containing a neural network is 100% correct, and any vendor who tells you otherwise is selling you an untested one. What <em>is</em> achievable, and defensible to a principal: a measured error rate on a held-out audit sample, a calibrated confidence, and a structural guarantee that anything the system is not sure about reaches a teacher instead of a parent.</figcaption>
+</figure>
+
+<div class="note risk"><span class="tag">The measurement that makes the claim real</span><p>Keep a permanent audit sample: 10% of scripts re-keyed by hand, <em>including</em> cells the system was confident about. Publish the resulting error rate in the principal's dashboard. Without this you have a system that <em>feels</em> accurate; with it you have one that can prove it — and if accuracy ever drifts, you find out from the dashboard rather than from an angry parent.</p></div>
+</section>
+<section id="ncert">
+<div class="shead"><span class="snum">06</span><h2>The NCERT knowledge base — RAG or tree?</h2></div>
+<p class="ssub">Both, in a specific order. This is the same answer as before, now stated for the CBSE Class X Maths corpus specifically.</p>
+<p><strong>The NCERT book is not an unstructured corpus and must not be treated as one.</strong> It already carries the hierarchy the product needs — Book → Chapter → Section → Worked Example → Exercise → Question. Chunking that into 500-token blocks and running flat top-k throws away the only reliable signal you have. Instead: <strong>the tree is the index, vectors are the ranker.</strong> Filter to a taxonomy node in the database first — exact, free, no embeddings involved — then rank semantically inside that subtree of a few hundred candidates.</p>
+<div class="tw"><table>
+<thead><tr><th>Job</th><th>Corpus</th><th>Method</th><th>When you build it</th></tr></thead>
+<tbody>
+<tr><td>Classify a paper question</td><td>Validated Question Library — <em>not</em> the textbook</td><td>Hybrid BM25 + dense retrieval, rerank, exemplars into a constrained prompt</td><td>Sprint 2. This is the layer that pays for itself.</td></tr>
+<tr><td>Suggest practice</td><td>NCERT exercises tagged by sub-topic × tier</td><td>A SQL lookup. Vector search is the fallback, not the default</td><td>Sprint 5. ~400 tagged items for Class X Maths.</td></tr>
+<tr><td>Explain a concept</td><td>NCERT prose and worked examples</td><td>Pre-filtered ANN inside the subtree, then parent-document expansion</td><td>Later. Nothing in the pilot report needs it.</td></tr>
+</tbody></table></div>
+<p>Concretely, for this pilot the "vectorise NCERT" job is small: tag roughly 400 exercise questions across 15 chapters with a sub-topic and a tier. That is a structured tagging task, not a document-AI project, and it is the same spreadsheet the reviewers are already filling for the question paper.</p>
+<div class="note"><span class="tag">The piece worth more than the embeddings</span><p>Add <strong>prerequisite edges</strong> between sub-topics — composite solids requires cone surface area and cylinder surface area. When a student fails a composite-solids question, the useful answer is <em>which</em> gap it is, and only the graph can tell you. Hand-curated once per subject, and it never needs retraining.</p></div>
+</section>
+
+<section id="stack">
+<div class="shead"><span class="snum">07</span><h2>The stack, both use cases, one website</h2></div>
+<p class="ssub">One frontend, one backend, one database. The two use cases share auth, students, schools and the report layer — they are not two apps.</p>
+<div class="tw"><table>
+<thead><tr><th>Layer</th><th>Choice</th><th>Why here specifically</th><th>Docs</th></tr></thead>
+<tbody>
+<tr><td class="nw">Frontend</td><td>Next.js 15 + TypeScript</td><td>App Router; the test, the scanner and the dashboard are one deployable</td><td><a href="https://nextjs.org/docs">nextjs.org/docs</a></td></tr>
+<tr><td class="nw">UI</td><td>Tailwind + shadcn/ui</td><td>Fast, accessible primitives; no design system to build</td><td><a href="https://ui.shadcn.com/">ui.shadcn.com</a></td></tr>
+<tr><td class="nw">Forms</td><td>react-hook-form + Zod</td><td>The profile form and 36-item test are both validated client and server from one schema</td><td><a href="https://react-hook-form.com/">react-hook-form.com</a></td></tr>
+<tr><td class="nw">i18n</td><td>next-intl</td><td>English + Tamil, toggle mid-test without losing answers</td><td><a href="https://next-intl.dev/">next-intl.dev</a></td></tr>
+<tr><td class="nw">Offline</td><td>Dexie (IndexedDB)</td><td>Test answers and scanned pages both queue locally; school Wi-Fi will fail</td><td><a href="https://dexie.org/">dexie.org</a></td></tr>
+<tr><td class="nw">Camera</td><td>MediaDevices <code>getUserMedia</code> + OpenCV.js</td><td>Live edge detection and the blur score run in the browser, before upload</td><td><a href="https://developer.mozilla.org/en-US/docs/Web/API/MediaDevices/getUserMedia">MDN getUserMedia</a></td></tr>
+<tr><td class="nw">Backend</td><td>FastAPI · Python 3.12</td><td>Same language as the scoring, imaging and analysis layers — no service boundary in the middle of the algorithm</td><td><a href="https://fastapi.tiangolo.com/">fastapi.tiangolo.com</a></td></tr>
+<tr><td class="nw">ORM</td><td>SQLAlchemy 2.0 + Alembic</td><td>Typed 2.0 style; raw SQL stays available for the analyzer</td><td><a href="https://docs.sqlalchemy.org/en/20/">docs.sqlalchemy.org</a></td></tr>
+<tr><td class="nw">Database</td><td>PostgreSQL 16 + pgvector</td><td>Relational core, <code>ltree</code> taxonomy and question embeddings in one engine</td><td><a href="https://github.com/pgvector/pgvector">pgvector</a></td></tr>
+<tr><td class="nw">Jobs</td><td>arq (Redis)</td><td>Page extraction and report builds are background work; simpler than Celery, sufficient at this scale</td><td><a href="https://arq-docs.helpmanual.io/">arq-docs</a></td></tr>
+<tr><td class="nw">Object store</td><td>S3 / MinIO</td><td>Script images, crops and PDFs. SSE-KMS, lifecycle expiry</td><td><a href="https://min.io/docs/minio/linux/index.html">min.io/docs</a></td></tr>
+<tr><td class="nw">Vision + LLM</td><td>Anthropic SDK — <code>claude-opus-5</code></td><td>Question-paper extraction and classification: high stakes, once per paper, worth the best model. Structured outputs via <code>output_config</code>, tools with <code>strict: true</code></td><td><a href="https://docs.claude.com/en/api/overview">docs.claude.com</a></td></tr>
+<tr><td class="nw">High-volume reads</td><td><code>claude-haiku-4-5</code></td><td>Per-crop mark digits across 40 scripts × 30 questions. Cheap; disagreements escalate to <code>claude-opus-5</code> as adjudicator</td><td><a href="https://docs.claude.com/en/docs/about-claude/models">model docs</a></td></tr>
+<tr><td class="nw">Overnight batches</td><td>Message Batches API</td><td>Answer scripts are not latency-sensitive. Batch runs at 50% cost — scan during the day, extract overnight</td><td><a href="https://docs.claude.com/en/docs/build-with-claude/batch-processing">batch docs</a></td></tr>
+<tr><td class="nw">Imaging</td><td>OpenCV · pyzbar · scikit-image</td><td>Dewarp, deskew, glare and blur metrics, QR sticker decode</td><td><a href="https://docs.opencv.org/4.x/">docs.opencv.org</a></td></tr>
+<tr><td class="nw">PDF</td><td>img2pdf + pikepdf</td><td>Lossless assembly of page images into one script PDF</td><td><a href="https://pikepdf.readthedocs.io/">pikepdf</a></td></tr>
+<tr><td class="nw">Analysis</td><td>pandas · NumPy · SciPy</td><td>Scoring, Wilson intervals, point-biserial, χ² alignment</td><td><a href="https://docs.scipy.org/doc/scipy/reference/stats.html">scipy.stats</a></td></tr>
+<tr><td class="nw">Auth</td><td>Auth.js</td><td>Principal and admin only; students use a per-class code, never an account</td><td><a href="https://authjs.dev/">authjs.dev</a></td></tr>
+<tr><td class="nw">Reports</td><td>Jinja2 → WeasyPrint</td><td>HTML in-app and PDF export from one template</td><td><a href="https://doc.courtbouillon.org/weasyprint/stable/">weasyprint</a></td></tr>
+<tr><td class="nw">Hosting</td><td>Vercel (web) + AWS <code>ap-south-1</code></td><td>Data residency in India. RDS, S3 and the API all in Mumbai</td><td><a href="https://docs.aws.amazon.com/">docs.aws.amazon.com</a></td></tr>
+<tr><td class="nw">Observability</td><td>Sentry + OpenTelemetry</td><td><code>run_id</code> propagated end to end so any number traces to the crop that produced it</td><td><a href="https://opentelemetry.io/docs/">opentelemetry.io</a></td></tr>
+</tbody></table></div>
+
+<h4>Estimated AI cost per assessment cycle</h4>
+<div class="tw"><table>
+<thead><tr><th>Item</th><th>Model</th><th>Basis</th><th>Estimate</th></tr></thead>
+<tbody>
+<tr><td>Question paper, two passes</td><td><code>claude-opus-5</code></td><td>~8 pages × 2 passes at $5/M input</td><td>≈ ₹25–30 per paper, once</td></tr>
+<tr><td>Classification, 30 questions × k=5</td><td><code>claude-opus-5</code></td><td>Text only, with retrieved exemplars</td><td>≈ ₹15–20 per paper, once</td></tr>
+<tr><td>Mark extraction, 40 scripts</td><td><code>claude-haiku-4-5</code></td><td>Cropped mark regions, not full pages</td><td>≈ ₹3–8 per student</td></tr>
+<tr><td>Overnight batch discount</td><td>—</td><td>Batches API, 50% off</td><td>Roughly halves the above</td></tr>
+<tr><td colspan="3"><strong>All-in per class of 40, per assessment</strong></td><td><strong>≈ ₹200–400</strong></td></tr>
+</tbody></table></div>
+<p class="ssub" style="margin-top:-8px">Order-of-magnitude estimates from published per-token rates, not quotes. Measure on your first real paper before you price anything.</p>
+</section>
+
+<section id="sprints">
+<div class="shead"><span class="snum">08</span><h2>Six sprints</h2></div>
+<p class="ssub">Sprint 1 alone ships the site you asked for first. Everything after it is the marks engine.</p>
+<div class="tw"><table>
+<thead><tr><th>Sprint</th><th>Days</th><th>Ships</th><th>Done when</th></tr></thead>
+<tbody>
+<tr><td>S0 · Foundation</td><td>2</td><td>Repo, Compose, Postgres, Next.js + FastAPI skeleton, auth, schools/students schema, your logo and brand tokens</td><td>A principal can log in; a student can open a class code link</td></tr>
+<tr><td>S1 · Interest test</td><td>5</td><td><strong>Use case 1 complete.</strong> Consent + profile form, 36 bilingual items, autosave, thank-you, scoring engine, validity screen, student report page, cohort dashboard, PDF export</td><td>40 seeded students score end to end; a flat profile correctly withholds its recommendation</td></tr>
+<tr><td>S2 · Question paper</td><td>5</td><td>Capture, structured extraction, gates G1–G3, taxonomy classification with abstention, teacher confirmation screen, frozen Q-matrix</td><td>A real past paper ingests, reconciles to its printed total, and is confirmed in under 5 minutes</td></tr>
+<tr><td>S3 · Scanner</td><td>5</td><td>Multi-page browser scanner, quality scoring, per-page retake, complete, offline queue, PDF assembly, QR binding to the roster</td><td>A teacher scans 15 pages for 5 students on a real phone without help</td></tr>
+<tr><td>S4 · Mark extraction</td><td>5</td><td>Region location, per-field distributions, the constraint solver, calibration, confidence routing, the review queue with crops</td><td>Solver corrects a planted misread; unreconcilable scripts flag instead of guessing</td></tr>
+<tr><td>S5 · Analysis &amp; report</td><td>5</td><td>Mapping to chapter / sub-topic / tier, loss analysis with evidence floor, board-weighted indicator, paper quality, the principal's report</td><td>One student's full diagnostic report generates from scanned input alone</td></tr>
+<tr><td>S6 · Hardening</td><td>5</td><td>Audit sample and accuracy dashboard, calibration tuning, RLS, consent and retention, load and error handling, handover docs</td><td>A published, measured error rate exists for every extraction stage</td></tr>
+</tbody></table></div>
+<div class="note warn"><span class="tag">Sequencing note</span><p>S2 through S5 have a hard dependency you cannot compress: <strong>you need real photographed answer scripts before S4 is designable</strong>, because handwriting, ink, glare and margin layout at this specific school determine the crop strategy. Get five sample scripts photographed on a teacher's actual phone during S1 — not scanned on a flatbed, which produces images nothing like production.</p></div>
+</section>
+
+<section id="need">
+<div class="shead"><span class="snum">09</span><h2>What I need from you to start</h2></div>
+<p class="ssub">Five things. The first two block Sprint 0 and Sprint 1; the rest block Sprint 2 onward.</p>
+<ol>
+<li><strong>Your company logo</strong> — SVG preferred, plus a PNG fallback, and the brand colours if you have them. This goes on the landing page, the test and every exported PDF.</li>
+<li><strong>Confirmation on Tamil</strong> — do the 36 items need Tamil at launch, or is English-only acceptable for the first cohort with Tamil in S6? This changes Sprint 1 by about a day plus translation review.</li>
+<li><strong>Two past Class X Maths question papers</strong> from this school — ideally one with internal choice, so the <code>choice_group</code> handling is tested against reality rather than my assumption.</li>
+<li><strong>Five sample answer scripts</strong>, photographed page by page on a teacher's own phone, in the room where scanning will actually happen. This is the single most valuable input you can give me and it determines the entire Sprint 4 design.</li>
+<li><strong>How the school records marks today</strong> — margin numbers only, a cover-page total, a per-section total, or a tabulated grid. If there is no total anywhere, I will send you a one-page marks strip to print, and the whole extraction problem gets dramatically easier.</li>
+</ol>
+<p>Give me 1 and 2 and Sprint 0 starts immediately; the rest can arrive during Sprint 1.</p>
+</section>
+
+<footer>
+  <span>Project Yaadhum · product blueprint · use case 1 + 2</span>
+  <span>Companion to the architecture doc, systems atlas and backend sprint</span>
+</footer>
+</div>
