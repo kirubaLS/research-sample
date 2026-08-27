@@ -183,6 +183,102 @@ irrational number"* carries the verb **prove** — which reads as AP — but it 
 theorem that students memorise, so its real demand is reproduction. Only the retrieval signal knows
 that.
 
+### How signals 2 and 3 actually compose — the verb never outputs a tier
+
+The verb lexicon on its own is wrong, and it is wrong in a predictable way. The fix is not a better
+lexicon; it is to stop asking the lexicon for a tier at all.
+
+**Bloom level = action × familiarity.** "Applying" means carrying out a known procedure in a *new*
+situation. If the exact task was taught and memorised, the same action is Remembering. So the
+lexicon outputs an **action class**, and only the combination with a familiarity score produces a
+tier.
+
+**Step 1 — the lexicon emits an action, not a tier**
+
+| Action class | English triggers | Hindi | Tamil |
+|---|---|---|---|
+| RECALL | state, name, list, define, write the value of | बताइए, लिखिए | எழுதுக |
+| EXPLAIN | explain, describe, what is meant by | समझाइए, वर्णन कीजिए | விளக்குக |
+| EXECUTE | find, calculate, solve, determine, evaluate (numeric) | ज्ञात कीजिए, हल कीजिए | கண்டறிக, தீர்க்க |
+| PROVE | prove, show that, verify | सिद्ध कीजिए | நிரூபிக்க |
+| APPLY-IN-CONTEXT | a word problem, a real-world frame, a case study | — | — |
+| ANALYSE / EVALUATE / CREATE | justify, compare, comment, criticise, suggest, design, in your opinion | मूल्यांकन कीजिए, अपने विचार | மதிப்பிடுக, ஆய்க |
+
+**Step 2 — a familiarity score F, against two separate buckets**
+
+Retrieve the normalised stem (numbers → `<NUM>`, names → `<NAME>`) against:
+
+- **Bucket T — taught as content.** NCERT theorems, worked examples and solved examples *in the
+  chapter body*. A match here means the student has seen the answer written out.
+- **Bucket E — exercise practice.** NCERT end-of-chapter exercises and the school's past papers.
+
+`F = max(cosine similarity)` per bucket, with an exact-hash channel on top. A Bucket T match is much
+stronger evidence of reproduction than a Bucket E match.
+
+**Step 3 — a 2-D table decides the tier**
+
+|  | F ≥ 0.85 — verbatim or near | 0.55 ≤ F < 0.85 — same method, new numbers or frame | F < 0.55 — novel |
+|---|---|---|---|
+| RECALL · EXPLAIN | R&U | R&U | R&U |
+| **EXECUTE · PROVE** | **R&U** ← *the √5 case* | **AP** | AEC |
+| APPLY-IN-CONTEXT | AP | AP | AEC |
+| ANALYSE · EVALUATE · CREATE | AP | AEC | AEC |
+
+Worked through:
+
+- *"Prove that √5 is an irrational number."* → action **PROVE**, and it matches **Bucket T** at
+  F ≈ 0.94 — it is a named theorem in the NCERT chapter body. Table gives **R&U**. Correct: the
+  student is reproducing a proof they were taught line by line.
+- *"Prove that 3 + 2√5 is irrational."* → same action, F ≈ 0.70 against Bucket E. Table gives
+  **AP**. Correct: the method is known, the object is new.
+- *"Prove that the parallelogram circumscribing a circle is a rhombus."* → PROVE, F < 0.55 if it is
+  not in the taught set. Table gives **AEC**.
+
+The table is small, auditable, and a head of department can argue with it — which is exactly what you
+want from a rule that assigns a contested label.
+
+**Step 4 — for the taught-verbatim bucket, stop doing retrieval and just enumerate it**
+
+This is the practical shortcut that makes the whole thing cheap. **For Class X Maths there are only
+about 40–60 named theorems and standard proofs.** Enumerate them once into a table:
+
+```sql
+create table canonical_procedure (
+  id            uuid primary key,
+  curriculum_version text not null,      -- 'CBSE-2026-27'
+  subject_id    uuid not null,
+  chapter_id    uuid not null,
+  name          text not null,           -- 'Irrationality of root 5'
+  canonical_stem text not null,          -- for embedding + hashing
+  taught_verbatim boolean not null,      -- true => Bucket T
+  aliases       text[]                   -- common rewordings, incl. HI/TA
+);
+```
+
+Seed rows for Class X Maths: irrationality of √2 / √3 / √5, Fundamental Theorem of Arithmetic,
+relationship between zeroes and coefficients, Basic Proportionality Theorem and its converse,
+Pythagoras and its converse, tangent ⟂ radius, equal tangents from an external point, area of a
+sector, distance and section formulas, sin²θ + cos²θ = 1 and the derived identities, nth term and
+sum of an AP.
+
+That is **one day of work, once**, reusable across every school and every year the syllabus is
+unchanged. For those items the familiarity signal is not fuzzy retrieval at all — it is an exact
+lookup, deterministic and free.
+
+**Step 5 — let response data falsify the label later**
+
+Once a paper has been attempted, item difficulty gives you a free third opinion. Across a class,
+R&U items should on average be easier than AP items, which should be easier than AEC items. An item
+whose difficulty (p-value) sits two standard deviations out of place for its assigned tier is routed
+back for re-review. This costs no human time and it catches exactly the systematic errors a lexicon
+makes.
+
+**Step 6 — and let the school win the argument**
+
+Reasonable teachers genuinely disagree on tier. Overrides are stored per school in the taxonomy, not
+patched into the model. If a school insists that proving √5 is Applying for their students, their
+taxonomy says so, their reports follow it, and their Question Library records who decided and when.
+
 ### Signal 4 — LLM judgement, constrained
 `claude-opus-5`, output restricted to the three tiers, with a required rationale. The prompt carries
 the CBSE tier definitions, the school's own adjudicated exemplars, and signals 1–3 as stated
