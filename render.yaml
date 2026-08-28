@@ -84,6 +84,11 @@ services:
       - key: WEB_CONCURRENCY
         value: "1"
 
+  # MUST be `type: web`, not `type: static`. Two of the routes are server-rendered on
+  # demand (/t/[classCode] and its test page) because a class code is a runtime value that
+  # cannot be pre-rendered. Creating this as a Render Static Site fails the deploy with
+  # "Publish directory dist does not exist!" — the build succeeds, then Render looks for
+  # static output that a server-rendered app never produces.
   - type: web
     name: yaadhum-web
     runtime: node

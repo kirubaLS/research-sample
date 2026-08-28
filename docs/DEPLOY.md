@@ -123,6 +123,11 @@ one, a brief database blip restarts a perfectly healthy process.
 load. `app/config.normalise_database_url` rewrites it to `postgresql+psycopg://`, so the
 platform's own connection string can be pasted in unchanged.
 
+**The frontend is a Web Service, not a Static Site.** `/t/[classCode]` and its test page are
+server-rendered on demand — a class code is a runtime value, so it cannot be pre-rendered.
+Creating the frontend as a Static Site fails with `Publish directory dist does not exist!`
+*after* a successful build, which reads as a build problem but is a service-type problem.
+
 **Free instances sleep.** A sleeping API means the first request after idle takes ~30s —
 which, mid-scan with a teacher holding a phone over a script, reads as broken. `starter` is
 the floor for anything a school touches.

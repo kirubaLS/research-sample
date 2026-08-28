@@ -228,6 +228,8 @@ curl -si -X OPTIONS $API/health -H "Origin: https://evil.example" \
 
 | Symptom | Cause | Fix |
 |---|---|---|
+| `Publish directory dist does not exist!` after a successful `next build` | The frontend was created as a Render **Static Site**. Two routes are server-rendered on demand, so there is no static output directory | Delete it and recreate as a **Web Service** (Node), or deploy via the Blueprint, which sets `type: web`. Render cannot convert a service type in place |
+| `npm audit`: high severity in `postcss` | Transitive dependency of Next | Already pinned via an `overrides` entry. Do **not** run `npm audit fix --force` — it installs Next 16, a major version jump |
 | `Multiple top-level packages discovered in a flat-layout` | Old checkout — `pyproject.toml` must declare `packages = ["app"]` | Pull `main` |
 | `SettingsError: error parsing value for field "cors_origins"` | Old checkout — list settings need `NoDecode` | Pull `main` |
 | Browser console: *blocked by CORS policy* | `YAADHUM_CORS_ORIGINS` does not match the web origin exactly | Include the scheme, no trailing slash, then restart the API |
