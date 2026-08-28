@@ -97,11 +97,38 @@ ceiling.
    - `yaadhum-api` → `YAADHUM_CORS_ORIGINS` = the web service's URL
    - `yaadhum-web` → `NEXT_PUBLIC_API_BASE` = the API's URL
 6. Seed the first school:
+   The deploy runs `alembic upgrade head`, which creates the schema and nothing else.
+   A freshly deployed database has **no school in it**, so nobody can sign in and the
+   student class list is empty until you provision one. Open the API service's **Shell**
+   tab in the Render dashboard (or `render shell yaadhum-api` with the CLI) and run:
+
    ```bash
-   render shell yaadhum-api     # or the dashboard shell
-   python -m scripts.seed
+   cd backend
+   python -m scripts.create_school "Bharath International Sr. Sec. School" \
+       --state "Tamil Nadu" --sections 10-A 10-B
    ```
-   It prints the API key and the class code. `/t/<class-code>` is the student link.
+
+   It prints the school's API key -- the principal's only credential -- and one
+   `/t/<class-code>` link per section. It is safe to re-run: an existing school keeps its
+   key and only missing sections are added.
+
+   Do **not** run `python -m scripts.seed` against a school's live database. That is the
+   laptop script; it invents forty students so the dashboard has something to show.
+
+   No students are created here. A student enrols themselves the first time they open the
+   class link and fill in the form.
+
+   **Retrieving the key later**, from the same shell:
+
+   ```bash
+   cd backend
+   python -m scripts.admin_key                        # every school and its key
+   python -m scripts.admin_key --rotate <school-id>   # new key if one leaks
+   ```
+
+   If your plan has no Shell tab, you can read the same value straight from Neon's SQL
+   editor -- `select id, name, api_key from school;` -- but prefer the shell: rotation
+   through the script keeps the key in the format the app validates.
 
 ---
 
