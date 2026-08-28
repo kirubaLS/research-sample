@@ -46,6 +46,21 @@ def school(_tmp_db):
     sec = Section(school_id=s.id, grade=10, name="A")
     db.add(sec)
     db.commit()
+    # Layer 1 needs real nodes to resolve against: every question carries a board unit and
+    # a concept family, and the ingest refuses codes it cannot find.
+    from app.models import TaxonomyNode
+
+    subject = TaxonomyNode(kind="subject", code="X.MATH", label="Class X Maths", path="X.MATH")
+    db.add(subject)
+    db.flush()
+    for kind, code, label in (
+        ("board_unit", "X.MATH.U.MENSURATION", "Mensuration"),
+        ("chapter", "X.MATH.SAV", "Surface Areas and Volumes"),
+        ("concept_family", "X.MATH.CF.VOLUME", "Volume of Composite Solids"),
+    ):
+        db.add(TaxonomyNode(kind=kind, code=code, label=label, parent_id=subject.id, path=code))
+    db.commit()
+
     out = {"school_id": s.id, "section_id": sec.id, "api_key": s.api_key}
     db.close()
     return out

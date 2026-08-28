@@ -139,13 +139,13 @@ def typology_alignment(
     return AlignmentReport(observed, tgt, chi, alignment, verdict)
 
 
-def chapter_coverage(
-    marks_by_chapter: dict[str, float],
+def board_unit_coverage(
+    marks_by_unit: dict[str, float],
     board_weights: dict[str, float],
 ) -> dict:
-    total = sum(marks_by_chapter.values()) or 1.0
-    observed = {c: marks_by_chapter.get(c, 0.0) / total for c in board_weights}
-    missing = [c for c, w in board_weights.items() if marks_by_chapter.get(c, 0.0) <= 0]
+    total = sum(marks_by_unit.values()) or 1.0
+    observed = {c: marks_by_unit.get(c, 0.0) / total for c in board_weights}
+    missing = [c for c, w in board_weights.items() if marks_by_unit.get(c, 0.0) <= 0]
     tvd = 0.5 * sum(abs(observed[c] - board_weights[c] / 100.0) for c in board_weights)
     return {
         "observed_share": {k: round(v, 4) for k, v in observed.items()},

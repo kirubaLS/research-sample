@@ -7,15 +7,44 @@ across the eight real CBSE 2026 papers we measured.
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Boolean, Float, ForeignKey, Integer, Numeric, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    CheckConstraint,
+    Float,
+    ForeignKey,
+    Integer,
+    Numeric,
+    String,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, PkMixin, TimestampMixin
 
-#: CBSE cognitive tiers
-TIERS = ("R&U", "AP", "AEC")
+#: CBSE cognitive tiers, in the board's own words. One field, one name -- the UI
+#: abbreviates ("AP"), storage does not.
+TIERS = ("Remembering & Understanding", "Applying", "Analysing, Evaluating & Creating")
+#: legacy short codes, accepted on the way in so older data and the tier engine keep working
+TIER_ALIASES = {
+    "R&U": "Remembering & Understanding",
+    "AP": "Applying",
+    "AEC": "Analysing, Evaluating & Creating",
+}
 #: target mark share of a board paper, used only as a tie-break on declared blueprints
-CBSE_TIER_TARGET = {"R&U": 0.54, "AP": 0.24, "AEC": 0.22}
+CBSE_TIER_TARGET = {
+    "Remembering & Understanding": 0.54,
+    "Applying": 0.24,
+    "Analysing, Evaluating & Creating": 0.22,
+}
+
+#: Complexity does not map onto pure literary interpretation. A third state keeps the
+#: analysis honest rather than coercing single/multi-step -- the same reasoning as
+#: NOT_OFFERED in the marks engine.
+COMPLEXITY_VALUES = ("SINGLE_STEP", "MULTI_STEP", "NOT_APPLICABLE")
+DEPENDENCY_VALUES = ("SINGLE_CONCEPT", "MULTI_CONCEPT")
+#: the judgment fields of Layer 2B, each requiring two agreeing reviewers before shipping
+JUDGMENT_FIELDS = ("skill_required", "complexity", "dependency_level")
 
 
 class Assessment(Base, PkMixin, TimestampMixin):
@@ -68,7 +97,16 @@ class Question(Base, PkMixin, TimestampMixin):
     """
 
     __tablename__ = "question"
-    __table_args__ = (UniqueConstraint("assessment_id", "address", name="uq_question_address"),)
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "address", name="uq_question_address"),
+        # The conditional-Chapter rule, enforced rather than trusted. A half-filled pair --
+        # chapter without section, or section without chapter -- is the force-fitting the
+        # rule forbids, and is far cheaper to reject here than to find in a report later.
+        CheckConstraint(
+            "(chapter_id IS NULL) = (curriculum_section IS NULL)",
+            name="ck_question_chapter_pairing",
+        ),
+    )
 
     assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
     address: Mapped[str] = mapped_column(String(40), index=True)   # 'C/27//b'
@@ -85,6 +123,39 @@ class Question(Base, PkMixin, TimestampMixin):
     stem_hash: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)
     logical_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
     bbox: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
+    # --- Layer 1: curriculum intelligence ---
+    #: The only field the board-weight lookup ever reads. Not null: a null here silently
+    #: removes the question from board-impact reporting rather than failing loudly.
+    board_unit_id: Mapped[str] = mapped_column(ForeignKey("taxonomy_node.id"), index=True)
+    #: Conditional. A skill-anchored question (unseen passage, invented sentence) has no
+    #: chapter to point at, and inventing one is the failure the rule exists to prevent.
+    chapter_id: Mapped[str | None] = mapped_column(
+        ForeignKey("taxonomy_node.id"), nullable=True, index=True
+    )
+    curriculum_section: Mapped[str | None] = mapped_column(String(32), nullable=True)  # '12.2'
+    curriculum_section_title: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Provenance for the section number. The schema requires it checked against the current
+    #: textbook, so an unverified number must be visibly unverified, not indistinguishable
+    #: from a checked one.
+    verified_against: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    verified_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+    #: Held constant across cycles: the axis every trend report groups by, and the reason
+    #: a diagnosis still works when chapter_id is null.
+    concept_family_id: Mapped[str] = mapped_column(ForeignKey("taxonomy_node.id"), index=True)
+    #: Must CHANGE across cycles. Same family, different question -- otherwise a rising
+    #: score measures familiarity and reads as learning. Enforced by app.taxonomy.variants.
+    concept_variant: Mapped[str] = mapped_column(String(200))
+    variant_hash: Mapped[str] = mapped_column(String(64), index=True)
+
+    # --- Layer 2B: learning demand (judgment; see QuestionJudgment for the review gate) ---
+    skill_required: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    complexity: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    dependency_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+    # Difficulty is deliberately absent and must stay absent. It is derived from observed
+    # performance across more than one school (app.analysis.difficulty), never tagged.
 
 
 class QuestionSkill(Base, PkMixin):
@@ -116,6 +187,24 @@ class QuestionTier(Base, PkMixin, TimestampMixin):
     source: Mapped[str] = mapped_column(String(24), default="ensemble")  # ensemble|human|library
     model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rationale: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
+
+class QuestionJudgment(Base, PkMixin, TimestampMixin):
+    """Layer 2B review trail. Append-only; more than one row per field is the normal case.
+
+    The schema requires two reviewers and disagreements resolved *before the question
+    ships*, so agreement is a gate rather than a statistic -- see app.taxonomy.judgment.
+    """
+
+    __tablename__ = "question_judgment"
+
+    question_id: Mapped[str] = mapped_column(ForeignKey("question.id"), index=True)
+    field: Mapped[str] = mapped_column(String(24), index=True)  # see JUDGMENT_FIELDS
+    value: Mapped[str] = mapped_column(String(200))
+    reviewer_id: Mapped[str] = mapped_column(String(64), index=True)
+    #: set when a third judgment settles a disagreement rather than being an independent read
+    is_resolution: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
 
 class DataQualityFlag(Base, PkMixin, TimestampMixin):

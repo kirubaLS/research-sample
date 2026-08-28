@@ -9,15 +9,18 @@ from app.analysis.diagnostics import (
 )
 from app.analysis.paper_quality import cronbach_alpha, item_analysis, typology_alignment
 
+#: board unit and concept family, kept short so the fixtures stay readable
+MENS, VOL = "U.MENSURATION", "CF.VOLUME"
+
 
 def _rows(student: str = "s1") -> list[MarkRow]:
     return [
-        MarkRow(student, "A/4//", 1, 1, "awarded", ("cone",), "R&U", "SAV"),
-        MarkRow(student, "A/12//", 2, 2, "awarded", ("cylinder",), "R&U", "SAV"),
-        MarkRow(student, "A/19//", 1, 3, "awarded", ("composite",), "AP", "SAV"),
-        MarkRow(student, "A/26//", 0, 3, "awarded", ("composite",), "AP", "SAV"),
-        MarkRow(student, "A/30//", 1, 3, "awarded", ("composite",), "AP", "SAV"),
-        MarkRow(student, "A/31//a", 0, 5, "not_offered", ("stats",), "AP", "STATS"),
+        MarkRow(student, "A/4//", 1, 1, "awarded", ("cone",), "R&U", "SAV", MENS, VOL),
+        MarkRow(student, "A/12//", 2, 2, "awarded", ("cylinder",), "R&U", "SAV", MENS, VOL),
+        MarkRow(student, "A/19//", 1, 3, "awarded", ("composite",), "AP", "SAV", MENS, VOL),
+        MarkRow(student, "A/26//", 0, 3, "awarded", ("composite",), "AP", "SAV", MENS, VOL),
+        MarkRow(student, "A/30//", 1, 3, "awarded", ("composite",), "AP", "SAV", MENS, VOL),
+        MarkRow(student, "A/31//a", 0, 5, "not_offered", ("stats",), "AP", "STATS", "U.STATSPROB", "CF.MEAN"),
     ]
 
 
@@ -29,7 +32,7 @@ def test_not_offered_is_excluded_from_every_denominator():
 
 
 def test_evidence_floor_suppresses_a_number_it_cannot_support():
-    thin = [MarkRow("s1", "A/1//", 0, 1, "awarded", ("cone",), "R&U", "SAV")]
+    thin = [MarkRow("s1", "A/1//", 0, 1, "awarded", ("cone",), "R&U", "SAV", MENS, VOL)]
     f = by_tier(thin)[0]
     assert not f.sufficient and f.rate is None
     assert "Insufficient evidence" in f.message
@@ -42,14 +45,16 @@ def test_the_crosstab_is_the_diagnosis():
     assert findings["composite|AP"].rate < 0.3     # weak on application of composite solids
 
 
-def test_a_chapter_with_no_marks_is_a_coverage_gap_not_a_zero():
-    _, gaps = board_weighted_indicator(_rows(), {"SAV": 13.0, "TRIG": 12.0})
-    assert [g.chapter for g in gaps] == ["TRIG"]
+def test_a_board_unit_with_no_marks_is_a_coverage_gap_not_a_zero():
+    _, gaps = board_weighted_indicator(
+        _rows(), {"U.MENSURATION": 10.0, "U.TRIG": 12.0}
+    )
+    assert [g.board_unit for g in gaps] == ["U.TRIG"]
     assert "no information" in gaps[0].message
 
 
 def test_indicator_carries_an_interval_and_a_share():
-    indicators, _ = board_weighted_indicator(_rows(), {"SAV": 13.0})
+    indicators, _ = board_weighted_indicator(_rows(), {"U.MENSURATION": 10.0})
     row = indicators[0]
     assert row["indicator_ci"][0] < row["indicator"] < row["indicator_ci"][1]
     assert abs(row["share"] - 1.0) < 1e-9

@@ -28,9 +28,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+from app.models.assessment import TIER_ALIASES
 from app.taxonomy.familiarity import FamiliarityResult
 from app.taxonomy.lexicon import primary_action
 
+#: the derivation engine works in short codes; storage uses the board's own words, so
+#: reconcile_with_blueprint maps across via TIER_ALIASES on the way out
 TIERS = ("R&U", "AP", "AEC")
 
 FAMILIARITY_LEVELS = ("T_VERBATIM", "PRACTISED", "ADAPTED", "NOVEL")
@@ -258,3 +261,57 @@ def apply_blueprint_tiebreak(
         moved.append((qid, pick))
 
     return BlueprintAdjustment(True, moved, "abstained items nudged toward declared blueprint")
+
+
+@dataclass(frozen=True)
+class TierReconciliation:
+    """What the paper says, what the derivation says, and where they part company."""
+
+    question_id: str
+    tier: str | None                # the value to store
+    source: str                     # 'blueprint' | 'derived' | 'abstained'
+    derived: str | None
+    declared: str | None
+    disagreement: bool
+
+
+def reconcile_with_blueprint(
+    decisions: dict[str, TierDecision],
+    declared_tiers: dict[str, str],
+) -> list[TierReconciliation]:
+    """The blueprint wins where the paper states a tier per question.
+
+    Competency Tier is assessment metadata, not a judgment: it is CBSE's own label,
+    checked against the blueprint, and the paper is the primary source. So where a tier is
+    declared it *is* the answer, and the derivation becomes a cross-check whose real value
+    is the disagreement it surfaces -- either the derivation is wrong, or the paper has
+    mislabelled a question, and both are worth knowing.
+
+    Where nothing is declared, the derivation does its actual job and may still abstain.
+    """
+    out: list[TierReconciliation] = []
+    for question_id, decision in decisions.items():
+        declared = declared_tiers.get(question_id)
+        declared = TIER_ALIASES.get(declared, declared) if declared else None
+        derived = TIER_ALIASES.get(decision.tier, decision.tier) if decision.tier else None
+
+        if declared is not None:
+            out.append(
+                TierReconciliation(
+                    question_id, declared, "blueprint", derived, declared,
+                    disagreement=derived is not None and derived != declared,
+                )
+            )
+        else:
+            out.append(
+                TierReconciliation(
+                    question_id, derived, "derived" if derived else "abstained",
+                    derived, None, disagreement=False,
+                )
+            )
+    return out
+
+
+def disagreements(reconciliations: list[TierReconciliation]) -> list[TierReconciliation]:
+    """Worth a flag on the paper: the derivation and the blueprint read a question differently."""
+    return [r for r in reconciliations if r.disagreement]

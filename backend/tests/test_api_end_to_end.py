@@ -115,16 +115,26 @@ def test_marks_engine_flow(client, school):
     assert created.status_code == 200
     aid = created.json()["assessment_id"]
 
+    def layer1(variant: str) -> dict:
+        return {
+            "board_unit": "X.MATH.U.MENSURATION",
+            "concept_family": "X.MATH.CF.VOLUME",
+            "concept_variant": variant,
+            "chapter": "X.MATH.SAV",
+            "curriculum_section": "12.2",
+        }
+
     questions = [
-        {"section": "B", "question_no": str(20 + i), "max_marks": 2, "question_type": "VSA"}
+        {"section": "B", "question_no": str(20 + i), "max_marks": 2, "question_type": "VSA",
+         **layer1(f"variant {20 + i}")}
         for i in range(1, 6)
         if 20 + i != 22
     ]
     questions += [
         {"section": "B", "question_no": "22", "choice_alt": "a", "max_marks": 2,
-         "question_type": "VSA"},
+         "question_type": "VSA", **layer1("variant 22a")},
         {"section": "B", "question_no": "22", "choice_alt": "b", "max_marks": 2,
-         "question_type": "VSA"},
+         "question_type": "VSA", **layer1("variant 22b")},
     ]
     added = client.post(
         f"/assessments/{aid}/questions", headers=_auth(school), json={"questions": questions}
@@ -181,11 +191,11 @@ def test_reconcile_repairs_a_misread_through_the_api(client, school):
         headers=_auth(school),
         json={
             "questions": [
-                {"section": "A", "question_no": "4", "max_marks": 1},
-                {"section": "A", "question_no": "12", "max_marks": 2},
-                {"section": "A", "question_no": "19", "max_marks": 3},
-                {"section": "A", "question_no": "26", "max_marks": 3},
-                {"section": "A", "question_no": "30", "max_marks": 3},
+                {"section": "A", "question_no": q, "max_marks": m,
+                 "board_unit": "X.MATH.U.MENSURATION",
+                 "concept_family": "X.MATH.CF.VOLUME",
+                 "concept_variant": f"reconcile variant {q}"}
+                for q, m in [("4", 1), ("12", 2), ("19", 3), ("26", 3), ("30", 3)]
             ]
         },
     )
@@ -285,3 +295,38 @@ def test_class_directory_is_public_and_reveals_nothing_else(client, school):
     assert row["class_code"] and row["label"].startswith("Class ")
     # the directory is a way in, not a leak: no roster, no results, no key
     assert set(row) == {"class_code", "label", "grade", "school"}
+
+
+def test_the_api_blocks_a_paper_that_reuses_a_variant(client, school):
+    """The cross-cycle guard, at the edge where a real paper is registered.
+
+    Same concept family across two cycles is the intent; the same variant is the failure,
+    and it is silent -- the class simply scores better next time.
+    """
+    def make_paper(title: str, variant: str) -> str:
+        created = client.post(
+            "/assessments", headers=_auth(school),
+            json={"subject_code": "X.MATH", "title": title, "total_marks": 2},
+        )
+        aid = created.json()["assessment_id"]
+        return aid, client.post(
+            f"/assessments/{aid}/questions", headers=_auth(school),
+            json={"questions": [{
+                "section": "A", "question_no": "1", "max_marks": 2,
+                "board_unit": "X.MATH.U.MENSURATION",
+                "concept_family": "X.MATH.CF.VOLUME",
+                "concept_variant": variant,
+            }]},
+        )
+
+    _, first = make_paper("Cycle 1", "Cone + Hemisphere, r = 3.5 cm")
+    assert first.status_code == 200
+
+    # a new question in the same family is exactly what should be allowed
+    _, fresh = make_paper("Cycle 2", "Cylinder + Hemisphere, h = 10 cm")
+    assert fresh.status_code == 200
+
+    # the same question again is refused, and the message names where it came from
+    _, repeat = make_paper("Cycle 3", "cone  +  hemisphere,  r = 3.5 cm")
+    assert repeat.status_code == 409
+    assert "Cycle 1" in repeat.json()["detail"]

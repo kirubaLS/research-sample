@@ -1,8 +1,8 @@
-"""initial schema
+"""board unit, conditional chapter, concept family and 2B judgment
 
-Revision ID: 5b50b79d606f
+Revision ID: 458d5dfd3dd2
 Revises: 
-Create Date: 2026-08-28 03:00:25.571826
+Create Date: 2026-08-28 13:35:52.765881
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = '5b50b79d606f'
+revision: str = '458d5dfd3dd2'
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -163,6 +163,20 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_assessment_source_sha256'), ['source_sha256'], unique=False)
         batch_op.create_index(batch_op.f('ix_assessment_status'), ['status'], unique=False)
 
+    op.create_table('board_unit_weight',
+    sa.Column('curriculum_version', sa.String(length=32), nullable=False),
+    sa.Column('board_unit_id', sa.String(length=36), nullable=False),
+    sa.Column('weight_pct', sa.Numeric(precision=5, scale=2), nullable=False),
+    sa.Column('source_doc_url', sa.String(length=500), nullable=True),
+    sa.Column('id', sa.String(length=36), nullable=False),
+    sa.ForeignKeyConstraint(['board_unit_id'], ['taxonomy_node.id'], ),
+    sa.PrimaryKeyConstraint('id'),
+    sa.UniqueConstraint('curriculum_version', 'board_unit_id', name='uq_board_unit_weight')
+    )
+    with op.batch_alter_table('board_unit_weight', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_board_unit_weight_board_unit_id'), ['board_unit_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_board_unit_weight_curriculum_version'), ['curriculum_version'], unique=False)
+
     op.create_table('book_chunk',
     sa.Column('curriculum_version', sa.String(length=32), nullable=False),
     sa.Column('subject_code', sa.String(length=32), nullable=False),
@@ -205,19 +219,20 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_canonical_procedure_stem_hash'), ['stem_hash'], unique=False)
         batch_op.create_index(batch_op.f('ix_canonical_procedure_subject_code'), ['subject_code'], unique=False)
 
-    op.create_table('chapter_weight',
+    op.create_table('chapter_board_unit',
     sa.Column('curriculum_version', sa.String(length=32), nullable=False),
     sa.Column('chapter_id', sa.String(length=36), nullable=False),
-    sa.Column('weight_pct', sa.Numeric(precision=5, scale=2), nullable=False),
-    sa.Column('source_doc_url', sa.String(length=500), nullable=True),
+    sa.Column('board_unit_id', sa.String(length=36), nullable=False),
     sa.Column('id', sa.String(length=36), nullable=False),
+    sa.ForeignKeyConstraint(['board_unit_id'], ['taxonomy_node.id'], ),
     sa.ForeignKeyConstraint(['chapter_id'], ['taxonomy_node.id'], ),
     sa.PrimaryKeyConstraint('id'),
-    sa.UniqueConstraint('curriculum_version', 'chapter_id', name='uq_chapter_weight')
+    sa.UniqueConstraint('curriculum_version', 'chapter_id', name='uq_chapter_board_unit')
     )
-    with op.batch_alter_table('chapter_weight', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_chapter_weight_chapter_id'), ['chapter_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_chapter_weight_curriculum_version'), ['curriculum_version'], unique=False)
+    with op.batch_alter_table('chapter_board_unit', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_chapter_board_unit_board_unit_id'), ['board_unit_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_chapter_board_unit_chapter_id'), ['chapter_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_chapter_board_unit_curriculum_version'), ['curriculum_version'], unique=False)
 
     op.create_table('prerequisite',
     sa.Column('node_id', sa.String(length=36), nullable=False),
@@ -302,17 +317,37 @@ def upgrade() -> None:
     sa.Column('stem_hash', sa.String(length=64), nullable=True),
     sa.Column('logical_page', sa.Integer(), nullable=True),
     sa.Column('bbox', sa.JSON(), nullable=True),
+    sa.Column('board_unit_id', sa.String(length=36), nullable=False),
+    sa.Column('chapter_id', sa.String(length=36), nullable=True),
+    sa.Column('curriculum_section', sa.String(length=32), nullable=True),
+    sa.Column('curriculum_section_title', sa.String(length=200), nullable=True),
+    sa.Column('verified_against', sa.String(length=120), nullable=True),
+    sa.Column('verified_at', sa.String(length=40), nullable=True),
+    sa.Column('concept_family_id', sa.String(length=36), nullable=False),
+    sa.Column('concept_variant', sa.String(length=200), nullable=False),
+    sa.Column('variant_hash', sa.String(length=64), nullable=False),
+    sa.Column('skill_required', sa.String(length=200), nullable=True),
+    sa.Column('complexity', sa.String(length=16), nullable=True),
+    sa.Column('dependency_level', sa.String(length=16), nullable=True),
     sa.Column('id', sa.String(length=36), nullable=False),
     sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.CheckConstraint('(chapter_id IS NULL) = (curriculum_section IS NULL)', name='ck_question_chapter_pairing'),
     sa.ForeignKeyConstraint(['assessment_id'], ['assessment.id'], ),
+    sa.ForeignKeyConstraint(['board_unit_id'], ['taxonomy_node.id'], ),
+    sa.ForeignKeyConstraint(['chapter_id'], ['taxonomy_node.id'], ),
+    sa.ForeignKeyConstraint(['concept_family_id'], ['taxonomy_node.id'], ),
     sa.PrimaryKeyConstraint('id'),
     sa.UniqueConstraint('assessment_id', 'address', name='uq_question_address')
     )
     with op.batch_alter_table('question', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_question_address'), ['address'], unique=False)
         batch_op.create_index(batch_op.f('ix_question_assessment_id'), ['assessment_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_question_board_unit_id'), ['board_unit_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_question_chapter_id'), ['chapter_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_question_choice_group_id'), ['choice_group_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_question_concept_family_id'), ['concept_family_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_question_stem_hash'), ['stem_hash'], unique=False)
+        batch_op.create_index(batch_op.f('ix_question_variant_hash'), ['variant_hash'], unique=False)
 
     op.create_table('student_profile',
     sa.Column('school_id', sa.String(length=36), nullable=False),
@@ -376,6 +411,23 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_mark_event_question_id'), ['question_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_mark_event_source'), ['source'], unique=False)
         batch_op.create_index(batch_op.f('ix_mark_event_student_id'), ['student_id'], unique=False)
+
+    op.create_table('question_judgment',
+    sa.Column('question_id', sa.String(length=36), nullable=False),
+    sa.Column('field', sa.String(length=24), nullable=False),
+    sa.Column('value', sa.String(length=200), nullable=False),
+    sa.Column('reviewer_id', sa.String(length=64), nullable=False),
+    sa.Column('is_resolution', sa.Boolean(), nullable=False),
+    sa.Column('note', sa.String(length=1000), nullable=True),
+    sa.Column('id', sa.String(length=36), nullable=False),
+    sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+    sa.ForeignKeyConstraint(['question_id'], ['question.id'], ),
+    sa.PrimaryKeyConstraint('id')
+    )
+    with op.batch_alter_table('question_judgment', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_question_judgment_field'), ['field'], unique=False)
+        batch_op.create_index(batch_op.f('ix_question_judgment_question_id'), ['question_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_question_judgment_reviewer_id'), ['reviewer_id'], unique=False)
 
     op.create_table('question_skill',
     sa.Column('question_id', sa.String(length=36), nullable=False),
@@ -510,6 +562,12 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_question_skill_node_id'))
 
     op.drop_table('question_skill')
+    with op.batch_alter_table('question_judgment', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_question_judgment_reviewer_id'))
+        batch_op.drop_index(batch_op.f('ix_question_judgment_question_id'))
+        batch_op.drop_index(batch_op.f('ix_question_judgment_field'))
+
+    op.drop_table('question_judgment')
     with op.batch_alter_table('mark_event', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_mark_event_student_id'))
         batch_op.drop_index(batch_op.f('ix_mark_event_source'))
@@ -529,8 +587,12 @@ def downgrade() -> None:
 
     op.drop_table('student_profile')
     with op.batch_alter_table('question', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_question_variant_hash'))
         batch_op.drop_index(batch_op.f('ix_question_stem_hash'))
+        batch_op.drop_index(batch_op.f('ix_question_concept_family_id'))
         batch_op.drop_index(batch_op.f('ix_question_choice_group_id'))
+        batch_op.drop_index(batch_op.f('ix_question_chapter_id'))
+        batch_op.drop_index(batch_op.f('ix_question_board_unit_id'))
         batch_op.drop_index(batch_op.f('ix_question_assessment_id'))
         batch_op.drop_index(batch_op.f('ix_question_address'))
 
@@ -557,11 +619,12 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_prerequisite_node_id'))
 
     op.drop_table('prerequisite')
-    with op.batch_alter_table('chapter_weight', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_chapter_weight_curriculum_version'))
-        batch_op.drop_index(batch_op.f('ix_chapter_weight_chapter_id'))
+    with op.batch_alter_table('chapter_board_unit', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_chapter_board_unit_curriculum_version'))
+        batch_op.drop_index(batch_op.f('ix_chapter_board_unit_chapter_id'))
+        batch_op.drop_index(batch_op.f('ix_chapter_board_unit_board_unit_id'))
 
-    op.drop_table('chapter_weight')
+    op.drop_table('chapter_board_unit')
     with op.batch_alter_table('canonical_procedure', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_canonical_procedure_subject_code'))
         batch_op.drop_index(batch_op.f('ix_canonical_procedure_stem_hash'))
@@ -575,6 +638,11 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_book_chunk_bucket'))
 
     op.drop_table('book_chunk')
+    with op.batch_alter_table('board_unit_weight', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_board_unit_weight_curriculum_version'))
+        batch_op.drop_index(batch_op.f('ix_board_unit_weight_board_unit_id'))
+
+    op.drop_table('board_unit_weight')
     with op.batch_alter_table('assessment', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_assessment_status'))
         batch_op.drop_index(batch_op.f('ix_assessment_source_sha256'))

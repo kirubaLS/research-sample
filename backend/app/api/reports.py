@@ -18,7 +18,7 @@ from app.api.deps import require_admin
 from app.db import get_session
 from app.models import (
     Assessment,
-    ChapterWeight,
+    BoardUnitWeight,
     MarkEvent,
     ProfileResult,
     Question,
@@ -86,13 +86,18 @@ def _rows(db: Session, assessment: Assessment) -> list[MarkRow]:
 
 
 def _board_weights(db: Session, assessment: Assessment) -> dict[str, float]:
+    """Keyed on the board unit, which is the only thing CBSE publishes weightage for.
+
+    Read from the chapter previously, which computed board impact against a scale the
+    board does not use: a unit may span several chapters, or exist where none does.
+    """
     out: dict[str, float] = {}
     for w in db.scalars(
-        select(ChapterWeight).where(
-            ChapterWeight.curriculum_version == assessment.curriculum_version
+        select(BoardUnitWeight).where(
+            BoardUnitWeight.curriculum_version == assessment.curriculum_version
         )
     ):
-        node = db.get(TaxonomyNode, w.chapter_id)
+        node = db.get(TaxonomyNode, w.board_unit_id)
         if node:
             out[node.code] = float(w.weight_pct)
     return out

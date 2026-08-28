@@ -73,6 +73,34 @@ class QuestionIn(BaseModel):
     skills: list[str] = Field(default_factory=list)
     logical_page: int | None = None
 
+    # --- Layer 1: curriculum intelligence. Codes, resolved to taxonomy nodes on ingest. ---
+    #: required: the only key board weighting is computed from
+    board_unit: str
+    #: required: held constant across cycles, and what a diagnosis groups by when a
+    #: skill-anchored question has no chapter
+    concept_family: str
+    #: required: must differ from any variant this class has already been given
+    concept_variant: str
+    #: conditional -- fill both for a content-anchored question, neither for a
+    #: skill-anchored one (unseen passage, invented sentence)
+    chapter: str | None = None
+    curriculum_section: str | None = None
+    curriculum_section_title: str | None = None
+    verified_against: str | None = None
+
+    @field_validator("curriculum_section")
+    @classmethod
+    def _pairing(cls, v: str | None, info) -> str | None:
+        """Reject the half-filled pair at the edge, with a message that says what to do."""
+        chapter = info.data.get("chapter")
+        if bool(v) != bool(chapter):
+            raise ValueError(
+                "chapter and curriculum_section must be filled together or left blank "
+                "together: fill both for a content-anchored question, neither for a "
+                "skill-anchored one"
+            )
+        return v
+
 
 class QuestionBatchIn(BaseModel):
     questions: list[QuestionIn]

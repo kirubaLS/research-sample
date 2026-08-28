@@ -43,7 +43,9 @@ class MarkRow:
     state: str = "awarded"        # awarded | absent | not_offered
     skills: tuple[str, ...] = ()
     tier: str | None = None
-    chapter: str | None = None
+    chapter: str | None = None          # null for a skill-anchored question -- by design
+    board_unit: str | None = None       # what board weighting is computed against
+    concept_family: str | None = None   # the axis that survives a null chapter
 
     @property
     def counts(self) -> bool:
@@ -121,7 +123,23 @@ def summarise(
 
 
 def by_chapter(rows: list[MarkRow]) -> list[Finding]:
-    return summarise(rows, scope="chapter", kind="loss", keyfn=lambda r: (r.chapter,))
+    """Optional rollup. A skill-anchored question has no chapter and is excluded here."""
+    return summarise(
+        [r for r in rows if r.chapter is not None],
+        scope="chapter", kind="loss", keyfn=lambda r: (r.chapter,),
+    )
+
+
+def by_concept_family(rows: list[MarkRow]) -> list[Finding]:
+    """The primary axis.
+
+    Chapter is conditional -- Reading and Grammar questions have none -- so keying the
+    diagnosis on it silently dropped every skill-anchored question from the report.
+    Concept Family is present on every question and is held constant across cycles, which
+    is also what makes a trend across tests comparable.
+    """
+    return summarise(rows, scope="concept_family", kind="loss",
+                     keyfn=lambda r: (r.concept_family,))
 
 
 def by_skill(rows: list[MarkRow]) -> list[Finding]:
@@ -150,7 +168,7 @@ def skill_by_tier(rows: list[MarkRow]) -> list[Finding]:
 
 @dataclass
 class CoverageGap:
-    chapter: str
+    board_unit: str
     board_weight: float
     message: str
 
@@ -159,23 +177,26 @@ def board_weighted_indicator(
     rows: list[MarkRow],
     board_weights: dict[str, float],
 ) -> tuple[list[dict], list[CoverageGap]]:
-    """(marks lost in chapter / marks available in chapter) x board weight.
+    """(marks lost in board unit / marks available in board unit) x board weight.
 
     Reported with a credible interval, and normalised as a share of total indicator mass so
-    "where do I spend the next two weeks" has a defensible answer. A chapter with board
+    "where do I spend the next two weeks" has a defensible answer. A unit with board
     weight but zero marks in this paper is a *coverage gap*, never a zero.
+
+    Keyed on the board unit, not the chapter: CBSE publishes weightage per unit, and a
+    unit may span several chapters or exist where none does.
     """
-    agg = _aggregate(rows, lambda r: (r.chapter,))
+    agg = _aggregate(rows, lambda r: (r.board_unit,))
     indicators: list[dict] = []
-    for chapter, weight in board_weights.items():
-        earned, available, n = agg.get(chapter, (0.0, 0.0, 0))
+    for unit, weight in board_weights.items():
+        earned, available, n = agg.get(unit, (0.0, 0.0, 0))
         if available <= 0:
             continue
         loss_rate = (available - earned) / available
         lo, hi = wilson_interval(available - earned, available)
         indicators.append(
             {
-                "chapter": chapter, "board_weight": weight,
+                "board_unit": unit, "board_weight": weight,
                 "loss_rate": round(loss_rate, 4),
                 "indicator": round(loss_rate * weight, 4),
                 "indicator_ci": [round(lo * weight, 4), round(hi * weight, 4)],
@@ -190,12 +211,12 @@ def board_weighted_indicator(
 
     gaps = [
         CoverageGap(
-            chapter, weight,
-            f"This paper carries no marks for {chapter}, which is {weight:.0f}% of the board "
+            unit, weight,
+            f"This paper carries no marks for {unit}, which is {weight:.0f}% of the board "
             f"weighting. The test gives you no information about it.",
         )
-        for chapter, weight in board_weights.items()
-        if agg.get(chapter, (0.0, 0.0, 0))[1] <= 0
+        for unit, weight in board_weights.items()
+        if agg.get(unit, (0.0, 0.0, 0))[1] <= 0
     ]
     return indicators, gaps
 

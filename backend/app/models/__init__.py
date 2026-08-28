@@ -6,6 +6,7 @@ from app.models.assessment import (
     DataQualityFlag,
     LogicalPage,
     Question,
+    QuestionJudgment,
     QuestionSkill,
     QuestionTier,
 )
@@ -27,9 +28,10 @@ from app.models.psychometric import (
 )
 from app.models.taxonomy import (
     NODE_KINDS,
+    BoardUnitWeight,
     BookChunk,
     CanonicalProcedure,
-    ChapterWeight,
+    ChapterBoardUnit,
     Prerequisite,
     TaxonomyAlias,
     TaxonomyNode,
@@ -38,9 +40,10 @@ from app.models.taxonomy import (
 __all__ = [
     "Base", "new_id", "utcnow",
     "School", "Section", "StudentProfile",
-    "TaxonomyNode", "TaxonomyAlias", "Prerequisite", "ChapterWeight",
+    "TaxonomyNode", "TaxonomyAlias", "Prerequisite", "BoardUnitWeight", "ChapterBoardUnit",
     "CanonicalProcedure", "BookChunk", "NODE_KINDS",
-    "Assessment", "LogicalPage", "Question", "QuestionSkill", "QuestionTier",
+    "Assessment", "LogicalPage", "Question", "QuestionJudgment", "QuestionSkill",
+    "QuestionTier",
     "DataQualityFlag", "AnalysisRun", "TIERS", "CBSE_TIER_TARGET",
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
     "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",

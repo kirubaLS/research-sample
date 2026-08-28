@@ -11,7 +11,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, PkMixin, TimestampMixin
 
-NODE_KINDS = ("board", "subject", "grade", "chapter", "subtopic", "skill", "qtype", "tier")
+#: 'board_unit' is a SIBLING of chapter under subject, never a parent of it. CBSE's
+#: weightage unit may combine several chapters, or exist where no chapter does (English's
+#: Reading section), so it cannot sit in the chapter hierarchy without distorting it.
+#: 'concept_family' is the stable axis every trend report groups by.
+NODE_KINDS = (
+    "board", "subject", "grade", "board_unit", "chapter", "subtopic",
+    "concept_family", "skill", "qtype", "tier",
+)
 
 
 class TaxonomyNode(Base, PkMixin, TimestampMixin):
@@ -40,7 +47,12 @@ class TaxonomyAlias(Base, PkMixin):
 
 
 class Prerequisite(Base, PkMixin):
-    """Directed edge: `node` requires `requires`. Remediation walks down these."""
+    """Directed edge: `node` requires `requires`.
+
+    Deferred in V1: the table exists and may be populated, but nothing in the reporting
+    path reads it. Prerequisite Concept is a placeholder in the schema, and a remediation
+    chain built on unvalidated edges would be confidently wrong about what to reteach.
+    """
 
     __tablename__ = "prerequisite"
     __table_args__ = (UniqueConstraint("node_id", "requires_id", name="uq_prereq"),)
@@ -50,18 +62,41 @@ class Prerequisite(Base, PkMixin):
     strength: Mapped[float] = mapped_column(Float, default=1.0)
 
 
-class ChapterWeight(Base, PkMixin):
-    """Board weights are data, with a citation. A principal will challenge these."""
+class BoardUnitWeight(Base, PkMixin):
+    """Board weights are data, with a citation. A principal will challenge these.
 
-    __tablename__ = "chapter_weight"
+    Keyed on the board unit, never the chapter. CBSE publishes weightage per unit, and a
+    unit may span several chapters or none at all -- keying this on chapter computed board
+    impact against a scale the board does not use.
+    """
+
+    __tablename__ = "board_unit_weight"
     __table_args__ = (
-        UniqueConstraint("curriculum_version", "chapter_id", name="uq_chapter_weight"),
+        UniqueConstraint("curriculum_version", "board_unit_id", name="uq_board_unit_weight"),
+    )
+
+    curriculum_version: Mapped[str] = mapped_column(String(32), index=True)
+    board_unit_id: Mapped[str] = mapped_column(ForeignKey("taxonomy_node.id"), index=True)
+    weight_pct: Mapped[float] = mapped_column(Numeric(5, 2))
+    source_doc_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
+class ChapterBoardUnit(Base, PkMixin):
+    """Which board unit a chapter's marks count towards.
+
+    An explicit mapping rather than a walk up the tree. The real case that decides this:
+    History map marks belong to Geography's board unit because the tested chapter does not
+    carry them. Inference from the hierarchy gets exactly that wrong.
+    """
+
+    __tablename__ = "chapter_board_unit"
+    __table_args__ = (
+        UniqueConstraint("curriculum_version", "chapter_id", name="uq_chapter_board_unit"),
     )
 
     curriculum_version: Mapped[str] = mapped_column(String(32), index=True)
     chapter_id: Mapped[str] = mapped_column(ForeignKey("taxonomy_node.id"), index=True)
-    weight_pct: Mapped[float] = mapped_column(Numeric(5, 2))
-    source_doc_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    board_unit_id: Mapped[str] = mapped_column(ForeignKey("taxonomy_node.id"), index=True)
 
 
 class CanonicalProcedure(Base, PkMixin, TimestampMixin):

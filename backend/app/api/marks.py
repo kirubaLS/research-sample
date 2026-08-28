@@ -30,6 +30,7 @@ from app.models import (
     StudentProfile,
     TaxonomyNode,
 )
+from app.taxonomy.variants import ServedVariant, VariantReuseError, enforce, variant_hash
 
 router = APIRouter(prefix="/assessments", tags=["marks-engine"])
 
@@ -66,6 +67,36 @@ def add_questions(
     if a.qmatrix_frozen_at:
         raise HTTPException(409, "Q-matrix is frozen; create a new version to change it")
 
+    def node_id(code: str, kind: str) -> str:
+        node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        if node is None:
+            raise HTTPException(422, f"unknown {kind}: {code!r}")
+        return node.id
+
+    # The variant guard, before anything is written. Reusing a variant does not error on
+    # its own -- the class simply scores better next time, and the improvement is
+    # indistinguishable from learning by the time it reaches a report.
+    served = [
+        ServedVariant(
+            family_id=row.concept_family_id, variant_hash=row.variant_hash,
+            assessment_id=row.assessment_id, assessment_title=title,
+            question_no=row.question_no,
+        )
+        for row, title in db.execute(
+            select(Question, Assessment.title)
+            .join(Assessment, Assessment.id == Question.assessment_id)
+            .where(Assessment.school_id == school.id, Assessment.id != a.id)
+        ).all()
+    ]
+    incoming = [
+        (q.question_no, node_id(q.concept_family, "concept family"), variant_hash(q.concept_variant))
+        for q in body.questions
+    ]
+    try:
+        enforce(incoming, served)
+    except VariantReuseError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
     rows: list[tuple[Address, float]] = []
     created = 0
     for q in body.questions:
@@ -82,6 +113,14 @@ def add_questions(
                 question_no=q.question_no, sub_part=q.sub_part, choice_alt=q.choice_alt,
                 max_marks=q.max_marks, mark_step=q.mark_step, question_type=q.question_type,
                 stem_text=q.stem_text, logical_page=q.logical_page,
+                board_unit_id=node_id(q.board_unit, "board unit"),
+                concept_family_id=node_id(q.concept_family, "concept family"),
+                concept_variant=q.concept_variant,
+                variant_hash=variant_hash(q.concept_variant),
+                chapter_id=node_id(q.chapter, "chapter") if q.chapter else None,
+                curriculum_section=q.curriculum_section,
+                curriculum_section_title=q.curriculum_section_title,
+                verified_against=q.verified_against,
             )
             db.add(row)
             db.flush()
