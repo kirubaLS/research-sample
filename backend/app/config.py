@@ -70,6 +70,14 @@ class Settings(BaseSettings):
     trusted_hosts: Annotated[list[str], NoDecode] = ["*"]
     public_rate_limit_per_hour: int = 60      # per IP, on the unauthenticated student route
 
+    #: The platform operator's credential -- the one that can create schools and mint a
+    #: principal's key. Strictly above a school key: a principal must never be able to
+    #: reach another school's data, so this is a separate secret, not a flag on a school.
+    #: Unset means the whole /platform surface is off, which is the right default: a
+    #: deployment that never sets it cannot have the route abused.
+    platform_admin_key: str | None = None
+    platform_rate_limit_per_hour: int = 20   # per IP, on the platform sign-in
+
     # --- models ---
     model_high_stakes: str = "claude-opus-5"
     model_high_volume: str = "claude-haiku-4-5"

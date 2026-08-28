@@ -22,6 +22,10 @@ function authed<T>(path: string, key: string, init?: RequestInit): Promise<T> {
   return request<T>(path, { ...init, headers: { "X-API-Key": key, ...(init?.headers ?? {}) } });
 }
 
+function operator<T>(path: string, key: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, { ...init, headers: { "X-Platform-Key": key, ...(init?.headers ?? {}) } });
+}
+
 // --- dashboard types ------------------------------------------------------------------
 export interface SectionSummary {
   section_id: string;
@@ -91,6 +95,31 @@ export type ClassOption = {
   school: string;
 };
 
+// --- operator console types -----------------------------------------------------------
+export interface PlatformSection {
+  id: string;
+  label: string;
+  grade: number;
+  name: string;
+  student_path: string;
+}
+
+export interface PlatformSchool {
+  id: string;
+  name: string;
+  board: string;
+  state: string | null;
+  training_consent: string;
+  students: number;
+  sections: PlatformSection[];
+}
+
+/** Only ever returned by create and rotate -- listing carries no key. */
+export interface IssuedKey {
+  api_key: string;
+  api_key_notice: string;
+}
+
 export const api = {
   classes: () => request<ClassOption[]>("/t/classes"),
 
@@ -129,6 +158,39 @@ export const api = {
     authed<{ holland: Record<string, number>; streams: Record<string, number>; counted: number; withheld: number }>(
       `/admin/cohort/${sectionId}`,
       key,
+    ),
+
+  // --- operator console ---
+  platformWhoami: (key: string) => operator<{ role: string }>("/platform/me", key),
+
+  listSchools: (key: string) => operator<PlatformSchool[]>("/platform/schools", key),
+
+  createSchool: (
+    key: string,
+    body: {
+      name: string;
+      board: string;
+      state: string;
+      training_consent: string;
+      sections: { grade: number; name: string }[];
+    },
+  ) =>
+    operator<PlatformSchool & IssuedKey>("/platform/schools", key, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  addSection: (key: string, schoolId: string, section: { grade: number; name: string }) =>
+    operator<PlatformSection>(`/platform/schools/${schoolId}/sections`, key, {
+      method: "POST",
+      body: JSON.stringify(section),
+    }),
+
+  rotateKey: (key: string, schoolId: string) =>
+    operator<IssuedKey & { school_id: string; name: string }>(
+      `/platform/schools/${schoolId}/rotate-key`,
+      key,
+      { method: "POST" },
     ),
 
   interestReport: (key: string, studentId: string) =>

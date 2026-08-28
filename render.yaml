@@ -52,6 +52,13 @@ services:
       # Exact origins. Never '*' — /t/{class_code}/start is unauthenticated by design.
       - key: YAADHUM_CORS_ORIGINS
         value: https://yaadhum-web.onrender.com
+      # The operator console (/platform): create schools, issue a principal's key.
+      # A SEPARATE secret from any school key -- a principal must never be able to create
+      # schools or read another school's credential. Leave it unset and the whole console
+      # is off, which is the right default for a deployment that does not need it.
+      # Generate with: python -c "import secrets;print(secrets.token_urlsafe(32))"
+      - key: YAADHUM_PLATFORM_ADMIN_KEY
+        sync: false
       - key: YAADHUM_TRUSTED_HOSTS
         value: yaadhum-api.onrender.com
       - key: YAADHUM_MODEL_HIGH_STAKES

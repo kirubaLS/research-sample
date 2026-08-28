@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
+import { getPlatformKey } from "@/lib/session";
 
 /**
  * The navigation that was missing. A student following a class link sees only the brand —
@@ -10,6 +12,12 @@ import { usePathname } from "next/navigation";
 export function SiteHeader() {
   const pathname = usePathname() ?? "";
   const isStudentFlow = pathname.startsWith("/t/");
+
+  // The console is for whoever runs the deployment, not for a school, so the link only
+  // appears once an operator has signed in here. Read after mount: localStorage does not
+  // exist during the server render, and reading it inline would mismatch on hydration.
+  const [isOperator, setIsOperator] = useState(false);
+  useEffect(() => setIsOperator(Boolean(getPlatformKey())), [pathname]);
 
   return (
     <header className="siteheader">
@@ -36,6 +44,14 @@ export function SiteHeader() {
             >
               Scan scripts
             </Link>
+            {(isOperator || pathname.startsWith("/platform")) && (
+              <Link
+                href="/platform"
+                aria-current={pathname.startsWith("/platform") ? "page" : undefined}
+              >
+                Schools
+              </Link>
+            )}
           </nav>
         )}
       </div>

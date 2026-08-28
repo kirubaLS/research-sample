@@ -126,6 +126,22 @@ ceiling.
    python -m scripts.admin_key --rotate <school-id>   # new key if one leaks
    ```
 
+   **Or do it from the browser instead.** Set `YAADHUM_PLATFORM_ADMIN_KEY` on the API
+   service to a long random string (`python -c "import secrets;print(secrets.token_urlsafe(32))"`),
+   redeploy, then open `/platform` on the web service and sign in with it. That console
+   creates schools, adds classes, and issues or rotates a principal's key -- the same
+   things the two scripts do, without a shell.
+
+   The console's key is deliberately a **different secret** from any school's API key.
+   A principal holds one key for one school; if that key could also create schools or read
+   another school's key, one leaked key would compromise every school on the deployment.
+   Leaving `YAADHUM_PLATFORM_ADMIN_KEY` unset turns the console off entirely rather than
+   falling back to something weaker.
+
+   A key is shown **once**, when it is created or rotated. No route reads one back, so if
+   a principal loses theirs the remedy is *Issue a new principal key*, which takes effect
+   on the next request and leaves class links untouched.
+
    If your plan has no Shell tab, you can read the same value straight from Neon's SQL
    editor -- `select id, name, api_key from school;` -- but prefer the shell: rotation
    through the script keeps the key in the format the app validates.

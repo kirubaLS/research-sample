@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import text
 
-from app.api import admin, interest, marks, reports
+from app.api import admin, interest, marks, platform, reports
 from app.config import get_settings
 from app.db import engine, init_db
 
@@ -48,7 +48,7 @@ app.add_middleware(
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Platform-Key"],
     max_age=600,
 )
 
@@ -70,6 +70,7 @@ async def security_headers(request: Request, call_next):
 app.include_router(admin.router)
 app.include_router(interest.router)
 app.include_router(marks.router)
+app.include_router(platform.router)
 app.include_router(reports.router)
 
 
