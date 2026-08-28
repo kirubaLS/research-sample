@@ -96,37 +96,61 @@ function TestFlow() {
 
   if (screenIndex < 0) {
     return (
-      <main>
-        <h1>Before you start</h1>
-        <ul className="muted">
-          <li>36 questions, about 8 minutes.</li>
-          <li>There are no right or wrong answers.</li>
-          <li>Answer honestly about what you would <em>enjoy doing</em>, not what you think you should say.</li>
-          <li>Your answers save automatically — if the page closes, you can come back.</li>
-        </ul>
-        <p style={{ marginTop: 24 }}>
-          <button onClick={() => setScreenIndex(0)}>Take the test</button>
-        </p>
+      <main className="narrow">
+        <div className="hero">
+          <p className="eyebrow">Ready when you are</p>
+          <h1>Before you start</h1>
+        </div>
+        <div className="card" style={{ marginTop: 18 }}>
+          <div className="stack" style={{ gap: 14 }}>
+            <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
+              <span className="badge">1</span>
+              <span>36 questions across six screens. About eight minutes.</span>
+            </div>
+            <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
+              <span className="badge">2</span>
+              <span>There are no right or wrong answers.</span>
+            </div>
+            <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
+              <span className="badge">3</span>
+              <span>
+                Answer about what you would <em>enjoy doing</em> — not what you think you
+                should say.
+              </span>
+            </div>
+            <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
+              <span className="badge">4</span>
+              <span>Your answers save as you go. If the page closes, you can come back.</span>
+            </div>
+          </div>
+        </div>
+        <button onClick={() => setScreenIndex(0)} style={{ marginTop: 22, width: "100%" }}>
+          Take the test
+        </button>
       </main>
     );
   }
 
   return (
-    <main>
-      <div className="muted" style={{ fontSize: 13 }}>
-        Screen {screenIndex + 1} of {payload.screens.length} · {answeredCount} of{" "}
-        {payload.total_items} answered
+    <main className="narrow">
+      <div className="row between small muted" style={{ marginBottom: 8 }}>
+        <span>
+          Screen {screenIndex + 1} of {payload.screens.length}
+        </span>
+        <span className="mono">
+          {answeredCount} / {payload.total_items}
+        </span>
       </div>
       <div className="progress">
         <div style={{ width: `${(answeredCount / payload.total_items) * 100}%` }} />
       </div>
 
-      <h1 style={{ fontSize: 20 }}>How much would you like doing this?</h1>
+      <h2 style={{ margin: "22px 0 14px" }}>How much would you enjoy doing this?</h2>
 
       <div className="card">
         {(screen ?? []).map((item) => (
           <div className="item" key={item.item_id}>
-            <div>{item.text}</div>
+            <div className="qtext">{item.text}</div>
             <div className="likert">
               {item.options.map((label, i) => (
                 <button
@@ -143,7 +167,11 @@ function TestFlow() {
         ))}
       </div>
 
-      <button onClick={next} disabled={!allOnScreenAnswered || saving}>
+      <button
+        onClick={next}
+        disabled={!allOnScreenAnswered || saving}
+        style={{ marginTop: 20, width: "100%" }}
+      >
         {saving
           ? "Saving…"
           : screenIndex + 1 < payload.screens.length

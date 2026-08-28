@@ -31,15 +31,20 @@ export default function ScanPage() {
   }
 
   return (
-    <main>
-      <h1>{mode === "cover" ? "Scan the cover page" : "Scan every page"}</h1>
-      <p className="muted">
+    <main className="narrow">
+      <div className="hero">
+        <p className="eyebrow">Answer scripts</p>
+        <h1>{mode === "cover" ? "Scan the cover page" : "Scan every page"}</h1>
+      </div>
+      <p className="lede" style={{ marginBottom: 20 }}>
         {mode === "cover"
           ? "The cover carries the question numbers and marks. One clear frame is enough."
           : "Capture each page in order. Retake replaces a single page and keeps its position."}
       </p>
-      <Scanner sessionId={sessionId} mode={mode} onComplete={upload} />
-      {status && <p className="muted">{status}</p>}
+      <div className="card">
+        <Scanner sessionId={sessionId} mode={mode} onComplete={upload} />
+      </div>
+      {status && <p className="notice" style={{ marginTop: 14 }}>{status}</p>}
     </main>
   );
 }

@@ -230,3 +230,46 @@ def test_tenancy_is_enforced(client, school):
         f"/assessments/{mine}/verify", headers={"X-API-Key": "other-key-999"}
     )
     assert leaked.status_code == 404      # 404, never 403
+
+
+# --------------------------------------------------------------------------------------
+# The dashboard's own routes — the answer to "where is the student link?"
+# --------------------------------------------------------------------------------------
+def test_whoami_validates_the_key(client, school):
+    assert client.get("/admin/me", headers=_auth(school)).json()["name"].startswith("Bharath")
+    assert client.get("/admin/me", headers={"X-API-Key": "nope"}).status_code == 404
+
+
+def test_overview_carries_the_student_link_and_progress(client, school):
+    body = client.get("/admin/overview", headers=_auth(school)).json()
+    assert body["school"]["name"].startswith("Bharath")
+    section = next(s for s in body["sections"] if s["section_id"] == school["section_id"])
+    # this is the link a teacher hands out; it exists nowhere else
+    assert section["student_path"] == f"/t/{school['section_id']}"
+    assert section["students"] >= 1
+    assert section["completed"] >= 1
+
+
+def test_roster_shows_status_per_student(client, school):
+    body = client.get(
+        f"/admin/sections/{school['section_id']}/students", headers=_auth(school)
+    ).json()
+    assert body["section"]["student_path"].endswith(school["section_id"])
+    by_roll = {r["roll_no"]: r for r in body["students"]}
+    assert by_roll["047"]["status"] == "complete"
+    assert by_roll["047"]["holland_code"].startswith("I")
+    assert by_roll["047"]["top_stream"] == "Science"
+
+
+def test_cohort_summarises_the_class(client, school):
+    body = client.get(f"/admin/cohort/{school['section_id']}", headers=_auth(school)).json()
+    assert body["counted"] >= 1
+    assert sum(body["streams"].values()) == body["counted"]
+
+
+def test_dashboard_routes_are_tenant_scoped(client, school):
+    for path in ("/admin/overview", f"/admin/sections/{school['section_id']}/students"):
+        assert client.get(path, headers={"X-API-Key": "other-key-999"}).status_code in (200, 404)
+    # another school sees no sections of ours
+    body = client.get("/admin/overview", headers={"X-API-Key": "other-key-999"}).json()
+    assert all(s["section_id"] != school["section_id"] for s in body["sections"])

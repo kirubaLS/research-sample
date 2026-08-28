@@ -7,14 +7,33 @@
  */
 export default function ThanksPage() {
   return (
-    <main>
-      <h1>Thank you</h1>
-      <p>Your answers have been recorded.</p>
-      <div className="card">
-        <p className="muted" style={{ margin: 0 }}>
-          Your school&apos;s counsellor will go through the results with you. There is nothing
-          else to do here — you can close this page.
+    <main className="narrow">
+      <div className="hero" style={{ textAlign: "center", paddingTop: 60 }}>
+        <div
+          aria-hidden
+          style={{
+            width: 56,
+            height: 56,
+            margin: "0 auto 20px",
+            borderRadius: "50%",
+            background: "var(--verify-soft)",
+            color: "var(--verify)",
+            display: "grid",
+            placeItems: "center",
+            fontSize: 28,
+          }}
+        >
+          &#10003;
+        </div>
+        <h1>Thank you</h1>
+        <p className="lede" style={{ margin: "0 auto" }}>
+          Your answers have been recorded.
         </p>
+      </div>
+
+      <div className="notice" style={{ marginTop: 26 }}>
+        Your school&apos;s counsellor will go through the results with you. There is nothing
+        else to do here — you can close this page.
       </div>
     </main>
   );

@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from sqlalchemy import text
 
-from app.api import interest, marks, reports
+from app.api import admin, interest, marks, reports
 from app.config import get_settings
 from app.db import engine, init_db
 
@@ -67,6 +67,7 @@ async def security_headers(request: Request, call_next):
     return response
 
 
+app.include_router(admin.router)
 app.include_router(interest.router)
 app.include_router(marks.router)
 app.include_router(reports.router)

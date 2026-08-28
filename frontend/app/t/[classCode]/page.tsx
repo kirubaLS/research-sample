@@ -54,57 +54,65 @@ export default function StartPage({ params }: { params: Promise<{ classCode: str
   }
 
   return (
-    <main>
-      {/* Replace with the company logo asset once supplied. */}
-      <div className="muted" style={{ fontSize: 13, letterSpacing: "0.14em" }}>YAADHUM</div>
-      <h1>Interest questionnaire</h1>
-      <p className="muted">
-        There are 36 short questions and it takes about eight minutes. There are no right or
-        wrong answers — just say how much you would like doing each thing.
-      </p>
-
-      <div className="card">
-        <strong>Before you begin</strong>
-        <p className="muted" style={{ marginBottom: 0 }}>
-          Your school has your parent or guardian&apos;s consent for this activity. Your answers
-          go to your school&apos;s counsellor and principal, not to other students.
+    <main className="narrow">
+      <div className="hero">
+        <p className="eyebrow">Class X · interest questionnaire</p>
+        <h1>Tell us about yourself</h1>
+        <p className="lede">
+          36 short questions, about eight minutes. There are no right or wrong answers — just
+          say how much you would enjoy doing each thing.
         </p>
       </div>
 
-      <form onSubmit={onSubmit}>
-        <label htmlFor="name">Your name</label>
-        <input id="name" name="name" autoComplete="name" required />
+      <div className="notice" style={{ margin: "18px 0 24px" }}>
+        Your school has your parent or guardian&apos;s consent for this activity. Your answers
+        go to your school&apos;s counsellor, <strong>not to other students</strong>.
+      </div>
 
-        <label htmlFor="roll_no">Roll number</label>
-        <input id="roll_no" name="roll_no" inputMode="numeric" required />
+      <form onSubmit={onSubmit} className="card">
+        <div className="field">
+          <label htmlFor="name">Your name</label>
+          <input id="name" name="name" autoComplete="name" required />
+        </div>
 
-        <label htmlFor="section">Section</label>
-        <input id="section" name="section" defaultValue="A" />
+        <div className="field">
+          <label htmlFor="roll_no">Roll number</label>
+          <input id="roll_no" name="roll_no" inputMode="numeric" required />
+        </div>
 
-        <label htmlFor="age">Age</label>
-        <input id="age" name="age" type="number" min={8} max={25} />
+        <div className="field">
+          <label htmlFor="section">Section</label>
+          <input id="section" name="section" defaultValue="A" />
+        </div>
 
-        <label htmlFor="gender">Gender</label>
-        <select id="gender" name="gender" defaultValue="prefer_not_to_say">
+        <div className="field">
+          <label htmlFor="age">Age</label>
+          <input id="age" name="age" type="number" min={8} max={25} />
+        </div>
+
+        <div className="field">
+          <label htmlFor="gender">Gender</label>
+          <select id="gender" name="gender" defaultValue="prefer_not_to_say">
           <option value="female">Female</option>
           <option value="male">Male</option>
           <option value="other">Other</option>
           <option value="prefer_not_to_say">Prefer not to say</option>
-        </select>
+          </select>
+        </div>
 
-        <label htmlFor="locale">Language</label>
-        <select id="locale" name="locale" defaultValue="en">
-          <option value="en">English</option>
-          <option value="ta">தமிழ்</option>
-          <option value="hi">हिन्दी</option>
-        </select>
+        <div className="field">
+          <label htmlFor="locale">Language</label>
+          <select id="locale" name="locale" defaultValue="en">
+            <option value="en">English</option>
+            <option value="ta">தமிழ்</option>
+            <option value="hi">हिन्दी</option>
+          </select>
+        </div>
 
         {error && <p className="error">{error}</p>}
-        <p style={{ marginTop: 22 }}>
-          <button type="submit" disabled={busy}>
-            {busy ? "Starting…" : "Start"}
-          </button>
-        </p>
+        <button type="submit" disabled={busy} style={{ marginTop: 8, width: "100%" }}>
+          {busy ? "Starting…" : "Start the questionnaire"}
+        </button>
       </form>
     </main>
   );
