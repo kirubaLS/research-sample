@@ -1,209 +1,246 @@
-# Setup — making the digests send themselves
+# Setup — one daily meeting, digests that send themselves
 
-About 45 minutes end to end. Do the steps in order; step 3 is the one that fails for most
-people and it is much easier to fix before there is any code in the project.
-
----
-
-## 0. Check you can actually do this
-
-- **Meet transcripts must be available on your Workspace edition** (Business Standard and
-  above). If the *Take notes / transcript* button is missing in a call, stop here — there is
-  no transcript for anything downstream to read.
-- **Transcripts must be turned on for your OU** in Admin console → Apps → Google Meet →
-  Meet video settings → Transcription.
-- **You need Google Cloud console access** for the project you will create in step 1. You do
-  not need to be a Workspace super admin for that, but you do for step 2's Admin SDK scope.
-
-### Whose account should this run as
-
-The Meet API only returns conference records for meetings the **authenticated account was in**.
-So install this on the account that hosts the team meeting — usually yours.
-
-If you later want one script covering meetings it did not attend, that is a different setup:
-a service account with domain-wide delegation, authorised by a super admin. Do not start
-there. Get one person's meetings working first.
+About 30 minutes. Shorter than it was: because you supply the email addresses, the whole
+Admin SDK / directory-lookup path is gone, and with it the need for a super admin.
 
 ---
 
-## 1. Google Cloud project
+## First, the two questions
 
-1. Go to <https://console.cloud.google.com/projectcreate>, name it `meet-digest`, create.
-2. Note the **project number** (Cloud console → top-left project picker → the long number,
-   not the ID). You need it in step 3.
-3. Enable two APIs — search each by name in **APIs & Services → Library** and click Enable:
-   - **Google Meet API**
-   - **Admin SDK API**
-4. **APIs & Services → OAuth consent screen**:
-   - User type: **Internal** (everyone is in your Workspace, so no verification review).
-   - App name `Meet Digest`, your email for both support and developer contact. Save.
+### "How does it connect to the Google Meet?"
 
-> You need a *standard* Cloud project, not the hidden default one Apps Script creates,
-> because the Meet API is not enabled on default projects and you cannot enable it there.
-> This is the single most common reason this build stalls.
+**It doesn't attach to the meeting at all.** Nothing is installed into Meet, no bot joins the
+call, and nobody sees anything different during the standup. There is nothing to add to the
+invite.
 
----
+What actually happens: Meet already writes a transcript when transcription is on, and Google
+keeps it. Afterwards — up to 15 minutes later — the script asks Google *"give me the transcript
+for meeting code `abc-mnop-xyz`"*, gets it as structured data, and works from that. The only
+link between the script and your meeting is that **meeting code**, which you paste into a
+setting in step 4.
 
-## 2. Anthropic API key
+So the only thing that has to be true inside Meet is: **transcription was running.** That is
+step 1, and for a daily meeting it is the step that matters most.
 
-<https://console.anthropic.com> → API Keys → Create key. Copy it now; it is shown once.
+### "How does it send to everyone automatically?"
 
-Budget check: a 60-minute transcript is roughly 8–10k input tokens and one call per meeting,
-so a team doing five meetings a week costs cents per month, not dollars.
+Three pieces:
 
----
+1. **The trigger.** Apps Script has a built-in scheduler. `installTrigger` (step 7) tells Google
+   *"run `main` every 15 minutes, forever."* Google runs it on its own servers. Your laptop can
+   be off.
+2. **The roster.** You type the names and emails once, in step 4. The script matches each
+   speaker in the transcript to that list.
+3. **The send.** `MailApp.sendEmail` sends from your own Google account — the same account the
+   script runs as. No SMTP, no mail service, no API key for email. Recipients see it from you.
 
-## 3. Apps Script project
-
-1. <https://script.google.com/home/projects/create> → rename it `Meet Digest`.
-2. **Project Settings** (gear icon) → tick **Show "appsscript.json" manifest file**.
-3. **Project Settings → Google Cloud Platform (GCP) Project → Change project** → paste the
-   **project number** from step 1 → Set project.
-
-   *If this rejects the number:* you are not an owner/editor on the Cloud project, or the
-   OAuth consent screen in step 1.4 was never saved. Both must be true before it will link.
-
-4. Copy the files in this folder into the editor. Click **+ → Script** for each `.gs` file and
-   name it to match (`Config`, `Setup`, `Meet`, `Main`, `Claude`, `Mail` — the editor adds the
-   `.gs`). Replace the contents of `appsscript.json` with the one here.
-
-   Or skip the clicking with [clasp](https://github.com/google/clasp):
-
-   ```bash
-   npm i -g @google/clasp
-   clasp login
-   cd meet-digest
-   cp .clasp.json.example .clasp.json      # paste your Script ID from Project Settings
-   clasp push
-   ```
-
-5. Set `timeZone` in `appsscript.json` to your own if you are not on `Asia/Kolkata` —
-   it decides the times printed in the emails.
+Once step 7 is done there is no button to press, ever again. Meeting ends → within 15 minutes
+everyone has their own digest.
 
 ---
 
-## 4. Configuration values
+## 1. Turn on transcription — automatically
 
-**Project Settings → Script Properties → Add script property.** Four properties:
+This is the step people get wrong, and if it is wrong nothing else matters: **no transcript, no
+digest.** For a daily standup you cannot rely on someone remembering to click *Start transcript*.
 
-| Property | Value | Required |
-|---|---|---|
-| `ANTHROPIC_API_KEY` | the key from step 2 | yes |
-| `DRY_RUN_TO` | **your own email address** | see below |
-| `LOOKBACK_HOURS` | `24` | no |
-| `KILL_PHRASE` | `off the record` | no |
+**Admin console → Apps → Google Workspace → Google Meet → Meet video settings → Automatic
+transcription.** Turn it on for the OU or group that owns the meeting.
 
-**`DRY_RUN_TO` is the safety catch.** While it is set, every digest goes to you instead of the
-real recipient, with the intended recipient in the subject line. Leave it set until step 7.
-Nothing here is hard-coded in the source, so the API key never lands in git.
+Two things to know before you count on it:
 
----
+- **Editions.** Automatic transcription needs Business Plus, Enterprise Standard/Plus,
+  Education Plus, or Enterprise Essentials (Plus). Plain Business Standard has manual
+  transcripts only — they work, someone just has to click the button each morning.
+- **It does not apply to recurring meetings created before you switched it on.** This is
+  almost certainly your situation. **Delete your existing daily Meet event and recreate it**
+  after enabling the setting, or transcripts will silently never start and you will spend an
+  afternoon debugging a script that is working perfectly.
 
-## 5. Authorise and verify
+Verify it before going further: check tomorrow's calendar entry and confirm *Meeting transcript*
+is ticked. Then run one real meeting and confirm a transcript lands in Drive.
 
-In the editor, pick **`checkConfig`** from the function dropdown and click **Run**.
+## 2. Get your meeting code
 
-The first run triggers the consent screen. Because the app is Internal and unverified you will
-see *"Google hasn't verified this app"* — click **Advanced → Go to Meet Digest (unsafe)**. This
-is your own script; the warning is about it not having been through Google's public review.
+From the daily meeting's join link:
 
-Read the log (**Execution log**, bottom panel). You want four green lines. The common failures:
+```
+https://meet.google.com/abc-mnop-xyz
+                        ^^^^^^^^^^^^  this part
+```
 
-| Log message | Fix |
+For a recurring Calendar event this code stays the same every day, which is exactly what makes
+this work. Keep it — it goes in step 4.
+
+## 3. Get a Gemini API key
+
+<https://aistudio.google.com/apikey> → Create API key. Copy it.
+
+Gemini has a free tier that comfortably covers one meeting a day, so there is no billing to set
+up. This is the main reason to prefer it over Claude here — the code supports both, and you flip
+between them with one setting.
+
+## 4. Cloud project + Apps Script
+
+**4a. Cloud project** — <https://console.cloud.google.com/projectcreate>, name it `meet-digest`.
+
+- **APIs & Services → Library** → search **Google Meet API** → **Enable**. (Just this one now.)
+- **APIs & Services → OAuth consent screen** → User type **Internal** → app name `Meet Digest`,
+  your email in both contact fields → Save.
+- Note the **project number** from the project picker at top-left.
+
+> It must be a *standard* Cloud project, not the hidden default one Apps Script creates. The
+> Meet API cannot be enabled on default projects, and this is the most common reason the build
+> stalls.
+
+**4b. Apps Script** — <https://script.google.com/home/projects/create>, rename to `Meet Digest`.
+
+- **Project Settings** → tick **Show "appsscript.json" manifest file**.
+- **Project Settings → Google Cloud Platform (GCP) Project → Change project** → paste the
+  project *number* → Set project.
+- Copy the files from this folder in (**+ → Script** for each, named `Config`, `Roster`, `Meet`,
+  `AI`, `Gemini`, `Claude`, `Main`, `Mail`, `Setup`), and replace `appsscript.json` with the one
+  here. Set `timeZone` to yours if you are not on `Asia/Kolkata` — it sets the times in the email.
+
+  Or with [clasp](https://github.com/google/clasp):
+
+  ```bash
+  npm i -g @google/clasp && clasp login
+  cd meet-digest && cp .clasp.json.example .clasp.json   # paste your Script ID
+  clasp push
+  ```
+
+## 5. Settings — this is where you put the addresses
+
+**Project Settings → Script Properties.** Nothing is hard-coded, so no key ever reaches git.
+
+| Property | Value |
 |---|---|
-| `Meet API failed: HTTP 403 ... not enabled` | Step 1.3 — enable the Google Meet API, then wait a minute |
-| `Meet API failed: HTTP 403 ... insufficient scope` | The manifest was not saved before you ran. Save `appsscript.json`, then **Run** again to re-consent |
-| `No conference records found` | This account hosted no transcribed meeting in 7 days. Run a two-minute test call with transcription on |
-| `Admin Directory failed` | Step 1.3 — enable Admin SDK API; and the account needs the directory read scope, which on a locked-down tenant means a super admin grants it |
+| `MEETING_CODE` | `abc-mnop-xyz` from step 2 |
+| `ROSTER` | the list below |
+| `GEMINI_API_KEY` | the key from step 3 |
+| `DRY_RUN_TO` | **your own email** — leave this set for the first week |
 
-Do not go on until `checkConfig` is clean.
+`ROSTER` is one person per line, `Display Name = email`:
+
+```
+Kingshuk Dey = kingshuk@leadstrategus.com
+Ravi Kumar   = ravi@leadstrategus.com
+Priya S      = priya@leadstrategus.com
+```
+
+**The name on the left must match how the person shows up in Meet**, because that is the only
+handle the transcript gives you. First names work too (`Ravi = ...` matches "Ravi Kumar") as long
+as they are unambiguous — two Ravis and the script refuses to guess and mails neither. `checkConfig`
+in the next step prints exactly who matched and who did not, so you can fix the spelling in a minute.
+
+Optional: `AI_PROVIDER` = `claude` (with `ANTHROPIC_API_KEY`) to switch models, `AI_MODEL` to pin
+a different one, `KILL_PHRASE` to change the withhold phrase from `off the record`.
+
+## 6. Authorise and check
+
+Pick **`checkConfig`** in the function dropdown → **Run**.
+
+First run asks for consent. *"Google hasn't verified this app"* → **Advanced → Go to Meet Digest
+(unsafe)**. It is your own script; the warning means it has not been through Google's public
+review, which Internal apps do not need.
+
+Read the **Execution log**. It prints every participant it saw and which email each matched:
+
+```
++ Pinned to meeting code abc-mnop-xyz.
++ Roster has 3 people: Kingshuk Dey, Ravi Kumar, Priya S.
++ Provider gemini, model gemini-3.6-flash.
++ Most recent meeting participants -> Kingshuk Dey (kingshuk@...), Ravi Kumar (ravi@...), Guest (NO MATCH)
+```
+
+Common failures:
+
+| Message | Fix |
+|---|---|
+| `Meet API failed: HTTP 403 ... not enabled` | Step 4a — enable the Google Meet API, wait a minute |
+| `HTTP 403 ... insufficient scope` | `appsscript.json` was not saved before running. Save it, **Run** again to re-consent |
+| `No meetings matched` | Wrong `MEETING_CODE`, or this account was not in those calls |
+| `That meeting has no transcript` | Step 1. Transcription was not running during the call |
+| `(NO MATCH)` next to a name | Fix that person's spelling in `ROSTER` to match exactly |
+
+Do not continue until this is clean.
+
+## 7. Test on a real meeting
+
+Run **`testOnce`**. It takes your most recent standup, builds every digest, and mails them all to
+`DRY_RUN_TO` — with the intended recipient shown in the subject line.
+
+Read them as each person. You will want to change something. **When a digest reads wrong, edit the
+rules list in `buildPrompt` in `AI.gs`, not the code.** That list is the whole product. Re-run
+`testOnce` after each change — run `resetLedger` first if you are retesting the same meeting,
+otherwise it is skipped as already done.
+
+## 8. Turn on the automation
+
+Run **`installTrigger`**.
+
+Confirm it: **Triggers** in the left sidebar (alarm-clock icon) — one row, `main`, Time-driven,
+Minutes timer, every 15 minutes. That is the automation. It now runs on Google's servers whether
+or not anything of yours is open.
+
+**Leave `DRY_RUN_TO` set for a week.** Every morning you will get the whole team's digests in your
+own inbox and learn what the model gets wrong on *your* meetings while the cost of being wrong is
+zero. Then:
+
+1. **Host forwards, one month** (recommended) — keep `DRY_RUN_TO`, forward the good ones by hand.
+2. **Direct send** — delete the `DRY_RUN_TO` property. Digests now go to the team.
+
+Before (2): **tell the team at standup first.** A mail that quotes a colleague back at someone,
+arriving unannounced, reads as surveillance even when it is useful.
 
 ---
 
-## 6. Test on a real meeting
+## Daily operation
 
-Run **`testOnce`**. It takes the most recent transcribed meeting, builds the digests, and mails
-them — all to `DRY_RUN_TO`, since you set it.
+Nothing. That is the point. Meeting ends → within 15 minutes everyone has their digest.
 
-Read them as if you were each recipient. Almost certainly you will want to adjust something.
-**When a digest reads wrong, edit the rules list in `buildPrompt` in `Claude.gs`, not the code.**
-That list is the entire product. Re-run `testOnce` after each change — first run
-`resetLedger` if you are re-testing the same meeting, or it will be skipped as already done.
+The three things that will ever go wrong, in order of likelihood:
 
----
-
-## 7. Turn on the automation
-
-This is the step that makes it automatic.
-
-1. Run **`installTrigger`**. That creates a time-driven trigger firing `main` every 15 minutes.
-2. Confirm it: **Triggers** in the left sidebar (alarm-clock icon) — one row, `main`,
-   Time-driven, Minutes timer, Every 15 minutes.
-
-That is it. It now runs whether or not any browser is open. `main` finds conference records
-that ended since the last run, skips any already in its ledger, and sends.
-
-**Do not delete `DRY_RUN_TO` yet.** Let it run for a week with everything landing in your
-inbox. You will learn what the model gets wrong on *your* meetings while the cost of being
-wrong is zero.
-
-### Going live
-
-Two options, and I would do them in this order:
-
-1. **Host forwards, one month.** Leave `DRY_RUN_TO` set. You get everyone's digest and forward
-   the good ones by hand. Slow, but nothing reaches the team unreviewed.
-2. **Direct send.** Delete the `DRY_RUN_TO` property. Digests now go to participants.
-
-Before you do (2): **tell the team in standup first.** A mail that quotes a colleague back at
-someone, arriving unannounced, reads as surveillance even when it is useful.
-
----
-
-## 8. Knowing when it breaks
-
-- **Executions** in the left sidebar is the run history — every `main` firing, with logs.
-- Apps Script emails the project owner a daily summary of failed trigger runs by default.
-  Confirm it is on at **Triggers → the trigger's ⋮ menu → Failure notification settings**.
-- A meeting that throws is deliberately *not* written to the ledger, so the next run retries it.
-  A meeting that keeps failing will retry every 15 minutes until it ages out of the lookback
-  window — check Executions if the same error repeats.
-
-## Operational commands
-
-Run these by hand from the editor whenever you need them:
+1. **Transcription did not start.** Log says `no transcript`. Step 1 — and check whether the
+   recurring event predates the automatic-transcription setting.
+2. **Someone's name changed** in their Google profile, so `ROSTER` no longer matches. Log says
+   `NO MATCH`. Fix the line.
+3. **Gemini quota.** Log says `HTTP 429`. The script retries once; if the free tier is not
+   enough, enable billing on the AI Studio key.
 
 | Function | What it does |
 |---|---|
-| `checkConfig` | Health check. Sends nothing. Run this first when something is wrong |
+| `checkConfig` | Health check. Sends nothing. Run this first when anything is wrong |
 | `testOnce` | Process the most recent meeting only |
-| `installTrigger` | Start (or restart) the 15-minute automation |
-| `removeTriggers` | Stop the automation; the code stays put |
-| `resetLedger` | Forget which meetings were processed, so they can be re-sent |
+| `installTrigger` | Start (or restart) the automation |
+| `removeTriggers` | Stop it. The code stays put |
+| `resetLedger` | Forget which meetings were done, so they can be re-sent |
+
+**Executions** in the sidebar is the full run history with logs. Apps Script also emails the owner
+a daily summary of failed runs — confirm it at **Triggers → ⋮ → Failure notification settings**.
+
+A meeting that errors is deliberately *not* recorded as done, so the next run retries it rather
+than losing it.
 
 ---
 
-## Quota and cost ceilings
+## Limits
 
 | Limit | Consumer Gmail | Workspace |
 |---|---|---|
 | `MailApp` recipients/day | 100 | 1,500 |
-| Script runtime per execution | 6 min | 6 min |
+| Runtime per execution | 6 min | 6 min |
 | `UrlFetchApp` calls/day | 20,000 | 100,000 |
 
-A team meeting of eight people is eight emails. You will not come close. The 6-minute runtime
-is the only real ceiling: a backlog of many meetings in one run could hit it — the ledger makes
-that safe, since the next firing picks up exactly where it stopped.
+One daily standup of eight people is eight emails a day. You are nowhere near any of these.
 
----
+## Later: instant instead of 15 minutes
 
-## When to move off the 15-minute poll
-
-Only when the delay actually annoys someone. The event-driven version subscribes the meeting
+Only if the delay ever actually bothers someone. The event-driven version subscribes the meeting
 space through the Google Workspace Events API and receives
-`google.workspace.meet.transcript.v2.fileGenerationEnded` over Pub/Sub, which fires the moment
-the transcript is ready. It needs a Cloud Function, a Pub/Sub topic, and a subscription that
-must be renewed — real infrastructure, for a few minutes of latency.
+`google.workspace.meet.transcript.v2.fileGenerationEnded` over Pub/Sub the moment the transcript is
+ready. It needs a Cloud Function, a Pub/Sub topic, and a subscription that must be renewed — real
+infrastructure for a few minutes of latency. `processConference` moves there unchanged.
 
-`processConference` lifts into that Cloud Function unchanged, so nothing here is wasted work.
-Design notes are in [`../docs/meet-transcript-per-person-mail.md`](../docs/meet-transcript-per-person-mail.md).
+Design notes: [`../docs/meet-transcript-per-person-mail.md`](../docs/meet-transcript-per-person-mail.md)

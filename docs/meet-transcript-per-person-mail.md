@@ -82,6 +82,15 @@ edits the Doc afterward. Treat the API as the source of truth and ignore the Doc
 
 ### 3.1 Turning a participant into an email address
 
+> **Superseded in the shipped version, and this is the better call for a single daily
+> meeting.** Everything below is correct, and it is still what you need to cover meetings
+> across a whole domain. But if the same handful of people meet every day, *typing the email
+> addresses into a config property* removes this entire section: no Admin SDK, no directory
+> scope, no super admin, and it handles external guests too. `meet-digest/` matches Meet's
+> `displayName` against a roster you supply and refuses to guess when a name is ambiguous.
+> Keep the directory path in mind only when the roster stops being knowable in advance.
+
+
 This is where the naive version breaks, and it is worth solving on day one rather than day three.
 Transcript entries point at a *participant resource*, not a person. Fetch
 `conferenceRecords/{id}/participants` and you get one of three shapes:

@@ -12,7 +12,7 @@ function main() {
     const processed = new Set(JSON.parse(PROPS.getProperty('PROCESSED') || '[]'));
     let handled     = 0;
 
-    listConferenceRecords(since).forEach(record => {
+    listMeetings(since).forEach(record => {
       if (processed.has(record.name)) return;
       if (!record.endTime) return;              // still in progress, catch it next run
 
@@ -21,7 +21,7 @@ function main() {
         processed.add(record.name);
         handled++;
       } catch (e) {
-        // Not added to the ledger, so the next run retries it.
+        // Deliberately not added to the ledger, so the next run retries it.
         console.error(`${record.name} failed: ${e.message}`);
       }
     });
@@ -36,33 +36,44 @@ function main() {
 }
 
 function processConference(record) {
-  const { map, unresolved } = buildDirectory(record.name);
+  const { map, unmatched } = resolveParticipants(record.name);
   const entries = fetchTranscript(record.name);
 
-  if (!entries.length) return console.log(`${record.name}: no transcript, skipping.`);
+  if (!entries.length) {
+    return console.log(`${record.name}: no transcript — was transcription on? Skipping.`);
+  }
 
   const script = entries.map(e => {
     const who = map[e.participant] || { name: 'Unknown' };
     return `[${(e.startTime || '').slice(11, 16)}] ${who.name}: ${e.text}`;
   }).join('\n');
 
-  const host = Session.getEffectiveUser().getEmail();
+  const operator = Session.getEffectiveUser().getEmail();
 
   if (script.toLowerCase().includes(CONFIG.killPhrase)) {
-    MailApp.sendEmail(host, 'Meeting digest withheld',
-      `A participant said "${CONFIG.killPhrase}" during the meeting starting ` +
-      `${record.startTime}, so no digests were sent. Send them manually if appropriate.`);
+    MailApp.sendEmail(operator, 'Meeting digest withheld',
+      `Someone said "${CONFIG.killPhrase}" during the meeting starting ${record.startTime}, ` +
+      'so no digests were sent. Send them by hand if that is appropriate.');
     return console.log(`${record.name}: kill phrase found, withheld.`);
   }
 
-  const roster  = Object.values(map).filter(p => p.email);
-  if (!roster.length) return console.log(`${record.name}: nobody resolvable, skipping.`);
+  // Deduplicate: one person can join twice (phone + laptop) and would otherwise
+  // appear as two recipients of the same address.
+  const roster = [];
+  const seen   = new Set();
+  Object.values(map).forEach(p => {
+    if (p.email && !seen.has(p.email)) { seen.add(p.email); roster.push(p); }
+  });
 
-  const digests = askClaude(script, roster.map(p => p.name));
+  if (!roster.length) {
+    return console.log(`${record.name}: nobody matched ROSTER (saw: ${unmatched.join(', ')}).`);
+  }
+
+  const digests = generateDigests(script, roster.map(p => p.name));
 
   roster.forEach(person => {
     const d = digests[person.name];
-    if (d && hasContent(d)) sendDigest(person, d, record, unresolved);
+    if (d && hasContent(d)) sendDigest(person, d, record, unmatched);
     else console.log(`${person.name}: nothing worth sending.`);
   });
 }

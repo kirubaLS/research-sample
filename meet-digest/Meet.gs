@@ -24,46 +24,41 @@ function meetPaged(path, key) {
 }
 
 /**
- * Conference records this account can see — i.e. meetings it hosted or attended.
- * A script running as one person will not see meetings they were not in; that is a
- * property of the API, not a bug. See SETUP.md "Whose account should this run as".
+ * Conference records for ONE meeting — the daily standup identified by MEETING_CODE.
+ * Without this filter the script would also process every other call you join.
  */
-function listConferenceRecords(sinceIso) {
-  const filter = encodeURIComponent(`start_time>="${sinceIso}"`);
-  return meetPaged(`conferenceRecords?filter=${filter}`, 'conferenceRecords')
+function listMeetings(sinceIso) {
+  const clauses = [`start_time>="${sinceIso}"`];
+  if (CONFIG.meetingCode) clauses.push(`space.meeting_code = "${CONFIG.meetingCode}"`);
+
+  return meetPaged(`conferenceRecords?filter=${encodeURIComponent(clauses.join(' AND '))}`,
+                   'conferenceRecords')
     .sort((a, b) => (a.startTime || '').localeCompare(b.startTime || ''));
 }
 
 /**
- * Maps participant resource names to people.
- * Returns { map: { <resourceName>: {name, email} }, unresolved: [names] }.
+ * Maps participant resource names to roster entries.
+ * Returns { map: { <resourceName>: {name, email} }, unmatched: [displayNames] }.
  *
- * Only signedinUser participants carry an ID that resolves to an email. Anonymous
- * and dial-in participants are listed as unresolved and never receive mail — a wrong
- * recipient is the one failure here that actually costs something.
+ * A participant whose display name is not in ROSTER gets no mail and is listed as
+ * unmatched. Never guessed: a wrong recipient is the one failure here that actually
+ * costs something.
  */
-function buildDirectory(recordName) {
+function resolveParticipants(recordName) {
+  const roster = loadRoster();
   const map = {};
-  const unresolved = [];
+  const unmatched = [];
 
   meetPaged(`${recordName}/participants`, 'participants').forEach(p => {
-    const who   = p.signedinUser || p.anonymousUser || p.phoneUser || {};
-    const entry = { name: who.displayName || 'Unknown', email: null };
+    const who    = p.signedinUser || p.anonymousUser || p.phoneUser || {};
+    const shown  = who.displayName || 'Unknown';
+    const person = matchPerson(shown, roster);
 
-    if (p.signedinUser && p.signedinUser.user) {
-      const id = p.signedinUser.user.split('/').pop();
-      try {
-        entry.email = AdminDirectory.Users.get(id).primaryEmail;
-      } catch (e) {
-        unresolved.push(entry.name);   // external guest, or no directory access
-      }
-    } else {
-      unresolved.push(entry.name);     // anonymous or phone: nothing to resolve
-    }
-    map[p.name] = entry;
+    map[p.name] = { name: shown, email: person ? person.email : null };
+    if (!person) unmatched.push(shown);
   });
 
-  return { map, unresolved };
+  return { map, unmatched };
 }
 
 /** All transcript entries for a conference, in spoken order. */

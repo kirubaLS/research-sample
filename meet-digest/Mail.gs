@@ -1,4 +1,4 @@
-function sendDigest(person, d, record, unresolved) {
+function sendDigest(person, d, record, unmatched) {
   const when = Utilities.formatDate(new Date(record.startTime),
                                     Session.getScriptTimeZone(), 'd MMM, h:mm a');
   const dry  = CONFIG.dryRunTo;
@@ -26,8 +26,8 @@ function sendDigest(person, d, record, unresolved) {
 
     ${section('Decisions affecting your work', d.decisions_affecting_me.map(x => li(esc(x))))}
 
-    ${unresolved.length ? `<p style="color:#aaa;font-size:12px;margin-top:26px">
-      Not matched to an account, so not mailed: ${esc(unresolved.join(', '))}</p>` : ''}
+    ${unmatched.length ? `<p style="color:#aaa;font-size:12px;margin-top:26px">
+      Not matched to an account, so not mailed: ${esc(unmatched.join(', '))}</p>` : ''}
 
     <p style="color:#aaa;font-size:12px;margin-top:26px;border-top:1px solid #eee;padding-top:12px">
       Generated automatically from the meeting transcript. Reply here if anything looks wrong.</p>
