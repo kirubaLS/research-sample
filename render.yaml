@@ -29,6 +29,14 @@ services:
     rootDir: backend
     buildCommand: pip install --upgrade pip && pip install -e .
     # Migrations run once per deploy, before the new instance takes traffic.
+    #
+    # preDeployCommand applies ONLY to Blueprint-managed services on a paid instance type.
+    # A service created by hand in the dashboard ignores it, the schema is never created,
+    # and the first request fails with: relation "school" does not exist. If that is your
+    # setup, either run `cd backend && alembic upgrade head` once from the Shell tab, or
+    # fold it into the start command:
+    #   alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # (fine for one instance; with several, they would race to migrate on every deploy).
     preDeployCommand: alembic upgrade head
     # One worker fits comfortably in starter's 512 MB with numpy and scipy loaded
     # (~150 MB resident each). Raise WEB_CONCURRENCY when you move to a bigger plan.

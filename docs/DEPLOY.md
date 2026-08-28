@@ -97,7 +97,21 @@ ceiling.
    - `yaadhum-api` → `YAADHUM_CORS_ORIGINS` = the web service's URL
    - `yaadhum-web` → `NEXT_PUBLIC_API_BASE` = the API's URL
 6. Seed the first school:
-   The deploy runs `alembic upgrade head`, which creates the schema and nothing else.
+   **First check the schema exists.** `preDeployCommand` applies only to Blueprint-managed
+   services on a paid instance type. A service created by hand in the dashboard silently
+   ignores it, and the first request then fails with `relation "school" does not exist`.
+   Run it once from the API service's Shell tab:
+
+   ```bash
+   cd backend && alembic upgrade head
+   ```
+
+   To stop it recurring on every deploy, put it in the start command instead:
+   `alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT`. That is fine
+   for a single instance; with several they would race to migrate on each deploy, which is
+   when the pre-deploy hook earns its keep.
+
+   Once migrated, the deploy creates the schema and nothing else.
    A freshly deployed database has **no school in it**, so nobody can sign in and the
    student class list is empty until you provision one. Open the API service's **Shell**
    tab in the Render dashboard (or `render shell yaadhum-api` with the CLI) and run:
