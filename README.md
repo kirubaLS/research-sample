@@ -141,6 +141,22 @@ docs/               design documents, diagrams, paper analysis
 
 ---
 
+## Deployment
+
+`render.yaml` defines both services and the database; see **[docs/DEPLOY.md](docs/DEPLOY.md)**
+for the walkthrough.
+
+One decision to make before you deploy: **Render has no India region.** Student answer
+scripts contain children's handwriting, so for anything past the pilot, run the compute on
+Render/Singapore but point `YAADHUM_DATABASE_URL` and the object store at `ap-south-1`.
+
+Configured for split hosting: CORS from an explicit origin list (never `*`, because the
+student route is unauthenticated), a `/healthz` liveness path separate from the `/health`
+readiness probe, `postgres://` URL normalisation, Alembic migrations in the pre-deploy
+step, per-IP rate limiting on the public route, and security headers.
+
+---
+
 ## Status
 
 Implemented and tested: the schema, both scoring engines, every algorithm in the table

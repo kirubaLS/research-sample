@@ -9,11 +9,12 @@ from __future__ import annotations
 import random
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.schemas import CompletionOut, ProfileIn, ResponseBatchIn, SessionOut
+from app.config import get_settings
 from app.db import get_session
 from app.models import (
     ItemResponse,
@@ -28,8 +29,12 @@ from app.psychometrics.instrument import items, likert, screens
 from app.psychometrics.scoring import score as score_profile
 from app.psychometrics.validity import Response as VResponse
 from app.psychometrics.validity import screen as screen_validity
+from app.ratelimit import FixedWindowLimiter, client_key
 
 router = APIRouter(prefix="/t", tags=["interest-test"])
+
+#: the student route carries no API key, so it gets a per-IP ceiling instead
+_start_limiter = FixedWindowLimiter(limit=get_settings().public_rate_limit_per_hour)
 
 
 def _school_by_code(db: Session, class_code: str) -> tuple[School, Section]:
@@ -43,7 +48,13 @@ def _school_by_code(db: Session, class_code: str) -> tuple[School, Section]:
 
 
 @router.post("/{class_code}/start", response_model=SessionOut)
-def start(class_code: str, body: ProfileIn, db: Session = Depends(get_session)) -> SessionOut:
+def start(
+    class_code: str,
+    body: ProfileIn,
+    request: Request,
+    db: Session = Depends(get_session),
+) -> SessionOut:
+    _start_limiter.check(client_key(request))
     school, section = _school_by_code(db, class_code)
 
     student = db.scalar(

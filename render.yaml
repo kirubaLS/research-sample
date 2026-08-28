@@ -1,0 +1,95 @@
+# Render Blueprint — https://render.com/docs/blueprint-spec
+#
+# Two web services and one managed Postgres. Deploy with:
+#   Render dashboard -> New -> Blueprint -> point at this repo
+#
+# ── Read this before you deploy ────────────────────────────────────────────────────────
+# Render has no India region. The available regions are Oregon, Ohio, Virginia, Frankfurt
+# and Singapore. Singapore is the closest to Tamil Nadu and is set below.
+#
+# Student answer scripts contain children's handwriting, so where that data rests is a
+# DPDP Act question, not a latency question. Two workable postures:
+#
+#   Pilot      everything on Render/Singapore, and say so plainly in the school agreement.
+#   Production keep the compute on Render but move the DATA to India — point
+#              YAADHUM_DATABASE_URL at an external Postgres in ap-south-1 (RDS, Neon or
+#              Supabase) and set the object store to an ap-south-1 bucket. Render services
+#              connect to external databases without any change to this file.
+#
+# Never promise a school that data stays in India while running the managed database here.
+# ───────────────────────────────────────────────────────────────────────────────────────
+
+services:
+  - type: web
+    name: yaadhum-api
+    runtime: python
+    region: singapore
+    plan: starter                 # free tier sleeps; a sleeping API breaks a live scan
+    rootDir: backend
+    buildCommand: pip install --upgrade pip && pip install -e .
+    # Migrations run once per deploy, before the new instance takes traffic.
+    preDeployCommand: alembic upgrade head
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+    # Liveness only. A health check that touches the database restarts a healthy process
+    # every time the database hiccups.
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: YAADHUM_ENVIRONMENT
+        value: production
+      - key: YAADHUM_DATABASE_URL
+        fromDatabase:
+          name: yaadhum-db
+          property: connectionString
+      # Exact origins. Never '*' — /t/{class_code}/start is unauthenticated by design.
+      - key: YAADHUM_CORS_ORIGINS
+        value: https://yaadhum-web.onrender.com
+      - key: YAADHUM_TRUSTED_HOSTS
+        value: yaadhum-api.onrender.com
+      - key: YAADHUM_MODEL_HIGH_STAKES
+        value: claude-opus-5
+      - key: YAADHUM_MODEL_HIGH_VOLUME
+        value: claude-haiku-4-5
+      - key: YAADHUM_STORAGE_BACKEND
+        value: s3
+      - key: YAADHUM_S3_REGION
+        value: ap-south-1
+      # Secrets: set these in the Render dashboard, never in the repo.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: YAADHUM_S3_BUCKET
+        sync: false
+      - key: YAADHUM_S3_ENDPOINT_URL
+        sync: false
+      - key: YAADHUM_S3_ACCESS_KEY_ID
+        sync: false
+      - key: YAADHUM_S3_SECRET_ACCESS_KEY
+        sync: false
+
+  - type: web
+    name: yaadhum-web
+    runtime: node
+    region: singapore
+    plan: starter
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      # Next inlines NEXT_PUBLIC_* at BUILD time, so this must be present during the
+      # build, not just at runtime. Changing it requires a rebuild, not a restart.
+      - key: NEXT_PUBLIC_API_BASE
+        value: https://yaadhum-api.onrender.com
+
+databases:
+  - name: yaadhum-db
+    databaseName: yaadhum
+    user: yaadhum
+    region: singapore
+    plan: basic-256mb
+    postgresMajorVersion: "16"
