@@ -273,3 +273,15 @@ def test_dashboard_routes_are_tenant_scoped(client, school):
     # another school sees no sections of ours
     body = client.get("/admin/overview", headers={"X-API-Key": "other-key-999"}).json()
     assert all(s["section_id"] != school["section_id"] for s in body["sections"])
+
+
+def test_class_directory_is_public_and_reveals_nothing_else(client, school):
+    """A student needs a real link without a key; they must not get anything more."""
+    r = client.get("/t/classes")
+    assert r.status_code == 200
+    rows = r.json()
+    assert rows, "the seeded section should be listed"
+    row = rows[0]
+    assert row["class_code"] and row["label"].startswith("Class ")
+    # the directory is a way in, not a leak: no roster, no results, no key
+    assert set(row) == {"class_code", "label", "grade", "school"}

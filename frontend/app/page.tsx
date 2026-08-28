@@ -22,19 +22,15 @@ export default function Home() {
       </div>
 
       <div className="grid two" style={{ marginTop: 30 }}>
-        <div className="card accentbar">
+        <Link href="/t" className="card accentbar">
           <p className="eyebrow">For students</p>
           <h2>Take the interest test</h2>
           <p className="cardnote" style={{ marginBottom: 16 }}>
             36 short questions, about eight minutes, in English, தமிழ் or हिन्दी. There are no
-            right or wrong answers.
+            right or wrong answers, and there is no login.
           </p>
-          <div className="notice">
-            Your teacher gives you a <strong>class link</strong>. It looks like{" "}
-            <span className="mono">/t/&lt;class-code&gt;</span> — open that link to begin.
-            There is no login and no password.
-          </div>
-        </div>
+          <span className="arrow">Find your class →</span>
+        </Link>
 
         <Link href="/admin" className="card accentbar verify">
           <p className="eyebrow" style={{ color: "var(--verify)" }}>

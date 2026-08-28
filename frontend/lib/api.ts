@@ -84,7 +84,16 @@ export interface SessionPayload {
   screens: Screen[][];
 }
 
+export type ClassOption = {
+  class_code: string;
+  label: string;
+  grade: number;
+  school: string;
+};
+
 export const api = {
+  classes: () => request<ClassOption[]>("/t/classes"),
+
   startSession: (classCode: string, body: Record<string, unknown>) =>
     request<SessionPayload>(`/t/${classCode}/start`, {
       method: "POST",

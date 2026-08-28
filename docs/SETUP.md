@@ -55,6 +55,16 @@ class code : 6b3c86ba-6a48-4601-a6cc-0868ae625009 <- the student link
 assessment : 9892e1a1-43f4-43da-a279-f9ec3062bc12
 ```
 
+**Lost the key?** There are no admin accounts and no passwords — one API key per school,
+held by the principal and sent as `X-API-Key`. To print it again at any time:
+
+```bash
+python -m scripts.admin_key                        # every school and its key
+python -m scripts.admin_key --rotate <school-id>   # issue a new key if one leaks
+```
+
+On Render, run the same command from the API service's **Shell** tab.
+
 Run it:
 
 ```bash
@@ -97,8 +107,10 @@ Open **http://localhost:3000**.
 
 ## 3. Walk the app
 
-**As a student** — open `http://localhost:3000/t/<class-code>` using the class code `seed`
-printed.
+**As a student** — open `http://localhost:3000/` and follow *Take the interest test*, which
+lists the classes so a student can tap their own. The direct link is
+`http://localhost:3000/t/<class-code>` using the class code `seed` printed; the dashboard
+shows the same link with a Copy button, next to each class.
 
 1. Fill the form. Pick **தமிழ்** to see the Tamil item text.
 2. Six screens, six items each. Answers save on every tap.

@@ -86,8 +86,12 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
               required
             />
             <p className="hint">
-              Printed by <span className="mono">python -m scripts.seed</span> when the school
-              was created.
+              There are no admin accounts and no passwords — one key per school, held by the
+              principal. To see yours, run{" "}
+              <span className="mono">python -m scripts.admin_key</span> in the backend
+              directory (on Render: the service&apos;s <em>Shell</em> tab). The same command
+              with <span className="mono">--rotate &lt;school-id&gt;</span> issues a new key if
+              this one leaks.
             </p>
           </div>
           {error && <p className="error">{error}</p>}

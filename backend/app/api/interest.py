@@ -47,6 +47,30 @@ def _school_by_code(db: Session, class_code: str) -> tuple[School, Section]:
     return school, section
 
 
+@router.get("/classes")
+def classes(db: Session = Depends(get_session)) -> list[dict]:
+    """The class directory the student landing page lists.
+
+    A class code is not a secret -- it is written on a whiteboard -- and a student who
+    cannot find their link has no other way in. So this is public, and it returns only
+    what is needed to pick a class: never a roster, a response or a result.
+    """
+    rows = db.execute(
+        select(Section, School.name)
+        .join(School, School.id == Section.school_id)
+        .order_by(School.name, Section.grade, Section.name)
+    ).all()
+    return [
+        {
+            "class_code": section.id,
+            "label": f"Class {section.grade}-{section.name}",
+            "grade": section.grade,
+            "school": school_name,
+        }
+        for section, school_name in rows
+    ]
+
+
 @router.post("/{class_code}/start", response_model=SessionOut)
 def start(
     class_code: str,
