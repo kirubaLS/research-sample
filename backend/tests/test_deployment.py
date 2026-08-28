@@ -200,3 +200,64 @@ def test_direct_engines_keep_prepared_statements():
     from app.config import is_pooled_url
 
     assert not is_pooled_url(normalise_database_url(NEON_DIRECT))
+
+
+# --------------------------------------------------------------------------------------
+# Settings loaded the way a platform actually loads them
+# --------------------------------------------------------------------------------------
+# These go through the ENVIRONMENT, not the constructor. Constructor kwargs skip the
+# settings source entirely, which is how an earlier version of this suite passed while
+# the deployed process would have crashed on boot.
+
+
+def test_list_settings_accept_a_bare_string_from_the_environment(monkeypatch):
+    """Render sets YAADHUM_CORS_ORIGINS=https://app.example — a plain string, not JSON."""
+    monkeypatch.setenv("YAADHUM_CORS_ORIGINS", "https://web.onrender.com")
+    assert Settings().cors_origins == ["https://web.onrender.com"]
+
+
+def test_list_settings_accept_a_comma_separated_string(monkeypatch):
+    monkeypatch.setenv("YAADHUM_CORS_ORIGINS", "https://a.example, https://b.example")
+    assert Settings().cors_origins == ["https://a.example", "https://b.example"]
+
+
+def test_list_settings_still_accept_json(monkeypatch):
+    monkeypatch.setenv("YAADHUM_CORS_ORIGINS", '["https://c.example","https://d.example"]')
+    assert Settings().cors_origins == ["https://c.example", "https://d.example"]
+
+
+def test_trusted_hosts_parse_the_same_way(monkeypatch):
+    monkeypatch.setenv("YAADHUM_TRUSTED_HOSTS", "api.onrender.com")
+    assert Settings().trusted_hosts == ["api.onrender.com"]
+
+
+def test_malformed_json_gives_a_readable_error(monkeypatch):
+    monkeypatch.setenv("YAADHUM_CORS_ORIGINS", '["unclosed')
+    with pytest.raises(Exception) as exc:
+        Settings()
+    assert "comma-separated" in str(exc.value)
+
+
+def test_settings_load_from_a_dotenv_file(tmp_path, monkeypatch):
+    """The local setup path writes a .env; it must not blow up on the list fields."""
+    env = tmp_path / ".env"
+    env.write_text(
+        "YAADHUM_DATABASE_URL=sqlite+pysqlite:///./x.db\n"
+        "YAADHUM_CORS_ORIGINS=http://localhost:3000\n"
+        "YAADHUM_TRUSTED_HOSTS=*\n",
+        encoding="utf-8",
+    )
+    for key in ("YAADHUM_DATABASE_URL", "YAADHUM_CORS_ORIGINS", "YAADHUM_TRUSTED_HOSTS"):
+        monkeypatch.delenv(key, raising=False)
+    s = Settings(_env_file=str(env))
+    assert s.cors_origins == ["http://localhost:3000"]
+    assert s.trusted_hosts == ["*"]
+
+
+def test_the_package_ships_its_data_files():
+    """pyproject must include app/data/*.json, or an installed wheel has no item bank."""
+    from app.psychometrics.instrument import items
+    from app.taxonomy.lexicon import primary_action
+
+    assert len(items()) == 36
+    assert primary_action("Prove that x is irrational.") == "PROVE"

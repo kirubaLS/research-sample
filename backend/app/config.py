@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from functools import lru_cache
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 def normalise_database_url(url: str) -> str:
@@ -57,10 +59,15 @@ class Settings(BaseSettings):
     s3_secret_access_key: str | None = None
 
     # --- web ---
-    #: exact origins allowed to call this API. Never '*' — the student route is
+    #: Exact origins allowed to call this API. Never '*' — the student route is
     #: unauthenticated, so a wildcard would let any site drive it.
-    cors_origins: list[str] = ["http://localhost:3000"]
-    trusted_hosts: list[str] = ["*"]
+    #:
+    #: NoDecode matters: pydantic-settings JSON-decodes complex types straight from the
+    #: environment, *before* any validator runs. A platform sets these as a plain string
+    #: ("https://app.example"), so without NoDecode the process raises SettingsError on
+    #: boot and the deploy never comes up.
+    cors_origins: Annotated[list[str], NoDecode] = ["http://localhost:3000"]
+    trusted_hosts: Annotated[list[str], NoDecode] = ["*"]
     public_rate_limit_per_hour: int = 60      # per IP, on the unauthenticated student route
 
     # --- models ---
@@ -90,13 +97,23 @@ class Settings(BaseSettings):
     @field_validator("cors_origins", "trusted_hosts", mode="before")
     @classmethod
     def _split_csv(cls, v: object) -> object:
-        """Render passes env vars as strings, so accept 'a,b' as well as JSON."""
-        if isinstance(v, str):
-            stripped = v.strip()
-            if stripped.startswith("["):
-                return v
-            return [part.strip() for part in stripped.split(",") if part.strip()]
-        return v
+        """Accept every shape a platform might hand us.
+
+        NoDecode turns off pydantic-settings' own JSON decoding for these fields, so this
+        validator has to handle all three forms itself:
+            "https://a.example"                      one origin
+            "https://a.example, https://b.example"   comma separated
+            '["https://a.example"]'                  JSON
+        """
+        if not isinstance(v, str):
+            return v
+        stripped = v.strip()
+        if stripped.startswith("["):
+            try:
+                return json.loads(stripped)
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"not valid JSON and not a comma-separated list: {v!r}") from exc
+        return [part.strip() for part in stripped.split(",") if part.strip()]
 
     @property
     def corpus_url(self) -> str:
