@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, apiBase, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
 import { getApiKey, getSchoolName, setApiKey, signOut } from "@/lib/session";
 
 /**
@@ -45,9 +45,11 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
       setSignedIn(true);
     } catch (err) {
       setError(
-        err instanceof ApiError && err.status === 404
-          ? "That key was not recognised. Check it against the one your setup printed."
-          : "Could not reach the API. Is the backend running?",
+        err instanceof ApiUnreachable
+          ? `Could not reach the API at ${err.base}. Either the backend is down, or this site was built without NEXT_PUBLIC_API_BASE pointing at it, or the API's CORS origins do not include this site.`
+          : err instanceof ApiError && err.status === 404
+            ? "That key was not recognised. Check it against the one the operator console issued."
+            : "Something went wrong signing in.",
       );
     } finally {
       setBusy(false);
@@ -74,6 +76,15 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           </p>
         </div>
 
+        {apiBaseIsDefault() && (
+          <div className="notice warn" style={{ marginTop: 18 }}>
+            This site was built without <span className="mono">NEXT_PUBLIC_API_BASE</span>, so
+            it is calling <span className="mono">{apiBase()}</span> — your own machine. Set it
+            to the API service&apos;s URL and deploy again; it is read at build time, so a
+            restart alone will not pick it up.
+          </div>
+        )}
+
         <form onSubmit={submit} className="card" style={{ marginTop: 22 }}>
           <div className="field">
             <label htmlFor="key">School API key</label>
@@ -87,11 +98,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
             />
             <p className="hint">
               There are no admin accounts and no passwords — one key per school, held by the
-              principal. To see yours, run{" "}
-              <span className="mono">python -m scripts.admin_key</span> in the backend
-              directory (on Render: the service&apos;s <em>Shell</em> tab). The same command
-              with <span className="mono">--rotate &lt;school-id&gt;</span> issues a new key if
-              this one leaks.
+              principal. It is issued in the operator console at{" "}
+              <span className="mono">/platform</span>, which also re-issues it if this one is
+              lost. From a shell, <span className="mono">python -m scripts.admin_key</span>
+              {" "}prints it instead.
             </p>
           </div>
           {error && <p className="error">{error}</p>}

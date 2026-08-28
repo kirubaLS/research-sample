@@ -1,4 +1,17 @@
+// Baked in at BUILD time, not read at runtime: changing it on the host requires a fresh
+// deploy, not a restart. The localhost fallback is right for a laptop and wrong for every
+// deployment, which is why apiBaseIsDefault() exists -- an unset variable in production
+// makes the browser ask the *visitor's* machine for the API, and the resulting failure
+// looks like a dead backend rather than a missing setting.
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
+
+export function apiBase(): string {
+  return BASE;
+}
+
+export function apiBaseIsDefault(): boolean {
+  return !process.env.NEXT_PUBLIC_API_BASE;
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -6,11 +19,25 @@ export class ApiError extends Error {
   }
 }
 
+/** Thrown when the request never reached the API at all -- DNS, CORS, or nothing there. */
+export class ApiUnreachable extends Error {
+  constructor(public base: string) {
+    super(`Could not reach the API at ${base}`);
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    ...init,
-    headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      ...init,
+      headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+    });
+  } catch {
+    // fetch rejects rather than returning a status when the origin is unreachable or the
+    // browser blocked the response for CORS -- both are configuration, not a bad key
+    throw new ApiUnreachable(BASE);
+  }
   if (!res.ok) {
     const detail = await res.text();
     throw new ApiError(res.status, detail || res.statusText);

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api, ApiError, apiBase, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
 import { getPlatformKey, setPlatformKey, signOutPlatform } from "@/lib/session";
 
 /**
@@ -43,11 +43,13 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
       // The API answers 404 for both "wrong key" and "console disabled" so that a probe
       // cannot tell them apart — which means the UI has to name both possibilities.
       setError(
-        err instanceof ApiError && err.status === 404
+        err instanceof ApiUnreachable
+          ? `Could not reach the API at ${err.base}. Either the backend is down, or this site was built without NEXT_PUBLIC_API_BASE pointing at it, or the API's CORS origins do not include this site.`
+          : err instanceof ApiError && err.status === 404
           ? "Not accepted. Either the key is wrong, or YAADHUM_PLATFORM_ADMIN_KEY is not set on the API service — the console stays off until it is."
           : err instanceof ApiError && err.status === 429
             ? "Too many attempts from this network. Try again shortly."
-            : "Could not reach the API.",
+            : "Something went wrong signing in.",
       );
     } finally {
       setBusy(false);
@@ -73,6 +75,15 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
             <span className="mono">/admin</span> with their school key instead.
           </p>
         </div>
+
+        {apiBaseIsDefault() && (
+          <div className="notice warn" style={{ marginTop: 18 }}>
+            This site was built without <span className="mono">NEXT_PUBLIC_API_BASE</span>, so
+            it is calling <span className="mono">{apiBase()}</span> — your own machine. Set it
+            to the API service&apos;s URL and deploy again; it is read at build time, so a
+            restart alone will not pick it up.
+          </div>
+        )}
 
         <form onSubmit={submit} className="card" style={{ marginTop: 22 }}>
           <div className="field">
