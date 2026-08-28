@@ -1,0 +1,386 @@
+{
+ "instrument": "riasec-36-v1",
+ "scales": [
+  "R",
+  "I",
+  "A",
+  "S",
+  "E",
+  "C"
+ ],
+ "scale_labels": {
+  "R": "Realistic",
+  "I": "Investigative",
+  "A": "Artistic",
+  "S": "Social",
+  "E": "Enterprising",
+  "C": "Conventional"
+ },
+ "likert": {
+  "min": 1,
+  "max": 5,
+  "labels": {
+   "en": [
+    "Strongly dislike",
+    "Dislike",
+    "Neutral",
+    "Like",
+    "Strongly like"
+   ],
+   "ta": [
+    "மிகவும் பிடிக்காது",
+    "பிடிக்காது",
+    "சராசரி",
+    "பிடிக்கும்",
+    "மிகவும் பிடிக்கும்"
+   ],
+   "hi": [
+    "बिल्कुल पसंद नहीं",
+    "पसंद नहीं",
+    "तटस्थ",
+    "पसंद",
+    "बहुत पसंद"
+   ]
+  }
+ },
+ "reverse_pairs": [
+  [
+   "R1",
+   "R4"
+  ],
+  [
+   "S1",
+   "S5"
+  ],
+  [
+   "C2",
+   "C4"
+  ]
+ ],
+ "items": [
+  {
+   "id": "R1",
+   "scale": "R",
+   "text": {
+    "en": "Repair a bicycle brake or a broken chair",
+    "ta": "சைக்கிள் பிரேக் அல்லது உடைந்த நாற்காலியை சரிசெய்வது",
+    "hi": "साइकिल का ब्रेक या टूटी कुर्सी ठीक करना"
+   }
+  },
+  {
+   "id": "R2",
+   "scale": "R",
+   "text": {
+    "en": "Set up and wire an electrical circuit",
+    "ta": "மின் சுற்றை அமைத்து இணைப்பது",
+    "hi": "बिजली का सर्किट जोड़ना"
+   }
+  },
+  {
+   "id": "R3",
+   "scale": "R",
+   "text": {
+    "en": "Work with tools in a workshop",
+    "ta": "பட்டறையில் கருவிகளுடன் வேலை செய்வது",
+    "hi": "कार्यशाला में औज़ारों से काम करना"
+   }
+  },
+  {
+   "id": "R4",
+   "scale": "R",
+   "text": {
+    "en": "Grow vegetables and look after plants",
+    "ta": "காய்கறிகள் வளர்த்து செடிகளை பராமரிப்பது",
+    "hi": "सब्ज़ियाँ उगाना और पौधों की देखभाल करना"
+   }
+  },
+  {
+   "id": "R5",
+   "scale": "R",
+   "text": {
+    "en": "Assemble a machine from its parts",
+    "ta": "இயந்திரத்தை பாகங்களிலிருந்து இணைப்பது",
+    "hi": "मशीन के पुर्ज़े जोड़कर बनाना"
+   }
+  },
+  {
+   "id": "R6",
+   "scale": "R",
+   "text": {
+    "en": "Operate equipment such as a printer or lathe",
+    "ta": "அச்சுப்பொறி போன்ற கருவிகளை இயக்குவது",
+    "hi": "प्रिंटर या खराद जैसी मशीन चलाना"
+   }
+  },
+  {
+   "id": "I1",
+   "scale": "I",
+   "text": {
+    "en": "Find out why an experiment gave an unexpected result",
+    "ta": "சோதனை எதிர்பாராத முடிவை தந்த காரணத்தை கண்டறிவது",
+    "hi": "प्रयोग का अप्रत्याशित परिणाम क्यों आया, यह पता लगाना"
+   }
+  },
+  {
+   "id": "I2",
+   "scale": "I",
+   "text": {
+    "en": "Solve a difficult mathematics puzzle",
+    "ta": "கடினமான கணிதப் புதிரை தீர்ப்பது",
+    "hi": "कठिन गणित पहेली हल करना"
+   }
+  },
+  {
+   "id": "I3",
+   "scale": "I",
+   "text": {
+    "en": "Study how diseases spread in a population",
+    "ta": "நோய்கள் எப்படி பரவுகின்றன என ஆய்வு செய்வது",
+    "hi": "बीमारियाँ कैसे फैलती हैं, इसका अध्ययन करना"
+   }
+  },
+  {
+   "id": "I4",
+   "scale": "I",
+   "text": {
+    "en": "Read about new scientific discoveries",
+    "ta": "புதிய அறிவியல் கண்டுபிடிப்புகளைப் படிப்பது",
+    "hi": "नई वैज्ञानिक खोजों के बारे में पढ़ना"
+   }
+  },
+  {
+   "id": "I5",
+   "scale": "I",
+   "text": {
+    "en": "Design an experiment to test an idea",
+    "ta": "ஒரு கருத்தை சோதிக்க பரிசோதனை வடிவமைப்பது",
+    "hi": "किसी विचार को जाँचने के लिए प्रयोग बनाना"
+   }
+  },
+  {
+   "id": "I6",
+   "scale": "I",
+   "text": {
+    "en": "Analyse data to find a pattern",
+    "ta": "தரவுகளை ஆய்ந்து வடிவத்தை கண்டறிவது",
+    "hi": "आँकड़ों का विश्लेषण कर पैटर्न खोजना"
+   }
+  },
+  {
+   "id": "A1",
+   "scale": "A",
+   "text": {
+    "en": "Write a story or a poem",
+    "ta": "கதை அல்லது கவிதை எழுதுவது",
+    "hi": "कहानी या कविता लिखना"
+   }
+  },
+  {
+   "id": "A2",
+   "scale": "A",
+   "text": {
+    "en": "Draw, paint or design a poster",
+    "ta": "வரைவது, வண்ணம் தீட்டுவது அல்லது சுவரொட்டி வடிவமைப்பது",
+    "hi": "चित्र बनाना या पोस्टर डिज़ाइन करना"
+   }
+  },
+  {
+   "id": "A3",
+   "scale": "A",
+   "text": {
+    "en": "Play a musical instrument or sing",
+    "ta": "இசைக்கருவி வாசிப்பது அல்லது பாடுவது",
+    "hi": "वाद्य बजाना या गाना"
+   }
+  },
+  {
+   "id": "A4",
+   "scale": "A",
+   "text": {
+    "en": "Act in a school play",
+    "ta": "பள்ளி நாடகத்தில் நடிப்பது",
+    "hi": "स्कूल के नाटक में अभिनय करना"
+   }
+  },
+  {
+   "id": "A5",
+   "scale": "A",
+   "text": {
+    "en": "Design the layout of a magazine or website",
+    "ta": "இதழ் அல்லது இணையதளத்தின் அமைப்பை வடிவமைப்பது",
+    "hi": "पत्रिका या वेबसाइट का लेआउट बनाना"
+   }
+  },
+  {
+   "id": "A6",
+   "scale": "A",
+   "text": {
+    "en": "Take photographs and edit them",
+    "ta": "புகைப்படம் எடுத்து திருத்துவது",
+    "hi": "फ़ोटो खींचना और संपादित करना"
+   }
+  },
+  {
+   "id": "S1",
+   "scale": "S",
+   "text": {
+    "en": "Teach a younger student something difficult",
+    "ta": "இளைய மாணவருக்கு கடினமான ஒன்றை கற்பிப்பது",
+    "hi": "छोटे छात्र को कठिन विषय पढ़ाना"
+   }
+  },
+  {
+   "id": "S2",
+   "scale": "S",
+   "text": {
+    "en": "Help a classmate who is upset",
+    "ta": "வருத்தமாக இருக்கும் வகுப்புத் தோழருக்கு உதவுவது",
+    "hi": "परेशान सहपाठी की मदद करना"
+   }
+  },
+  {
+   "id": "S3",
+   "scale": "S",
+   "text": {
+    "en": "Volunteer at a community health camp",
+    "ta": "சமூக மருத்துவ முகாமில் தொண்டு செய்வது",
+    "hi": "सामुदायिक स्वास्थ्य शिविर में सेवा करना"
+   }
+  },
+  {
+   "id": "S4",
+   "scale": "S",
+   "text": {
+    "en": "Look after small children",
+    "ta": "சிறு குழந்தைகளை கவனித்துக்கொள்வது",
+    "hi": "छोटे बच्चों की देखभाल करना"
+   }
+  },
+  {
+   "id": "S5",
+   "scale": "S",
+   "text": {
+    "en": "Settle a disagreement between friends",
+    "ta": "நண்பர்களிடையே கருத்து வேறுபாட்டை தீர்ப்பது",
+    "hi": "दोस्तों के बीच मतभेद सुलझाना"
+   }
+  },
+  {
+   "id": "S6",
+   "scale": "S",
+   "text": {
+    "en": "Explain a lesson to a group",
+    "ta": "குழுவிற்கு பாடத்தை விளக்குவது",
+    "hi": "समूह को पाठ समझाना"
+   }
+  },
+  {
+   "id": "E1",
+   "scale": "E",
+   "text": {
+    "en": "Lead a team working on a project",
+    "ta": "திட்டப் பணியில் குழுவை வழிநடத்துவது",
+    "hi": "किसी परियोजना में टीम का नेतृत्व करना"
+   }
+  },
+  {
+   "id": "E2",
+   "scale": "E",
+   "text": {
+    "en": "Persuade people to support an idea",
+    "ta": "ஒரு கருத்தை ஆதரிக்க மக்களை வற்புறுத்துவது",
+    "hi": "लोगों को किसी विचार के लिए राज़ी करना"
+   }
+  },
+  {
+   "id": "E3",
+   "scale": "E",
+   "text": {
+    "en": "Start and run a small business",
+    "ta": "சிறு தொழிலை தொடங்கி நடத்துவது",
+    "hi": "छोटा व्यवसाय शुरू करना और चलाना"
+   }
+  },
+  {
+   "id": "E4",
+   "scale": "E",
+   "text": {
+    "en": "Speak in front of the whole school",
+    "ta": "பள்ளி முழுவதற்கும் முன் பேசுவது",
+    "hi": "पूरे स्कूल के सामने बोलना"
+   }
+  },
+  {
+   "id": "E5",
+   "scale": "E",
+   "text": {
+    "en": "Organise an event and manage the budget",
+    "ta": "நிகழ்ச்சியை ஏற்பாடு செய்து பட்ஜெட்டை நிர்வகிப்பது",
+    "hi": "कार्यक्रम आयोजित करना और बजट संभालना"
+   }
+  },
+  {
+   "id": "E6",
+   "scale": "E",
+   "text": {
+    "en": "Negotiate a price when buying something",
+    "ta": "ஏதேனும் வாங்கும்போது விலை பேசுவது",
+    "hi": "कुछ खरीदते समय दाम पर मोलभाव करना"
+   }
+  },
+  {
+   "id": "C1",
+   "scale": "C",
+   "text": {
+    "en": "Keep records neat and up to date",
+    "ta": "பதிவுகளை நேர்த்தியாக புதுப்பித்து வைப்பது",
+    "hi": "रिकॉर्ड साफ़-सुथरा और अद्यतन रखना"
+   }
+  },
+  {
+   "id": "C2",
+   "scale": "C",
+   "text": {
+    "en": "Check a long list of figures for mistakes",
+    "ta": "நீண்ட எண் பட்டியலில் தவறுகளை சரிபார்ப்பது",
+    "hi": "लंबी सूची में गलतियाँ जाँचना"
+   }
+  },
+  {
+   "id": "C3",
+   "scale": "C",
+   "text": {
+    "en": "Arrange files and information in order",
+    "ta": "கோப்புகளையும் தகவல்களையும் வரிசைப்படுத்துவது",
+    "hi": "फ़ाइलें और जानकारी क्रम में लगाना"
+   }
+  },
+  {
+   "id": "C4",
+   "scale": "C",
+   "text": {
+    "en": "Follow a clear set of steps exactly",
+    "ta": "தெளிவான வழிமுறைகளை சரியாக பின்பற்றுவது",
+    "hi": "स्पष्ट चरणों का ठीक-ठीक पालन करना"
+   }
+  },
+  {
+   "id": "C5",
+   "scale": "C",
+   "text": {
+    "en": "Prepare a budget sheet for a class trip",
+    "ta": "வகுப்பு பயணத்திற்கான பட்ஜெட் தாள் தயாரிப்பது",
+    "hi": "कक्षा यात्रा के लिए बजट तैयार करना"
+   }
+  },
+  {
+   "id": "C6",
+   "scale": "C",
+   "text": {
+    "en": "Enter data carefully into a computer",
+    "ta": "கணினியில் தரவை கவனமாக உள்ளிடுவது",
+    "hi": "कंप्यूटर में सावधानी से डेटा भरना"
+   }
+  }
+ ]
+}

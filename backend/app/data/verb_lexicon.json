@@ -1,0 +1,46 @@
+{
+  "version": "1.0",
+  "note": "The lexicon emits an ACTION CLASS, never a tier. Bloom level = action x familiarity.",
+  "actions": {
+    "RECALL": {
+      "en": ["state", "name", "list", "define", "write the value of", "who", "when", "identify",
+             "choose the correct option", "match the following", "fill in the blank", "recall",
+             "write the formula", "what is the", "select the correct"],
+      "hi": ["बताइए", "लिखिए", "नाम लिखिए", "चुनकर लिखिए", "सही विकल्प"],
+      "ta": ["எழுதுக", "பெயரிடுக", "தேர்ந்தெடு"]
+    },
+    "EXPLAIN": {
+      "en": ["explain", "describe", "what is meant by", "give the meaning", "why does",
+             "state and explain", "elaborate", "in your own words"],
+      "hi": ["समझाइए", "वर्णन कीजिए", "स्पष्ट कीजिए", "अर्थ लिखिए"],
+      "ta": ["விளக்குக", "விவரி"]
+    },
+    "EXECUTE": {
+      "en": ["find", "calculate", "solve", "determine", "compute", "evaluate the value",
+             "obtain", "how many", "work out", "simplify"],
+      "hi": ["ज्ञात कीजिए", "हल कीजिए", "परिकलित", "मान ज्ञात"],
+      "ta": ["கண்டறிக", "தீர்க்க", "கணக்கிடுக"]
+    },
+    "PROVE": {
+      "en": ["prove", "show that", "verify that", "establish that", "derive"],
+      "hi": ["सिद्ध कीजिए", "दर्शाइए", "व्युत्पन्न"],
+      "ta": ["நிரூபிக்க", "காட்டுக"]
+    },
+    "APPLY_IN_CONTEXT": {
+      "en": ["a shopkeeper", "a farmer", "a train", "in a factory", "real life", "case study",
+             "read the following passage and answer", "based on the above situation",
+             "a person", "a school", "a field"],
+      "hi": ["एक दुकानदार", "एक किसान", "स्थिति के आधार पर", "गद्यांश"],
+      "ta": ["ஒரு விவசாயி", "பத்தியை படித்து"]
+    },
+    "ANALYSE_EVALUATE_CREATE": {
+      "en": ["justify", "evaluate", "analyse", "analyze", "compare and contrast", "comment on",
+             "criticise", "criticize", "suggest", "design", "in your opinion", "give reasons",
+             "do you agree", "assess", "examine the statement", "discuss", "what would happen if",
+             "propose", "create"],
+      "hi": ["मूल्यांकन कीजिए", "समीक्षा कीजिए", "अपने विचार", "तर्क दीजिए", "क्या आप सहमत",
+             "विश्लेषण कीजिए", "सुझाव दीजिए"],
+      "ta": ["மதிப்பிடுக", "ஆய்க", "கருத்து கூறுக", "பரிந்துரை"]
+    }
+  }
+}

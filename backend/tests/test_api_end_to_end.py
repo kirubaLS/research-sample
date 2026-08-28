@@ -1,0 +1,232 @@
+"""Both products, end to end, through the HTTP surface."""
+
+from __future__ import annotations
+
+import time
+
+from app.psychometrics.instrument import items
+
+
+def test_health(client):
+    r = client.get("/health")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "ok" and body["database"] == "up"
+    assert body["models"]["high_stakes"] == "claude-opus-5"
+
+
+# --------------------------------------------------------------------------------------
+# Use case 1
+# --------------------------------------------------------------------------------------
+def test_interest_test_flow_and_the_role_boundary(client, school):
+    start = client.post(
+        f"/t/{school['section_id']}/start",
+        json={"name": "Test Student", "roll_no": "047", "age": 15,
+              "gender": "female", "locale": "ta"},
+    )
+    assert start.status_code == 200
+    payload = start.json()
+    assert payload["total_items"] == 36
+    assert len(payload["screens"]) == 6
+    assert payload["locale"] == "ta"
+    # Tamil localisation actually reaches the client
+    assert any(ord(ch) > 0x0B80 for ch in payload["screens"][0][0]["text"])
+
+    session_id = payload["session_id"]
+    now = time.time()
+    responses = []
+    for n, item in enumerate(items()):
+        # a realistic responder: strongly Investigative, mildly Realistic, varied elsewhere.
+        # A perfectly uniform responder trips the straight-line detector, correctly.
+        if item.scale == "I":
+            value = 5 if n % 3 else 4
+        elif item.scale == "R":
+            value = 4 if n % 2 else 3
+        else:
+            value = 1 + (n % 3)
+        responses.append(
+            {"item_id": item.id, "value": value,
+             "shown_at": now + n * 5, "answered_at": now + n * 5 + 4}
+        )
+    saved = client.post(f"/t/session/{session_id}/responses", json={"responses": responses})
+    assert saved.status_code == 200
+    assert saved.json()["answered"] == 36
+
+    done = client.post(f"/t/session/{session_id}/complete")
+    assert done.status_code == 200
+    body = done.json()
+    # THE BOUNDARY: no score, no code, no stream reaches a student route
+    assert set(body) == {"message", "submitted"}
+    text = str(body).lower()
+    for forbidden in ("holland", "riasec", "science", "commerce", "percentile", "stream"):
+        assert forbidden not in text
+
+
+def test_only_an_admin_can_see_the_profile(client, school):
+    students = client.get(
+        "/reports/interest/does-not-exist", headers={"X-API-Key": school["api_key"]}
+    )
+    assert students.status_code == 404
+
+    # resolve the student created above
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import StudentProfile
+
+    db = SessionLocal()
+    student = db.scalar(select(StudentProfile).where(StudentProfile.roll_no == "047"))
+    sid = student.id
+    db.close()
+
+    anon = client.get(f"/reports/interest/{sid}")
+    assert anon.status_code == 422        # no API key at all
+
+    wrong = client.get(f"/reports/interest/{sid}", headers={"X-API-Key": "not-a-key"})
+    assert wrong.status_code == 404       # never confirms the record exists
+
+    ok = client.get(f"/reports/interest/{sid}", headers={"X-API-Key": school["api_key"]})
+    assert ok.status_code == 200
+    report = ok.json()
+    assert report["validity"] == "valid"
+    assert report["holland_code"].startswith("I")
+    assert report["stream_fit"]["Science"] > 0.9
+    assert report["recommendation_withheld"] is False
+
+
+# --------------------------------------------------------------------------------------
+# Use case 2
+# --------------------------------------------------------------------------------------
+def _auth(school):
+    return {"X-API-Key": school["api_key"]}
+
+
+def test_marks_engine_flow(client, school):
+    """A faithful slice of Maths 30(B): Section B (5 x 2 = 10) with choice on Q22."""
+    created = client.post(
+        "/assessments",
+        headers=_auth(school),
+        json={
+            "subject_code": "X.MATH", "title": "Unit Test II — Section B",
+            "paper_code": "30(B)", "total_marks": 10,
+            "declared": {"question_count": 5, "total_marks": 10, "sections": {"B": 10}},
+        },
+    )
+    assert created.status_code == 200
+    aid = created.json()["assessment_id"]
+
+    questions = [
+        {"section": "B", "question_no": str(20 + i), "max_marks": 2, "question_type": "VSA"}
+        for i in range(1, 6)
+        if 20 + i != 22
+    ]
+    questions += [
+        {"section": "B", "question_no": "22", "choice_alt": "a", "max_marks": 2,
+         "question_type": "VSA"},
+        {"section": "B", "question_no": "22", "choice_alt": "b", "max_marks": 2,
+         "question_type": "VSA"},
+    ]
+    added = client.post(
+        f"/assessments/{aid}/questions", headers=_auth(school), json={"questions": questions}
+    )
+    assert added.status_code == 200
+    assert added.json()["choice_groups"] == 1
+
+    verified = client.post(
+        f"/assessments/{aid}/verify",
+        headers=_auth(school),
+        json={"B": [5, 2.0, 10.0]},
+    )
+    assert verified.status_code == 200
+    report = verified.json()
+    assert report["passed"], report
+    assert len(report["gates"]) == 4
+
+    frozen = client.post(f"/assessments/{aid}/freeze", headers=_auth(school))
+    assert frozen.status_code == 200 and frozen.json()["version"] == 1
+
+    marks = client.post(
+        f"/assessments/{aid}/marks",
+        headers=_auth(school),
+        json={
+            "section": "B",
+            "marks": [
+                {"student_roll": "047", "address": "21", "marks": 2},
+                {"student_roll": "047", "address": "23", "marks": 1},
+                {"student_roll": "047", "address": "24", "marks": 2},
+                {"student_roll": "047", "address": "25", "marks": 0},
+                {"student_roll": "047", "address": "22(b)", "marks": 1},
+                {"student_roll": "047", "address": "22(a)", "state": "not_offered"},
+                {"student_roll": "047", "address": "22(c)", "marks": 2},   # does not exist
+                {"student_roll": "047", "address": "21", "marks": 99},     # out of range
+            ],
+        },
+    )
+    assert marks.status_code == 200
+    body = marks.json()
+    assert body["written"] == 6
+    reasons = {r["reason"] for r in body["rejected"]}
+    assert reasons == {"no_such_address", "out_of_range"}
+
+
+def test_reconcile_repairs_a_misread_through_the_api(client, school):
+    created = client.post(
+        "/assessments",
+        headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Reconcile", "total_marks": 12},
+    )
+    aid = created.json()["assessment_id"]
+    client.post(
+        f"/assessments/{aid}/questions",
+        headers=_auth(school),
+        json={
+            "questions": [
+                {"section": "A", "question_no": "4", "max_marks": 1},
+                {"section": "A", "question_no": "12", "max_marks": 2},
+                {"section": "A", "question_no": "19", "max_marks": 3},
+                {"section": "A", "question_no": "26", "max_marks": 3},
+                {"section": "A", "question_no": "30", "max_marks": 3},
+            ]
+        },
+    )
+    res = client.post(
+        f"/assessments/{aid}/reconcile",
+        headers=_auth(school),
+        json={
+            "student_roll": "047",
+            "distributions": {
+                "A/4//": {"1": 0.94, "0": 0.06},
+                "A/12//": {"2": 0.88, "1": 0.10, "0": 0.02},
+                "A/19//": {"3": 0.52, "1": 0.44, "2": 0.03, "0": 0.01},
+                "A/26//": {"0": 0.91, "1": 0.06, "2": 0.02, "3": 0.01},
+                "A/30//": {"1": 0.83, "2": 0.15, "0": 0.01, "3": 0.01},
+            },
+            "grand_total": 5.0,
+        },
+    )
+    assert res.status_code == 200
+    body = res.json()
+    assert body["feasible"]
+    assert sum(body["assignment"].values()) == 5.0
+    assert body["assignment"]["A/19//"] == 1.0     # repaired from the naive 3
+
+
+def test_tenancy_is_enforced(client, school):
+    from app.db import SessionLocal
+    from app.models import School
+
+    db = SessionLocal()
+    other = School(name="Another School", api_key="other-key-999")
+    db.add(other)
+    db.commit()
+    db.close()
+
+    mine = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Private"},
+    ).json()["assessment_id"]
+
+    leaked = client.post(
+        f"/assessments/{mine}/verify", headers={"X-API-Key": "other-key-999"}
+    )
+    assert leaked.status_code == 404      # 404, never 403

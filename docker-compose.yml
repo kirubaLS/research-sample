@@ -1,0 +1,32 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: yaadhum
+      POSTGRES_PASSWORD: yaadhum
+      POSTGRES_DB: yaadhum
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yaadhum"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+
+  # object store for page images, crops and assembled PDFs
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: yaadhum
+      MINIO_ROOT_PASSWORD: yaadhum-dev-secret
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["miniodata:/data"]
+
+volumes:
+  pgdata:
+  miniodata:
