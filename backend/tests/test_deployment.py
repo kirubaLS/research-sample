@@ -137,3 +137,66 @@ def test_object_store_rejects_a_traversing_key(tmp_path):
     store = LocalObjectStore(str(tmp_path))
     with pytest.raises(ValueError):
         store.put("../escape.jpg", io.BytesIO(b"x"))
+
+
+# --------------------------------------------------------------------------------------
+# Neon / PgBouncer
+# --------------------------------------------------------------------------------------
+NEON_POOLED = (
+    "postgresql://yaadhum:pw@ep-cool-bird-12345678-pooler.ap-southeast-1.aws.neon.tech"
+    "/yaadhum?sslmode=require&channel_binding=require"
+)
+NEON_DIRECT = (
+    "postgresql://yaadhum:pw@ep-cool-bird-12345678.ap-southeast-1.aws.neon.tech"
+    "/yaadhum?sslmode=require"
+)
+
+
+def test_neon_urls_normalise_and_keep_their_query_string():
+    normalised = normalise_database_url(NEON_POOLED)
+    assert normalised.startswith("postgresql+psycopg://")
+    assert "sslmode=require" in normalised and "channel_binding=require" in normalised
+
+
+def test_pooled_and_direct_neon_endpoints_are_told_apart():
+    from app.config import is_pooled_url
+
+    assert is_pooled_url(NEON_POOLED)
+    assert not is_pooled_url(NEON_DIRECT)
+    assert is_pooled_url("postgresql://u:p@host/db?pgbouncer=true")
+    assert not is_pooled_url("sqlite+pysqlite:///./x.db")
+
+
+def test_migrations_use_the_direct_endpoint_when_one_is_given(monkeypatch):
+    """PgBouncer transaction pooling does not carry the locks Alembic needs."""
+    monkeypatch.setenv("YAADHUM_DATABASE_URL", NEON_POOLED)
+    monkeypatch.setenv("YAADHUM_MIGRATION_DATABASE_URL", NEON_DIRECT)
+    s = Settings()
+    assert s.uses_connection_pooler
+    assert "-pooler." not in s.migration_url
+
+
+def test_migration_url_falls_back_to_the_main_url(monkeypatch):
+    monkeypatch.setenv("YAADHUM_DATABASE_URL", NEON_DIRECT)
+    monkeypatch.delenv("YAADHUM_MIGRATION_DATABASE_URL", raising=False)
+    assert Settings().migration_url == normalise_database_url(NEON_DIRECT)
+
+
+def test_pooled_engines_disable_prepared_statements():
+    """Without this, psycopg raises 'prepared statement already exists' under load."""
+    from sqlalchemy import create_engine
+
+    from app.config import is_pooled_url
+
+    url = normalise_database_url(NEON_POOLED)
+    connect_args = {"prepare_threshold": None} if is_pooled_url(url) else {}
+    assert connect_args == {"prepare_threshold": None}
+    # the engine builds with those args (no connection is opened here)
+    engine = create_engine(url, connect_args=connect_args, pool_pre_ping=True)
+    assert engine.dialect.driver == "psycopg"
+
+
+def test_direct_engines_keep_prepared_statements():
+    from app.config import is_pooled_url
+
+    assert not is_pooled_url(normalise_database_url(NEON_DIRECT))

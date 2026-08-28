@@ -18,7 +18,10 @@ config = context.config
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
-config.set_main_option("sqlalchemy.url", get_settings().database_url)
+# Migrations use the DIRECT endpoint. On Neon (and any PgBouncer setup) the pooled
+# endpoint runs in transaction-pooling mode, where the locks and session state Alembic
+# relies on do not survive between statements.
+config.set_main_option("sqlalchemy.url", get_settings().migration_url)
 target_metadata = Base.metadata
 
 

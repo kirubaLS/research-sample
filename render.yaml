@@ -4,19 +4,20 @@
 #   Render dashboard -> New -> Blueprint -> point at this repo
 #
 # ── Read this before you deploy ────────────────────────────────────────────────────────
-# Render has no India region. The available regions are Oregon, Ohio, Virginia, Frankfurt
-# and Singapore. Singapore is the closest to Tamil Nadu and is set below.
+# Database: Neon, connected as an external Postgres. There is no `databases:` block here.
+# Set both URLs as secrets in the dashboard (see YAADHUM_DATABASE_URL below).
 #
-# Student answer scripts contain children's handwriting, so where that data rests is a
-# DPDP Act question, not a latency question. Two workable postures:
+# Region: neither Render nor Neon has an India region. Render offers Oregon, Ohio,
+# Virginia, Frankfurt and Singapore; Neon's nearest is Singapore (ap-southeast-1). Putting
+# both in Singapore co-locates them, which is right for testing.
 #
-#   Pilot      everything on Render/Singapore, and say so plainly in the school agreement.
-#   Production keep the compute on Render but move the DATA to India — point
-#              YAADHUM_DATABASE_URL at an external Postgres in ap-south-1 (RDS, Neon or
-#              Supabase) and set the object store to an ap-south-1 bucket. Render services
-#              connect to external databases without any change to this file.
+# Student answer scripts contain children's handwriting, so where that data RESTS is a
+# DPDP Act question rather than a latency one. This stack cannot give Indian residency.
+# For testing with synthetic or consented data that is fine. Before a school's real
+# scripts go in, move the data tier to ap-south-1 (RDS or a self-hosted Postgres) and the
+# bucket to an ap-south-1 / jurisdiction-restricted store.
 #
-# Never promise a school that data stays in India while running the managed database here.
+# Never tell a school data stays in India while running on this stack.
 # ───────────────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -39,10 +40,13 @@ services:
         value: "3.12.7"
       - key: YAADHUM_ENVIRONMENT
         value: production
+      # Neon POOLED endpoint (the hostname contains "-pooler"). Set in the dashboard.
       - key: YAADHUM_DATABASE_URL
-        fromDatabase:
-          name: yaadhum-db
-          property: connectionString
+        sync: false
+      # Neon DIRECT endpoint (no "-pooler"). Alembic needs it: the locks and session
+      # state a migration relies on do not survive PgBouncer transaction pooling.
+      - key: YAADHUM_MIGRATION_DATABASE_URL
+        sync: false
       # Exact origins. Never '*' — /t/{class_code}/start is unauthenticated by design.
       - key: YAADHUM_CORS_ORIGINS
         value: https://yaadhum-web.onrender.com
@@ -67,6 +71,12 @@ services:
         sync: false
       - key: YAADHUM_S3_SECRET_ACCESS_KEY
         sync: false
+      # Neon's free tier auto-suspends after a few minutes idle. pool_pre_ping absorbs the
+      # wake-up, and a small pool keeps well inside the connection ceiling.
+      - key: YAADHUM_DB_POOL_SIZE
+        value: "3"
+      - key: YAADHUM_DB_MAX_OVERFLOW
+        value: "2"
 
   - type: web
     name: yaadhum-web
@@ -86,10 +96,4 @@ services:
       - key: NEXT_PUBLIC_API_BASE
         value: https://yaadhum-api.onrender.com
 
-databases:
-  - name: yaadhum-db
-    databaseName: yaadhum
-    user: yaadhum
-    region: singapore
-    plan: basic-256mb
-    postgresMajorVersion: "16"
+# No `databases:` block — Postgres is Neon, wired in through the two secrets above.

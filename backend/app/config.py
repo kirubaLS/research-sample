@@ -22,6 +22,16 @@ def normalise_database_url(url: str) -> str:
     return url
 
 
+def is_pooled_url(url: str) -> bool:
+    """True for a connection that goes through PgBouncer in transaction-pooling mode.
+
+    Neon's pooled endpoint carries ``-pooler`` in the hostname. Transaction pooling breaks
+    server-side prepared statements and session-scoped state, which changes how the engine
+    must be configured and means migrations need the *direct* endpoint instead.
+    """
+    return "-pooler." in url or "pgbouncer=true" in url
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="YAADHUM_", env_file=".env", extra="ignore")
 
@@ -29,6 +39,9 @@ class Settings(BaseSettings):
 
     # --- storage ---
     database_url: str = "sqlite+pysqlite:///./yaadhum.db"
+    #: Alembic needs the DIRECT (unpooled) endpoint — DDL and migration locks do not
+    #: survive PgBouncer transaction pooling. Falls back to database_url when unset.
+    migration_database_url: str | None = None
     corpus_database_url: str | None = None    # ml_corpus gets its own credentials
     db_pool_size: int = 5
     db_max_overflow: int = 5
@@ -67,7 +80,9 @@ class Settings(BaseSettings):
     min_page_coverage: float = 0.60
     max_skew_degrees: float = 6.0
 
-    @field_validator("database_url", "corpus_database_url", mode="after")
+    @field_validator(
+        "database_url", "migration_database_url", "corpus_database_url", mode="after"
+    )
     @classmethod
     def _normalise(cls, v: str | None) -> str | None:
         return normalise_database_url(v) if v else v
@@ -86,6 +101,15 @@ class Settings(BaseSettings):
     @property
     def corpus_url(self) -> str:
         return self.corpus_database_url or self.database_url
+
+    @property
+    def migration_url(self) -> str:
+        """The URL Alembic uses. Never the pooled endpoint if a direct one was given."""
+        return self.migration_database_url or self.database_url
+
+    @property
+    def uses_connection_pooler(self) -> bool:
+        return is_pooled_url(self.database_url)
 
     @property
     def is_production(self) -> bool:
