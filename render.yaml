@@ -59,6 +59,9 @@ services:
       # Generate with: python -c "import secrets;print(secrets.token_urlsafe(32))"
       - key: YAADHUM_PLATFORM_ADMIN_KEY
         sync: false
+      # MUST match this service's own hostname, or every request is rejected with 400.
+      # Rename the service and this has to change with it. The health endpoints are exempt
+      # by design -- Render probes from inside its network without the public hostname.
       - key: YAADHUM_TRUSTED_HOSTS
         value: yaadhum-api.onrender.com
       - key: YAADHUM_MODEL_HIGH_STAKES

@@ -11,7 +11,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.middleware.trustedhost import TrustedHostMiddleware
+from fastapi.responses import PlainTextResponse
 from sqlalchemy import text
 
 from app.api import admin, interest, marks, platform, reports
@@ -52,8 +52,26 @@ app.add_middleware(
     max_age=600,
 )
 
+#: The liveness probe must never depend on the Host header. A platform health check comes
+#: from inside the network and does not carry the public hostname, so putting it behind a
+#: host allowlist rejects every probe with 400 and the deploy never goes live -- while the
+#: process is perfectly healthy. These paths return no data, so exempting them costs
+#: nothing: host filtering exists to stop cache poisoning and absolute-URL spoofing, and
+#: there is no URL to build and no content to poison here.
+_HEALTH_PATHS = frozenset({"/healthz", "/health"})
+
 if settings.trusted_hosts != ["*"]:
-    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.trusted_hosts)
+    @app.middleware("http")
+    async def trusted_host(request: Request, call_next):
+        if request.url.path in _HEALTH_PATHS:
+            return await call_next(request)
+        host = (request.headers.get("host") or "").split(":")[0]
+        if not any(
+            host == allowed or (allowed.startswith("*.") and host.endswith(allowed[1:]))
+            for allowed in settings.trusted_hosts
+        ):
+            return PlainTextResponse("Invalid host header", status_code=400)
+        return await call_next(request)
 
 
 @app.middleware("http")
