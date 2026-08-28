@@ -27,6 +27,8 @@ make web              # http://localhost:3000
 `make seed` prints the class code and API key. Open `/t/<class-code>` for the student
 flow and `/admin` for the dashboard.
 
+Step by step, including Neon and Render: **[docs/SETUP.md](docs/SETUP.md)**.
+
 ---
 
 ## What is actually implemented
