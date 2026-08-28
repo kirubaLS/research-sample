@@ -121,6 +121,10 @@ what makes this reliable enough to send unsupervised.
 
 ## Part 4 — Reference implementation (Apps Script)
 
+> **Built and ready to deploy:** the code below is now a real project in [`meet-digest/`](../meet-digest/), split into files with setup helpers, run-locking and a
+> processed-meeting ledger. Follow [`meet-digest/SETUP.md`](../meet-digest/SETUP.md) to install it.
+> The listing here is kept as the readable version of the same design.
+
 Poll-based v1. No GCP project, no Pub/Sub, no deployment. Set a time-driven trigger on `main` every
 15 minutes and this runs itself.
 
