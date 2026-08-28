@@ -30,7 +30,9 @@ services:
     buildCommand: pip install --upgrade pip && pip install -e .
     # Migrations run once per deploy, before the new instance takes traffic.
     preDeployCommand: alembic upgrade head
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 2
+    # One worker fits comfortably in starter's 512 MB with numpy and scipy loaded
+    # (~150 MB resident each). Raise WEB_CONCURRENCY when you move to a bigger plan.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers ${WEB_CONCURRENCY:-1}
     # Liveness only. A health check that touches the database restarts a healthy process
     # every time the database hiccups.
     healthCheckPath: /healthz
@@ -56,8 +58,10 @@ services:
         value: claude-opus-5
       - key: YAADHUM_MODEL_HIGH_VOLUME
         value: claude-haiku-4-5
+      # Flip to "s3" once the scanner needs to store pages — with the four S3 secrets
+      # below filled in. Leaving it "s3" while they are blank fails at first use.
       - key: YAADHUM_STORAGE_BACKEND
-        value: s3
+        value: local
       - key: YAADHUM_S3_REGION
         value: ap-south-1
       # Secrets: set these in the Render dashboard, never in the repo.
@@ -77,6 +81,8 @@ services:
         value: "3"
       - key: YAADHUM_DB_MAX_OVERFLOW
         value: "2"
+      - key: WEB_CONCURRENCY
+        value: "1"
 
   - type: web
     name: yaadhum-web
