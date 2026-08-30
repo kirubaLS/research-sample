@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -29,8 +30,11 @@ from app.ingest.book import (
     chapter_number,
     extract_chapter,
     parse_toc,
+    stem_hash,
     verify_against_toc,
 )
+from app.ingest.embed import classify_familiarity
+from app.ingest.probe import LexicalIndex, SemanticIndex
 from app.models import (
     BookChunk,
     BookSource,
@@ -336,6 +340,107 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
     )
     written["board_unit_mapped"] = bool(unmapped)
     return written
+
+
+class ProbeQuestion(BaseModel):
+    q: str = Field(max_length=16)                  # the question number on the paper
+    stem: str = Field(min_length=10, max_length=2000)
+    chapter: str | None = None                     # the chapter you expect, if you know it
+
+
+class ProbeIn(BaseModel):
+    questions: list[ProbeQuestion] = Field(min_length=1, max_length=50)
+
+
+@router.post("/{subject}/probe")
+def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> dict:
+    """Push real questions through the knowledge base and report what resolves.
+
+    The check the schema's closing line asks for -- run real questions through and see what
+    breaks -- against the loaded data rather than a description of it. A knowledge base
+    that loads cleanly and then cannot place a question has failed at the only thing it
+    exists for, and the ingest summary says nothing about that.
+    """
+    settings = get_settings()
+    chunks = db.scalars(select(BookChunk).where(BookChunk.subject_code == subject)).all()
+    if not chunks:
+        raise HTTPException(409, f"no book loaded for {subject}")
+
+    labels = {n.id: n.label for n in db.scalars(select(TaxonomyNode)).all()}
+    embedded = [c for c in chunks if c.embedding]
+
+    if embedded and settings.jina_api_key:
+        from app.ingest.jina import JinaEmbedder
+
+        index: SemanticIndex | LexicalIndex = SemanticIndex(
+            chunks,
+            JinaEmbedder(
+                settings.jina_api_key, model=settings.embedding_model,
+                dimensions=settings.embedding_dimensions,
+            ),
+        )
+        mode = "semantic"
+    else:
+        index = LexicalIndex(chunks)
+        mode = "lexical"
+
+    rows = []
+    hits = 0
+    for question in body.questions:
+        found = index.search(question.stem, k=3)
+        top = found[0] if found else None
+        retrieved = labels.get(top.node_id, "?") if top else None
+
+        verbatim = db.scalar(
+            select(CanonicalProcedure).where(
+                CanonicalProcedure.stem_hash == stem_hash(question.stem)
+            )
+        )
+        if verbatim:
+            familiarity, similarity, why = "T_VERBATIM", 1.0, "exact match"
+        elif mode == "semantic" and top:
+            call = classify_familiarity(top.score, top.reference, top.bucket)
+            familiarity, similarity, why = call.level, call.similarity, call.reason
+        else:
+            familiarity, similarity, why = None, top.score if top else 0.0, (
+                "undecidable without vectors"
+            )
+
+        ok = bool(question.chapter and retrieved
+                  and question.chapter.lower() == retrieved.lower())
+        hits += ok
+        rows.append({
+            "q": question.q,
+            "expected": question.chapter,
+            "retrieved": retrieved,
+            "hit": ok if question.chapter else None,
+            "nearest": top.reference if top else None,
+            "similarity": round(similarity, 3),
+            "familiarity": familiarity,
+            "why": why,
+            "runners_up": [
+                {"reference": c.reference, "chapter": labels.get(c.node_id, "?"),
+                 "similarity": round(c.score, 3)}
+                for c in found[1:]
+            ],
+        })
+
+    graded = sum(1 for r in rows if r["hit"] is not None)
+    return {
+        "mode": mode,
+        "chunks": len(chunks),
+        "embedded": len(embedded),
+        "graded": graded,
+        "hits": hits,
+        "rows": rows,
+        "note": (
+            "Familiarity thresholds are provisional until measured on real papers; a call "
+            "near a boundary abstains rather than guessing."
+            if mode == "semantic" else
+            "Lexical retrieval: only T_VERBATIM is decidable, so three of the four "
+            "familiarity levels collapse."
+        ),
+    }
 
 
 @router.post("/{subject}/embed")

@@ -176,6 +176,28 @@ async function upload<T>(path: string, key: string, file: File): Promise<T> {
   return (await res.json()) as T;
 }
 
+export interface ProbeRow {
+  q: string;
+  expected: string | null;
+  retrieved: string | null;
+  hit: boolean | null;
+  nearest: string | null;
+  similarity: number;
+  familiarity: string | null;
+  why: string;
+  runners_up: { reference: string; chapter: string; similarity: number }[];
+}
+
+export interface ProbeResult {
+  mode: string;
+  chunks: number;
+  embedded: number;
+  graded: number;
+  hits: number;
+  rows: ProbeRow[];
+  note: string;
+}
+
 export const api = {
   classes: () => request<ClassOption[]>("/t/classes"),
 
@@ -272,6 +294,16 @@ export const api = {
     operator<{ embedded: number; remaining: number; done: boolean }>(
       `/platform/books/${subject}/embed`, key, { method: "POST" },
     ),
+
+  probe: (
+    key: string,
+    subject: string,
+    questions: { q: string; stem: string; chapter?: string }[],
+  ) =>
+    operator<ProbeResult>(`/platform/books/${subject}/probe`, key, {
+      method: "POST",
+      body: JSON.stringify({ questions }),
+    }),
 
   interestReport: (key: string, studentId: string) =>
     authed<InterestReport>(`/reports/interest/${studentId}`, key),

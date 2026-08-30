@@ -206,3 +206,50 @@ def test_embedding_without_a_key_says_what_breaks(client, school):
         assert "YAADHUM_JINA_API_KEY" in r.json()["detail"]
     finally:
         settings.jina_api_key = before
+
+
+@real_book
+def test_the_probe_reports_what_resolves_and_what_does_not(client, school):
+    """The check the schema's closing line asks for, against loaded data rather than a
+    description of it."""
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.MATH/contents", headers=HEAD, files=_pdf("00-contents.pdf")
+    )
+    client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files=_pdf("12-surface-areas-and-volumes.pdf"),
+    )
+
+    r = client.post(
+        "/platform/books/X.MATH/probe", headers=HEAD,
+        json={"questions": [{
+            "q": "17",
+            "chapter": "Surface Areas and Volumes",
+            "stem": "The slant height of a right circular cone of base diameter 14 cm and "
+                    "height 24 cm is",
+        }]},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["mode"] == "lexical", "no key configured in tests, so no vectors"
+    [row] = body["rows"]
+    assert row["retrieved"] == "Surface Areas and Volumes"
+    assert row["hit"] is True
+    assert row["nearest"]
+    # without vectors the level is undecidable and must not be guessed
+    assert row["familiarity"] is None
+    assert "undecidable" in row["why"]
+
+
+def test_probing_an_unloaded_subject_is_refused(client, school):
+    r = client.post(
+        "/platform/books/X.NOTHING/probe", headers=HEAD,
+        json={"questions": [{"q": "1", "stem": "a question long enough to pass validation"}]},
+    )
+    assert r.status_code == 409
+
+
+def test_a_probe_needs_at_least_one_question(client, school):
+    r = client.post("/platform/books/X.MATH/probe", headers=HEAD, json={"questions": []})
+    assert r.status_code == 422
