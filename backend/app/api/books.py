@@ -325,7 +325,7 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
                 text=chunk.text, normalised=chunk.text, stem_hash=chunk.stem_hash,
             ))
             written["chunks"] += 1
-        if chunk.kind in ("theorem", "example") and db.scalar(
+        if chunk.kind in ("theorem", "activity", "example") and db.scalar(
             select(CanonicalProcedure).where(
                 CanonicalProcedure.stem_hash == chunk.stem_hash,
                 CanonicalProcedure.curriculum_version == version,

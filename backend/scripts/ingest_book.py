@@ -89,7 +89,7 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
         # Theorems and worked examples also get an exact-match row: familiarity has to
         # answer "is this literally Theorem 1.3?" with yes or no, not a similarity score
         # above a threshold that would need tuning per subject forever.
-        if chunk.kind in ("theorem", "example") and db.scalar(
+        if chunk.kind in ("theorem", "activity", "example") and db.scalar(
             select(CanonicalProcedure).where(
                 CanonicalProcedure.stem_hash == chunk.stem_hash,
                 CanonicalProcedure.curriculum_version == version,
@@ -143,7 +143,7 @@ def main() -> None:
         print(
             f"  {'ok  ' if e.ok else 'FAIL'} ch{e.number:>2}  {e.title[:32]:32} "
             f"sections={c['sections']:>2}  body={c['body']:>2} theorem={c['theorem']:>2} "
-            f"example={c['example']:>2} exercise={c['exercise']}"
+            f"activity={c['activity']:>2} example={c['example']:>2} exercise={c['exercise']}"
         )
         for problem in e.problems:
             print(f"         - {problem}")

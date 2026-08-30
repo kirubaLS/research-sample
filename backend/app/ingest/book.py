@@ -27,6 +27,10 @@ CONTENTS = "00-contents.pdf"
 #: bucket T -- taught as content, so a question using this method is T_VERBATIM
 #: "Theorem 1.1 (Fundamental Theorem of Arithmetic) :" carries a parenthetical name
 THEOREM = re.compile(r"^\s*Theorem\s+(\d+\.\d+)\s*(?:\([^)]*\))?\s*(\*?)\s*:\s*(.*)$", re.M)
+#: Science teaches through Activities where Maths teaches through Theorems -- a labelled,
+#: numbered procedure a student has performed, which is taught content by any reading.
+#: Harmless on a Maths book, which has none.
+ACTIVITY = re.compile(r"^\s*Activity\s+(\d+\.\d+)\s*(\*?)\s*$", re.M)
 #: NCERT writes both "Example 3 :" and "Example 3:", so the space is optional -- but the
 #: colon is REQUIRED. Without it the pattern matched "Example 2, all the three events..."
 #: in running prose, which both invented a chunk and truncated the real one before it.
@@ -51,7 +55,7 @@ class Section:
 @dataclass(frozen=True)
 class Chunk:
     bucket: str          # 'T' | 'E'
-    kind: str            # 'body' | 'theorem' | 'example' | 'exercise'
+    kind: str            # 'body' | 'theorem' | 'activity' | 'example' | 'exercise'
     reference: str       # 'Theorem 1.3', 'Example 4', 'EXERCISE 12.1'
     text: str
     stem_hash: str
@@ -77,8 +81,8 @@ class ChapterExtract:
         return not self.problems
 
     def counts(self) -> dict[str, int]:
-        out = {"sections": len(self.sections), "body": 0, "theorem": 0, "example": 0,
-               "exercise": 0}
+        out = {"sections": len(self.sections), "body": 0, "theorem": 0, "activity": 0,
+               "example": 0, "exercise": 0}
         for c in self.chunks:
             out[c.kind] = out.get(c.kind, 0) + 1
         return out
@@ -202,6 +206,9 @@ def extract_chunks(text: str, chapter: int) -> list[Chunk]:
     markers: list[tuple[int, str, str, str]] = []
     for m in THEOREM.finditer(text):
         markers.append((m.start(), "theorem", "T", f"Theorem {m.group(1)}"))
+        optional[m.start()] = bool(m.group(2))
+    for m in ACTIVITY.finditer(text):
+        markers.append((m.start(), "activity", "T", f"Activity {m.group(1)}"))
         optional[m.start()] = bool(m.group(2))
     for m in EXAMPLE.finditer(text):
         markers.append((m.start(), "example", "T", f"Example {m.group(1)}"))

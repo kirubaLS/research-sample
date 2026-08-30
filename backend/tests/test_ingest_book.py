@@ -330,3 +330,40 @@ def test_stopwords_do_not_let_a_short_stem_match_anything():
     from app.ingest.probe import tokens
 
     assert tokens("The value of the area of a circle is") == ["area", "circle"]
+
+
+def test_science_activities_are_taught_content():
+    """Science teaches through Activities where Maths teaches through Theorems: a labelled,
+    numbered procedure a student has performed is taught content by any reading, so a
+    question using it is not novel."""
+    text = (
+        "1.1 Chemical Equations\n"
+        "Body text about reactions and equations here.\n"
+        "Activity 1.1\n"
+        "Take a magnesium ribbon and clean it with sandpaper.\n"
+        "Activity 1.2\n"
+        "Take lead nitrate solution in a test tube.\n"
+        "EXERCISE 1.1\n"
+        "1. Balance the following equations.\n"
+    )
+    chunks = {c.reference: c for c in extract_chunks(text, 1)}
+    assert chunks["Activity 1.1"].bucket == "T"
+    assert chunks["Activity 1.2"].kind == "activity"
+    assert chunks["EXERCISE 1.1"].bucket == "E"
+    # each activity stops at the next marker rather than swallowing it
+    assert "Activity 1.2" not in chunks["Activity 1.1"].text
+
+
+@real_book
+def test_the_activity_pattern_does_not_disturb_the_maths_book():
+    """A pattern added for one subject must not change another. Maths has no Activities,
+    and its chunk count is the check."""
+    from app.ingest.book import extract_chapter
+
+    total = sum(len(extract_chapter(p).chunks) for p in chapter_files(BOOK))
+    assert total == 213
+    assert not any(
+        c.kind == "activity"
+        for p in chapter_files(BOOK)
+        for c in extract_chapter(p).chunks
+    )

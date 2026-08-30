@@ -447,3 +447,48 @@ def test_a_paper_with_no_declaration_infers_its_own_scope_and_narrows():
     assert odd.needs_review
     assert odd.confidence == 0.0
     assert "not from this paper" in odd.reasoning
+
+
+# --- a second subject ---------------------------------------------------------------------
+
+def test_the_science_units_carry_the_boards_own_marks():
+    """80 theory marks across five units. A total that does not reach 80 would make every
+    board-impact figure wrong by a constant, silently."""
+    from app.curriculum import X_SCIENCE
+
+    assert sum(u.weight_pct for u in X_SCIENCE.units) == 80.0
+    assert len(X_SCIENCE.units) == 5
+
+
+def test_science_declares_no_chapters_until_its_book_is_read():
+    """The rationalised syllabus renumbered the book and secondary sources disagree. A
+    chapter mapped to the wrong unit sends a student's marks to the wrong place in the
+    report, so the contents page decides -- as it already does for sections."""
+    from app.curriculum import X_SCIENCE
+
+    assert X_SCIENCE.chapters == []
+
+
+def test_applying_a_curriculum_with_no_chapters_still_sets_up_its_units(tmp_path):
+    """The intermediate state has to be usable: units first, chapters when the book lands."""
+    from sqlalchemy import create_engine, func, select
+    from sqlalchemy.orm import Session
+
+    from app.curriculum import X_SCIENCE
+    from app.curriculum.apply import apply
+    from app.models import Base, BoardUnitWeight, TaxonomyNode
+
+    engine = create_engine(f"sqlite+pysqlite:///{tmp_path}/sci.db")
+    Base.metadata.create_all(engine)
+    with Session(engine) as db:
+        created = apply(db, X_SCIENCE)
+        assert created["units"] == 5
+        assert created["chapters"] == 0
+        assert db.scalar(
+            select(func.count(TaxonomyNode.id)).where(TaxonomyNode.kind == "board_unit")
+        ) == 5
+        # every unit carries its citation, because a principal will challenge these
+        assert all(
+            w.source_doc_url
+            for w in db.scalars(select(BoardUnitWeight))
+        )

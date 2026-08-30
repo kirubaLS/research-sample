@@ -79,7 +79,35 @@ X_MATH = Curriculum(
     ],
 )
 
-CURRICULA: dict[str, Curriculum] = {X_MATH.subject_code: X_MATH}
+#: CBSE Class X Science: five units, 80 theory marks, 13 NCERT chapters.
+#:
+#: The unit weightage is the board's and is verified. The chapter list is deliberately
+#: EMPTY: the rationalised syllabus renumbered the book, secondary sources disagree, and a
+#: chapter mapped to the wrong unit sends a student's marks to the wrong place in the
+#: report. The contents page of the book is the oracle for that -- as it already is for
+#: sections -- so chapters are added from it rather than from recollection.
+#:
+#: Until they are, `scripts.ingest_book` will create the chapters and name them as
+#: unmapped to a board unit, which is visible rather than silent.
+X_SCIENCE = Curriculum(
+    subject_code="X.SCI",
+    subject_label="Class X Science",
+    grade=10,
+    units=[
+        BoardUnit("X.SCI.U.CHEMICAL", "Chemical Substances -- Nature and Behaviour", 25.0),
+        BoardUnit("X.SCI.U.LIVING", "World of Living", 25.0),
+        BoardUnit("X.SCI.U.CURRENT", "Effects of Current", 13.0),
+        BoardUnit("X.SCI.U.PHENOMENA", "Natural Phenomena", 12.0),
+        BoardUnit("X.SCI.U.RESOURCES", "Natural Resources", 5.0),
+    ],
+    chapters=[],
+    concept_families=[],
+)
+
+CURRICULA: dict[str, Curriculum] = {
+    X_MATH.subject_code: X_MATH,
+    X_SCIENCE.subject_code: X_SCIENCE,
+}
 
 
 def chapter_title(subject_code: str, number: int) -> str | None:
