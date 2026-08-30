@@ -22,12 +22,9 @@ from app.models import (
 )
 from app.taxonomy.variants import variant_hash
 
-SUBTOPICS = {
-    "X.MATH.SAV": ["CONE", "CYLINDER", "SPHERE", "COMPOSITE", "WORDPROB"],
-    "X.MATH.REAL": ["IRRATIONAL", "HCF_LCM", "FTA"],
-    "X.MATH.TRIG": ["RATIOS", "IDENTITIES", "SPECIFIC_ANGLES"],
-}
-
+# No hand-written subtopics: the book supplies them, verified against its own contents
+# page. Seeding invented ones ("Cone", "Wordprob") left placeholders sitting beside the
+# real sections, indistinguishable from them in the tree and in any report built on it.
 
 def main() -> None:
     init_db()
@@ -76,19 +73,6 @@ def main() -> None:
 
     def node_for(code: str) -> TaxonomyNode:
         return db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
-
-    for code, subs in SUBTOPICS.items():
-        chapter = node_for(code)
-        if chapter is None:
-            continue
-        for sub in subs:
-            sub_code = f"{code}.{sub}"
-            if node_for(sub_code) is None:
-                db.add(TaxonomyNode(
-                    kind="subtopic", code=sub_code, label=sub.replace("_", " ").title(),
-                    parent_id=chapter.id, path=sub_code,
-                ))
-    db.flush()
 
     assessment = db.scalar(select(Assessment).where(Assessment.paper_code == "30(B)"))
     if assessment is None:

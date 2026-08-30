@@ -457,6 +457,106 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
     }
 
 
+class FamiliesIn(BaseModel):
+    """The families to create. Reviewed, not accepted wholesale."""
+
+    families: list[dict] = Field(min_length=1, max_length=200)
+
+
+@router.get("/{subject}/concept-families")
+def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
+    """Candidate families from the book's own section headings.
+
+    A proposal, never applied automatically: renaming a family after a class has been
+    tested breaks every trend that references it, so the list is a commitment and a
+    commitment is a person's to make.
+    """
+    from app.curriculum.families import propose
+
+    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+    chapters = {n.id: n for n in nodes.values() if n.kind == "chapter"}
+
+    counts: dict[str, int] = {}
+    for chunk in db.scalars(
+        select(BookChunk).where(BookChunk.subject_code == subject)
+    ):
+        counts[chunk.node_id] = counts.get(chunk.node_id, 0) + 1
+
+    rows = [
+        (
+            chapters[node.parent_id].code,
+            chapters[node.parent_id].label,
+            node.label,
+            counts.get(node.parent_id, 0),
+        )
+        for node in nodes.values()
+        if node.kind == "subtopic" and node.parent_id in chapters
+    ]
+    rows.sort(key=lambda r: (r[0], r[2]))
+
+    existing = {n.code for n in nodes.values() if n.kind == "concept_family"}
+    proposals = [
+        {
+            "code": p.code, "label": p.label,
+            "chapter_code": p.chapter_code, "chapter_label": p.chapter_label,
+            "from_section": p.from_section, "chunks": p.chunks,
+            "already_exists": p.code in existing,
+        }
+        for p in propose(rows, subject)
+    ]
+    return {
+        "subject": subject,
+        "existing": len(existing),
+        "proposed": len(proposals),
+        "families": proposals,
+        "note": (
+            "A family is the axis a report compares against itself over time. Chapter is "
+            "too coarse to act on and section numbers move when the book is reprinted, "
+            "which would break every historical comparison. Review these, merge the ones "
+            "that are one idea, and drop the ones that are not learning areas."
+        ),
+    }
+
+
+@router.post("/{subject}/concept-families", status_code=status.HTTP_201_CREATED)
+def create_families(
+    subject: str, body: FamiliesIn, db: Session = Depends(get_session)
+) -> dict:
+    """Create the reviewed families. Additive only: an existing one is never renamed."""
+    nodes = {n.code: n for n in db.scalars(select(TaxonomyNode))}
+    created, skipped, unknown = 0, 0, []
+
+    for entry in body.families:
+        code = str(entry.get("code", "")).strip()
+        label = str(entry.get("label", "")).strip()
+        chapter_code = str(entry.get("chapter_code", "")).strip()
+        if not code or not label:
+            continue
+        chapter = nodes.get(chapter_code)
+        if chapter is None or chapter.kind != "chapter":
+            unknown.append(chapter_code)
+            continue
+        if code in nodes:
+            # Never rename: a family is held constant across cycles, and changing one
+            # after a class has been tested breaks every trend that references it.
+            skipped += 1
+            continue
+        db.add(TaxonomyNode(
+            kind="concept_family", code=code, label=label,
+            parent_id=chapter.id, path=code,
+            curriculum_version=chapter.curriculum_version,
+        ))
+        created += 1
+    db.commit()
+
+    return {
+        "created": created,
+        "already_existed": skipped,
+        "unknown_chapters": sorted(set(unknown)),
+        "note": "Existing families are left alone; a rename would break past comparisons.",
+    }
+
+
 @router.post("/{subject}/embed")
 def embed_batch(
     subject: str,

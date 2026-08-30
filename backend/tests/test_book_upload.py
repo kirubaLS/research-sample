@@ -253,3 +253,65 @@ def test_probing_an_unloaded_subject_is_refused(client, school):
 def test_a_probe_needs_at_least_one_question(client, school):
     r = client.post("/platform/books/X.MATH/probe", headers=HEAD, json={"questions": []})
     assert r.status_code == 422
+
+
+# --- concept families ----------------------------------------------------------------
+
+def test_families_are_proposed_from_the_books_own_sections(client, school):
+    """The book's section headings are what its authors thought the divisions were, and a
+    teacher recognises them. A starting point, not an answer."""
+    r = client.get("/platform/books/X.MATH/concept-families", headers=HEAD)
+    assert r.status_code == 200
+    body = r.json()
+    assert body["families"], "a loaded book should propose something"
+    labels = {f["label"] for f in body["families"]}
+    assert "Introduction" not in labels, "a student is not weak at 'Introduction'"
+    assert "Summary" not in labels
+
+
+def test_a_family_is_created_once_and_never_renamed(client, school):
+    """Held constant across cycles is the whole property. Renaming one after a class has
+    been tested breaks every trend that references it."""
+    payload = {"families": [{
+        "code": "X.MATH.CF.TEST_ONE",
+        "label": "Original Name",
+        "chapter_code": "X.MATH.SAV",
+    }]}
+    first = client.post("/platform/books/X.MATH/concept-families", headers=HEAD, json=payload)
+    assert first.status_code == 201
+    assert first.json()["created"] == 1
+
+    renamed = {"families": [{
+        "code": "X.MATH.CF.TEST_ONE",
+        "label": "Different Name Entirely",
+        "chapter_code": "X.MATH.SAV",
+    }]}
+    second = client.post("/platform/books/X.MATH/concept-families", headers=HEAD, json=renamed)
+    assert second.json()["created"] == 0
+    assert second.json()["already_existed"] == 1
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        node = db.scalar(
+            select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.TEST_ONE")
+        )
+        assert node.label == "Original Name", "a rename must not go through"
+    finally:
+        db.close()
+
+
+def test_a_family_under_a_chapter_that_does_not_exist_is_refused(client, school):
+    r = client.post(
+        "/platform/books/X.MATH/concept-families", headers=HEAD,
+        json={"families": [{
+            "code": "X.MATH.CF.ORPHAN", "label": "Orphan",
+            "chapter_code": "X.MATH.NOSUCHCHAPTER",
+        }]},
+    )
+    assert r.json()["created"] == 0
+    assert "X.MATH.NOSUCHCHAPTER" in r.json()["unknown_chapters"]
