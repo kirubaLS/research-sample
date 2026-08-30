@@ -1,8 +1,8 @@
-"""board unit, conditional chapter, concept family and 2B judgment
+"""board unit, conditional chapter, concept family, 2B judgment, book chunks
 
-Revision ID: 458d5dfd3dd2
+Revision ID: 5a1ebe98e396
 Revises: 
-Create Date: 2026-08-28 13:35:52.765881
+Create Date: 2026-08-30 11:37:55.997917
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ from collections.abc import Sequence
 import sqlalchemy as sa
 from alembic import op
 
-revision: str = '458d5dfd3dd2'
+revision: str = '5a1ebe98e396'
 down_revision: str | None = None
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
@@ -183,8 +183,8 @@ def upgrade() -> None:
     sa.Column('node_id', sa.String(length=36), nullable=True),
     sa.Column('bucket', sa.String(length=1), nullable=False),
     sa.Column('reference', sa.String(length=80), nullable=True),
-    sa.Column('text', sa.String(length=4000), nullable=False),
-    sa.Column('normalised', sa.String(length=4000), nullable=False),
+    sa.Column('text', sa.Text(), nullable=False),
+    sa.Column('normalised', sa.Text(), nullable=False),
     sa.Column('stem_hash', sa.String(length=64), nullable=False),
     sa.Column('embedding', sa.JSON(), nullable=True),
     sa.Column('id', sa.String(length=36), nullable=False),
@@ -204,7 +204,7 @@ def upgrade() -> None:
     sa.Column('subtopic_id', sa.String(length=36), nullable=True),
     sa.Column('name', sa.String(length=200), nullable=False),
     sa.Column('reference', sa.String(length=80), nullable=True),
-    sa.Column('canonical_stem', sa.String(length=1000), nullable=False),
+    sa.Column('canonical_stem', sa.Text(), nullable=False),
     sa.Column('stem_hash', sa.String(length=64), nullable=False),
     sa.Column('taught_verbatim', sa.Boolean(), nullable=False),
     sa.Column('aliases', sa.JSON(), nullable=True),

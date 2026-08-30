@@ -6,7 +6,17 @@ adds a node version so historical reports stay reproducible.
 
 from __future__ import annotations
 
-from sqlalchemy import JSON, Boolean, Date, Float, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Date,
+    Float,
+    ForeignKey,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.base import Base, PkMixin, TimestampMixin
@@ -115,7 +125,7 @@ class CanonicalProcedure(Base, PkMixin, TimestampMixin):
     subtopic_id: Mapped[str | None] = mapped_column(ForeignKey("taxonomy_node.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(200))          # 'Irrationality of root 5'
     reference: Mapped[str | None] = mapped_column(String(80), nullable=True)  # 'Theorem 1.3'
-    canonical_stem: Mapped[str] = mapped_column(String(1000))
+    canonical_stem: Mapped[str] = mapped_column(Text)
     stem_hash: Mapped[str] = mapped_column(String(64), index=True)
     taught_verbatim: Mapped[bool] = mapped_column(Boolean, default=True)  # True => Bucket T
     aliases: Mapped[list | None] = mapped_column(JSON, nullable=True)
@@ -135,7 +145,9 @@ class BookChunk(Base, PkMixin):
     node_id: Mapped[str | None] = mapped_column(ForeignKey("taxonomy_node.id"), nullable=True)
     bucket: Mapped[str] = mapped_column(String(1), index=True)  # 'T' | 'E'
     reference: Mapped[str | None] = mapped_column(String(80), nullable=True)  # 'Ex 1.2 Q1'
-    text: Mapped[str] = mapped_column(String(4000))
-    normalised: Mapped[str] = mapped_column(String(4000))
+    #: unbounded: a real exercise runs to 8500 characters of frequency tables, and a
+    #: truncated one is a silently corrupted familiarity signal rather than a short row
+    text: Mapped[str] = mapped_column(Text)
+    normalised: Mapped[str] = mapped_column(Text)
     stem_hash: Mapped[str] = mapped_column(String(64), index=True)
     embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)  # pgvector in production

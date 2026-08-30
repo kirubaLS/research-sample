@@ -159,3 +159,36 @@ def test_theorems_appear_only_in_the_chapters_that_prove_things():
     }
     # Real Numbers, Triangles, Circles
     assert with_theorems == {1, 6, 10}
+
+
+def test_chunks_do_not_swallow_each_other():
+    """Slicing each marker kind separately made Theorem 1.1 run to Theorem 1.2 and absorb
+    every Example in between -- 6043 characters of overlapping content in one chunk."""
+    text = (
+        "Theorem 1.1 : first\nproof\n"
+        "Example 1 : a worked one\nsolution\n"
+        "Example 2 : another\nsolution\n"
+        "Theorem 1.2 : second\nproof\n"
+    )
+    chunks = extract_chunks(text)
+    assert [c.reference for c in chunks] == [
+        "Theorem 1.1", "Example 1", "Example 2", "Theorem 1.2",
+    ], "chunks must come out in document order"
+    assert "Example 1" not in chunks[0].text
+    assert "Theorem 1.2" not in chunks[2].text
+
+
+@real_book
+def test_no_real_chunk_contains_another_chunk_s_heading():
+    """The precise invariant. Length is not the signal -- EXERCISE 13.2 is legitimately
+    8520 characters of frequency tables -- but a chunk holding another marker's heading
+    is overlap by definition."""
+    from app.ingest.book import extract_chapter
+
+    for path in sorted(BOOK.glob("[0-9][0-9]-*.pdf")):
+        chunks = extract_chapter(path).chunks
+        for i, chunk in enumerate(chunks):
+            for other in chunks[i + 1:]:
+                assert other.reference not in chunk.text, (
+                    f"{path.name}: {chunk.reference} contains {other.reference}"
+                )

@@ -22,9 +22,14 @@ from pathlib import Path
 import pymupdf
 
 #: bucket T -- taught as content, so a question using this method is T_VERBATIM
-THEOREM = re.compile(r"^\s*Theorem\s+(\d+\.\d+)\s*:?\s*(.*)$", re.M)
-#: NCERT writes both "Example 3 :" and "Example 3:", so the space is optional
-EXAMPLE = re.compile(r"^\s*Example\s+(\d+)\s*:?\s*(.*)$", re.M)
+#: "Theorem 1.1 (Fundamental Theorem of Arithmetic) :" carries a parenthetical name
+THEOREM = re.compile(r"^\s*Theorem\s+(\d+\.\d+)\s*(?:\([^)]*\))?\s*(\*?)\s*:\s*(.*)$", re.M)
+#: NCERT writes both "Example 3 :" and "Example 3:", so the space is optional -- but the
+#: colon is REQUIRED. Without it the pattern matched "Example 2, all the three events..."
+#: in running prose, which both invented a chunk and truncated the real one before it.
+#: "Example 5* :" -- the asterisk marks it as beyond the examinable set, like an
+#: optional exercise, so it is captured and flagged rather than treated as taught content
+EXAMPLE = re.compile(r"^\s*Example\s+(\d+)\s*(\*?)\s*(?:\([^)]*\))?\s*:\s*(.*)$", re.M)
 #: bucket E -- drilled, so a question resembling this is PRACTISED.
 #: The trailing group matters: NCERT writes "EXERCISE 5.4 (Optional)*", and anchoring
 #: straight to end-of-line silently dropped it. An optional exercise is also outside the
@@ -127,40 +132,44 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
     return sections
 
 
-def _slice(text: str, matches: list[re.Match], end: int) -> list[tuple[re.Match, str]]:
-    """Each match owns the text up to the next one. Cheap, and right for this book."""
-    out = []
-    for i, m in enumerate(matches):
-        stop = matches[i + 1].start() if i + 1 < len(matches) else end
-        out.append((m, text[m.start():stop]))
-    return out
-
-
 def extract_chunks(text: str) -> list[Chunk]:
-    """Split into the two familiarity buckets, using the book's own labels."""
+    """Split into the two familiarity buckets, using the book's own labels.
+
+    Every marker is sorted into ONE ordered list before slicing. Slicing each kind
+    separately made a chunk run to the next marker *of its own kind*: Theorem 1.1 ran all
+    the way to Theorem 1.2 and swallowed Examples 1 to 4 along the way, so bucket T
+    chunks overlapped each other and carried text belonging to other procedures.
+    """
+    markers: list[tuple[int, str, str, str]] = []   # (position, kind, bucket, reference)
+    optional: dict[int, bool] = {}
+    for m in THEOREM.finditer(text):
+        markers.append((m.start(), "theorem", "T", f"Theorem {m.group(1)}"))
+        optional[m.start()] = bool(m.group(2))
+    for m in EXAMPLE.finditer(text):
+        markers.append((m.start(), "example", "T", f"Example {m.group(1)}"))
+        optional[m.start()] = bool(m.group(2))
+    for m in EXERCISE.finditer(text):
+        markers.append((m.start(), "exercise", "E", f"EXERCISE {m.group(1)}"))
+        optional[m.start()] = bool(m.group(2))
+
+    markers.sort()
+
+    # A reference appearing twice is a back-reference in body text, not a restatement:
+    # "Theorem 6.1: Fig. 6.11" is a figure caption. The real statement always comes first,
+    # so later occurrences are dropped and their text stays with the surrounding chunk.
+    seen: set[str] = set()
+    markers = [m for m in markers if not (m[3] in seen or seen.add(m[3]))]
+
     chunks: list[Chunk] = []
-
-    exercises = list(EXERCISE.finditer(text))
-    # a theorem or example after the last exercise heading is still chapter body, so
-    # bucket membership is decided by the label, never by position
-    for regex, kind, bucket, label in (
-        (THEOREM, "theorem", "T", "Theorem"),
-        (EXAMPLE, "example", "T", "Example"),
-    ):
-        for m, body in _slice(text, list(regex.finditer(text)), len(text)):
-            chunks.append(
-                Chunk(bucket, kind, f"{label} {m.group(1)}", body.strip(), stem_hash(body))
-            )
-
-    for m, body in _slice(text, exercises, len(text)):
-        optional = bool(m.group(2))
+    for i, (start, kind, bucket, reference) in enumerate(markers):
+        stop = markers[i + 1][0] if i + 1 < len(markers) else len(text)
+        body = text[start:stop].strip()
         chunks.append(
             Chunk(
-                "E", "exercise", f"EXERCISE {m.group(1)}", body.strip(), stem_hash(body),
-                examinable=not optional,
+                bucket, kind, reference, body, stem_hash(body),
+                examinable=not optional.get(start, False),
             )
         )
-
     return chunks
 
 

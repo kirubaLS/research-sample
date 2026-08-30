@@ -82,7 +82,7 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
             db.add(BookChunk(
                 curriculum_version=version, subject_code=subject, node_id=chapter.id,
                 bucket=chunk.bucket, reference=chunk.reference,
-                text=chunk.text[:4000], normalised=chunk.text[:4000],
+                text=chunk.text, normalised=chunk.text,
                 stem_hash=chunk.stem_hash,
             ))
             written["chunks"] += 1
@@ -99,7 +99,7 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
             db.add(CanonicalProcedure(
                 curriculum_version=version, subject_code=subject, chapter_id=chapter.id,
                 name=chunk.reference, reference=chunk.reference,
-                canonical_stem=chunk.text[:1000], stem_hash=chunk.stem_hash,
+                canonical_stem=chunk.text, stem_hash=chunk.stem_hash,
                 taught_verbatim=True,
             ))
             written["procedures"] += 1
