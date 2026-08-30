@@ -14,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import text
 
-from app.api import admin, books, interest, marks, platform, reports
+from app.api import admin, books, interest, marks, placement, platform, reports
 from app.config import get_settings
 from app.db import engine, init_db
 
@@ -89,6 +89,7 @@ app.include_router(admin.router)
 app.include_router(interest.router)
 app.include_router(marks.router)
 app.include_router(books.router)
+app.include_router(placement.router)
 app.include_router(platform.router)
 app.include_router(reports.router)
 

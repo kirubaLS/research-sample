@@ -69,6 +69,16 @@ class Assessment(Base, PkMixin, TimestampMixin):
     # --- what the paper itself declares (app.extraction.instructions) ---
     declared: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
+    #: Chapter codes this test covers, e.g. ["X.MATH.REAL", "X.MATH.POLY"]. A teacher
+    #: always knows this and it takes one field, which matters because most papers are
+    #: daily or cyclic tests with no published weightage. It is the strongest constraint
+    #: available for placement on those papers: a question placed outside the scope is
+    #: provably wrong rather than merely suspicious, and the candidate set shrinks from
+    #: fourteen chapters to a handful before classification starts.
+    #: Null means "not declared" -- never "the whole syllabus", because those differ and
+    #: a report has to be able to say which one it was working from.
+    syllabus_scope: Mapped[list | None] = mapped_column(JSON, nullable=True)
+
     status: Mapped[str] = mapped_column(String(24), default="ingested", index=True)
     qmatrix_frozen_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     qmatrix_version: Mapped[int] = mapped_column(Integer, default=0)
@@ -187,6 +197,42 @@ class QuestionTier(Base, PkMixin, TimestampMixin):
     source: Mapped[str] = mapped_column(String(24), default="ensemble")  # ensemble|human|library
     model_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
     rationale: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+
+
+class QuestionPlacement(Base, PkMixin, TimestampMixin):
+    """Where a question was placed, by what, and whether a person has confirmed it.
+
+    Append-only, like QuestionTier: the current placement is the latest row, and the ones
+    before it are how it got there. A placement the blueprint overruled and a placement a
+    teacher corrected must stay distinguishable, because they mean different things about
+    how much the next paper can be trusted.
+    """
+
+    __tablename__ = "question_placement"
+
+    question_id: Mapped[str] = mapped_column(ForeignKey("question.id"), index=True)
+    chapter_id: Mapped[str | None] = mapped_column(
+        ForeignKey("taxonomy_node.id"), nullable=True
+    )
+    board_unit_id: Mapped[str | None] = mapped_column(
+        ForeignKey("taxonomy_node.id"), nullable=True
+    )
+    curriculum_section: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    tier: Mapped[str | None] = mapped_column(String(48), nullable=True)
+    skill_required: Mapped[str | None] = mapped_column(String(200), nullable=True)
+
+    confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    #: 'model' | 'blueprint' | 'scope' | 'human'
+    source: Mapped[str] = mapped_column(String(16), default="model", index=True)
+    #: True until a person has looked, for anything below confidence or overruled
+    needs_review: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    reviewed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: the model's own words, so a wrong placement is inspectable rather than a bare label
+    reasoning: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    #: chunk references the decision rested on, e.g. ['Theorem 6.3', 'Example 4']
+    evidence: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    #: the chapters that were on the table, so a reviewer sees the real alternatives
+    candidates: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
 
 class QuestionJudgment(Base, PkMixin, TimestampMixin):

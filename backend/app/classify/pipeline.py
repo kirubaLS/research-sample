@@ -72,6 +72,7 @@ def place_paper(
     unit_of,
     section_of,
     declared: dict[str, float] | None = None,
+    scope: set[str] | None = None,
 ) -> PaperPlacement:
     """Place every question in a paper.
 
@@ -79,12 +80,20 @@ def place_paper(
     ``chapter_of`` node id -> chapter name; ``unit_of`` chapter name -> board unit code;
     ``section_of`` chunk reference -> NCERT section number. Passed in rather than looked up
     so this stays testable without a database.
+
+    ``scope`` is the chapters the test declares it covers. Most papers are daily or cyclic
+    tests with no published weightage, and this is the strongest constraint they have: a
+    question placed outside the scope is provably wrong, so out-of-scope passages are
+    dropped before the judge ever sees them and the candidate set shrinks from fourteen
+    chapters to a handful. None means the paper declared nothing -- which is different from
+    declaring the whole syllabus, and must stay different, because a report has to be able
+    to say which it was working from.
     """
     slots: list[QuestionSlot] = []
     judged: dict[str, Classification] = {}
 
     for question_id, stem, marks in questions:
-        verdict = locate(stem, indexes, depth=EVIDENCE_DEPTH)
+        verdict = locate(stem, indexes, depth=EVIDENCE_DEPTH, scope=scope, chapter_of=chapter_of)
         evidence = [
             Evidence(
                 chapter=chapter_of(c.node_id) or "?",
@@ -94,6 +103,10 @@ def place_paper(
             )
             for c in verdict.evidence
         ]
+        # Out-of-scope chapters are removed, not down-weighted: the teacher said this test
+        # covers chapters 1 to 5, so chapter 9 is not a weaker answer, it is a wrong one.
+        if scope is not None:
+            evidence = [e for e in evidence if e.chapter in scope]
         if not evidence:
             continue
 
@@ -106,6 +119,8 @@ def place_paper(
         seen = {call.chapter}
         for node, _ in verdict.runners_up:
             name = chapter_of(node)
+            if scope is not None and name not in scope:
+                continue
             if name and name not in seen:
                 seen.add(name)
                 # a rival retrieval ranked but the judge passed over is possible, not

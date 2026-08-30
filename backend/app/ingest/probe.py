@@ -136,6 +136,8 @@ def locate(
     indexes: list,
     *,
     depth: int = 12,
+    scope: set[str] | None = None,
+    chapter_of=None,
 ) -> ChapterVerdict:
     """Which chapter, from every retriever available, aggregated per chapter.
 
@@ -152,7 +154,16 @@ def locate(
     The margin to the runner-up is what a caller should act on: a chapter that wins by a
     hair is a chapter to ask a human about, not one to report.
     """
-    ranked = [index.search(question, k=depth) for index in indexes]
+    # Ask for more when a scope will discard some: filtering after retrieval would
+    # otherwise leave too few candidates to choose between.
+    want = depth * 3 if scope is not None else depth
+    ranked = [index.search(question, k=want) for index in indexes]
+    if scope is not None and chapter_of is not None:
+        ranked = [
+            [c for c in lst if chapter_of(c.node_id) in scope][:depth] for lst in ranked
+        ]
+    else:
+        ranked = [lst[:depth] for lst in ranked]
     ranked = [r for r in ranked if r]
     if not ranked:
         return ChapterVerdict(None, 0.0, 0.0, False, [], [])

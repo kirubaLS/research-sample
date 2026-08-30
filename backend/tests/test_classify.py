@@ -274,3 +274,102 @@ def test_an_answer_inside_the_candidates_is_untouched():
         reasoning="about tangents", confidence=0.91,
     )
     assert confine_to_candidates(good, evidence) is good
+
+
+# --- rung 2: the declared syllabus scope ---------------------------------------------------
+
+class _Chunk:
+    def __init__(self, cid, text, node):
+        self.chunk_id = cid
+        self.id = cid
+        self.text = text
+        self.reference = cid
+        self.node_id = node
+        self.bucket = "T"
+        self.embedding = None
+
+
+def _corpus():
+    chunks = [
+        _Chunk("sav1", "cone slant height radius volume of a solid", "SAV"),
+        _Chunk("sav2", "surface area of a combination of solids cone", "SAV"),
+        _Chunk("trig1", "tower height angle of elevation observer slant", "APPTRIG"),
+        _Chunk("trig2", "line of sight horizontal angle of elevation height", "APPTRIG"),
+    ]
+    chunks += [_Chunk(f"pad{i}", f"unrelated topic {i}", f"P{i}") for i in range(20)]
+    return chunks
+
+
+NAMES = {"SAV": "Surface Areas and Volumes", "APPTRIG": "Applications of Trigonometry"}
+
+
+def test_scope_removes_out_of_range_chapters_from_retrieval():
+    """A teacher who says 'this test covers chapters 1 to 5' has ruled chapter 9 out. It is
+    not a weaker answer; it is a wrong one."""
+    from app.ingest.probe import LexicalIndex, locate
+
+    index = LexicalIndex(_corpus())
+    unscoped = locate("tower height angle of elevation", [index])
+    assert unscoped.node_id == "APPTRIG"
+
+    scoped = locate(
+        "tower height angle of elevation", [index],
+        scope={"Surface Areas and Volumes"}, chapter_of=NAMES.get,
+    )
+    assert scoped.node_id == "SAV", "out of scope must be unreachable, not merely unlikely"
+
+
+def test_scope_rescues_a_question_the_judge_would_have_misplaced():
+    """The cone question, on a cyclic test that covers mensuration but not trigonometry --
+    no blueprint anywhere, which is the case most papers actually are."""
+    from app.classify.pipeline import place_paper
+    from app.ingest.probe import LexicalIndex
+
+    class StubJudge:
+        """Would pick trigonometry if shown it -- and must never be shown it."""
+
+        def classify(self, question, evidence):
+            chapters = {e.chapter for e in evidence}
+            assert "Applications of Trigonometry" not in chapters, (
+                "an out-of-scope chapter reached the judge"
+            )
+            return Classification(
+                chapter="Surface Areas and Volumes", tier="Applying",
+                skill_required="mensuration formula", reasoning="a cone",
+                confidence=0.88,
+            )
+
+    placement = place_paper(
+        [("17", "cone slant height radius", 1.0)],
+        [LexicalIndex(_corpus())],
+        StubJudge(),
+        chapter_of=NAMES.get,
+        unit_of=lambda c: MENS,
+        section_of=lambda r: None,
+        declared=None,                       # no blueprint at all
+        scope={"Surface Areas and Volumes"},
+    )
+    [q] = placement.questions
+    assert q.chapter == "Surface Areas and Volumes"
+    assert not q.needs_review, "a confident in-scope placement needs no one's time"
+
+
+def test_no_scope_declared_is_not_the_same_as_the_whole_syllabus():
+    """None means the paper said nothing, and a report has to be able to say so."""
+    from app.classify.pipeline import place_paper
+    from app.ingest.probe import LexicalIndex
+
+    class StubJudge:
+        def classify(self, question, evidence):
+            return Classification(
+                chapter=sorted({e.chapter for e in evidence})[0], tier="Applying",
+                skill_required="x", reasoning="y", confidence=0.9,
+            )
+
+    both = place_paper(
+        [("17", "tower height angle of elevation", 1.0)],
+        [LexicalIndex(_corpus())], StubJudge(),
+        chapter_of=NAMES.get, unit_of=lambda c: MENS, section_of=lambda r: None,
+        scope=None,
+    )
+    assert both.questions, "an undeclared scope must not filter everything away"

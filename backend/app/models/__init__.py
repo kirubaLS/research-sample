@@ -7,6 +7,7 @@ from app.models.assessment import (
     LogicalPage,
     Question,
     QuestionJudgment,
+    QuestionPlacement,
     QuestionSkill,
     QuestionTier,
 )
@@ -43,7 +44,7 @@ __all__ = [
     "School", "Section", "StudentProfile",
     "TaxonomyNode", "TaxonomyAlias", "Prerequisite", "BoardUnitWeight", "BookSource", "ChapterBoardUnit",
     "CanonicalProcedure", "BookChunk", "NODE_KINDS",
-    "Assessment", "LogicalPage", "Question", "QuestionJudgment", "QuestionSkill",
+    "Assessment", "LogicalPage", "Question", "QuestionJudgment", "QuestionPlacement", "QuestionSkill",
     "QuestionTier",
     "DataQualityFlag", "AnalysisRun", "TIERS", "CBSE_TIER_TARGET",
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
