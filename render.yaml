@@ -27,7 +27,10 @@ services:
     region: singapore
     plan: starter                 # free tier sleeps; a sleeping API breaks a live scan
     rootDir: backend
-    buildCommand: pip install --upgrade pip && pip install -e .
+    # The extras are not optional in production: `vision` carries pymupdf, which the book
+    # ingest and the paper pipeline both import, and `storage` carries boto3 for S3.
+    # A bare `pip install -e .` builds green and then fails on the first ingest.
+    buildCommand: pip install --upgrade pip && pip install -e ".[vision,storage]"
     # Migrations run once per deploy, before the new instance takes traffic.
     #
     # preDeployCommand applies ONLY to Blueprint-managed services on a paid instance type.
@@ -70,6 +73,12 @@ services:
       # MUST match this service's own hostname, or every request is rejected with 400.
       # Rename the service and this has to change with it. The health endpoints are exempt
       # by design -- Render probes from inside its network without the public hostname.
+      # Embedding provider. Without it the knowledge base answers exact matches only, so
+      # three of the four familiarity levels collapse and Competency Tier cannot be
+      # derived from the book. Only book content and question stems are sent -- never a
+      # student's answer script.
+      - key: YAADHUM_JINA_API_KEY
+        sync: false
       - key: YAADHUM_TRUSTED_HOSTS
         value: yaadhum-api.onrender.com
       - key: YAADHUM_MODEL_HIGH_STAKES

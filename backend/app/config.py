@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     model_high_volume: str = "claude-haiku-4-5"
     anthropic_api_key: str | None = None
 
+    # --- embeddings ---
+    #: Multilingual by requirement, not preference: the papers are bilingual and Tamil is
+    #: in scope. Unset means the knowledge base answers exact matches only.
+    jina_api_key: str | None = None
+    embedding_model: str = "jina-embeddings-v4"
+    #: Matryoshka truncation. Vectors from different models or dimensions are not
+    #: comparable, so changing either requires re-embedding the whole corpus.
+    embedding_dimensions: int = 512
+
     # --- accuracy posture ---
     auto_accept_threshold: float = 0.97
     conformal_alpha: float = 0.05

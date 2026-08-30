@@ -165,6 +165,35 @@ that keeps the answer right.
 
 ---
 
+## 6a. Embedding, and why the provider is multilingual
+
+Retrieval needs vectors, and the choice of provider is decided by one requirement rather
+than by cost: the papers are bilingual (English and Hindi on the same 2-up sheet) and Tamil
+is in scope. An English-first local model would quietly degrade on the Tamil paper instead
+of failing, which is the worst shape of failure here.
+
+`jina-embeddings-v4` covers 30+ languages, truncates to 512 dimensions with little loss,
+and embeds the whole Class X Maths book for about 74,000 tokens -- inside the free tier.
+
+What may be sent: the NCERT book (public content) and question stems (not personal data).
+What may never be: a student's answer script. `app.ingest.embed` takes plain strings and
+has no access to the marks tables, so the boundary is structural rather than a rule.
+
+Familiarity then follows from distance:
+
+| Level | Decided by |
+|---|---|
+| `T_VERBATIM` | exact stem hash against `canonical_procedure` -- never a threshold |
+| `PRACTISED` | close to a bucket E chunk |
+| `ADAPTED` | recognisably the same method, different dress |
+| `NOVEL` | nothing in the book is close |
+
+The thresholds are the project's only unvalidated numbers, so they are configuration, not
+constants, and a call near a boundary **abstains**. A wrong familiarity produces a wrong
+Competency Tier, which is a field a teacher acts on.
+
+---
+
 ## 7. Build order
 
 1. `scripts/ingest_syllabus.py` — stage 1. Small, and unblocks board impact.
@@ -172,6 +201,7 @@ that keeps the answer right.
    bucket counts **without writing**. Inspect before committing; a bad structure pass
    poisons everything downstream and is invisible once loaded.
 3. Same script without `--dry-run`.
+3a. `scripts/embed_kb.py` -- vectors, so familiarity stops collapsing to exact match.
 4. `scripts/map_chapters.py` — stage 3, an interactive confirm per chapter.
 5. Concept families — reviewed, then loaded.
 

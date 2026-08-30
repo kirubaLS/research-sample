@@ -19,9 +19,12 @@ from pathlib import Path
 
 from sqlalchemy import select
 
+from app.config import get_settings
 from app.db import SessionLocal
 from app.ingest.book import stem_hash
-from app.ingest.probe import LexicalIndex
+from app.ingest.embed import classify_familiarity
+from app.ingest.jina import JinaEmbedder
+from app.ingest.probe import LexicalIndex, SemanticIndex
 from app.models import BookChunk, CanonicalProcedure, TaxonomyNode
 
 
@@ -29,6 +32,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("questions", type=Path)
     parser.add_argument("--top", type=int, default=1, help="candidates to consider a hit")
+    parser.add_argument("--lexical", action="store_true",
+                        help="force word-overlap retrieval even when vectors exist")
     args = parser.parse_args()
 
     probes = json.loads(args.questions.read_text())
@@ -38,7 +43,24 @@ def main() -> None:
         if not chunks:
             raise SystemExit("knowledge base is empty -- run scripts.ingest_book first")
         labels = {n.id: n.label for n in db.scalars(select(TaxonomyNode)).all()}
-        index = LexicalIndex(chunks)
+
+        settings = get_settings()
+        embedded = [c for c in chunks if c.embedding]
+        if embedded and settings.jina_api_key and not args.lexical:
+            index = SemanticIndex(
+                chunks,
+                JinaEmbedder(
+                    settings.jina_api_key, model=settings.embedding_model,
+                    dimensions=settings.embedding_dimensions,
+                ),
+            )
+            mode = f"semantic ({len(embedded)}/{len(chunks)} chunks embedded)"
+        else:
+            index = LexicalIndex(chunks)
+            mode = "lexical -- only T_VERBATIM is decidable"
+            if not embedded:
+                mode += "; run scripts.embed_kb"
+        print(f"retrieval: {mode}\n")
 
         print(f"{'Q':>4}  {'expected':30} {'retrieved':30} {'ok':3}  familiarity")
         hits = 0
@@ -53,7 +75,15 @@ def main() -> None:
                     CanonicalProcedure.stem_hash == stem_hash(probe["stem"])
                 )
             )
-            familiarity = "T_VERBATIM" if verbatim else "undecidable (no embedding index)"
+            if verbatim:
+                familiarity = "T_VERBATIM (exact)"
+            elif isinstance(index, SemanticIndex) and found:
+                call = classify_familiarity(
+                    found[0].score, found[0].reference, found[0].bucket
+                )
+                familiarity = f"{call.level or 'abstained'} ({call.similarity:.2f})"
+            else:
+                familiarity = "undecidable (no embedding index)"
             print(
                 f"{probe['q']:>4}  {probe['chapter'][:30]:30} {got[0][:30]:30} "
                 f"{'yes' if ok else 'NO ':3}  {familiarity}"
@@ -61,11 +91,18 @@ def main() -> None:
 
         print()
         print(f"chapter resolved: {hits}/{len(probes)}")
-        print(
-            "familiarity: only T_VERBATIM is decidable today. PRACTISED, ADAPTED and NOVEL "
-            "need similarity, so Competency Tier cannot yet be derived from the book -- it "
-            "comes from the paper's blueprint, which 2A makes the authority anyway."
-        )
+        if not isinstance(index, SemanticIndex):
+            print(
+                "familiarity: only T_VERBATIM is decidable without vectors. PRACTISED, "
+                "ADAPTED and NOVEL need similarity, so Competency Tier cannot be derived "
+                "from the book -- it comes from the paper's blueprint, which 2A makes the "
+                "authority anyway."
+            )
+        else:
+            print(
+                "familiarity thresholds are provisional until measured on real papers; "
+                "a call near a boundary abstains rather than guessing."
+            )
     finally:
         db.close()
 

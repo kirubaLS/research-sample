@@ -14,6 +14,8 @@ dependencies = [
   "numpy>=1.26",
   "scipy>=1.13",
   "python-multipart>=0.0.9",
+  # runtime, not dev: app.ingest.jina calls the embedding API with it
+  "httpx>=0.27",
 ]
 
 [project.optional-dependencies]

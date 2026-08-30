@@ -1,0 +1,155 @@
+"""The embedding layer, and the familiarity call it exists to make possible.
+
+Tested against a deterministic stub embedder: these assertions are about the decision
+logic, which must hold whichever provider supplies the vectors.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import math
+
+import pytest
+
+from app.ingest.embed import FamiliarityThresholds, classify_familiarity, cosine
+from app.ingest.jina import JinaEmbedder
+from app.ingest.probe import SemanticIndex
+
+
+class StubEmbedder:
+    """Deterministic vectors from a hash. No network, no key, stable across runs."""
+
+    model = "stub"
+    dimensions = 16
+
+    def embed_texts(self, texts: list[str], *, is_query: bool = False) -> list[list[float]]:
+        out = []
+        for text in texts:
+            digest = hashlib.sha256(text.encode()).digest()
+            out.append([b / 255.0 for b in digest[: self.dimensions]])
+        return out
+
+
+class _Chunk:
+    def __init__(self, ref, embedding, bucket="T"):
+        self.id = ref
+        self.reference = ref
+        self.node_id = "n1"
+        self.bucket = bucket
+        self.embedding = embedding
+        self.text = ref
+
+
+# --- cosine ---------------------------------------------------------------------------
+
+def test_cosine_is_one_for_identical_and_zero_for_orthogonal():
+    assert cosine([1.0, 0.0], [1.0, 0.0]) == pytest.approx(1.0)
+    assert cosine([1.0, 0.0], [0.0, 1.0]) == pytest.approx(0.0)
+
+
+def test_cosine_ignores_magnitude():
+    """A long passage and a short stem differ hugely in magnitude; only direction matters."""
+    assert cosine([1.0, 2.0], [10.0, 20.0]) == pytest.approx(1.0)
+
+
+def test_a_zero_vector_scores_zero_rather_than_raising():
+    assert cosine([0.0, 0.0], [1.0, 1.0]) == 0.0
+
+
+# --- familiarity ------------------------------------------------------------------------
+
+def test_a_close_match_to_an_exercise_is_practised():
+    call = classify_familiarity(0.90, "EXERCISE 1.2", "E")
+    assert call.level == "PRACTISED"
+
+
+def test_a_close_match_to_chapter_body_is_taught_not_drilled():
+    """Bucket decides which side of the taught/practised line a match falls on."""
+    assert classify_familiarity(0.90, "Theorem 1.3", "T").level == "T_VERBATIM"
+
+
+def test_a_recognisable_method_in_a_new_setting_is_adapted():
+    call = classify_familiarity(0.60, "EXERCISE 1.1", "E")
+    assert call.level == "ADAPTED"
+    assert "unfamiliar setting" in call.reason
+
+
+def test_nothing_close_is_novel():
+    call = classify_familiarity(0.20, "Example 4", "T")
+    assert call.level == "NOVEL"
+    assert "0.20" in call.reason
+
+
+def test_a_call_near_a_boundary_abstains_rather_than_guessing():
+    """A wrong familiarity produces a wrong Competency Tier, which a teacher acts on."""
+    t = FamiliarityThresholds()
+    call = classify_familiarity(t.practised + 0.01, "EXERCISE 1.2", "E")
+    assert call.level is None
+    assert "too close to call" in call.reason
+
+
+def test_the_boundaries_are_configuration_not_constants():
+    """They are the project's only unvalidated numbers, so they must be tunable."""
+    strict = FamiliarityThresholds(practised=0.95, adapted=0.80, margin=0.01)
+    assert classify_familiarity(0.90, "EXERCISE 1.2", "E", strict).level == "ADAPTED"
+
+
+# --- the index ---------------------------------------------------------------------------
+
+def test_the_semantic_index_finds_the_nearest_chunk():
+    embedder = StubEmbedder()
+    texts = ["volume of a cone", "probability of a coin toss", "irrational numbers"]
+    vectors = embedder.embed_texts(texts)
+    index = SemanticIndex([_Chunk(t, v) for t, v in zip(texts, vectors, strict=True)], embedder)
+
+    [best] = index.search("volume of a cone", k=1)
+    assert best.reference == "volume of a cone"
+    assert best.score == pytest.approx(1.0)
+
+
+def test_chunks_without_a_vector_are_reported_not_silently_dropped():
+    """A partially embedded index that looks complete would understate every distance."""
+    embedder = StubEmbedder()
+    [vector] = embedder.embed_texts(["a"])
+    index = SemanticIndex([_Chunk("a", vector), _Chunk("b", None)], embedder)
+    assert index.skipped == 1
+    assert len(index.chunks) == 1
+
+
+def test_an_empty_index_returns_nothing_rather_than_a_wrong_answer():
+    assert SemanticIndex([], StubEmbedder()).search("anything") == []
+
+
+# --- the provider ------------------------------------------------------------------------
+
+def test_a_missing_key_fails_loudly_and_says_what_breaks():
+    with pytest.raises(ValueError) as exc:
+        JinaEmbedder("")
+    assert "familiarity" in str(exc.value)
+
+
+def test_an_empty_batch_makes_no_request():
+    """Guarded because a provider that rejects empty input would fail the whole run."""
+    assert JinaEmbedder("k").embed_texts([]) == []
+
+
+def test_the_stub_is_deterministic():
+    """Otherwise every test above measures noise."""
+    assert StubEmbedder().embed_texts(["x"]) == StubEmbedder().embed_texts(["x"])
+
+
+def test_vectors_are_unit_comparable_across_dimensions():
+    """Matryoshka truncation must not change which chunk is nearest, only the precision."""
+    full = [1.0, 0.9, 0.1, 0.05]
+    truncated = full[:2]
+    other_full = [0.1, 0.05, 1.0, 0.9]
+    other_truncated = other_full[:2]
+    assert cosine(full, full) > cosine(full, other_full)
+    assert cosine(truncated, truncated) > cosine(truncated, other_truncated)
+
+
+def test_similarity_is_bounded():
+    embedder = StubEmbedder()
+    a, b = embedder.embed_texts(["alpha", "beta"])
+    assert -1.0 - 1e-9 <= cosine(a, b) <= 1.0 + 1e-9
+    assert not math.isnan(cosine(a, b))

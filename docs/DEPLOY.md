@@ -156,6 +156,32 @@ ceiling.
    a principal loses theirs the remedy is *Issue a new principal key*, which takes effect
    on the next request and leaves class links untouched.
 
+   **Loading the knowledge base.** After the school exists, load the subject's book and
+   embed it. Both are one-off, and both are safe to re-run:
+
+   ```bash
+   cd backend
+   python -m scripts.ingest_book ../ncert/X/maths --subject X.MATH --dry-run
+   python -m scripts.ingest_book ../ncert/X/maths --subject X.MATH
+   python -m scripts.embed_kb --subject X.MATH --dry-run
+   python -m scripts.embed_kb --subject X.MATH
+   ```
+
+   `embed_kb` needs `YAADHUM_JINA_API_KEY`. The whole Class X Maths book is about 74,000
+   tokens, which sits inside the free tier. Without it the knowledge base still loads, but
+   only exact matches resolve: `PRACTISED`, `ADAPTED` and `NOVEL` all need distance, so
+   three of the four familiarity levels collapse and Competency Tier falls back to whatever
+   the paper's blueprint declares.
+
+   Only book content and question stems are sent to the embedding provider. **A student's
+   answer script never is** -- that pipeline has no path to this code.
+
+   Then check it actually works, which the ingest summary cannot tell you:
+
+   ```bash
+   python -m scripts.probe_kb ../ncert/X/maths/probe-30B.json
+   ```
+
    If your plan has no Shell tab, you can read the same value straight from Neon's SQL
    editor -- `select id, name, api_key from school;` -- but prefer the shell: rotation
    through the script keeps the key in the format the app validates.

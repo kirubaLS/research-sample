@@ -38,6 +38,32 @@ class Candidate:
     score: float
 
 
+class SemanticIndex:
+    """Nearest chunk by cosine similarity over stored embeddings.
+
+    Falls back to nothing: a chunk without a vector is simply not searchable here, and the
+    caller is told how many were skipped rather than getting a quietly partial index.
+    """
+
+    def __init__(self, chunks: list, embedder) -> None:
+        self.embedder = embedder
+        self.chunks = [c for c in chunks if getattr(c, "embedding", None)]
+        self.skipped = len(chunks) - len(self.chunks)
+
+    def search(self, question: str, k: int = 3) -> list[Candidate]:
+        from app.ingest.embed import cosine
+
+        if not self.chunks:
+            return []
+        [vector] = self.embedder.embed_texts([question], is_query=True)
+        scored = [
+            Candidate(c.id, c.reference, c.node_id, c.bucket, cosine(vector, c.embedding))
+            for c in self.chunks
+        ]
+        scored.sort(key=lambda c: -c.score)
+        return scored[:k]
+
+
 class LexicalIndex:
     """TF-IDF over chunk text. No model, no network, no tuning knobs."""
 
