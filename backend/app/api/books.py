@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_platform_admin
 from app.config import get_settings
-from app.curriculum import CURRICULA
+from app.curriculum import CURRICULA, chapter_title
 from app.curriculum.apply import apply as apply_curriculum
 from app.db import get_session
 from app.ingest.book import (
@@ -180,8 +180,8 @@ async def upload_contents(
     if not toc:
         raise HTTPException(
             422,
-            "no table of contents found. This should be the prelims file (NCERT names it "
-            "jemh1ps.pdf for Maths), not a chapter.",
+            "no table of contents found. This should be the prelims file -- NCERT names it "
+            "jemh1ps.pdf for Maths -- not a chapter.",
         )
 
     expected = {
@@ -231,15 +231,21 @@ async def upload_chapter(
     if number is None or number == 0:
         raise HTTPException(
             422,
-            f"{name!r} is not a numbered chapter file. Rename it NN-slug.pdf, e.g. "
-            f"12-surface-areas-and-volumes.pdf. The answers file and the appendices are "
-            f"deliberately not loadable: the answers file matches EXERCISE 31 times and "
-            f"would load the answer key as practice content.",
+            f"{name!r} is not a chapter file. Both naming conventions work: NCERT's own "
+            f"(jemh101.pdf) or NN-slug.pdf (12-surface-areas-and-volumes.pdf). The "
+            f"contents page, the answers and the appendices are deliberately not loadable "
+            f"here -- the answers file matches EXERCISE 31 times and would load the answer "
+            f"key as practice content.",
         )
 
     path = await _to_tempfile(file)
     try:
-        extract = extract_chapter(path, number=number, name=name)
+        # An NCERT-coded filename carries no title, so take it from the curriculum, which
+        # is the authority for chapter identity anyway -- it holds the board-unit mapping.
+        extract = extract_chapter(
+            path, number=number, name=name,
+            title=chapter_title(subject, number) or "",
+        )
         toc = {
             int(k): [Section(s["number"], s["title"]) for s in v]
             for k, v in source.expected_sections.items()

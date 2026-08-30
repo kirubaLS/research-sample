@@ -138,6 +138,33 @@ def test_the_full_upload_flow(client, school):
 
 
 @real_book
+def test_ncert_own_filenames_are_accepted(client, school):
+    """The path a real operator is on: the files come off NCERT's site named jemh1NN."""
+    import shutil
+    import tempfile
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.MATH/contents", headers=HEAD, files=_pdf("00-contents.pdf")
+    )
+
+    with tempfile.TemporaryDirectory() as tmp:
+        raw = Path(tmp) / "jemh112.pdf"
+        shutil.copy(BOOK / "12-surface-areas-and-volumes.pdf", raw)
+        with open(raw, "rb") as fh:
+            r = client.post(
+                "/platform/books/X.MATH/chapters", headers=HEAD,
+                files={"file": ("jemh112.pdf", fh, "application/pdf")},
+            )
+
+    assert r.status_code == 201, r.json()
+    body = r.json()
+    assert body["chapter"] == 12
+    # the title cannot come from the filename, so it comes from the curriculum
+    assert body["title"] == "Surface Areas and Volumes"
+
+
+@real_book
 def test_the_answers_file_cannot_be_loaded_as_a_chapter(client, school):
     """It matches EXERCISE 31 times: loaded, it would make the answer key 'practice'."""
     client.post(

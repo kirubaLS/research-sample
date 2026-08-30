@@ -21,6 +21,9 @@ from pathlib import Path
 
 import pymupdf
 
+#: the prelims file: the verification oracle, never content
+CONTENTS = "00-contents.pdf"
+
 #: bucket T -- taught as content, so a question using this method is T_VERBATIM
 #: "Theorem 1.1 (Fundamental Theorem of Arithmetic) :" carries a parenthetical name
 THEOREM = re.compile(r"^\s*Theorem\s+(\d+\.\d+)\s*(?:\([^)]*\))?\s*(\*?)\s*:\s*(.*)$", re.M)
@@ -103,14 +106,35 @@ def file_sha256(path: str | Path) -> str:
     return h.hexdigest()
 
 
+#: NCERT's own filenames: jemh101 = Maths chapter 1, jesc105 = Science chapter 5. The two
+#: trailing characters are the chapter number, and the non-chapter files are exactly the
+#: ones whose trailing pair is not digits: 'ps' prelims, 'an' answers, 'a1'/'a2' appendices.
+NCERT_CHAPTER = re.compile(r"^[a-z]{3,5}\d(\d{2})$")
+NCERT_CONTENTS = re.compile(r"^[a-z]{3,5}\dps$")
+
+
 def chapter_number(path: str | Path) -> int | None:
-    """From '12-surface-areas-and-volumes.pdf'. None for contents, answers, appendices."""
-    m = re.match(r"^(\d{2})-", Path(path).name)
-    return int(m.group(1)) if m else None
+    """The chapter this file is, from either naming convention.
+
+    Accepts NCERT's own codes as well as NN-slug, because renaming eighteen files by hand
+    before an upload is a requirement with nothing behind it: jemh101 already says
+    "chapter 1" unambiguously, and a rename is one more place to make a mistake.
+
+    None for the contents page, the answers and the appendices -- deliberately, since the
+    answers file matches EXERCISE 31 times and would load the answer key as practice.
+    """
+    stem = Path(path).stem
+    if m := re.match(r"^(\d{2})-", Path(path).name):
+        return int(m.group(1))
+    if m := NCERT_CHAPTER.match(stem):
+        return int(m.group(1))
+    return None
 
 
-#: the prelims file: the verification oracle, never content
-CONTENTS = "00-contents.pdf"
+def is_contents(path: str | Path) -> bool:
+    """The prelims file, under either convention."""
+    name = Path(path).name
+    return name == CONTENTS or bool(NCERT_CONTENTS.match(Path(path).stem))
 
 
 def chapter_files(directory: str | Path) -> list[Path]:
@@ -122,7 +146,8 @@ def chapter_files(directory: str | Path) -> list[Path]:
     its tests cannot disagree about what counts as a chapter.
     """
     return sorted(
-        p for p in Path(directory).glob("[0-9][0-9]-*.pdf") if p.name != CONTENTS
+        (p for p in Path(directory).glob("*.pdf") if chapter_number(p) not in (None, 0)),
+        key=lambda p: chapter_number(p) or 0,
     )
 
 
@@ -227,12 +252,16 @@ def extract_chapter(
     display = name or Path(path).name
     number = number if number is not None else chapter_number(display)
     if number is None:
-        raise ValueError(f"{display!r} is not a numbered chapter file")
+        raise ValueError(f"{display!r} is not a chapter file")
+
+    stem = Path(display).stem
+    # an NCERT code (jemh101) has no slug to read a title from; the caller supplies one
+    derived = stem.split("-", 1)[1].replace("-", " ").title() if "-" in stem else stem
 
     text = read_text(path)
     return ChapterExtract(
         number=number,
-        title=title or Path(display).stem.split("-", 1)[1].replace("-", " ").title(),
+        title=title or derived,
         source_path=str(path),
         sha256=file_sha256(path),
         sections=extract_sections(text, number),

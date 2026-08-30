@@ -80,3 +80,17 @@ X_MATH = Curriculum(
 )
 
 CURRICULA: dict[str, Curriculum] = {X_MATH.subject_code: X_MATH}
+
+
+def chapter_title(subject_code: str, number: int) -> str | None:
+    """The book's chapter N, by the name the syllabus gives it.
+
+    An NCERT filename (jemh101.pdf) carries a number and no title, and the title on the
+    page is a running header that only appears on odd pages -- six of fourteen chapters do
+    not show it before their first section. The curriculum lists chapters in book order and
+    is already the authority for chapter identity, since it carries the board-unit mapping.
+    """
+    curriculum = CURRICULA.get(subject_code)
+    if curriculum is None or not (1 <= number <= len(curriculum.chapters)):
+        return None
+    return curriculum.chapters[number - 1].label

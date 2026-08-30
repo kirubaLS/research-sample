@@ -23,12 +23,15 @@ from pathlib import Path
 
 from sqlalchemy import func, select
 
+from app.curriculum import chapter_title
 from app.db import SessionLocal
 from app.ingest.book import (
     CONTENTS,
     ChapterExtract,
     chapter_files,
+    chapter_number,
     extract_chapter,
+    is_contents,
     parse_toc,
     verify_against_toc,
 )
@@ -111,7 +114,9 @@ def main() -> None:
     parser.add_argument("--dry-run", action="store_true", help="report and write nothing")
     args = parser.parse_args()
 
-    contents = args.directory / CONTENTS
+    contents = next(
+        (p for p in args.directory.glob("*.pdf") if is_contents(p)), args.directory / CONTENTS
+    )
     if not contents.exists():
         raise SystemExit(
             f"{contents} not found. The contents page is what makes an extraction "
@@ -125,7 +130,13 @@ def main() -> None:
 
     print(f"contents page lists {len(toc)} chapters; found {len(files)} chapter files\n")
 
-    extracts = [verify_against_toc(extract_chapter(p), toc) for p in files]
+    extracts = [
+        verify_against_toc(
+            extract_chapter(p, title=chapter_title(args.subject, chapter_number(p)) or ""),
+            toc,
+        )
+        for p in files
+    ]
 
     for e in extracts:
         c = e.counts()

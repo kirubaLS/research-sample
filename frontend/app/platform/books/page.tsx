@@ -223,9 +223,9 @@ export default function BooksPage() {
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>
-          The prelims file &mdash; <span className="mono">00-contents.pdf</span>. It lists every
-          section of every chapter, which is what makes an extraction checkable rather than
-          merely plausible.
+          The prelims file &mdash; NCERT names it <span className="mono">jemh1ps.pdf</span> for
+          Maths. It lists every section of every chapter, which is what makes an extraction
+          checkable rather than merely plausible.
         </p>
         <input
           type="file"
@@ -241,9 +241,10 @@ export default function BooksPage() {
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>
-          Named <span className="mono">NN-slug.pdf</span>, e.g.{" "}
-          <span className="mono">12-surface-areas-and-volumes.pdf</span>. Select them all at
-          once. The answers file and the appendices are refused: the answers file matches
+          Select them all at once, under NCERT&apos;s own names (
+          <span className="mono">jemh101.pdf</span>) or as{" "}
+          <span className="mono">NN-slug.pdf</span> &mdash; no renaming needed. The contents
+          page, the answers and the appendices are refused: the answers file matches
           &ldquo;EXERCISE&rdquo; 31 times and would load the answer key as practice content.
         </p>
         <input

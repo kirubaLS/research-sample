@@ -126,13 +126,44 @@ def test_a_correct_extraction_passes():
 
 # --- filenames ------------------------------------------------------------------------
 
-def test_only_numbered_chapter_files_are_chapters():
+def test_both_naming_conventions_are_accepted():
+    """Renaming eighteen files before an upload is a requirement with nothing behind it:
+    jemh101 already says 'chapter 1' unambiguously."""
     assert chapter_number("12-surface-areas-and-volumes.pdf") == 12
-    # the answers file matches EXERCISE 31 times; treating it as a chapter would load the
-    # answer key as practice content
-    assert chapter_number("an-answers.pdf") is None
-    assert chapter_number("a1-proofs-in-mathematics.pdf") is None
+    assert chapter_number("jemh101.pdf") == 1
+    assert chapter_number("jemh114.pdf") == 14
+    # the pattern is not Maths-specific -- Science is jesc1NN
+    assert chapter_number("jesc105.pdf") == 5
+
+
+def test_the_non_chapter_files_are_not_chapters_under_either_convention():
+    """The answers file matches EXERCISE 31 times; loaded, it would make the answer key
+    'practice content'."""
+    for name in ("an-answers.pdf", "jemh1an.pdf",
+                 "a1-proofs-in-mathematics.pdf", "jemh1a1.pdf", "jemh1a2.pdf"):
+        assert chapter_number(name) is None, name
+
+
+def test_the_contents_page_is_recognised_under_either_convention():
+    from app.ingest.book import is_contents
+
+    assert is_contents("00-contents.pdf")
+    assert is_contents("jemh1ps.pdf")
+    assert not is_contents("jemh101.pdf")
+    assert not is_contents("jemh1an.pdf")
+    # 00-contents is numbered 0, which is not a loadable chapter
     assert chapter_number("00-contents.pdf") == 0
+
+
+def test_a_chapter_title_comes_from_the_curriculum_when_the_filename_has_none():
+    """An NCERT code carries a number and no title, and the title on the page is a running
+    header six of fourteen chapters do not show before their first section."""
+    from app.curriculum import chapter_title
+
+    assert chapter_title("X.MATH", 12) == "Surface Areas and Volumes"
+    assert chapter_title("X.MATH", 9) == "Applications of Trigonometry"
+    assert chapter_title("X.MATH", 99) is None
+    assert chapter_title("X.NOSUCH", 1) is None
 
 
 # --- against the real book, when it is present ----------------------------------------
