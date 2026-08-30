@@ -20,13 +20,33 @@ BACKEND = Path(__file__).resolve().parents[1]
 #: [project.dependencies] in pyproject.toml, by import name
 BASE = {
     "fastapi", "uvicorn", "sqlalchemy", "alembic", "pydantic", "pydantic_settings",
-    "psycopg", "numpy", "scipy", "multipart", "httpx", "pymupdf",
+    "psycopg", "numpy", "scipy", "multipart", "httpx", "pymupdf", "anthropic",
 }
 
 
 def _module_path(mod: str) -> Path:
     p = BACKEND / (mod.replace(".", "/") + ".py")
     return p if p.exists() else BACKEND / (mod.replace(".", "/") + "/__init__.py")
+
+
+def _module_level(tree: ast.Module):
+    """Statements that run when the module is imported.
+
+    Descends into `if`, `try` and `with` at module scope -- a conditional import still runs
+    at boot -- but not into a function or class body, which does not.
+    """
+    out = []
+    stack = list(tree.body)
+    while stack:
+        node = stack.pop()
+        out.append(node)
+        if isinstance(node, (ast.If, ast.Try, ast.With)):
+            stack.extend(node.body)
+            stack.extend(getattr(node, "orelse", []))
+            stack.extend(getattr(node, "finalbody", []))
+            for handler in getattr(node, "handlers", []):
+                stack.extend(handler.body)
+    return out
 
 
 def boot_imports() -> dict[str, str]:
@@ -44,8 +64,11 @@ def boot_imports() -> dict[str, str]:
         if not path.exists():
             continue
 
-        # module scope only: an import inside a function does not run at boot
-        for node in ast.walk(ast.parse(path.read_text())):
+        # Module scope only. An import inside a function body does not run at boot, and
+        # treating one as though it did reported a deliberately lazy import as a fault --
+        # ast.walk descends into function bodies, so the tree has to be walked by hand.
+        tree = ast.parse(path.read_text())
+        for node in _module_level(tree):
             if isinstance(node, ast.Import):
                 for alias in node.names:
                     if alias.name.startswith("app"):
@@ -80,3 +103,40 @@ def test_the_walker_follows_from_package_import_module():
     """The hop that an earlier version of this check missed, reporting clean while
     production was crashing on a missing pymupdf."""
     assert "pymupdf" in boot_imports(), "app.api.books -> app.ingest.book -> pymupdf"
+
+
+def test_an_import_inside_a_function_is_not_a_boot_import():
+    """The opposite mistake, and the one this check made next: `anthropic` is imported
+    inside AnthropicJudge.__init__ precisely so a missing install fails one call rather
+    than the whole service. Reporting that as a boot import is a false alarm that would
+    train someone to ignore this test."""
+    import ast
+
+    tree = ast.parse(
+        "import fastapi\n"
+        "def f():\n"
+        "    import anthropic\n"
+        "class C:\n"
+        "    import scipy\n"
+    )
+    names = {
+        alias.name
+        for node in _module_level(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert names == {"fastapi"}
+
+
+def test_a_conditional_import_at_module_scope_still_counts():
+    """`if TYPE_CHECKING` aside, an import inside a module-level try/except runs at boot."""
+    import ast
+
+    tree = ast.parse("try:\n    import scipy\nexcept ImportError:\n    scipy = None\n")
+    names = {
+        alias.name
+        for node in _module_level(tree)
+        if isinstance(node, ast.Import)
+        for alias in node.names
+    }
+    assert names == {"scipy"}
