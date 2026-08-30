@@ -24,19 +24,15 @@ from pathlib import Path
 from sqlalchemy import func, select
 
 from app.db import SessionLocal
-from app.ingest.book import ChapterExtract, extract_chapter, parse_toc, verify_against_toc
+from app.ingest.book import (
+    CONTENTS,
+    ChapterExtract,
+    chapter_files,
+    extract_chapter,
+    parse_toc,
+    verify_against_toc,
+)
 from app.models import BookChunk, CanonicalProcedure, ChapterBoardUnit, TaxonomyNode
-
-CONTENTS = "00-contents.pdf"
-
-
-def chapter_files(directory: Path) -> list[Path]:
-    """Numbered chapters only.
-
-    The answers file matches 'EXERCISE' 31 times, so a looser glob would load the answer
-    key as practice content -- silent, and badly wrong.
-    """
-    return sorted(p for p in directory.glob("[0-9][0-9]-*.pdf") if p.name != CONTENTS)
 
 
 def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
@@ -135,7 +131,7 @@ def main() -> None:
         c = e.counts()
         print(
             f"  {'ok  ' if e.ok else 'FAIL'} ch{e.number:>2}  {e.title[:32]:32} "
-            f"sections={c['sections']:>2}  theorem={c['theorem']:>2} "
+            f"sections={c['sections']:>2}  body={c['body']:>2} theorem={c['theorem']:>2} "
             f"example={c['example']:>2} exercise={c['exercise']}"
         )
         for problem in e.problems:

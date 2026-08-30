@@ -41,15 +41,18 @@ EXERCISE = re.compile(r"^\s*EXERCISE\s+(\d+\.\d+)\s*(\(Optional\)\*?)?\s*$", re.
 class Section:
     number: str          # '12.2'
     title: str           # 'Volume of Combination of Solids'
+    start: int = -1      # character offset of the heading, for body-text attribution
+    end: int = -1
 
 
 @dataclass(frozen=True)
 class Chunk:
     bucket: str          # 'T' | 'E'
-    kind: str            # 'theorem' | 'example' | 'exercise'
+    kind: str            # 'body' | 'theorem' | 'example' | 'exercise'
     reference: str       # 'Theorem 1.3', 'Example 4', 'EXERCISE 12.1'
     text: str
     stem_hash: str
+    section: str = ""    # '2.2' -- which section this came from
     #: an optional exercise is not examinable, so a question resembling it should not
     #: count as "practised" for board-facing reporting
     examinable: bool = True
@@ -71,9 +74,10 @@ class ChapterExtract:
         return not self.problems
 
     def counts(self) -> dict[str, int]:
-        out = {"sections": len(self.sections), "theorem": 0, "example": 0, "exercise": 0}
+        out = {"sections": len(self.sections), "body": 0, "theorem": 0, "example": 0,
+               "exercise": 0}
         for c in self.chunks:
-            out[c.kind] += 1
+            out[c.kind] = out.get(c.kind, 0) + 1
         return out
 
 
@@ -105,6 +109,23 @@ def chapter_number(path: str | Path) -> int | None:
     return int(m.group(1)) if m else None
 
 
+#: the prelims file: the verification oracle, never content
+CONTENTS = "00-contents.pdf"
+
+
+def chapter_files(directory: str | Path) -> list[Path]:
+    """The chapter PDFs, and only those.
+
+    Excluded by construction, not by convention: the answers file matches 'EXERCISE' 31
+    times and would load the answer key as practice content, and the appendices are
+    outside the Class X syllabus. Lives here rather than in the script so the ingest and
+    its tests cannot disagree about what counts as a chapter.
+    """
+    return sorted(
+        p for p in Path(directory).glob("[0-9][0-9]-*.pdf") if p.name != CONTENTS
+    )
+
+
 def parse_toc(contents_pdf: str | Path) -> dict[int, list[Section]]:
     """The expected tree, from the prelims file. This is what makes verification possible."""
     text = read_text(contents_pdf)
@@ -116,32 +137,44 @@ def parse_toc(contents_pdf: str | Path) -> dict[int, list[Section]]:
 
 
 def extract_sections(text: str, chapter: int) -> list[Section]:
-    """Headings for THIS chapter only.
+    """Headings for THIS chapter only, with the span each one covers.
 
-    The scoping is the whole point: 'Example 5 : ... = 28.5 m\\nTherefore, ...' produced a
+    The scoping is the whole point: 'Example 5 : ... = 28.5 m\nTherefore, ...' produced a
     phantom section '28.5 Therefore,' when the pattern was chapter-agnostic.
     """
     pattern = re.compile(rf"^\s*({chapter}\.\d+)\s+([A-Z][^\n]{{2,60}})$", re.M)
     seen: set[str] = set()
-    sections: list[Section] = []
-    for number, title in pattern.findall(text):
-        if number in seen:          # a running header repeats the section on every page
+    found: list[tuple[str, str, int, int]] = []
+    for m in pattern.finditer(text):
+        if m.group(1) in seen:      # a running header repeats the section on every page
             continue
-        seen.add(number)
-        sections.append(Section(number, title.strip()))
+        seen.add(m.group(1))
+        found.append((m.group(1), m.group(2).strip(), m.start(), m.end()))
+
+    sections: list[Section] = []
+    for i, (number, title, _start, heading_end) in enumerate(found):
+        end = found[i + 1][2] if i + 1 < len(found) else len(text)
+        sections.append(Section(number, title, heading_end, end))
     return sections
 
 
-def extract_chunks(text: str) -> list[Chunk]:
-    """Split into the two familiarity buckets, using the book's own labels.
+#: below this a "body" slice is a page header or a stray caption, not taught content
+MIN_BODY_CHARS = 200
 
-    Every marker is sorted into ONE ordered list before slicing. Slicing each kind
-    separately made a chunk run to the next marker *of its own kind*: Theorem 1.1 ran all
-    the way to Theorem 1.2 and swallowed Examples 1 to 4 along the way, so bucket T
-    chunks overlapped each other and carried text belonging to other procedures.
+
+def extract_chunks(text: str, chapter: int) -> list[Chunk]:
+    """Split a chapter into familiarity chunks, section by section.
+
+    Marker-only chunking captured 72% of the book. The missing 28% was the expository
+    body -- definitions, derivations, the prose that introduces a method -- because it
+    carries no "Theorem"/"Example" label. That text is taught content as much as a worked
+    example is, so a question drawn from it found no match and was judged NOVEL when it
+    was T_VERBATIM: a wrong tier, arrived at silently.
+
+    So each section contributes its labelled markers *and* the prose between them.
     """
-    markers: list[tuple[int, str, str, str]] = []   # (position, kind, bucket, reference)
     optional: dict[int, bool] = {}
+    markers: list[tuple[int, str, str, str]] = []
     for m in THEOREM.finditer(text):
         markers.append((m.start(), "theorem", "T", f"Theorem {m.group(1)}"))
         optional[m.start()] = bool(m.group(2))
@@ -153,23 +186,31 @@ def extract_chunks(text: str) -> list[Chunk]:
         optional[m.start()] = bool(m.group(2))
 
     markers.sort()
-
     # A reference appearing twice is a back-reference in body text, not a restatement:
-    # "Theorem 6.1: Fig. 6.11" is a figure caption. The real statement always comes first,
-    # so later occurrences are dropped and their text stays with the surrounding chunk.
+    # "Theorem 6.1: Fig. 6.11" is a figure caption. The statement always comes first.
     seen: set[str] = set()
     markers = [m for m in markers if not (m[3] in seen or seen.add(m[3]))]
 
     chunks: list[Chunk] = []
-    for i, (start, kind, bucket, reference) in enumerate(markers):
-        stop = markers[i + 1][0] if i + 1 < len(markers) else len(text)
-        body = text[start:stop].strip()
-        chunks.append(
-            Chunk(
-                bucket, kind, reference, body, stem_hash(body),
-                examinable=not optional.get(start, False),
+    for section in extract_sections(text, chapter):
+        inside = [m for m in markers if section.start <= m[0] < section.end]
+        boundaries = [m[0] for m in inside] + [section.end]
+
+        body = text[section.start:boundaries[0]].strip()
+        if len(body) >= MIN_BODY_CHARS:
+            chunks.append(
+                Chunk("T", "body", f"Section {section.number}", body, stem_hash(body),
+                      section=section.number)
             )
-        )
+
+        for i, (start, kind, bucket, reference) in enumerate(inside):
+            stop = boundaries[i + 1]
+            piece = text[start:stop].strip()
+            chunks.append(
+                Chunk(bucket, kind, reference, piece, stem_hash(piece),
+                      section=section.number, examinable=not optional.get(start, False))
+            )
+
     return chunks
 
 
@@ -188,7 +229,7 @@ def extract_chapter(path: str | Path, *, title: str = "") -> ChapterExtract:
         source_path=str(path),
         sha256=file_sha256(path),
         sections=extract_sections(text, number),
-        chunks=extract_chunks(text),
+        chunks=extract_chunks(text, number),
     )
 
 

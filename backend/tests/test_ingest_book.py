@@ -14,6 +14,7 @@ import pytest
 from app.ingest.book import (
     ChapterExtract,
     Section,
+    chapter_files,
     chapter_number,
     extract_chunks,
     extract_sections,
@@ -49,11 +50,12 @@ def test_sections_of_another_chapter_are_ignored():
 
 def test_theorems_and_examples_are_taught_content_exercises_are_practice():
     text = (
+        "1.1 Introduction\n"
         "Theorem 1.3 : Root 2 is irrational\nproof body\n"
         "Example 4 : Find the HCF\nworked body\n"
         "EXERCISE 1.2\n1. Prove that...\n"
     )
-    chunks = {c.kind: c for c in extract_chunks(text)}
+    chunks = {c.kind: c for c in extract_chunks(text, 1)}
     assert chunks["theorem"].bucket == "T"
     assert chunks["example"].bucket == "T"
     assert chunks["exercise"].bucket == "E"
@@ -61,12 +63,14 @@ def test_theorems_and_examples_are_taught_content_exercises_are_practice():
 
 def test_an_example_written_without_a_space_before_the_colon_still_matches():
     """NCERT writes both 'Example 3 :' and 'Example 3:'."""
-    assert len(extract_chunks("Example 3: Find the HCF\nbody\n")) == 1
+    chunks = extract_chunks("1.1 Intro\nExample 3: Find the HCF\nbody\n", 1)
+    assert [c.kind for c in chunks].count("example") == 1
 
 
 def test_an_optional_exercise_is_captured_but_marked_non_examinable():
     """'EXERCISE 5.4 (Optional)*' was dropped entirely by an end-of-line anchor."""
-    chunks = extract_chunks("EXERCISE 5.4 (Optional)*\n1. Which term...\n")
+    text = "5.1 Intro\nEXERCISE 5.4 (Optional)*\n1. Which term...\n"
+    chunks = [c for c in extract_chunks(text, 5) if c.kind == "exercise"]
     assert len(chunks) == 1
     assert chunks[0].examinable is False
 
@@ -82,7 +86,7 @@ def _extract(number: int, sections: list[tuple[str, str]]) -> ChapterExtract:
     return ChapterExtract(
         number=number, title="T", source_path="x.pdf", sha256="0",
         sections=[Section(n, t) for n, t in sections],
-        chunks=extract_chunks("Example 1 : x\nbody\n"),
+        chunks=extract_chunks("1.1 Intro\nExample 1 : x\nbody\n", 1),
     )
 
 
@@ -140,7 +144,7 @@ def test_the_whole_maths_book_agrees_with_its_own_contents_page():
     toc = parse_toc(BOOK / "00-contents.pdf")
     assert len(toc) == 14
 
-    files = sorted(p for p in BOOK.glob("[0-9][0-9]-*.pdf") if p.name != "00-contents.pdf")
+    files = sorted(p for p in chapter_files(BOOK) if p.name != "00-contents.pdf")
     assert len(files) == 14
 
     for path in files:
@@ -154,7 +158,7 @@ def test_theorems_appear_only_in_the_chapters_that_prove_things():
 
     with_theorems = {
         extract_chapter(p).number
-        for p in BOOK.glob("[0-9][0-9]-*.pdf")
+        for p in chapter_files(BOOK)
         if any(c.kind == "theorem" for c in extract_chapter(p).chunks)
     }
     # Real Numbers, Triangles, Circles
@@ -165,12 +169,13 @@ def test_chunks_do_not_swallow_each_other():
     """Slicing each marker kind separately made Theorem 1.1 run to Theorem 1.2 and absorb
     every Example in between -- 6043 characters of overlapping content in one chunk."""
     text = (
+        "1.1 Introduction\n"
         "Theorem 1.1 : first\nproof\n"
         "Example 1 : a worked one\nsolution\n"
         "Example 2 : another\nsolution\n"
         "Theorem 1.2 : second\nproof\n"
     )
-    chunks = extract_chunks(text)
+    chunks = [c for c in extract_chunks(text, 1) if c.kind != "body"]
     assert [c.reference for c in chunks] == [
         "Theorem 1.1", "Example 1", "Example 2", "Theorem 1.2",
     ], "chunks must come out in document order"
@@ -179,16 +184,50 @@ def test_chunks_do_not_swallow_each_other():
 
 
 @real_book
-def test_no_real_chunk_contains_another_chunk_s_heading():
-    """The precise invariant. Length is not the signal -- EXERCISE 13.2 is legitimately
-    8520 characters of frequency tables -- but a chunk holding another marker's heading
-    is overlap by definition."""
+def test_no_real_chunk_swallows_another():
+    """The precise invariant.
+
+    Not "chunk A never names chunk B": NCERT writes "An equivalent version of Theorem 1.2
+    was probably first recorded as Proposition 14 of Book IX", which is prose, not
+    overlap. Containing another chunk's whole text is overlap by definition.
+    """
     from app.ingest.book import extract_chapter
 
-    for path in sorted(BOOK.glob("[0-9][0-9]-*.pdf")):
+    for path in chapter_files(BOOK):
         chunks = extract_chapter(path).chunks
         for i, chunk in enumerate(chunks):
             for other in chunks[i + 1:]:
-                assert other.reference not in chunk.text, (
-                    f"{path.name}: {chunk.reference} contains {other.reference}"
+                assert other.text not in chunk.text, (
+                    f"{path.name}: {chunk.reference} swallows {other.reference}"
                 )
+
+
+@real_book
+def test_almost_none_of_the_book_is_dropped():
+    """Marker-only chunking captured 72%, and the missing 28% was the expository body --
+    definitions and derivations that carry no label. A question drawn from that text found
+    no match and was judged NOVEL when it was T_VERBATIM."""
+    from app.ingest.book import extract_chapter, read_text
+
+    for path in chapter_files(BOOK):
+        total = len(read_text(path))
+        captured = sum(len(c.text) for c in extract_chapter(path).chunks)
+        share = captured / total
+        assert share > 0.95, f"{path.name} captures only {share:.0%} of its text"
+
+
+@real_book
+def test_every_section_of_every_chapter_produces_content():
+    """A section with no chunk is a hole in the tree that nothing downstream reveals."""
+    from app.ingest.book import extract_chapter
+
+    for path in chapter_files(BOOK):
+        extract = extract_chapter(path)
+        covered = {c.section for c in extract.chunks}
+        for section in extract.sections:
+            # 'Summary' sections are a bulleted recap and can fall under the body minimum
+            if section.title.strip().lower() == "summary":
+                continue
+            assert section.number in covered, (
+                f"{path.name}: section {section.number} {section.title!r} produced nothing"
+            )
