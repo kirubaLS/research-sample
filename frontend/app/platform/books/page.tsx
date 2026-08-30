@@ -42,6 +42,17 @@ export default function BooksPage() {
 
   function describe(err: unknown): string {
     if (!(err instanceof ApiError)) return "Could not reach the API.";
+    if (err.status === 404) {
+      // Two very different causes, and the API cannot distinguish them for us: the
+      // operator key is rejected with 404 on purpose, so a wrong key must not confirm
+      // that anything exists. Version skew is the far likelier one in practice -- this
+      // page ships with API routes that an older backend build does not have.
+      return (
+        "The API returned 404 for this route. Most likely the backend has not been " +
+        "redeployed with the book-upload routes yet -- deploy the same commit as this " +
+        "site. (A rejected operator key also answers 404, deliberately.)"
+      );
+    }
     // FastAPI wraps the message in {"detail": ...}; the raw JSON buries a clear sentence
     try {
       const body = JSON.parse(err.message);
