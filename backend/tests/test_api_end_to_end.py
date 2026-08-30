@@ -179,6 +179,51 @@ def test_marks_engine_flow(client, school):
     assert reasons == {"no_such_address", "out_of_range"}
 
 
+def test_student_report_reads_the_curriculum_columns(client, school):
+    """The single-paper report: strengths, focus, and no invented coverage gap.
+
+    Regression: _rows() used to leave board_unit null on every row, so the board-weighted
+    indicator aggregated nothing and the report claimed the paper carried no marks for
+    Mensuration -- the unit it tested end to end.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Assessment, StudentProfile
+
+    db = SessionLocal()
+    aid = db.scalar(
+        select(Assessment.id).where(Assessment.title == "Unit Test II — Section B")
+    )
+    sid = db.scalar(select(StudentProfile.id).where(StudentProfile.roll_no == "047"))
+    db.close()
+    assert aid and sid
+
+    r = client.get(
+        f"/reports/student/{sid}", headers=_auth(school), params={"assessment_id": aid}
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    # 2 + 1 + 2 + 0 + 1 over five counted questions; 22(a) is not_offered and excluded.
+    assert body["total"] == {"earned": 6.0, "available": 10.0, "rate": 0.6, "questions": 5}
+    assert body["not_offered"] == ["B/22//a"]
+
+    units = {i["board_unit"]: i for i in body["board_weighted_indicators"]}
+    assert "X.MATH.U.MENSURATION" in units, body["board_weighted_indicators"]
+    assert units["X.MATH.U.MENSURATION"]["marks_available"] == 10.0
+    # ...and the unit that was tested is therefore not reported as a coverage gap.
+    assert "X.MATH.U.MENSURATION" not in {g["board_unit"] for g in body["coverage_gaps"]}
+
+    # Every question carries a concept family, so that is the axis the report groups by.
+    assert body["topic_axis"] == "concept_family"
+    assert [t["key"] for t in body["topics"]] == ["X.MATH.CF.VOLUME"]
+
+    # 60% is not a strength and must not be claimed as one.
+    assert body["strengths"] == []
+    assert [f["key"] for f in body["focus"]] == ["X.MATH.CF.VOLUME"]
+
+
 def test_reconcile_repairs_a_misread_through_the_api(client, school):
     created = client.post(
         "/assessments",

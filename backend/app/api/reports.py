@@ -9,8 +9,12 @@ from sqlalchemy.orm import Session
 from app.analysis.diagnostics import (
     MarkRow,
     board_weighted_indicator,
+    by_chapter,
+    by_concept_family,
+    by_skill,
     by_tier,
     select_findings,
+    select_strengths,
     skill_by_tier,
 )
 from app.analysis.paper_quality import cronbach_alpha, item_analysis, typology_alignment
@@ -22,6 +26,7 @@ from app.models import (
     MarkEvent,
     ProfileResult,
     Question,
+    QuestionPlacement,
     QuestionSkill,
     QuestionTier,
     ScaleScore,
@@ -52,7 +57,30 @@ def _current_marks(db: Session, assessment_id: str) -> dict[tuple[str, str], Mar
     return out
 
 
+def _latest_placements(db: Session, question_ids: list[str]) -> dict[str, QuestionPlacement]:
+    """Append-only log; the current placement is the last row written for the question."""
+    out: dict[str, QuestionPlacement] = {}
+    if not question_ids:
+        return out
+    for p in db.scalars(
+        select(QuestionPlacement)
+        .where(QuestionPlacement.question_id.in_(question_ids))
+        .order_by(QuestionPlacement.created_at)
+    ):
+        out[p.question_id] = p
+    return out
+
+
 def _rows(db: Session, assessment: Assessment) -> list[MarkRow]:
+    """Read the curriculum columns the question actually carries.
+
+    This previously derived the chapter by trimming the last dotted segment off a skill
+    code, and never set board_unit or concept_family at all. The consequences were not
+    cosmetic: with every row's board_unit null, board_weighted_indicator aggregated
+    nothing, returned no indicators, and reported *every* board unit as a coverage gap --
+    a report stating the paper carries no marks for units it plainly tested. The values
+    are on the row; read them.
+    """
     questions = {
         q.id: q for q in db.scalars(select(Question).where(Question.assessment_id == assessment.id))
     }
@@ -68,18 +96,41 @@ def _rows(db: Session, assessment: Assessment) -> list[MarkRow]:
         if t.tier:
             tiers[t.question_id] = t.tier
 
+    placements = _latest_placements(db, list(questions))
+    wanted: set[str] = set()
+    for q in questions.values():
+        wanted.update(i for i in (q.board_unit_id, q.chapter_id, q.concept_family_id) if i)
+    for p in placements.values():
+        wanted.update(i for i in (p.board_unit_id, p.chapter_id) if i)
+    codes = {
+        n.id: n.code
+        for n in db.scalars(select(TaxonomyNode).where(TaxonomyNode.id.in_(wanted)))
+    } if wanted else {}
+
     rows: list[MarkRow] = []
     for (student_id, question_id), ev in _current_marks(db, assessment.id).items():
         q = questions.get(question_id)
         if q is None:
             continue
-        codes = tuple(skills.get(question_id, ()))
-        chapter = codes[0].rsplit(".", 1)[0] if codes else None
+        # The Q-matrix import fills these in; the placement pipeline writes a separate
+        # append-only row instead. Prefer the question, fall back to its latest placement,
+        # and leave it null when neither knows -- never guess one from the other.
+        p = placements.get(question_id)
+        board_unit = codes.get(q.board_unit_id) if q.board_unit_id else None
+        if board_unit is None and p is not None and p.board_unit_id:
+            board_unit = codes.get(p.board_unit_id)
+        chapter = codes.get(q.chapter_id) if q.chapter_id else None
+        if chapter is None and p is not None and p.chapter_id:
+            chapter = codes.get(p.chapter_id)
+        family = codes.get(q.concept_family_id) if q.concept_family_id else None
+
         rows.append(
             MarkRow(
                 student_id=student_id, address=q.address,
                 earned=float(ev.marks or 0.0), max_marks=float(q.max_marks),
-                state=ev.state, skills=codes, tier=tiers.get(question_id), chapter=chapter,
+                state=ev.state, skills=tuple(skills.get(question_id, ())),
+                tier=tiers.get(question_id), chapter=chapter,
+                board_unit=board_unit, concept_family=family,
             )
         )
     return rows
@@ -103,6 +154,23 @@ def _board_weights(db: Session, assessment: Assessment) -> dict[str, float]:
     return out
 
 
+def _topic_axis(rows: list[MarkRow]) -> tuple[str, list]:
+    """The finest axis this paper can actually support, named in the output.
+
+    Concept family first -- it is present on every question and is what a later trend
+    across papers groups by. If the paper's questions do not all carry one, fall back to
+    the sub-topic, then to the chapter. Mixing axes in one list would put a family and a
+    chapter side by side as if they were comparable, so the axis is chosen once, for the
+    whole report, and stated.
+    """
+    counted = [r for r in rows if r.counts]
+    if counted and all(r.concept_family for r in counted):
+        return "concept_family", by_concept_family(rows)
+    if counted and all(r.skills for r in counted):
+        return "subtopic", by_skill(rows)
+    return "chapter", by_chapter(rows)
+
+
 @router.get("/student/{student_id}")
 def student_report(
     student_id: str,
@@ -118,14 +186,30 @@ def student_report(
         raise HTTPException(404, "no marks for this student")
 
     weights = _board_weights(db, a)
-    findings = skill_by_tier(rows)
+    crosstab = skill_by_tier(rows)
+    axis, topics = _topic_axis(rows)
     indicators, gaps = board_weighted_indicator(rows, weights)
+
+    counted = [r for r in rows if r.counts]
+    earned = sum(r.earned for r in counted)
+    available = sum(r.max_marks for r in counted)
     return {
         "assessment_id": a.id,
+        "assessment_title": a.title,
         "student_id": student_id,
+        "total": {
+            "earned": earned, "available": available,
+            "rate": round(earned / available, 4) if available else None,
+            "questions": len(counted),
+        },
+        # One axis for the whole report, named so nobody reads a family as a chapter.
+        "topic_axis": axis,
+        "topics": [f.as_dict() for f in topics],
+        "strengths": [f.as_dict() for f in select_strengths(topics)],
+        "focus": [f.as_dict() for f in select_findings(topics, weights)],
         "tier_summary": [f.as_dict() for f in by_tier(rows)],
-        "findings": [f.as_dict() for f in select_findings(findings, weights)],
-        "all_crosstab": [f.as_dict() for f in findings],
+        "findings": [f.as_dict() for f in select_findings(crosstab, weights)],
+        "all_crosstab": [f.as_dict() for f in crosstab],
         "board_weighted_indicators": indicators,
         "coverage_gaps": [g.__dict__ for g in gaps],
         "not_offered": [r.address for r in rows if r.state == "not_offered"],

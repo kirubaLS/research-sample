@@ -236,3 +236,30 @@ def select_findings(findings: list[Finding], board_weights: dict[str, float], ca
 
     ranked = sorted((f for f in findings if f.sufficient), key=rank, reverse=True)
     return ranked[:cap]
+
+
+def select_strengths(
+    findings: list[Finding], cap: int = 5, floor: float = 0.8
+) -> list[Finding]:
+    """The other half of the diagnosis, computed from the same numbers.
+
+    A report that lists only losses tells a boy nothing about what he already has, and a
+    teacher cannot tell "weak everywhere" from "weak in one place". Same evidence floor as
+    the losses: a strength claimed on one 2-mark question is not a strength.
+
+    Qualifying is on the observed rate, ranking is on the *lower* end of the Wilson
+    interval. Both matter and they do different jobs. Qualifying on the interval instead
+    would admit almost nothing at the sizes this product sees -- 11 of 12 marks has a lower
+    bound near 0.65 -- so a boy who got nearly everything right would be told he has no
+    strengths, which is false. Ranking on the interval is what stops 4/4 on one question
+    from outranking 11/12.
+    """
+    def rank(f: Finding) -> float:
+        assert f.ci is not None
+        return f.ci[0]
+
+    strong = [
+        f for f in findings
+        if f.sufficient and f.rate is not None and f.ci is not None and f.rate >= floor
+    ]
+    return sorted(strong, key=rank, reverse=True)[:cap]

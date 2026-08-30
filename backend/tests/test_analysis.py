@@ -95,3 +95,19 @@ def test_typology_alignment_passes_a_balanced_paper():
     rep = typology_alignment({"R&U": 43.2, "AP": 19.2, "AEC": 17.6})
     assert rep.alignment_score > 0.95
     assert "well aligned" in rep.verdict
+
+
+def test_strengths_rank_on_the_interval_not_the_point_estimate():
+    """2/2 on one question is not stronger evidence than 11/12, and must not outrank it."""
+    from app.analysis.diagnostics import MarkRow, by_concept_family, select_strengths
+
+    rows = [
+        MarkRow("s", "1", 2.0, 2.0, concept_family="TINY"),
+        MarkRow("s", "2", 2.0, 2.0, concept_family="TINY"),
+        *[MarkRow("s", f"{i}", 1.0, 1.0, concept_family="SOLID") for i in range(3, 14)],
+        MarkRow("s", "14", 0.0, 1.0, concept_family="SOLID"),
+        *[MarkRow("s", f"{i}", 1.0, 4.0, concept_family="WEAK") for i in range(15, 19)],
+    ]
+    strengths = [f.key for f in select_strengths(by_concept_family(rows))]
+    assert strengths == ["SOLID", "TINY"]
+    assert "WEAK" not in strengths
