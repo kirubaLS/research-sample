@@ -26,6 +26,7 @@ from app.classify.reconcile import (
     needs_a_human,
     reconcile,
 )
+from app.classify.scope import InferredScope, Vote, infer_scope
 from app.ingest.probe import locate
 
 #: candidate passages shown to the judge. Enough to cover the right chapter and a rival,
@@ -57,10 +58,91 @@ class PaperPlacement:
     note: str
     residual: dict[str, tuple[float, float]]
     reviewed_count: int
+    #: what the paper turned out to be about, when nobody declared it
+    scope: InferredScope | None = None
+    scope_source: str = "none"        # 'declared' | 'inferred' | 'none'
 
     @property
     def settled(self) -> int:
         return sum(1 for q in self.questions if not q.needs_review)
+
+
+def _pass(
+    questions: list[tuple[str, str, float]],
+    indexes: list,
+    judge,
+    chapter_of,
+    unit_of,
+    section_of,
+    scope: set[str] | None,
+) -> tuple[list[QuestionSlot], dict[str, Classification]]:
+    """One classification pass over every question."""
+    slots: list[QuestionSlot] = []
+    judged: dict[str, Classification] = {}
+
+    for question_id, stem, marks in questions:
+        verdict = locate(
+            stem, indexes, depth=EVIDENCE_DEPTH, scope=scope, chapter_of=chapter_of
+        )
+        # Retrieval applies the scope itself, so a question with nothing in scope comes
+        # back empty. Retry without it rather than lose the question: one missing from the
+        # report is worse than one visibly in the wrong place.
+        out_of_scope = scope is not None and not verdict.evidence
+        if out_of_scope:
+            verdict = locate(stem, indexes, depth=EVIDENCE_DEPTH)
+        evidence = [
+            Evidence(
+                chapter=chapter_of(c.node_id) or "?",
+                reference=c.reference,
+                section=section_of(c.reference) or "",
+                text=c.text if hasattr(c, "text") else "",
+            )
+            for c in verdict.evidence
+        ]
+        if not evidence:
+            continue
+
+        call = judge.classify(stem, evidence)
+
+        # a question whose evidence all fell outside the scope cannot be trusted to the
+        # confidence the judge gave it, whatever that was
+        confidence = 0.0 if out_of_scope else call.confidence
+        judged[question_id] = (
+            call.model_copy(update={
+                "confidence": 0.0,
+                "reasoning": (
+                    "nothing retrieved for this question is in the paper's scope, so it "
+                    "needs a person: either the scope is too narrow, or this question is "
+                    "not from this paper. " + call.reasoning
+                ),
+            })
+            if out_of_scope else call
+        )
+
+        options = [Option(call.chapter, unit_of(call.chapter) or "?", confidence)]
+        seen = {call.chapter}
+        for node, _ in verdict.runners_up:
+            name = chapter_of(node)
+            if scope is not None and not out_of_scope and name not in scope:
+                continue
+            if name and name not in seen:
+                seen.add(name)
+                options.append(
+                    Option(name, unit_of(name) or "?", max(0.05, call.confidence * 0.4))
+                )
+        if call.alternative_chapter and call.alternative_chapter not in seen:
+            if scope is None or out_of_scope or call.alternative_chapter in scope:
+                options.append(
+                    Option(
+                        call.alternative_chapter,
+                        unit_of(call.alternative_chapter) or "?",
+                        call.confidence * 0.8,
+                    )
+                )
+
+        slots.append(QuestionSlot(question_id, marks, options))
+
+    return slots, judged
 
 
 def place_paper(
@@ -73,6 +155,7 @@ def place_paper(
     section_of,
     declared: dict[str, float] | None = None,
     scope: set[str] | None = None,
+    infer_scope_when_undeclared: bool = True,
 ) -> PaperPlacement:
     """Place every question in a paper.
 
@@ -81,61 +164,39 @@ def place_paper(
     ``section_of`` chunk reference -> NCERT section number. Passed in rather than looked up
     so this stays testable without a database.
 
-    ``scope`` is the chapters the test declares it covers. Most papers are daily or cyclic
-    tests with no published weightage, and this is the strongest constraint they have: a
-    question placed outside the scope is provably wrong, so out-of-scope passages are
-    dropped before the judge ever sees them and the candidate set shrinks from fourteen
-    chapters to a handful. None means the paper declared nothing -- which is different from
-    declaring the whole syllabus, and must stay different, because a report has to be able
-    to say which it was working from.
+    ``scope`` is what the paper declares it covers. When nothing is declared, a first pass
+    classifies freely and the scope is inferred from where the questions actually fell --
+    an easier problem than any single placement, because a chapter twelve questions agree
+    on is nearly certain while one question alone in a chapter is more likely an error.
+    A second pass then runs with the outliers ruled out.
     """
-    slots: list[QuestionSlot] = []
-    judged: dict[str, Classification] = {}
+    inferred: InferredScope | None = None
+    scope_source = "declared" if scope is not None else "none"
 
-    for question_id, stem, marks in questions:
-        verdict = locate(stem, indexes, depth=EVIDENCE_DEPTH, scope=scope, chapter_of=chapter_of)
-        evidence = [
-            Evidence(
-                chapter=chapter_of(c.node_id) or "?",
-                reference=c.reference,
-                section=section_of(c.reference) or "",
-                text=c.text if hasattr(c, "text") else "",
+    slots, judged = _pass(
+        questions, indexes, judge, chapter_of, unit_of, section_of, scope
+    )
+
+    if scope is None and infer_scope_when_undeclared and slots:
+        inferred = infer_scope([
+            Vote(
+                question_id=slot.question_id,
+                chapter=judged[slot.question_id].chapter,
+                marks=slot.marks,
+                confidence=judged[slot.question_id].confidence,
             )
-            for c in verdict.evidence
-        ]
-        # Out-of-scope chapters are removed, not down-weighted: the teacher said this test
-        # covers chapters 1 to 5, so chapter 9 is not a weaker answer, it is a wrong one.
-        if scope is not None:
-            evidence = [e for e in evidence if e.chapter in scope]
-        if not evidence:
-            continue
-
-        call = judge.classify(stem, evidence)
-        judged[question_id] = call
-
-        # the judge's answer, plus the rivals retrieval offered, so the blueprint has
-        # somewhere to move a question TO
-        options = [Option(call.chapter, unit_of(call.chapter) or "?", call.confidence)]
-        seen = {call.chapter}
-        for node, _ in verdict.runners_up:
-            name = chapter_of(node)
-            if scope is not None and name not in scope:
-                continue
-            if name and name not in seen:
-                seen.add(name)
-                # a rival retrieval ranked but the judge passed over is possible, not
-                # likely: enough to be movable, not enough to win on its own
-                options.append(Option(name, unit_of(name) or "?", max(0.05, call.confidence * 0.4)))
-        if call.alternative_chapter and call.alternative_chapter not in seen:
-            options.append(
-                Option(
-                    call.alternative_chapter,
-                    unit_of(call.alternative_chapter) or "?",
-                    call.confidence * 0.8,
-                )
+            for slot in slots
+        ])
+        # Only act on a scope that explains most of the paper. A narrow scope that leaves a
+        # third of the marks outside it would delete real content on the second pass, and a
+        # deleted question is worse than a misplaced one -- it vanishes from the report
+        # instead of being wrong in it.
+        if inferred.confident:
+            slots, judged = _pass(
+                questions, indexes, judge, chapter_of, unit_of, section_of,
+                inferred.chapters,
             )
-
-        slots.append(QuestionSlot(question_id, marks, options))
+            scope_source = "inferred"
 
     result: Reconciliation = reconcile(slots, declared or {})
     flagged = set(needs_a_human(slots, result))
@@ -164,4 +225,6 @@ def place_paper(
         note=result.note,
         residual=result.residual,
         reviewed_count=len(flagged),
+        scope=inferred,
+        scope_source=scope_source,
     )

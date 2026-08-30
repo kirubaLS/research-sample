@@ -34,11 +34,39 @@ available rather than requiring the top one.
 **Rung 1 — published blueprint.** Board papers. Strongest: it pins marks per board unit, so
 a misplaced question shows up as arithmetic that will not close.
 
-**Rung 2 — declared syllabus scope.** *"This test covers Chapters 1 to 5."* A teacher always
-knows this, and it takes one field at upload. It is nearly as strong as a blueprint **for
-placement**: a question placed in Chapter 9 is then provably wrong, not merely suspicious,
-and the classifier's candidate set shrinks from fourteen chapters to five before it even
-starts. For daily and cyclic tests this is the rung that does the work.
+**Rung 2 — syllabus scope, declared or inferred.** *"This test covers Chapters 1 to 5."*
+Nearly as strong as a blueprint **for placement**: a question in Chapter 9 is then provably
+wrong, not merely suspicious, and the candidate set shrinks from fourteen chapters to five
+before classification starts. For daily and cyclic tests this is the rung that does the
+work.
+
+A teacher can declare it, but usually should not have to, because **the paper already
+answers it**. Inferring the scope is a far easier problem than placing any single question:
+a cyclic test carries twenty to forty questions, each voting independently, so a chapter
+twelve questions agree on is nearly certain while one question alone in a chapter is more
+likely a misplacement than a topic. Errors are independent and cancel. So placement runs
+twice -- classify freely, infer the scope from where the questions fell, then classify
+again with the outliers ruled out.
+
+Three guards, because a second pass makes a *systematic* error stickier rather than
+weaker. If cone questions are consistently misread as trigonometry, trigonometry looks in
+scope and the second pass repeats the error with more conviction:
+
+* **A chapter must earn its place** -- two questions, or a tenth of the marks, and at least
+  one placement the classifier stood behind. A single unconfident vote cannot create a
+  topic; it can only be explained by one.
+* **Below eight questions, no scope is inferred at all.** The argument was that errors
+  cancel across a paper, and they do not cancel across a handful: on a three-question paper
+  one misplacement *is* the consensus, and the second pass would delete the right chapter.
+* **A scope that explains less than 80% of the marks is not acted on.** It has not
+  understood the paper, and filtering by it would remove real content.
+
+And a question whose evidence all falls outside the scope is **never dropped** -- it is
+retried without the scope and handed to a person. A question missing from a report is worse
+than one visibly in the wrong place: it disappears instead of being wrong.
+
+Confirming an inferred scope is one glance. Confirming thirty-eight placements is an
+afternoon. So the scope is what goes in front of a teacher first.
 
 **Rung 3 — section and grand totals.** Always on the paper. These constrain *marks*, not
 chapters — they cannot tell you a cone question is mensuration. They are what

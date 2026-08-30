@@ -373,3 +373,76 @@ def test_no_scope_declared_is_not_the_same_as_the_whole_syllabus():
         scope=None,
     )
     assert both.questions, "an undeclared scope must not filter everything away"
+
+
+def test_a_paper_with_no_declaration_infers_its_own_scope_and_narrows():
+    """What most papers are: a cyclic test, no blueprint, no teacher input. The paper says
+    what it covers by where its questions fall, and the second pass uses that."""
+    from app.classify.pipeline import place_paper
+    from app.ingest.probe import LexicalIndex
+
+    chunks = [
+        _Chunk("real1", "irrational number prime factorisation fundamental theorem", "REAL"),
+        _Chunk("real2", "prove that root five is irrational contradiction", "REAL"),
+        _Chunk("poly1", "polynomial zeroes coefficients quadratic sum product", "POLY"),
+        _Chunk("poly2", "graph of a polynomial cuts the x axis zeroes", "POLY"),
+        _Chunk("trig1", "tower angle of elevation observer line of sight", "APPTRIG"),
+    ]
+    chunks += [_Chunk(f"pad{i}", f"unrelated topic {i}", f"P{i}") for i in range(20)]
+    names = {"REAL": "Real Numbers", "POLY": "Polynomials",
+             "APPTRIG": "Applications of Trigonometry"}
+    units = {"Real Numbers": "NUMBER", "Polynomials": ALG,
+             "Applications of Trigonometry": TRIG}
+
+    asked: list[set[str]] = []
+
+    class StubJudge:
+        """Confident on the real topics; wrong and unsure on one question."""
+
+        def classify(self, question, evidence):
+            asked.append({e.chapter for e in evidence})
+            if "irrational" in question:
+                return Classification(
+                    chapter="Real Numbers", tier="Applying", skill_required="proof",
+                    reasoning="irrationality", confidence=0.92,
+                )
+            if "polynomial" in question:
+                return Classification(
+                    chapter="Polynomials", tier="Applying", skill_required="zeroes",
+                    reasoning="zeroes", confidence=0.90,
+                )
+            # the outlier: one question misread into a chapter the test does not cover
+            return Classification(
+                chapter="Applications of Trigonometry", tier="Applying",
+                skill_required="right triangle", reasoning="an angle", confidence=0.66,
+            )
+
+    questions = (
+        [(f"r{i}", "prove irrational number", 2.0) for i in range(5)]
+        + [(f"p{i}", "find the zeroes of the polynomial", 2.0) for i in range(4)]
+        + [("odd", "an angle appears somewhere", 1.0)]
+    )
+
+    placement = place_paper(
+        questions, [LexicalIndex(chunks)], StubJudge(),
+        chapter_of=names.get, unit_of=units.get, section_of=lambda r: None,
+        declared=None, scope=None,
+    )
+
+    assert placement.scope_source == "inferred"
+    assert placement.scope.chapters == {"Real Numbers", "Polynomials"}
+    assert "Applications of Trigonometry" in placement.scope.rejected
+
+    # In the second pass an in-scope question sees only in-scope chapters. (The very last
+    # call is the outlier's deliberate unscoped retry -- see below.)
+    second_pass = asked[len(questions):]
+    in_scope_calls = [a for a in second_pass if a != {"Applications of Trigonometry"}]
+    assert in_scope_calls, "the second pass should have classified the real questions"
+    assert all("Applications of Trigonometry" not in a for a in in_scope_calls)
+
+    # The outlier is kept, not deleted: a question missing from a report is worse than one
+    # visibly in the wrong place. It is retried without the scope and handed to a person.
+    odd = next(q for q in placement.questions if q.question_id == "odd")
+    assert odd.needs_review
+    assert odd.confidence == 0.0
+    assert "not from this paper" in odd.reasoning

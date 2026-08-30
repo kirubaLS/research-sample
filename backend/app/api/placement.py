@@ -171,9 +171,19 @@ def place(
         "placed": len(result.questions),
         "settled": result.settled,
         "needs_review": result.reviewed_count,
-        "scope_declared": bool(a.syllabus_scope),
         "blueprint_feasible": result.feasible,
         "note": result.note,
+        # Confirming a scope is one glance; confirming thirty-eight placements is an
+        # afternoon. Getting the scope right constrains every question, so it is the thing
+        # worth putting in front of a person first.
+        "scope_source": result.scope_source,
+        "scope": {
+            "chapters": sorted(result.scope.chapters),
+            "rejected": result.scope.rejected,
+            "tally": result.scope.tally,
+            "confident": result.scope.confident,
+            "note": result.scope.note,
+        } if result.scope else None,
     }
 
 
