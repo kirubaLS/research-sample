@@ -97,6 +97,17 @@ ceiling.
    - `yaadhum-api` → `YAADHUM_CORS_ORIGINS` = the web service's URL
    - `yaadhum-web` → `NEXT_PUBLIC_API_BASE` = the API's URL
 6. Seed the first school:
+   **Migrations are immutable once applied.** A revision that has run against a real
+   database is recorded in its `alembic_version` table. Regenerating or deleting the file
+   orphans that row and the next deploy fails with `Can't locate revision identified by
+   '<id>'` on a database that is otherwise fine. Schema changes get a NEW revision stacked
+   on the last one -- never a regenerated one. See `backend/migrations/versions/README.md`.
+
+   Recovering from an orphaned revision, when no student has taken the test yet: run
+   `drop schema public cascade; create schema public;` in Neon's SQL editor and redeploy.
+   If students *have* responded, write a bridge migration instead -- their responses cannot
+   be regenerated.
+
    **First check the schema exists.** `preDeployCommand` applies only to Blueprint-managed
    services on a paid instance type. A service created by hand in the dashboard silently
    ignores it, and the first request then fails with `relation "school" does not exist`.
