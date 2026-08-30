@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from app.classify.grounding import Grounded, ground
 from app.classify.judge import SYSTEM, Classification, Evidence, build_prompt
 
 
@@ -16,34 +17,16 @@ class Judge(Protocol):
     def classify(self, question: str, evidence: list[Evidence]) -> Classification: ...
 
 
-def confine_to_candidates(
-    result: Classification, evidence: list[Evidence]
-) -> Classification:
-    """Force an answer back inside the candidates, or make it abstain.
-
-    A chapter the model invented looks identical to a correct one downstream: nothing in
-    the taxonomy distinguishes "the model chose Circles" from "the model chose a chapter
-    that was never offered". So this is enforced rather than trusted.
-    """
-    allowed = {e.chapter for e in evidence}
-    if result.chapter in allowed:
-        return result
-    return result.model_copy(
-        update={
-            "chapter": min(allowed, key=lambda c: c.lower()) if allowed else "",
-            "confidence": 0.0,
-            "reasoning": (
-                f"model answered {result.chapter!r}, which was not among the candidates "
-                f"-- forced to abstain. " + result.reasoning
-            ),
-        }
-    )
-
-
 class AnthropicJudge:
     """One call per question, structured output, validated on the way back."""
 
-    def __init__(self, api_key: str, model: str = "claude-haiku-4-5") -> None:
+    def __init__(
+        self,
+        api_key: str,
+        model: str = "claude-haiku-4-5",
+        *,
+        known_sections: dict[str, set[str]] | None = None,
+    ) -> None:
         if not api_key:
             raise ValueError(
                 "no Anthropic API key. Set YAADHUM_ANTHROPIC_API_KEY. Without it the "
@@ -54,6 +37,10 @@ class AnthropicJudge:
 
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        #: chapter -> the section numbers that actually exist for it, from the taxonomy
+        self.known_sections = known_sections
+        #: every field the knowledge base could not vouch for, kept for inspection
+        self.violations: list[tuple[str, list[str]]] = []
 
     def classify(self, question: str, evidence: list[Evidence]) -> Classification:
         response = self.client.messages.parse(
@@ -63,4 +50,11 @@ class AnthropicJudge:
             messages=[{"role": "user", "content": build_prompt(question, evidence)}],
             output_format=Classification,
         )
-        return confine_to_candidates(response.parsed_output, evidence)
+        checked: Grounded = ground(
+            response.parsed_output, evidence, known_sections=self.known_sections
+        )
+        if checked.violations:
+            # kept rather than logged away: how often the model has to be corrected is the
+            # measure of whether it can be trusted on the next paper
+            self.violations.append((question[:80], checked.violations))
+        return checked.classification

@@ -133,7 +133,26 @@ def place(
             dimensions=settings.embedding_dimensions,
         )))
 
-    judge = AnthropicJudge(settings.anthropic_api_key, model=settings.model_classifier)
+    # The sections the book ingest actually extracted, so an invented "12.9" is caught
+    # rather than stored. Without this the section is unverifiable and gets dropped -- an
+    # unverified value must never read as a verified one.
+    known_sections: dict[str, set[str]] = {}
+    for node in nodes.values():
+        if node.kind != "subtopic":
+            continue
+        parent = nodes.get(node.parent_id)
+        if parent is None or parent.kind != "chapter":
+            continue
+        # codes look like X.MATH.SAV.S12_2 -- the section number is the tail
+        tail = node.code.rsplit(".", 1)[-1]
+        if tail.startswith("S") and "_" in tail:
+            known_sections.setdefault(parent.label, set()).add(tail[1:].replace("_", "."))
+
+    judge = AnthropicJudge(
+        settings.anthropic_api_key,
+        model=settings.model_classifier,
+        known_sections=known_sections or None,
+    )
 
     scope = None
     if a.syllabus_scope:
@@ -176,6 +195,11 @@ def place(
         # Confirming a scope is one glance; confirming thirty-eight placements is an
         # afternoon. Getting the scope right constrains every question, so it is the thing
         # worth putting in front of a person first.
+        # How often the knowledge base had to correct the model. A rising number is the
+        # signal that the next paper cannot be trusted to it unattended.
+        "grounding_violations": [
+            {"question": q, "problems": v} for q, v in getattr(judge, "violations", [])
+        ],
         "scope_source": result.scope_source,
         "scope": {
             "chapters": sorted(result.scope.chapters),

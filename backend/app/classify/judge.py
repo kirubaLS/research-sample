@@ -35,7 +35,12 @@ class Classification(BaseModel):
         description="The NCERT section number from the evidence, e.g. '12.2'. Null if the "
         "evidence does not pin one down -- do not guess.",
     )
-    tier: str = Field(description="One of: " + "; ".join(TIERS))
+    #: Not a free string: a paraphrase of a tier is not a tier, and the value is read by
+    #: the report. Nullable because abstaining is a legitimate answer -- it is the only
+    #: honest one when the evidence does not settle it.
+    tier: str | None = Field(
+        default=None, description="Exactly one of: " + "; ".join(TIERS) + ", or null"
+    )
     #: what the student has to DO -- the schema's Skill Required, in the model's words
     skill_required: str = Field(max_length=200)
     #: 'the question asks which correspondence is invalid, which is the similarity criteria

@@ -248,7 +248,7 @@ def test_a_paper_with_no_blueprint_keeps_what_the_judge_decided():
 def test_a_judge_answering_outside_the_candidates_is_forced_to_abstain():
     """A chapter the model invented looks identical to a correct one downstream, and
     nothing in the taxonomy would catch it."""
-    from app.classify.anthropic_judge import confine_to_candidates
+    from app.classify.grounding import ground as confine_to_candidates
 
     evidence = [
         Evidence("Circles", "Example 1", "10.2", "tangent"),
@@ -259,21 +259,22 @@ def test_a_judge_answering_outside_the_candidates_is_forced_to_abstain():
         chapter="Quantum Mechanics", tier="Applying", skill_required="x",
         reasoning="because", confidence=0.99,
     )
-    forced = confine_to_candidates(invented, evidence)
+    forced = confine_to_candidates(invented, evidence).classification
     assert forced.chapter in {"Circles", "Triangles"}
     assert forced.confidence == 0.0, "an invented answer must not keep its confidence"
-    assert "not among the candidates" in forced.reasoning
 
 
 def test_an_answer_inside_the_candidates_is_untouched():
-    from app.classify.anthropic_judge import confine_to_candidates
+    from app.classify.grounding import ground
 
     evidence = [Evidence("Circles", "Example 1", "10.2", "tangent")]
     good = Classification(
         chapter="Circles", tier="Applying", skill_required="tangents",
         reasoning="about tangents", confidence=0.91,
     )
-    assert confine_to_candidates(good, evidence) is good
+    checked = ground(good, evidence, known_sections={"Circles": {"10.2"}})
+    assert checked.clean
+    assert checked.classification is good
 
 
 # --- rung 2: the declared syllabus scope ---------------------------------------------------
