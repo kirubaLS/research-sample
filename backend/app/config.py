@@ -81,7 +81,11 @@ class Settings(BaseSettings):
     # --- models ---
     model_high_stakes: str = "claude-opus-5"
     model_high_volume: str = "claude-haiku-4-5"
+    #: the classifier's judge. Without it, placement falls back to nearest-neighbour
+    #: retrieval, which cannot tell a question about a theorem from the theorem.
     anthropic_api_key: str | None = None
+    #: one call per question, ~38 per paper, so the high-volume model is the right default
+    model_classifier: str = "claude-haiku-4-5"
 
     # --- embeddings ---
     #: Multilingual by requirement, not preference: the papers are bilingual and Tamil is
