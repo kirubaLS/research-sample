@@ -16,10 +16,13 @@ dependencies = [
   "python-multipart>=0.0.9",
   # runtime, not dev: app.ingest.jina calls the embedding API with it
   "httpx>=0.27",
+  # base, not the `vision` extra: app.api.books imports app.ingest.book at module scope,
+  # so a missing pymupdf stops the whole API from booting rather than degrading one route
+  "pymupdf>=1.24",
 ]
 
 [project.optional-dependencies]
-vision = ["opencv-python-headless>=4.10", "pymupdf>=1.24", "pyzbar>=0.1.9", "img2pdf>=0.5", "pikepdf>=9"]
+vision = ["opencv-python-headless>=4.10", "pyzbar>=0.1.9", "img2pdf>=0.5", "pikepdf>=9"]
 llm = ["anthropic>=0.40"]
 storage = ["boto3>=1.35"]
 dev = ["pytest>=8.3", "httpx>=0.27", "ruff>=0.6"]
