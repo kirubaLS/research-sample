@@ -151,3 +151,28 @@ class BookChunk(Base, PkMixin):
     normalised: Mapped[str] = mapped_column(Text)
     stem_hash: Mapped[str] = mapped_column(String(64), index=True)
     embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)  # pgvector in production
+
+
+class BookSource(Base, PkMixin, TimestampMixin):
+    """What was uploaded for a subject, and what the contents page says to expect.
+
+    The contents page is the oracle the whole ingest depends on, so it is uploaded first
+    and its table of contents stored here. Every later chapter upload is checked against
+    it: a chapter that disagrees is rejected rather than loaded, exactly as the CLI does.
+
+    Also carries the provenance the schema asks for -- the edition string and a per-file
+    sha256 -- so `verified_against` is a recorded fact rather than a claim.
+    """
+
+    __tablename__ = "book_source"
+    __table_args__ = (
+        UniqueConstraint("curriculum_version", "subject_code", name="uq_book_source"),
+    )
+
+    curriculum_version: Mapped[str] = mapped_column(String(32), index=True)
+    subject_code: Mapped[str] = mapped_column(String(32), index=True)
+    edition: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    #: {chapter_number: [{"number": "1.1", "title": "Introduction"}, ...]}
+    expected_sections: Mapped[dict] = mapped_column(JSON)
+    #: {"01-real-numbers.pdf": {"sha256": ..., "chunks": 16, "loaded_at": ...}}
+    files: Mapped[dict] = mapped_column(JSON, default=dict)

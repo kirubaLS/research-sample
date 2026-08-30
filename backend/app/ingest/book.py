@@ -214,18 +214,25 @@ def extract_chunks(text: str, chapter: int) -> list[Chunk]:
     return chunks
 
 
-def extract_chapter(path: str | Path, *, title: str = "") -> ChapterExtract:
+def extract_chapter(
+    path: str | Path, *, number: int | None = None, name: str = "", title: str = ""
+) -> ChapterExtract:
     """``title`` should come from the contents page where available: matching an existing
     chapter node depends on using the book's own words, not a slug turned back into prose.
+
+    ``number`` and ``name`` exist for callers whose file is not on disk under its real
+    name -- an upload written to a temp file, for instance. Deriving them from the path
+    would then read a random string and reject a perfectly good chapter.
     """
-    number = chapter_number(path)
+    display = name or Path(path).name
+    number = number if number is not None else chapter_number(display)
     if number is None:
-        raise ValueError(f"{Path(path).name!r} is not a numbered chapter file")
+        raise ValueError(f"{display!r} is not a numbered chapter file")
 
     text = read_text(path)
     return ChapterExtract(
         number=number,
-        title=title or Path(path).stem.split("-", 1)[1].replace("-", " ").title(),
+        title=title or Path(display).stem.split("-", 1)[1].replace("-", " ").title(),
         source_path=str(path),
         sha256=file_sha256(path),
         sections=extract_sections(text, number),

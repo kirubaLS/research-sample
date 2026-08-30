@@ -52,6 +52,14 @@ export function SiteHeader() {
                 Schools
               </Link>
             )}
+            {(isOperator || pathname.startsWith("/platform")) && (
+              <Link
+                href="/platform/books"
+                aria-current={pathname === "/platform/books" ? "page" : undefined}
+              >
+                Books
+              </Link>
+            )}
           </nav>
         )}
       </div>

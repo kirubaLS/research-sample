@@ -147,6 +147,34 @@ export interface IssuedKey {
   api_key_notice: string;
 }
 
+export interface BookStatus {
+  subject: string;
+  contents_uploaded: boolean;
+  edition?: string | null;
+  expected_chapters: number;
+  loaded_chapters: number;
+  missing_chapters?: number[];
+  chunks: number;
+  embedded: number;
+  embeddings_configured: boolean;
+  next: string;
+}
+
+/** Multipart, so it cannot go through `request` -- setting Content-Type by hand drops the
+ *  boundary the server needs to parse the body. */
+async function upload<T>(path: string, key: string, file: File): Promise<T> {
+  const body = new FormData();
+  body.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { method: "POST", headers: { "X-Platform-Key": key }, body });
+  } catch {
+    throw new ApiUnreachable(BASE);
+  }
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return (await res.json()) as T;
+}
+
 export const api = {
   classes: () => request<ClassOption[]>("/t/classes"),
 
@@ -218,6 +246,25 @@ export const api = {
       `/platform/schools/${schoolId}/rotate-key`,
       key,
       { method: "POST" },
+    ),
+
+  // --- knowledge base ---
+  bookStatus: (key: string, subject: string) =>
+    operator<BookStatus>(`/platform/books/${subject}`, key),
+
+  uploadContents: (key: string, subject: string, file: File, edition: string) =>
+    upload<{ chapters_expected: number; sections_expected: number; next: string }>(
+      `/platform/books/${subject}/contents?edition=${encodeURIComponent(edition)}`, key, file,
+    ),
+
+  uploadChapter: (key: string, subject: string, file: File) =>
+    upload<{ chapter: number; title: string; sections: number; chunks: number; board_unit_mapped: boolean }>(
+      `/platform/books/${subject}/chapters`, key, file,
+    ),
+
+  embedBatch: (key: string, subject: string) =>
+    operator<{ embedded: number; remaining: number; done: boolean }>(
+      `/platform/books/${subject}/embed`, key, { method: "POST" },
     ),
 
   interestReport: (key: string, studentId: string) =>
