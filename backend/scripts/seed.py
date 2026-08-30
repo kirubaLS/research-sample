@@ -9,11 +9,11 @@ import secrets
 
 from sqlalchemy import select
 
+from app.curriculum import X_MATH
+from app.curriculum.apply import apply as apply_curriculum
 from app.db import SessionLocal, init_db
 from app.models import (
     Assessment,
-    BoardUnitWeight,
-    ChapterBoardUnit,
     Question,
     School,
     Section,
@@ -21,44 +21,6 @@ from app.models import (
     TaxonomyNode,
 )
 from app.taxonomy.variants import variant_hash
-
-#: CBSE's own published weightage units for Class X Mathematics. Note that Algebra spans
-#: four chapters and Geometry two -- the case that makes Board Unit a separate field from
-#: Chapter rather than a rename of it.
-BOARD_UNITS = [
-    ("X.MATH.U.NUMBER", "Number Systems", 6.0),
-    ("X.MATH.U.ALGEBRA", "Algebra", 20.0),
-    ("X.MATH.U.COORD", "Coordinate Geometry", 6.0),
-    ("X.MATH.U.GEOMETRY", "Geometry", 15.0),
-    ("X.MATH.U.TRIG", "Trigonometry", 12.0),
-    ("X.MATH.U.MENSURATION", "Mensuration", 10.0),
-    ("X.MATH.U.STATSPROB", "Statistics & Probability", 11.0),
-]
-
-#: (code, label, board unit). Weight lives on the unit now, never on the chapter.
-CHAPTERS = [
-    ("X.MATH.REAL", "Real Numbers", "X.MATH.U.NUMBER"),
-    ("X.MATH.POLY", "Polynomials", "X.MATH.U.ALGEBRA"),
-    ("X.MATH.LINEQ", "Pair of Linear Equations", "X.MATH.U.ALGEBRA"),
-    ("X.MATH.QUAD", "Quadratic Equations", "X.MATH.U.ALGEBRA"),
-    ("X.MATH.AP", "Arithmetic Progressions", "X.MATH.U.ALGEBRA"),
-    ("X.MATH.TRIANGLE", "Triangles", "X.MATH.U.GEOMETRY"),
-    ("X.MATH.COORD", "Coordinate Geometry", "X.MATH.U.COORD"),
-    ("X.MATH.TRIG", "Introduction to Trigonometry", "X.MATH.U.TRIG"),
-    ("X.MATH.APPTRIG", "Applications of Trigonometry", "X.MATH.U.TRIG"),
-    ("X.MATH.CIRCLE", "Circles", "X.MATH.U.GEOMETRY"),
-    ("X.MATH.AREAS", "Areas Related to Circles", "X.MATH.U.MENSURATION"),
-    ("X.MATH.SAV", "Surface Areas and Volumes", "X.MATH.U.MENSURATION"),
-    ("X.MATH.STATS", "Statistics", "X.MATH.U.STATSPROB"),
-    ("X.MATH.PROB", "Probability", "X.MATH.U.STATSPROB"),
-]
-
-#: Concept families are held constant across cycles -- this is the axis a trend groups by.
-CONCEPT_FAMILIES = [
-    ("X.MATH.CF.VOLUME_COMPOSITE", "Volume of Composite Solids", "X.MATH.SAV"),
-    ("X.MATH.CF.IRRATIONALITY", "Irrationality Proofs", "X.MATH.REAL"),
-    ("X.MATH.CF.TRIG_IDENTITIES", "Trigonometric Identities", "X.MATH.TRIG"),
-]
 
 SUBTOPICS = {
     "X.MATH.SAV": ["CONE", "CYLINDER", "SPHERE", "COMPOSITE", "WORDPROB"],
@@ -110,56 +72,22 @@ def main() -> None:
         db.add(subject)
         db.flush()
 
+    apply_curriculum(db, X_MATH)
+
     def node_for(code: str) -> TaxonomyNode:
         return db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
 
-    for code, label, weight in BOARD_UNITS:
-        if node_for(code) is None:
-            unit = TaxonomyNode(
-                kind="board_unit", code=code, label=label, parent_id=subject.id, path=code
-            )
-            db.add(unit)
-            db.flush()
-            db.add(
-                BoardUnitWeight(
-                    curriculum_version="CBSE-2026-27", board_unit_id=unit.id,
-                    weight_pct=weight, source_doc_url="https://cbseacademic.nic.in/",
-                )
-            )
-
-    for code, label, unit_code in CHAPTERS:
-        node = node_for(code)
-        if node is None:
-            node = TaxonomyNode(
-                kind="chapter", code=code, label=label, parent_id=subject.id, path=code
-            )
-            db.add(node)
-            db.flush()
-            # explicit mapping, never inferred from the tree -- the History-map-marks case
-            db.add(
-                ChapterBoardUnit(
-                    curriculum_version="CBSE-2026-27", chapter_id=node.id,
-                    board_unit_id=node_for(unit_code).id,
-                )
-            )
-        for sub in SUBTOPICS.get(code, []):
+    for code, subs in SUBTOPICS.items():
+        chapter = node_for(code)
+        if chapter is None:
+            continue
+        for sub in subs:
             sub_code = f"{code}.{sub}"
             if node_for(sub_code) is None:
-                db.add(
-                    TaxonomyNode(
-                        kind="subtopic", code=sub_code, label=sub.replace("_", " ").title(),
-                        parent_id=node.id, path=sub_code,
-                    )
-                )
-
-    for code, label, chapter_code in CONCEPT_FAMILIES:
-        if node_for(code) is None:
-            db.add(
-                TaxonomyNode(
-                    kind="concept_family", code=code, label=label,
-                    parent_id=node_for(chapter_code).id, path=code,
-                )
-            )
+                db.add(TaxonomyNode(
+                    kind="subtopic", code=sub_code, label=sub.replace("_", " ").title(),
+                    parent_id=chapter.id, path=sub_code,
+                ))
     db.flush()
 
     assessment = db.scalar(select(Assessment).where(Assessment.paper_code == "30(B)"))

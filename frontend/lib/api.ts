@@ -149,6 +149,7 @@ export interface IssuedKey {
 
 export interface BookStatus {
   subject: string;
+  curriculum_ready: boolean;
   contents_uploaded: boolean;
   edition?: string | null;
   expected_chapters: number;
@@ -251,6 +252,11 @@ export const api = {
   // --- knowledge base ---
   bookStatus: (key: string, subject: string) =>
     operator<BookStatus>(`/platform/books/${subject}`, key),
+
+  setupCurriculum: (key: string, subject: string) =>
+    operator<{ label: string; board_units: number; chapters: number; next: string }>(
+      `/platform/books/${subject}/curriculum`, key, { method: "POST" },
+    ),
 
   uploadContents: (key: string, subject: string, file: File, edition: string) =>
     upload<{ chapters_expected: number; sections_expected: number; next: string }>(

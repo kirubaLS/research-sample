@@ -34,6 +34,8 @@ def client(_tmp_db):
 
 @pytest.fixture(scope="session")
 def school(_tmp_db):
+    from sqlalchemy import select
+
     from app.db import SessionLocal, init_db
     from app.models import School, Section
 
@@ -46,20 +48,23 @@ def school(_tmp_db):
     sec = Section(school_id=s.id, grade=10, name="A")
     db.add(sec)
     db.commit()
-    # Layer 1 needs real nodes to resolve against: every question carries a board unit and
-    # a concept family, and the ingest refuses codes it cannot find.
+    # One source for the taxonomy: the same curriculum the operator console applies, so a
+    # test cannot pass against a shape production never has.
+    from app.curriculum import X_MATH
+    from app.curriculum.apply import apply as apply_curriculum
     from app.models import TaxonomyNode
 
-    subject = TaxonomyNode(kind="subject", code="X.MATH", label="Class X Maths", path="X.MATH")
-    db.add(subject)
-    db.flush()
-    for kind, code, label in (
-        ("board_unit", "X.MATH.U.MENSURATION", "Mensuration"),
-        ("chapter", "X.MATH.SAV", "Surface Areas and Volumes"),
-        ("concept_family", "X.MATH.CF.VOLUME", "Volume of Composite Solids"),
-    ):
-        db.add(TaxonomyNode(kind=kind, code=code, label=label, parent_id=subject.id, path=code))
-    db.commit()
+    apply_curriculum(db, X_MATH)
+    if db.scalar(
+        select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.VOLUME")
+    ) is None:
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.SAV"))
+        db.add(TaxonomyNode(
+            kind="concept_family", code="X.MATH.CF.VOLUME",
+            label="Volume of Composite Solids", parent_id=chapter.id,
+            path="X.MATH.CF.VOLUME",
+        ))
+        db.commit()
 
     out = {"school_id": s.id, "section_id": sec.id, "api_key": s.api_key}
     db.close()

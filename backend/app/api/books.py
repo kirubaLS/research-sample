@@ -21,6 +21,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import require_platform_admin
 from app.config import get_settings
+from app.curriculum import CURRICULA
+from app.curriculum.apply import apply as apply_curriculum
 from app.db import get_session
 from app.ingest.book import (
     Section,
@@ -68,6 +70,36 @@ def _source(db: Session, subject: str, version: str) -> BookSource | None:
     )
 
 
+@router.post("/{subject}/curriculum", status_code=status.HTTP_201_CREATED)
+def setup_curriculum(subject: str, db: Session = Depends(get_session)) -> dict:
+    """Board units, their weightage, and the chapter mapping -- before any book.
+
+    This layer does not come from the book: CBSE publishes weightage per unit, and a unit
+    may span several chapters or exist where none does. It was previously only reachable
+    through `scripts.seed`, which a deployment without shell access cannot run -- so the
+    console could load a book into a taxonomy that had nowhere to put it.
+
+    Idempotent: re-running adds only what is missing.
+    """
+    curriculum = CURRICULA.get(subject)
+    if curriculum is None:
+        raise HTTPException(
+            422,
+            f"no curriculum defined for {subject!r}. Known: {sorted(CURRICULA)}. "
+            f"Board weightage comes from the CBSE syllabus, not the book, so it has to be "
+            f"defined before a book can be loaded.",
+        )
+    created = apply_curriculum(db, curriculum)
+    return {
+        "subject": subject,
+        "label": curriculum.subject_label,
+        "board_units": len(curriculum.units),
+        "chapters": len(curriculum.chapters),
+        "created": created,
+        "next": "Now upload the contents page.",
+    }
+
+
 @router.get("/{subject}")
 def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
     """What has been loaded, and what is still missing."""
@@ -81,14 +113,21 @@ def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
             BookChunk.subject_code == subject, BookChunk.embedding.isnot(None)
         )
     )
+    subject_ready = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == subject)) is not None
     if source is None:
         return {
-            "subject": subject, "contents_uploaded": False,
+            "subject": subject,
+            "curriculum_ready": subject_ready,
+            "contents_uploaded": False,
             "expected_chapters": 0, "loaded_chapters": 0,
             "chunks": chunks or 0, "embedded": embedded or 0,
             "embeddings_configured": bool(settings.jina_api_key),
-            "next": "Upload the contents page (00-contents.pdf) first -- every chapter is "
-                    "checked against it.",
+            "next": (
+                "Set up the curriculum first -- board units and their weightage come from "
+                "the syllabus, not the book." if not subject_ready else
+                "Upload the contents page (00-contents.pdf) first -- every chapter is "
+                "checked against it."
+            ),
         }
 
     expected = {int(k) for k in source.expected_sections}
@@ -96,6 +135,7 @@ def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
     missing = sorted(expected - loaded)
     return {
         "subject": subject,
+        "curriculum_ready": subject_ready,
         "contents_uploaded": True,
         "edition": source.edition,
         "expected_chapters": len(expected),
@@ -124,7 +164,12 @@ async def upload_contents(
     """The prelims file. Parsed for its table of contents, which becomes the oracle."""
     version = "CBSE-2026-27"
     if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == subject)) is None:
-        raise HTTPException(422, f"subject {subject!r} is not in the taxonomy")
+        raise HTTPException(
+            422,
+            f"subject {subject!r} is not in the taxonomy yet. Set up the curriculum first "
+            f"-- the board units a chapter's marks count towards come from the syllabus, "
+            f"not from the book.",
+        )
 
     path = await _to_tempfile(file)
     try:

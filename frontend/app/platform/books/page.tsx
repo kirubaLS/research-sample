@@ -128,6 +128,22 @@ export default function BooksPage() {
     }
   }
 
+  async function setupCurriculum() {
+    const key = getPlatformKey();
+    if (!key) return;
+    setBusy(true);
+    try {
+      const r = await api.setupCurriculum(key, subject);
+      say(`${r.label}: ${r.board_units} board units, ${r.chapters} chapters mapped`);
+      await refresh();
+    } catch (err) {
+      say(describe(err), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const curriculumReady = status?.curriculum_ready ?? false;
   const ready = status?.contents_uploaded ?? false;
 
   return (
@@ -184,7 +200,26 @@ export default function BooksPage() {
       {status && <div className="notice" style={{ marginTop: 18 }}>{status.next}</div>}
 
       <div className="section-head">
-        <h2>1 &middot; Contents page</h2>
+        <h2>1 &middot; Curriculum</h2>
+      </div>
+      <div className="card">
+        <p className="cardnote" style={{ marginBottom: 14 }}>
+          The board units and their weightage &mdash; from CBSE&apos;s syllabus, not from the
+          book. A unit may span several chapters (Algebra covers four) or exist where no
+          chapter does, so it cannot be derived from the book and has to be in place before
+          one is loaded.
+        </p>
+        {curriculumReady ? (
+          <p className="small mono">Already set up.</p>
+        ) : (
+          <button onClick={setupCurriculum} disabled={busy}>
+            {busy ? "Working…" : "Set up the curriculum"}
+          </button>
+        )}
+      </div>
+
+      <div className="section-head">
+        <h2>2 &middot; Contents page</h2>
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>
@@ -192,11 +227,17 @@ export default function BooksPage() {
           section of every chapter, which is what makes an extraction checkable rather than
           merely plausible.
         </p>
-        <input type="file" accept="application/pdf" onChange={sendContents} disabled={busy} />
+        <input
+          type="file"
+          accept="application/pdf"
+          onChange={sendContents}
+          disabled={busy || !curriculumReady}
+        />
+        {!curriculumReady && <p className="hint">Set up the curriculum first.</p>}
       </div>
 
       <div className="section-head">
-        <h2>2 &middot; Chapters</h2>
+        <h2>3 &middot; Chapters</h2>
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>
@@ -216,7 +257,7 @@ export default function BooksPage() {
       </div>
 
       <div className="section-head">
-        <h2>3 &middot; Embed</h2>
+        <h2>4 &middot; Embed</h2>
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>

@@ -39,10 +39,44 @@ def test_the_upload_surface_needs_the_operator_key(client):
     assert r.status_code in (401, 403, 404, 422)
 
 
-def test_status_says_what_to_do_before_anything_is_loaded(client):
+def test_status_says_the_curriculum_comes_first(client):
+    """Board units and weightage come from the syllabus, not the book, so a subject with
+    no curriculum has nowhere to put a chapter's marks."""
     body = client.get("/platform/books/X.SOMETHING", headers=HEAD).json()
+    assert body["curriculum_ready"] is False
     assert body["contents_uploaded"] is False
-    assert "contents page" in body["next"]
+    assert "curriculum" in body["next"]
+
+
+def test_the_curriculum_can_be_set_up_without_a_shell(client):
+    r = client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    assert r.status_code == 201
+    body = r.json()
+    assert body["board_units"] == 7
+    assert body["chapters"] == 14
+
+    # idempotent: the console will be re-opened and the button pressed again
+    again = client.post("/platform/books/X.MATH/curriculum", headers=HEAD).json()
+    assert all(v == 0 for v in again["created"].values())
+
+    assert client.get("/platform/books/X.MATH", headers=HEAD).json()["curriculum_ready"]
+
+
+def test_an_unknown_subject_is_refused_with_the_known_ones(client):
+    r = client.post("/platform/books/X.LATIN/curriculum", headers=HEAD)
+    assert r.status_code == 422
+    assert "X.MATH" in r.json()["detail"]
+
+
+def test_a_contents_page_for_a_subject_with_no_curriculum_is_refused(client):
+    """Otherwise the book loads into a taxonomy with no board unit to score against, and
+    board impact comes out blank rather than wrong."""
+    r = client.post(
+        "/platform/books/X.SOMETHING/contents", headers=HEAD,
+        files={"file": ("00-contents.pdf", b"%PDF-1.4", "application/pdf")},
+    )
+    assert r.status_code == 422
+    assert "curriculum first" in r.json()["detail"]
 
 
 def test_a_non_pdf_is_refused(client):
