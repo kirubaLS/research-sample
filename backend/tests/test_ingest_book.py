@@ -231,3 +231,71 @@ def test_every_section_of_every_chapter_produces_content():
             assert section.number in covered, (
                 f"{path.name}: section {section.number} {section.title!r} produced nothing"
             )
+
+
+# --- retrieval, against real exam questions -------------------------------------------
+
+PROBE = BOOK / "probe-30B.json"
+
+
+class _Indexed:
+    """The minimum LexicalIndex reads: text to score, and an id to report."""
+
+    def __init__(self, text: str, reference: str, chapter: int):
+        self.id = reference
+        self.text = text
+        self.reference = reference
+        self.node_id = chapter
+        self.bucket = "T"
+
+
+real_probe = pytest.mark.skipif(
+    not PROBE.exists(), reason="the 30(B) probe set lives beside the gitignored book"
+)
+
+
+@real_probe
+def test_real_exam_questions_mostly_resolve_to_the_right_chapter():
+    """A knowledge base that loads cleanly and cannot place a real question has failed at
+    the only thing it exists for, and the ingest summary says nothing about it.
+
+    Built from the PDFs rather than the database so this measures retrieval quality, not
+    whether a particular database happens to be loaded.
+
+    Lexical retrieval is deliberately the weakest plausible retriever, so 7/10 is a floor,
+    not a target -- two of these questions genuinely need more than word overlap.
+    """
+    import json
+
+    from app.ingest.book import extract_chapter
+    from app.ingest.probe import LexicalIndex
+
+    chunks = []
+    chapter_of: dict[int, str] = {}
+    for path in chapter_files(BOOK):
+        extract = extract_chapter(path)
+        chapter_of[extract.number] = extract.title
+        for chunk in extract.chunks:
+            chunks.append(_Indexed(chunk.text, chunk.reference, extract.number))
+
+    index = LexicalIndex(chunks)
+    probes = json.loads(PROBE.read_text())
+    hits = 0
+    misses = []
+    for probe in probes:
+        best = index.search(probe["stem"])
+        got = chapter_of.get(best[0].node_id, "?") if best else "?"
+        if got.lower() == probe["chapter"].lower():
+            hits += 1
+        else:
+            misses.append(f"Q{probe['q']} expected {probe['chapter']!r}, got {got!r}")
+
+    assert hits >= 7, f"only {hits}/{len(probes)} resolved: " + "; ".join(misses)
+
+
+def test_stopwords_do_not_let_a_short_stem_match_anything():
+    """An exam stem is short, so without stopword removal 'the/of/is' dominates the score
+    and every question retrieves the longest chunk in the book."""
+    from app.ingest.probe import tokens
+
+    assert tokens("The value of the area of a circle is") == ["area", "circle"]
