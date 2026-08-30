@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import math
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from app.config import get_settings
 
@@ -46,6 +46,10 @@ class MarkRow:
     chapter: str | None = None          # null for a skill-anchored question -- by design
     board_unit: str | None = None       # what board weighting is computed against
     concept_family: str | None = None   # the axis that survives a null chapter
+    #: Everything a teacher needs to check this one mark by hand: the question as it was
+    #: read off the paper, where it was placed, and what that placement rested on. Carried
+    #: rather than recomputed, so a finding and its proof can never disagree.
+    proof: dict | None = None
 
     @property
     def counts(self) -> bool:
@@ -64,6 +68,9 @@ class Finding:
     ci: tuple[float, float] | None
     sufficient: bool
     message: str
+    #: The questions this number is made of, in paper order. Never empty for a finding the
+    #: report shows: a line nobody can check is not a finding, it is an assertion.
+    evidence: tuple[dict, ...] = ()
 
     def as_dict(self) -> dict:
         return {
@@ -73,21 +80,64 @@ class Finding:
             "rate": None if self.rate is None else round(self.rate, 4),
             "ci": None if self.ci is None else [round(self.ci[0], 4), round(self.ci[1], 4)],
             "sufficient": self.sufficient, "message": self.message,
+            "evidence": list(self.evidence),
         }
 
 
-def _aggregate(rows: list[MarkRow], keyfn) -> dict[str, tuple[float, float, int]]:
-    acc: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0])
+@dataclass
+class _Bucket:
+    earned: float = 0.0
+    available: float = 0.0
+    rows: list[MarkRow] = field(default_factory=list)
+
+    @property
+    def questions(self) -> int:
+        return len(self.rows)
+
+
+def _aggregate(rows: list[MarkRow], keyfn) -> dict[str, _Bucket]:
+    """Keeps the contributing rows, not just their totals.
+
+    The rows were being summed and discarded, which is why no figure in the report could
+    be traced back to the questions it came from. They cost nothing to carry.
+    """
+    acc: dict[str, _Bucket] = defaultdict(_Bucket)
     for r in rows:
         if not r.counts:
             continue
         for key in keyfn(r):
             if key is None:
                 continue
-            acc[key][0] += r.earned
-            acc[key][1] += r.max_marks
-            acc[key][2] += 1
-    return {k: (v[0], v[1], int(v[2])) for k, v in acc.items()}
+            b = acc[key]
+            b.earned += r.earned
+            b.available += r.max_marks
+            b.rows.append(r)
+    return dict(acc)
+
+
+def _evidence(rows: list[MarkRow]) -> tuple[dict, ...]:
+    """One entry per contributing question, in paper order.
+
+    Marks are restated here from the same MarkRow the total was computed from, so the
+    proof reconciles to the finding by construction rather than by a second lookup that
+    could drift.
+    """
+    out = []
+    for r in sorted(rows, key=lambda r: r.address):
+        entry = {
+            "address": r.address,
+            "earned": r.earned,
+            "max_marks": r.max_marks,
+            "lost": r.max_marks - r.earned,
+            "state": r.state,
+            "tier": r.tier,
+            "chapter": r.chapter,
+            "board_unit": r.board_unit,
+            "concept_family": r.concept_family,
+        }
+        entry.update(r.proof or {})
+        out.append(entry)
+    return tuple(out)
 
 
 def summarise(
@@ -99,7 +149,9 @@ def summarise(
 ) -> list[Finding]:
     s = get_settings()
     out: list[Finding] = []
-    for key, (earned, available, n) in sorted(_aggregate(rows, keyfn).items()):
+    for key, b in sorted(_aggregate(rows, keyfn).items()):
+        earned, available, n = b.earned, b.available, b.questions
+        proof = _evidence(b.rows)
         sufficient = available >= s.evidence_floor_marks and n >= s.evidence_floor_questions
         if not sufficient:
             out.append(
@@ -107,6 +159,7 @@ def summarise(
                     kind, scope, key, earned, available, n, None, None, False,
                     f"Insufficient evidence in this paper: only {available:g} mark(s) "
                     f"across {n} question(s).",
+                    evidence=proof,
                 )
             )
             continue
@@ -117,6 +170,7 @@ def summarise(
             Finding(
                 kind, scope, key, earned, available, n, rate, ci, True,
                 f"Scored {earned:g} of {available:g} ({rate:.0%}); lost {lost:g}.",
+                evidence=proof,
             )
         )
     return out
@@ -189,7 +243,8 @@ def board_weighted_indicator(
     agg = _aggregate(rows, lambda r: (r.board_unit,))
     indicators: list[dict] = []
     for unit, weight in board_weights.items():
-        earned, available, n = agg.get(unit, (0.0, 0.0, 0))
+        b = agg.get(unit)
+        earned, available, n = (b.earned, b.available, b.questions) if b else (0.0, 0.0, 0)
         if available <= 0:
             continue
         loss_rate = (available - earned) / available
@@ -201,6 +256,7 @@ def board_weighted_indicator(
                 "indicator": round(loss_rate * weight, 4),
                 "indicator_ci": [round(lo * weight, 4), round(hi * weight, 4)],
                 "marks_available": available, "questions": n,
+                "evidence": list(_evidence(b.rows)) if b else [],
             }
         )
 
@@ -216,7 +272,7 @@ def board_weighted_indicator(
             f"weighting. The test gives you no information about it.",
         )
         for unit, weight in board_weights.items()
-        if agg.get(unit, (0.0, 0.0, 0))[1] <= 0
+        if unit not in agg or agg[unit].available <= 0
     ]
     return indicators, gaps
 

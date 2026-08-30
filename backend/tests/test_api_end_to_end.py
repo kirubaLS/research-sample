@@ -224,6 +224,55 @@ def test_student_report_reads_the_curriculum_columns(client, school):
     assert [f["key"] for f in body["focus"]] == ["X.MATH.CF.VOLUME"]
 
 
+def test_every_number_in_the_report_carries_its_proof(client, school):
+    """No line is an assertion: each one expands to the questions it is made of."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Assessment, StudentProfile
+
+    db = SessionLocal()
+    aid = db.scalar(
+        select(Assessment.id).where(Assessment.title == "Unit Test II — Section B")
+    )
+    sid = db.scalar(select(StudentProfile.id).where(StudentProfile.roll_no == "047"))
+    db.close()
+
+    body = client.get(
+        f"/reports/student/{sid}", headers=_auth(school), params={"assessment_id": aid}
+    ).json()
+
+    shown = body["topics"] + body["focus"] + body["all_crosstab"] + body["tier_summary"]
+    assert shown
+    for finding in shown:
+        ev = finding["evidence"]
+        assert ev, finding                       # a line nobody can check is not a finding
+        assert len(ev) == finding["questions"]
+        # The proof reconciles to the number exactly -- a teacher adds the column up.
+        assert sum(e["earned"] for e in ev) == finding["earned"]
+        assert sum(e["max_marks"] for e in ev) == finding["available"]
+
+    topic = body["topics"][0]
+    assert [e["address"] for e in topic["evidence"]] == [
+        "B/21//", "B/22//b", "B/23//", "B/24//", "B/25//"
+    ]
+    zero = next(e for e in topic["evidence"] if e["address"] == "B/25//")
+    assert zero["earned"] == 0.0 and zero["lost"] == 2.0
+    assert zero["question_no"] == "25" and zero["section"] == "B"
+    assert zero["curriculum_section"] == "12.2"
+    assert zero["concept_variant"] == "variant 25"
+    # Provenance is present and states plainly that a person typed this one in.
+    assert zero["placement"]["source"] == "import"
+    assert zero["placement"]["needs_review"] is False
+
+    # The board-weighted indicator is proved the same way.
+    mensuration = next(
+        i for i in body["board_weighted_indicators"]
+        if i["board_unit"] == "X.MATH.U.MENSURATION"
+    )
+    assert len(mensuration["evidence"]) == mensuration["questions"] == 5
+
+
 def test_reconcile_repairs_a_misread_through_the_api(client, school):
     created = client.post(
         "/assessments",

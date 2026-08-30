@@ -111,3 +111,35 @@ def test_strengths_rank_on_the_interval_not_the_point_estimate():
     strengths = [f.key for f in select_strengths(by_concept_family(rows))]
     assert strengths == ["SOLID", "TINY"]
     assert "WEAK" not in strengths
+
+
+def test_proof_distinguishes_a_confirmed_placement_from_a_guessed_one():
+    """Same chapter label, very different standing -- the report must not hide that."""
+    from types import SimpleNamespace as NS
+
+    from app.api.reports import _proof
+
+    q = NS(question_no="17", section="C", sub_part=None, choice_alt=None,
+           question_type="LA", stem_text="A cone surmounted on a hemisphere...",
+           logical_page=3, curriculum_section="12.2",
+           curriculum_section_title="Volume of a Combination of Solids",
+           concept_variant="cone on hemisphere r=3.5", chapter_id="ch-sav",
+           verified_against="NCERT Reprint 2026-27", verified_at="2026-08-30")
+    ev = NS(source="scan")
+    codes = {"ch-sav": "X.MATH.SAV"}
+
+    guessed = _proof(q, NS(source="model", confidence=0.41, needs_review=True,
+                           reviewed_by=None, reasoning="closest match",
+                           evidence=["Example 4"], candidates=["X.MATH.SAV", "X.MATH.AOT"],
+                           chapter_id="ch-sav"), ev, codes)
+    confirmed = _proof(q, NS(source="human", confidence=1.0, needs_review=False,
+                             reviewed_by="teacher-7", reasoning=None,
+                             evidence=["Example 4"], candidates=[],
+                             chapter_id="ch-sav"), ev, codes)
+
+    assert guessed["placement"]["chapter"] == confirmed["placement"]["chapter"]
+    assert guessed["placement"]["needs_review"] is True
+    assert guessed["placement"]["candidates"] == ["X.MATH.SAV", "X.MATH.AOT"]
+    assert confirmed["placement"]["reviewed_by"] == "teacher-7"
+    # The book passage the decision rested on travels with the finding, both times.
+    assert guessed["placement"]["book_evidence"] == ["Example 4"]

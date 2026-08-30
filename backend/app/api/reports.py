@@ -131,9 +131,71 @@ def _rows(db: Session, assessment: Assessment) -> list[MarkRow]:
                 state=ev.state, skills=tuple(skills.get(question_id, ())),
                 tier=tiers.get(question_id), chapter=chapter,
                 board_unit=board_unit, concept_family=family,
+                proof=_proof(q, p, ev, codes),
             )
         )
     return rows
+
+
+def _proof(
+    q: Question, p: QuestionPlacement | None, ev: MarkEvent, codes: dict[str, str]
+) -> dict:
+    """What a teacher needs to check one mark without being told to trust anything.
+
+    Three separate things, kept separate on purpose:
+      * the question, as it was read off the paper -- so the number is checkable by hand
+        against the mark sheet
+      * where it was placed, and the section title from the textbook
+      * who placed it and on what -- the model, the blueprint, the declared or inferred
+        scope, or a person -- with the book passages the decision rested on, and whether
+        it is still flagged for review
+
+    The last one is the point. A placement a person confirmed and a placement the model
+    guessed at 0.41 produce the same label, and a report that shows only the label makes
+    them indistinguishable. Here they are not.
+    """
+    return {
+        "question_no": q.question_no,
+        "section": q.section,
+        "sub_part": q.sub_part,
+        "choice_alt": q.choice_alt,
+        "question_type": q.question_type,
+        "stem_text": q.stem_text,
+        "logical_page": q.logical_page,
+        "curriculum_section": q.curriculum_section,
+        "curriculum_section_title": q.curriculum_section_title,
+        "concept_variant": q.concept_variant,
+        "mark_source": ev.source,
+        "placement": (
+            {
+                "source": p.source,
+                "confidence": p.confidence,
+                "needs_review": p.needs_review,
+                "reviewed_by": p.reviewed_by,
+                "reasoning": p.reasoning,
+                # The book passages the decision rested on. Grounding has already checked
+                # these are passages actually shown to the model, not ones it named.
+                "book_evidence": p.evidence or [],
+                "candidates": p.candidates or [],
+                "chapter": codes.get(p.chapter_id) if p.chapter_id else None,
+            }
+            if p is not None
+            # Imported straight from a Q-matrix: a person typed it, and saying so is more
+            # honest than reporting no provenance at all.
+            else {
+                "source": "import",
+                "confidence": None,
+                "needs_review": False,
+                "reviewed_by": None,
+                "reasoning": None,
+                "book_evidence": [],
+                "candidates": [],
+                "chapter": codes.get(q.chapter_id) if q.chapter_id else None,
+            }
+        ),
+        "verified_against": q.verified_against,
+        "verified_at": q.verified_at,
+    }
 
 
 def _board_weights(db: Session, assessment: Assessment) -> dict[str, float]:
