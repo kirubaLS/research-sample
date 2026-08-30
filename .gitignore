@@ -18,3 +18,7 @@ next-env.d.ts
 var/
 .env
 .env.local
+
+# NCERT books: copyrighted, 33MB and growing, and only ever input to a one-time
+# ingest -- the database holds the extracted content, not the source PDFs.
+ncert/
