@@ -61,7 +61,7 @@ class FamiliarityThresholds:
     conservatively, and carry an abstention band rather than being buried as literals.
     """
 
-    practised: float = 0.72     # close enough to a book item to call it drilled
+    practised: float = 0.72     # close enough to a book item to call it seen before
     adapted: float = 0.50       # recognisably the same method, different dress
     #: within this distance of a boundary, do not decide -- abstain and let a human or the
     #: paper's blueprint settle it, exactly as the tier engine already abstains
@@ -100,11 +100,14 @@ def classify_familiarity(
             )
 
     if similarity >= t.practised:
-        # bucket E is the exercises: drilled. bucket T is chapter body: taught.
-        level = "PRACTISED" if nearest_bucket == "E" else "T_VERBATIM"
+        # PRACTISED whichever bucket it came from. A close match to a theorem means the
+        # student has seen that method, not that the question *is* the theorem -- "which
+        # of the following is not true" scored 0.80 against Theorem 6.3 and was called
+        # T_VERBATIM, which is a claim the distance cannot support. T_VERBATIM is reached
+        # only by an exact hash, upstream of this function.
         return FamiliarityCall(
-            level, similarity, nearest_reference, nearest_bucket,
-            f"closely matches {nearest_reference}",
+            "PRACTISED", similarity, nearest_reference, nearest_bucket,
+            f"closely matches {nearest_reference}, which the student has seen",
         )
     if similarity >= t.adapted:
         return FamiliarityCall(

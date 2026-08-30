@@ -63,9 +63,24 @@ def test_a_close_match_to_an_exercise_is_practised():
     assert call.level == "PRACTISED"
 
 
-def test_a_close_match_to_chapter_body_is_taught_not_drilled():
-    """Bucket decides which side of the taught/practised line a match falls on."""
-    assert classify_familiarity(0.90, "Theorem 1.3", "T").level == "T_VERBATIM"
+def test_distance_can_never_reach_t_verbatim():
+    """The rule the first version stated and then broke.
+
+    Against the real 30(B) paper, "in two triangles ABC and DEF ... which of the following
+    is not true" scored 0.80 against Theorem 6.3 and came back T_VERBATIM. It is a question
+    *about* the theorem, not the theorem -- a claim similarity cannot support. Five of ten
+    exam questions were mislabelled that way. T_VERBATIM is an exact-hash answer only.
+    """
+    for similarity in (0.72, 0.85, 0.99):
+        for bucket in ("T", "E"):
+            assert classify_familiarity(similarity, "Theorem 1.3", bucket).level != "T_VERBATIM"
+
+
+def test_a_close_match_is_practised_whichever_bucket_it_came_from():
+    """A near match to a worked example means the method has been seen, same as a near
+    match to an exercise."""
+    assert classify_familiarity(0.90, "Theorem 1.3", "T").level == "PRACTISED"
+    assert classify_familiarity(0.90, "EXERCISE 1.2", "E").level == "PRACTISED"
 
 
 def test_a_recognisable_method_in_a_new_setting_is_adapted():
