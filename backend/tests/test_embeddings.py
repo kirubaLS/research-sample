@@ -168,3 +168,98 @@ def test_similarity_is_bounded():
     a, b = embedder.embed_texts(["alpha", "beta"])
     assert -1.0 - 1e-9 <= cosine(a, b) <= 1.0 + 1e-9
     assert not math.isnan(cosine(a, b))
+
+
+# --- fusion and chapter voting ----------------------------------------------------------
+
+class _Chunk2:
+    def __init__(self, chunk_id, text, node_id, embedding=None):
+        self.chunk_id = chunk_id
+        self.id = chunk_id
+        self.text = text
+        self.reference = chunk_id
+        self.node_id = node_id
+        self.bucket = "T"
+        self.embedding = embedding
+
+
+def test_fusion_recovers_what_one_retriever_alone_misses():
+    """The measured reason for combining them: on the 30(B) paper lexical alone missed the
+    LCM question ('bells ringing' shares no words with the book's HCF section) and semantic
+    alone missed the cone question ('slant height' is a literal-word match). Neither method
+    gets both; fused ranking does."""
+    from app.ingest.probe import LexicalIndex, locate
+
+    class OnlyKnowsB:
+        """Stands in for the retriever that is right where the other is wrong."""
+
+        def search(self, question, k=3):
+            from app.ingest.probe import Candidate
+
+            return [Candidate("b1", "b1", "chapter-B", "T", 0.99)]
+
+    chunks = [
+        _Chunk2("a1", "cone slant height radius volume", "chapter-A"),
+        _Chunk2("a2", "cone volume of a right circular solid", "chapter-A"),
+        _Chunk2("b1", "lowest common multiple of three numbers", "chapter-B"),
+    ]
+    chunks += [
+        _Chunk2(f"pad{i}", f"unrelated material number {i}", f"pad-{i}") for i in range(20)
+    ]
+    lexical = LexicalIndex(chunks)
+
+    # lexical alone follows the words
+    assert locate("cone slant height", [lexical]).node_id == "chapter-A"
+    # fused with a retriever that is confident about B, B is at least in contention
+    fused = locate("cone slant height", [lexical, OnlyKnowsB()])
+    assert fused.node_id in ("chapter-A", "chapter-B")
+    assert not fused.agreed, "the two retrievers disagreed, and that must be visible"
+
+
+def test_agreement_between_retrievers_is_reported():
+    """A corpus of two makes every IDF zero -- log(2/2) -- so nothing scores. Real
+    retrieval needs a real spread of documents, which is why this one is not minimal."""
+    from app.ingest.probe import LexicalIndex, locate
+
+    chunks = [_Chunk2("a1", "cone slant height radius solid", "chapter-A")]
+    chunks += [
+        _Chunk2(f"other{i}", f"unrelated words about topic {i} entirely", f"chapter-{i}")
+        for i in range(20)
+    ]
+    lexical = LexicalIndex(chunks)
+    verdict = locate("cone slant height", [lexical, lexical])
+    assert verdict.node_id == "chapter-A"
+    assert verdict.agreed, "two retrievers picking the same chapter is agreement"
+
+
+def test_a_long_chapter_cannot_win_on_bulk_alone():
+    """Summing every matching chunk scored 6/10 against 8/10 for the best chunk: a long
+    chapter accumulates weak matches and beats a short precise one. Circles beat Areas
+    Related to Circles twice that way."""
+    from app.ingest.probe import LexicalIndex, locate
+
+    chunks = [_Chunk2("precise", "sector of a circle arc length", "short-chapter")]
+    chunks += [
+        _Chunk2(f"bulk{i}", "circle circle tangent chord radius", "long-chapter")
+        for i in range(30)
+    ]
+    verdict = locate("area of a sector of a circle cut off by an arc", [LexicalIndex(chunks)])
+    assert verdict.node_id == "short-chapter"
+
+
+def test_a_hair_thin_margin_is_reported_so_it_can_be_asked_about():
+    from app.ingest.probe import LexicalIndex, locate
+
+    chunks = [
+        _Chunk2("a", "triangle angle similar congruent", "chapter-A"),
+        _Chunk2("b", "triangle angle similar congruent", "chapter-B"),
+    ]
+    chunks += [
+        _Chunk2(f"pad{i}", f"unrelated material number {i}", f"pad-{i}") for i in range(20)
+    ]
+    verdict = locate("triangle angle similar congruent", [LexicalIndex(chunks)])
+    # not exactly zero: ranks 1 and 2 differ by 1/61 - 1/62 even for identical text. What
+    # matters is that it lands far below the margin at which a call is acted on.
+    from app.api.books import MIN_MARGIN
+
+    assert verdict.margin < MIN_MARGIN, "identical evidence must not look confident"

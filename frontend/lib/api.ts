@@ -185,11 +185,15 @@ export interface ProbeRow {
   similarity: number;
   familiarity: string | null;
   why: string;
+  margin: number;
+  agreed: boolean;
+  confident: boolean;
   runners_up: { reference: string; chapter: string; similarity: number }[];
 }
 
 export interface ProbeResult {
   mode: string;
+  confident: number;
   chunks: number;
   embedded: number;
   graded: number;

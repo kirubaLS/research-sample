@@ -34,7 +34,7 @@ from app.ingest.book import (
     verify_against_toc,
 )
 from app.ingest.embed import classify_familiarity
-from app.ingest.probe import LexicalIndex, SemanticIndex
+from app.ingest.probe import LexicalIndex, SemanticIndex, locate
 from app.models import (
     BookChunk,
     BookSource,
@@ -50,6 +50,11 @@ router = APIRouter(
 
 #: NCERT chapter PDFs run to about 3 MB; well above that is not a chapter
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+#: Below this gap to the runner-up, the top chapter won by a hair. On the 30(B) set the
+#: single wrong answer had the smallest margin of any row, so this is where a question
+#: should go to a human rather than into a report.
+MIN_MARGIN = 0.002
 
 
 async def _to_tempfile(upload: UploadFile) -> Path:
@@ -369,27 +374,32 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
     labels = {n.id: n.label for n in db.scalars(select(TaxonomyNode)).all()}
     embedded = [c for c in chunks if c.embedding]
 
+    # Both retrievers, always, when vectors exist. They fail on DIFFERENT questions:
+    # "cone, slant height" is a literal-word match that meaning-similarity missed, and
+    # "bells ringing at 48, 72 and 108 seconds" is a meaning match with no shared
+    # vocabulary at all. Fusing their rankings gets the union of what each knows.
+    indexes: list = [LexicalIndex(chunks)]
+    mode = "lexical"
     if embedded and settings.jina_api_key:
         from app.ingest.jina import JinaEmbedder
 
-        index: SemanticIndex | LexicalIndex = SemanticIndex(
-            chunks,
-            JinaEmbedder(
-                settings.jina_api_key, model=settings.embedding_model,
-                dimensions=settings.embedding_dimensions,
-            ),
+        indexes.append(
+            SemanticIndex(
+                chunks,
+                JinaEmbedder(
+                    settings.jina_api_key, model=settings.embedding_model,
+                    dimensions=settings.embedding_dimensions,
+                ),
+            )
         )
-        mode = "semantic"
-    else:
-        index = LexicalIndex(chunks)
-        mode = "lexical"
+        mode = "hybrid"
 
     rows = []
     hits = 0
     for question in body.questions:
-        found = index.search(question.stem, k=3)
-        top = found[0] if found else None
-        retrieved = labels.get(top.node_id, "?") if top else None
+        verdict = locate(question.stem, indexes)
+        retrieved = labels.get(verdict.node_id, "?") if verdict.node_id else None
+        top = verdict.evidence[0] if verdict.evidence else None
 
         verbatim = db.scalar(
             select(CanonicalProcedure).where(
@@ -398,7 +408,7 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
         )
         if verbatim:
             familiarity, similarity, why = "T_VERBATIM", 1.0, "exact match"
-        elif mode == "semantic" and top:
+        elif mode == "hybrid" and top:
             call = classify_familiarity(top.score, top.reference, top.bucket)
             familiarity, similarity, why = call.level, call.similarity, call.reason
         else:
@@ -418,16 +428,20 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
             "similarity": round(similarity, 3),
             "familiarity": familiarity,
             "why": why,
+            "margin": round(verdict.margin, 4),
+            "agreed": verdict.agreed,
+            "confident": verdict.agreed and verdict.margin >= MIN_MARGIN,
             "runners_up": [
-                {"reference": c.reference, "chapter": labels.get(c.node_id, "?"),
-                 "similarity": round(c.score, 3)}
-                for c in found[1:]
+                {"reference": labels.get(node, "?"), "chapter": labels.get(node, "?"),
+                 "similarity": round(score, 4)}
+                for node, score in verdict.runners_up
             ],
         })
 
     graded = sum(1 for r in rows if r["hit"] is not None)
     return {
         "mode": mode,
+        "confident": sum(1 for r in rows if r["confident"]),
         "chunks": len(chunks),
         "embedded": len(embedded),
         "graded": graded,

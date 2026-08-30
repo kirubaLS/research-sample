@@ -90,8 +90,8 @@ export default function ProbePage() {
               <span className="label">chapters resolved</span>
             </div>
             <div className="stat">
-              <span className="value">{result.mode}</span>
-              <span className="label">retrieval</span>
+              <span className="value">{result.confident}/{result.rows.length}</span>
+              <span className="label">confident enough to act on</span>
             </div>
             <div className="stat">
               <span className="value">
@@ -114,6 +114,7 @@ export default function ProbePage() {
                   <th style={{ padding: "8px 10px" }}>Nearest</th>
                   <th style={{ padding: "8px 10px" }}>Sim.</th>
                   <th style={{ padding: "8px 10px" }}>Familiarity</th>
+                  <th style={{ padding: "8px 10px" }}>Confidence</th>
                 </tr>
               </thead>
               <tbody>
@@ -141,6 +142,10 @@ export default function ProbePage() {
                     <td style={{ padding: "8px 10px" }} className="mono small">
                       {row.familiarity ?? "abstained"}
                     </td>
+                    <td style={{ padding: "8px 10px" }} className="mono small">
+                      {row.confident ? "confident" : "ask a human"}
+                      {!row.agreed && " · split"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -148,6 +153,15 @@ export default function ProbePage() {
           </div>
 
           <div className="notice" style={{ marginTop: 18 }}>{result.note}</div>
+
+          <div className="notice" style={{ marginTop: 12 }}>
+            Retrieval is <strong>{result.mode}</strong>. A row is confident only when both
+            retrievers picked the same chapter <em>and</em> it beat the runner-up by a real
+            margin. On the paper this was built against, the one wrong answer had the
+            smallest margin of any row &mdash; so the rows marked{" "}
+            <span className="mono">ask a human</span> are where to spend attention, and
+            where 100&nbsp;% actually comes from.
+          </div>
 
           {result.rows.some((r) => r.hit === false) && (
             <>
