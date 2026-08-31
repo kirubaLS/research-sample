@@ -204,6 +204,7 @@ export interface MappedTo {
 
 export interface StagedQuestion {
   address: string;
+  edited_by?: string | null;
   section: string | null;
   question_no: string;
   choice_alt: string | null;
@@ -218,9 +219,20 @@ export interface ScanReview {
   assessment_id: string;
   route: string;
   staged: number;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  edited: number;
   mapped: number;
   marks_missing: number;
   questions: StagedQuestion[];
+}
+
+export interface ConfirmResult {
+  confirmed_at: string;
+  confirmed_by: string;
+  questions: number;
+  edited: number;
+  total_marks: number;
 }
 
 export interface MapResult {
@@ -351,6 +363,24 @@ export const api = {
 
   readScan: (key: string, assessmentId: string) =>
     authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),
+
+  editScanned: (
+    key: string,
+    assessmentId: string,
+    address: string,
+    body: Record<string, unknown>,
+  ) =>
+    authed<{ address: string; changed?: string[]; removed?: boolean }>(
+      `/assessments/${assessmentId}/scan/${encodeURIComponent(address)}`,
+      key,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
+  confirmScan: (key: string, assessmentId: string, by: string) =>
+    authed<ConfirmResult>(`/assessments/${assessmentId}/scan/confirm`, key, {
+      method: "POST",
+      body: JSON.stringify({ by }),
+    }),
 
   mapPaper: (key: string, assessmentId: string) =>
     authed<MapResult>(`/assessments/${assessmentId}/map`, key, { method: "POST" }),

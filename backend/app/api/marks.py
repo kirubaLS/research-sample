@@ -6,6 +6,7 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -377,6 +378,10 @@ async def scan_paper(
         ))
         written += 1
 
+    # A new read of the paper invalidates the old signature: whoever confirmed did not see
+    # these rows.
+    assessment.scan_confirmed_at = None
+    assessment.scan_confirmed_by = None
     assessment.route = "text"
     assessment.pdf_page_count = extract.page_count
     assessment.source_sha256 = source_sha
@@ -444,6 +449,9 @@ def read_scan(
         "assessment_id": assessment.id,
         "route": assessment.route,
         "staged": len(rows),
+        "confirmed_at": assessment.scan_confirmed_at,
+        "confirmed_by": assessment.scan_confirmed_by,
+        "edited": sum(1 for r in rows if r.edited_at),
         "mapped": sum(1 for r in rows if r.question_id),
         "marks_missing": sum(1 for r in rows if r.max_marks is None),
         "questions": [
@@ -452,6 +460,7 @@ def read_scan(
                 "choice_alt": r.choice_alt,
                 "max_marks": float(r.max_marks) if r.max_marks is not None else None,
                 "stem_text": r.stem_text, "page": r.logical_page,
+                "edited_by": r.edited_by,
                 "mapped_to": mapped(r),
                 "blocked_reason": r.blocked_reason,
             }
@@ -485,6 +494,127 @@ def _section_number(code: str) -> str | None:
     return match.group(1).replace("_", ".") if match else None
 
 
+class ScanEditIn(BaseModel):
+    """What a person may change about a staged question. Everything is optional."""
+
+    question_no: str | None = Field(default=None, max_length=12)
+    section: str | None = Field(default=None, max_length=8)
+    max_marks: float | None = Field(default=None, ge=0, le=100)
+    stem_text: str | None = Field(default=None, max_length=4000)
+    #: A row the extractor invented -- a heading read as a question, a duplicate. Removing
+    #: it is an edit like any other, and more common than any field change.
+    remove: bool = False
+    by: str = Field(default="teacher", max_length=64)
+
+
+@router.patch("/{assessment_id}/scan/{address:path}")
+def edit_scanned_question(
+    assessment_id: str,
+    address: str,
+    body: ScanEditIn,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Correct what the extractor read, before it becomes fact.
+
+    Refused once the extraction has been confirmed: confirmation is a person putting their
+    name to these rows, and silently editing them afterwards would leave the record saying
+    someone checked something they never saw. Re-open by scanning again.
+    """
+    assessment = _get_assessment(db, school, assessment_id)
+    if assessment.scan_confirmed_at:
+        raise HTTPException(
+            409,
+            "this extraction was already confirmed; re-scan the paper to change it",
+        )
+
+    row = db.scalar(
+        select(ScannedQuestion).where(
+            ScannedQuestion.assessment_id == assessment.id,
+            ScannedQuestion.address == address,
+        )
+    )
+    if row is None:
+        raise HTTPException(404, f"no staged question at {address!r}")
+    if row.question_id:
+        raise HTTPException(409, "this question has already been mapped; re-scan to change it")
+
+    now = datetime.now(UTC).isoformat()
+    if body.remove:
+        db.delete(row)
+        db.commit()
+        return {"address": address, "removed": True}
+
+    changed: list[str] = []
+    for field_name in ("question_no", "section", "max_marks", "stem_text"):
+        value = getattr(body, field_name)
+        if value is None:
+            continue
+        if getattr(row, field_name) != value:
+            setattr(row, field_name, value)
+            changed.append(field_name)
+
+    if "question_no" in changed or "section" in changed:
+        # The address is derived from these, so it has to move with them or the row would
+        # answer to a name that no longer describes it.
+        row.address = "/".join([
+            row.section or "", row.question_no, row.sub_part or "", row.choice_alt or ""
+        ])
+
+    if changed:
+        row.edited_at, row.edited_by = now, body.by
+        row.blocked_reason = None
+    db.commit()
+    return {"address": row.address, "changed": changed, "edited_by": row.edited_by}
+
+
+class ConfirmIn(BaseModel):
+    by: str = Field(default="teacher", max_length=64)
+
+
+@router.post("/{assessment_id}/scan/confirm")
+def confirm_scan(
+    assessment_id: str,
+    body: ConfirmIn,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """A person states that these questions are what the paper says.
+
+    Refused while any question still lacks a mark, because a question worth nothing is
+    not a question anyone read -- it is a gap, and confirming around it would put a
+    signature on something incomplete.
+    """
+    assessment = _get_assessment(db, school, assessment_id)
+    rows = list(db.scalars(
+        select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
+    ))
+    if not rows:
+        raise HTTPException(422, "nothing has been scanned for this assessment")
+
+    missing = [r.address for r in rows if r.max_marks is None]
+    if missing:
+        raise HTTPException(
+            422,
+            f"{len(missing)} question(s) still carry no marks: {', '.join(missing[:8])}"
+            + (" ..." if len(missing) > 8 else "")
+            + ". Set them, or remove the rows that are not questions.",
+        )
+
+    assessment.scan_confirmed_at = datetime.now(UTC).isoformat()
+    assessment.scan_confirmed_by = body.by
+    db.commit()
+    return {
+        "assessment_id": assessment.id,
+        "confirmed_at": assessment.scan_confirmed_at,
+        "confirmed_by": assessment.scan_confirmed_by,
+        "questions": len(rows),
+        "edited": sum(1 for r in rows if r.edited_at),
+        "total_marks": float(sum(r.max_marks or 0 for r in rows if r.choice_alt in (None, "a"))),
+        "next": f"POST /assessments/{assessment.id}/map",
+    }
+
+
 @router.post("/{assessment_id}/map")
 def map_paper_to_book(
     assessment_id: str,
@@ -507,6 +637,14 @@ def map_paper_to_book(
 
     assessment = _get_assessment(db, school, assessment_id)
     settings = get_settings()
+
+    if not assessment.scan_confirmed_at:
+        raise HTTPException(
+            409,
+            "nobody has confirmed this extraction yet. Everything after this treats the "
+            "questions as what the paper says, so a person checks them first: "
+            f"POST /assessments/{assessment.id}/scan/confirm",
+        )
 
     staged = [
         row for row in db.scalars(

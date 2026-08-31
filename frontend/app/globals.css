@@ -474,3 +474,82 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   white-space: nowrap;
   border: 0;
 }
+
+/* --- correcting and confirming, and the mobile shape of both ------------------------- */
+
+.confirmbar { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.confirmbar .field { width: min(320px, 100%); }
+
+.qedit { display: flex; align-items: center; gap: 8px; flex: none; }
+.qedit input {
+  font: inherit;
+  width: 76px;
+  padding: 7px 9px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.qedit input:focus-visible, .field input:focus-visible, .field select:focus-visible {
+  outline: 2px solid var(--mark);
+  outline-offset: 1px;
+}
+.qedit .remove {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.qedit .remove:hover { border-color: var(--mark); color: var(--mark); }
+
+/* A row nobody could read a mark for is the one thing a person must not scroll past. */
+.qrow-missing { box-shadow: inset 3px 0 0 var(--warn); }
+.editedby {
+  margin-left: 8px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--verify);
+  letter-spacing: 0.02em;
+}
+.sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* --- mobile ---
+   A teacher checks a paper on a phone, standing up, one hand. So: the head wraps rather
+   than squeezing the mark box to nothing, controls clear the 44px touch target, and the
+   number field opens the numeric keypad (inputMode on the element). */
+@media (max-width: 620px) {
+  .paper-page { padding: 0 14px 72px; gap: 16px; }
+  .paper-page .card { padding: 16px 14px; }
+
+  .steps { grid-template-columns: 1fr 1fr; }
+  .step { padding: 11px 12px; }
+  .step-b em { display: none; }
+
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .tile-n { font-size: 21px; }
+
+  .drop { padding: 24px 14px; }
+  .drop button, .paper-page button.primary { width: 100%; min-height: 46px; }
+
+  .toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .filters { width: 100%; }
+  .filters button { flex: 1; min-height: 42px; }
+
+  .qhead { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .qedit { width: 100%; justify-content: space-between; }
+  .qedit input { width: 96px; min-height: 44px; }
+  .qedit .remove { min-height: 44px; }
+  .qstem { font-size: 14px; }
+  .qmap { gap: 5px; }
+  .chip { font-size: 12px; }
+}

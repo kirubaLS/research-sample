@@ -81,6 +81,12 @@ class Assessment(Base, PkMixin, TimestampMixin):
 
     status: Mapped[str] = mapped_column(String(24), default="ingested", index=True)
     qmatrix_frozen_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    #: When a person confirmed that the extraction matches the paper in front of them.
+    #: Mapping refuses until this is set: every step after it treats the questions as
+    #: fact, and an extraction nobody checked is not fact -- it is a good guess that
+    #: became a mark on a child's report without anyone looking.
+    scan_confirmed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    scan_confirmed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qmatrix_version: Mapped[int] = mapped_column(Integer, default=0)
 
 
@@ -206,6 +212,11 @@ class ScannedQuestion(Base, PkMixin, TimestampMixin):
     )
     #: why it has not been, when it has not
     blocked_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: A person changed what the extractor read. Kept because a corrected row and a row
+    #: the machine got right are different evidence about how well the extractor works,
+    #: and a system that cannot tell them apart cannot be improved.
+    edited_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    edited_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class QuestionSkill(Base, PkMixin):

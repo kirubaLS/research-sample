@@ -5,6 +5,7 @@ import {
   api,
   ApiError,
   ApiUnreachable,
+  ConfirmResult,
   MapResult,
   ScanResult,
   ScanReview,
@@ -25,7 +26,7 @@ import { getApiKey } from "@/lib/session";
  * screen that quietly showed 34 of 39 rows would be lying by omission.
  */
 
-type Stage = "start" | "scanned" | "mapped";
+type Stage = "start" | "scanned" | "confirmed" | "mapped";
 
 const SUBJECTS = [
   ["X.MATH", "Class X Mathematics"],
@@ -42,9 +43,12 @@ export default function PaperPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "mapped" | "blocked">("all");
+  const [confirmedBy, setConfirmedBy] = useState("");
+  const [confirmation, setConfirmation] = useState<ConfirmResult | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
-  const stage: Stage = mapped ? "mapped" : scan ? "scanned" : "start";
+  const confirmed = !!(confirmation || review?.confirmed_at);
+  const stage: Stage = mapped ? "mapped" : confirmed ? "confirmed" : scan ? "scanned" : "start";
 
   function explain(err: unknown): string {
     if (err instanceof ApiUnreachable) return "Could not reach the API.";
@@ -82,12 +86,40 @@ export default function PaperPage() {
       }
       setScan(await api.scanPaper(key, id, file));
       setMapped(null);
+      setConfirmation(null);
       await refresh(id);
     } catch (err) {
       setError(explain(err));
     } finally {
       setBusy(null);
       if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
+  async function onEdit(address: string, patch: Record<string, unknown>) {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    setError(null);
+    try {
+      await api.editScanned(key, assessmentId, address, { ...patch, by: confirmedBy || "teacher" });
+      await refresh(assessmentId);
+    } catch (err) {
+      setError(explain(err));
+    }
+  }
+
+  async function onConfirm() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    setError(null);
+    setBusy("Recording your confirmation…");
+    try {
+      setConfirmation(await api.confirmScan(key, assessmentId, confirmedBy || "teacher"));
+      await refresh(assessmentId);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
     }
   }
 
@@ -129,18 +161,13 @@ export default function PaperPage() {
         {(
           [
             ["Upload", "the paper as a PDF"],
-            ["Check", "what was read against what the paper declares"],
+            ["Check", "correct anything the reader got wrong"],
+            ["Confirm", "put your name to these questions"],
             ["Map", "each question onto the book"],
           ] as const
         ).map(([label, hint], i) => {
-          const state =
-            (i === 0 && stage !== "start") || (i === 1 && stage !== "start") || (i === 2 && stage === "mapped")
-              ? "done"
-              : (i === 0 && stage === "start") ||
-                  (i === 1 && stage === "scanned") ||
-                  (i === 2 && stage === "scanned")
-                ? "now"
-                : "todo";
+          const reached = ["start", "scanned", "confirmed", "mapped"].indexOf(stage);
+          const state = i < reached ? "done" : i === reached ? "now" : "todo";
           return (
             <li key={label} className={`step step-${state}`}>
               <span className="step-n">{i + 1}</span>
@@ -247,6 +274,28 @@ export default function PaperPage() {
           )}
 
           {stage === "scanned" && (
+            <div className="confirmbar">
+              <label className="field">
+                <span>Who checked this paper?</span>
+                <input
+                  value={confirmedBy}
+                  onChange={(e) => setConfirmedBy(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </label>
+              <button type="button" className="primary" onClick={onConfirm} disabled={!!busy}>
+                {busy ?? "These questions are correct"}
+              </button>
+              <p className="muted">
+                Nothing is mapped until someone checks it. Correct any row below first —
+                after you confirm, the rows are locked and re-reading the paper is the only
+                way to change them.
+              </p>
+            </div>
+          )}
+
+          {stage === "confirmed" && (
             <button type="button" className="primary" onClick={onMap} disabled={!!busy}>
               {busy ?? "Map these questions onto the book"}
             </button>
@@ -291,9 +340,22 @@ export default function PaperPage() {
             </div>
           </div>
 
+          {review.confirmed_at && (
+            <p className="verdict good">
+              Confirmed by {review.confirmed_by ?? "someone"}
+              {review.edited > 0 && ` · ${review.edited} row(s) corrected first`}. These
+              rows are locked; re-read the paper to change them.
+            </p>
+          )}
+
           <ul className="qlist">
             {rows.map((q) => (
-              <QuestionRow key={q.address} q={q} />
+              <QuestionRow
+                key={q.address}
+                q={q}
+                editable={!confirmed && !q.mapped_to}
+                onEdit={onEdit}
+              />
             ))}
           </ul>
         </section>
@@ -311,19 +373,58 @@ function Tile({ n, label, tone }: { n: number; label: string; tone?: "good" | "w
   );
 }
 
-function QuestionRow({ q }: { q: StagedQuestion }) {
+function QuestionRow({
+  q,
+  editable,
+  onEdit,
+}: {
+  q: StagedQuestion;
+  editable: boolean;
+  onEdit: (address: string, patch: Record<string, unknown>) => void;
+}) {
   const placed = q.mapped_to;
+  const missing = q.max_marks == null;
   return (
-    <li className={`qrow${placed ? "" : " qrow-blocked"}`}>
+    <li className={`qrow${placed ? "" : " qrow-blocked"}${missing ? " qrow-missing" : ""}`}>
       <div className="qhead">
         <span className="qno">
           {q.section ? `${q.section} · ` : ""}
           {q.question_no}
           {q.choice_alt === "b" ? " (or)" : ""}
+          {q.edited_by && <span className="editedby">corrected by {q.edited_by}</span>}
         </span>
-        <span className="qmarks">
-          {q.max_marks == null ? <em className="warnish">no marks read</em> : `${q.max_marks} marks`}
-        </span>
+        {editable ? (
+          <span className="qedit">
+            <label>
+              <span className="sr">Marks for question {q.question_no}</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step={0.5}
+                defaultValue={q.max_marks ?? ""}
+                placeholder="marks"
+                onBlur={(e) => {
+                  const value = e.target.value.trim();
+                  if (value === "" || Number(value) === q.max_marks) return;
+                  onEdit(q.address, { max_marks: Number(value) });
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="remove"
+              onClick={() => onEdit(q.address, { remove: true })}
+              aria-label={`Remove question ${q.question_no}, it is not a question`}
+            >
+              Not a question
+            </button>
+          </span>
+        ) : (
+          <span className="qmarks">
+            {missing ? <em className="warnish">no marks read</em> : `${q.max_marks} marks`}
+          </span>
+        )}
       </div>
 
       <p className="qstem">{q.stem_text || <em>no text was extracted for this question</em>}</p>

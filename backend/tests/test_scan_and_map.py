@@ -188,6 +188,7 @@ def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
     reason, because forcing it into a chapter to keep the numbers tidy is the invention
     this pipeline refuses."""
     _upload(client, school, assessment, _paper_bytes(PAPER))
+    client.post(f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={})
     r = client.post(f"/assessments/{assessment}/map", headers=_auth(school))
     assert r.status_code == 200, r.text
     body = r.json()
@@ -216,6 +217,7 @@ def test_mapping_refuses_when_no_book_is_loaded(client, school):
     )
     aid = r.json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
     out = client.post(f"/assessments/{aid}/map", headers=_auth(school))
     assert out.status_code == 422
     assert "no book is loaded" in out.json()["detail"]
@@ -249,3 +251,124 @@ def test_a_chapter_code_beginning_with_s_is_not_read_as_a_section():
     assert _section_number("X.MATH.SAV") is None
     assert _section_number("X.MATH.STATS") is None
     assert _section_number("X.MATH.CIRCLE") is None
+
+
+# --- a person checks the extraction before anything treats it as fact ---------------------
+
+def test_mapping_refuses_until_someone_has_confirmed_the_extraction(
+    client, school, assessment, book
+):
+    """Everything after mapping treats these questions as what the paper says. An
+    extraction nobody checked is not that -- it is a good guess that would become a mark on
+    a child's report with no person in the loop."""
+    _upload(client, school, assessment, _paper_bytes(PAPER))
+    blocked = client.post(f"/assessments/{assessment}/map", headers=_auth(school))
+    assert blocked.status_code == 409
+    assert "confirmed this extraction" in blocked.json()["detail"]
+
+    ok = client.post(
+        f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={"by": "Mrs Rani"}
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["confirmed_by"] == "Mrs Rani"
+
+    mapped = client.post(f"/assessments/{assessment}/map", headers=_auth(school))
+    assert mapped.status_code == 200
+
+
+def test_a_question_with_no_marks_cannot_be_confirmed_around(client, school, assessment):
+    """A question worth nothing is a gap, not a question. Signing for it would put a name
+    on something incomplete."""
+    from app.db import SessionLocal
+    from app.models import ScannedQuestion
+
+    _upload(client, school, assessment, _paper_bytes(PAPER))
+    db = SessionLocal()
+    row = db.scalars(
+        select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment)
+    ).first()
+    row.max_marks = None
+    db.commit()
+    address = row.address
+    db.close()
+
+    refused = client.post(f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={})
+    assert refused.status_code == 422
+    assert "carry no marks" in refused.json()["detail"]
+
+    fixed = client.patch(
+        f"/assessments/{assessment}/scan/{address}",
+        headers=_auth(school), json={"max_marks": 3, "by": "Mrs Rani"},
+    )
+    assert fixed.status_code == 200
+    assert fixed.json()["changed"] == ["max_marks"]
+
+    assert client.post(
+        f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={}
+    ).status_code == 200
+
+
+def test_a_row_the_extractor_invented_can_be_removed(client, school, assessment):
+    """A heading read as a question is more common than any wrong field, and removing it
+    is the edit a person reaches for first."""
+    _upload(client, school, assessment, _paper_bytes(PAPER))
+    before = client.get(f"/assessments/{assessment}/scan", headers=_auth(school)).json()
+    victim = before["questions"][0]["address"]
+
+    out = client.patch(
+        f"/assessments/{assessment}/scan/{victim}", headers=_auth(school), json={"remove": True}
+    )
+    assert out.status_code == 200 and out.json()["removed"] is True
+
+    after = client.get(f"/assessments/{assessment}/scan", headers=_auth(school)).json()
+    assert after["staged"] == before["staged"] - 1
+
+
+def test_editing_is_refused_once_the_extraction_is_confirmed(client, school, assessment):
+    """Confirmation is a person putting their name to these rows. Editing afterwards would
+    leave the record saying someone checked something they never saw."""
+    _upload(client, school, assessment, _paper_bytes(PAPER))
+    address = client.get(
+        f"/assessments/{assessment}/scan", headers=_auth(school)
+    ).json()["questions"][0]["address"]
+    client.post(f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={})
+
+    late = client.patch(
+        f"/assessments/{assessment}/scan/{address}", headers=_auth(school), json={"max_marks": 9}
+    )
+    assert late.status_code == 409
+    assert "already confirmed" in late.json()["detail"]
+
+
+def test_rescanning_withdraws_the_previous_confirmation(client, school, assessment):
+    """Whoever signed did not see these rows."""
+    _upload(client, school, assessment, _paper_bytes(PAPER))
+    client.post(f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={})
+    assert client.get(
+        f"/assessments/{assessment}/scan", headers=_auth(school)
+    ).json()["confirmed_at"]
+
+    _upload(client, school, assessment, _paper_bytes(PAPER))
+    assert client.get(
+        f"/assessments/{assessment}/scan", headers=_auth(school)
+    ).json()["confirmed_at"] is None
+
+
+def test_a_corrected_row_stays_distinguishable_from_one_the_machine_got_right(
+    client, school, assessment
+):
+    """Different evidence about how well the extractor works. A system that cannot tell
+    them apart cannot be improved."""
+    _upload(client, school, assessment, _paper_bytes(PAPER))
+    address = client.get(
+        f"/assessments/{assessment}/scan", headers=_auth(school)
+    ).json()["questions"][0]["address"]
+
+    client.patch(
+        f"/assessments/{assessment}/scan/{address}",
+        headers=_auth(school), json={"max_marks": 4, "by": "Mrs Rani"},
+    )
+    read = client.get(f"/assessments/{assessment}/scan", headers=_auth(school)).json()
+    assert read["edited"] == 1
+    edited = [q for q in read["questions"] if q["edited_by"]]
+    assert [q["edited_by"] for q in edited] == ["Mrs Rani"]
