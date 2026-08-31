@@ -152,6 +152,7 @@ def place(
         settings.anthropic_api_key,
         model=settings.model_classifier,
         known_sections=known_sections or None,
+        effort=settings.model_effort,
     )
 
     scope = None

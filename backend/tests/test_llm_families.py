@@ -116,3 +116,43 @@ def test_a_long_passage_is_truncated_not_dropped():
 def test_the_proposer_refuses_to_start_without_a_key_rather_than_degrading_quietly():
     with pytest.raises(ValueError, match="YAADHUM_ANTHROPIC_API_KEY"):
         AnthropicFamilyProposer("")
+
+
+# --- request options ------------------------------------------------------------------
+
+def test_effort_is_not_sent_to_a_model_that_rejects_it():
+    """Haiku 4.5 is the default for both LLM callers because it is the cheapest, and it
+    returns 400 if an effort parameter is sent. The keyword is dropped, not sent empty."""
+    from app.llm import output_config, supports_effort
+
+    assert supports_effort("claude-haiku-4-5") is False
+    assert output_config("claude-haiku-4-5", "low") is None
+    assert output_config("claude-opus-5", "low") == {"effort": "low"}
+    assert output_config("claude-sonnet-5", "low") == {"effort": "low"}
+
+
+def test_no_effort_configured_means_no_output_config():
+    from app.llm import output_config
+
+    assert output_config("claude-opus-5", None) is None
+    assert output_config("claude-opus-5", "") is None
+
+
+def test_an_unknown_effort_level_fails_loudly_rather_than_at_the_api():
+    """A typo in configuration should not become a paid 400 in production."""
+    import pytest
+
+    from app.llm import output_config
+
+    with pytest.raises(ValueError, match="unknown effort"):
+        output_config("claude-opus-5", "lowest")
+    with pytest.raises(ValueError, match="does not accept effort"):
+        output_config("claude-opus-4-5", "max")
+
+
+def test_an_unknown_model_gets_no_effort_rather_than_a_guess():
+    """An allowlist, not a denylist: a model we have never heard of works without effort,
+    where guessing the other way would break every request to it."""
+    from app.llm import output_config
+
+    assert output_config("claude-something-new", "low") is None

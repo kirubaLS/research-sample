@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     anthropic_api_key: str | None = None
     #: one call per question, ~38 per paper, so the high-volume model is the right default
     model_classifier: str = "claude-haiku-4-5"
+    #: How hard the model is asked to work. Sent only to models that accept it -- Haiku
+    #: 4.5, the default everywhere here, rejects the parameter, and is already the cheapest
+    #: configuration available. See app.llm.
+    model_effort: str = "low"
 
     # --- embeddings ---
     #: Multilingual by requirement, not preference: the papers are bilingual and Tamil is

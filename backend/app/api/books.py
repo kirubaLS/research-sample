@@ -765,7 +765,9 @@ def propose_families_with_a_model(
 
     try:
         proposer = AnthropicFamilyProposer(
-            settings.anthropic_api_key or "", model=settings.model_high_volume
+            settings.anthropic_api_key or "",
+            model=settings.model_high_volume,
+            effort=settings.model_effort,
         )
     except ValueError as exc:
         raise HTTPException(503, str(exc)) from exc

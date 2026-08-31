@@ -11,6 +11,7 @@ from typing import Protocol
 
 from app.classify.grounding import Grounded, ground
 from app.classify.judge import SYSTEM, Classification, Evidence, build_prompt
+from app.llm import output_config
 
 
 class Judge(Protocol):
@@ -26,6 +27,7 @@ class AnthropicJudge:
         model: str = "claude-haiku-4-5",
         *,
         known_sections: dict[str, set[str]] | None = None,
+        effort: str | None = None,
     ) -> None:
         if not api_key:
             raise ValueError(
@@ -37,18 +39,23 @@ class AnthropicJudge:
 
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        #: None on a model that does not take an effort parameter, and then the keyword is
+        #: dropped from the request rather than sent empty
+        self.output_config = output_config(model, effort)
         #: chapter -> the section numbers that actually exist for it, from the taxonomy
         self.known_sections = known_sections
         #: every field the knowledge base could not vouch for, kept for inspection
         self.violations: list[tuple[str, list[str]]] = []
 
     def classify(self, question: str, evidence: list[Evidence]) -> Classification:
+        extra = {"output_config": self.output_config} if self.output_config else {}
         response = self.client.messages.parse(
             model=self.model,
             max_tokens=2000,
             system=SYSTEM,
             messages=[{"role": "user", "content": build_prompt(question, evidence)}],
             output_format=Classification,
+            **extra,
         )
         checked: Grounded = ground(
             response.parsed_output, evidence, known_sections=self.known_sections

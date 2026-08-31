@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pydantic import BaseModel, Field
 
 from app.curriculum.families import slugify
+from app.llm import output_config
 
 #: Enough of a chunk to tell what it is about. Whole chapters would work and cost more for
 #: no gain: the task is topical, and the opening of an exercise or a worked example says
@@ -158,7 +159,9 @@ def ground(
 class AnthropicFamilyProposer:
     """One call per chapter. Haiku by default -- the task is reading, not reasoning."""
 
-    def __init__(self, api_key: str, model: str = "claude-haiku-4-5") -> None:
+    def __init__(
+        self, api_key: str, model: str = "claude-haiku-4-5", effort: str | None = None
+    ) -> None:
         if not api_key:
             raise ValueError(
                 "no Anthropic API key. Set YAADHUM_ANTHROPIC_API_KEY. Without it the "
@@ -169,15 +172,18 @@ class AnthropicFamilyProposer:
 
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        self.output_config = output_config(model, effort)
         self.violations: list[tuple[str, list[str]]] = []
 
     def propose(self, chapter_label: str, passages: list[tuple[str, str, str]]) -> list[FamilyProposal]:
+        extra = {"output_config": self.output_config} if self.output_config else {}
         response = self.client.messages.parse(
             model=self.model,
             max_tokens=4000,
             system=SYSTEM,
             messages=[{"role": "user", "content": build_prompt(chapter_label, passages)}],
             output_format=ChapterFamilies,
+            **extra,
         )
         checked = ground(response.parsed_output, passages)
         if checked.violations:
