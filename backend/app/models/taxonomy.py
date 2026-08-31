@@ -153,6 +153,58 @@ class BookChunk(Base, PkMixin):
     embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)  # pgvector in production
 
 
+class ConceptFamilyProposal(Base, PkMixin, TimestampMixin):
+    """A proposed concept family, kept whether or not it is ever applied.
+
+    Stored rather than returned and forgotten, for three reasons that all come up later:
+
+    * **The run is expensive to repeat and cheap to keep.** Reading both books costs about
+      a dollar; storing the answer costs nothing. The route refuses to run twice for a
+      subject unless asked to, and this table is how it knows.
+    * **A family that was applied has to stay explicable.** Eighteen months from now,
+      "why is Step-deviation method a row on this report?" is answerable only if the
+      passages the model cited are still here next to the label it chose.
+    * **A family that was NOT applied is evidence too.** The proposals a person rejected
+      are how we find out whether the model's reading is worth paying for at all.
+
+    Never a taxonomy node on its own. Applying a proposal creates the node, and that
+    remains a separate, deliberate act: renaming a family after a class has been tested
+    breaks every trend that references it.
+    """
+
+    __tablename__ = "concept_family_proposal"
+    __table_args__ = (
+        UniqueConstraint(
+            "curriculum_version", "subject_code", "run_id", "code",
+            name="uq_family_proposal",
+        ),
+    )
+
+    curriculum_version: Mapped[str] = mapped_column(String(32), index=True)
+    subject_code: Mapped[str] = mapped_column(String(32), index=True)
+    #: one id per pass over a subject, so a re-run is comparable with the one before it
+    #: rather than merged into it
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    #: 'sections' -- the headings, free and blind to a heading that drills two procedures;
+    #: 'llm' -- a model reading the chapter's own passages
+    source: Mapped[str] = mapped_column(String(16), default="llm", index=True)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    code: Mapped[str] = mapped_column(String(80), index=True)
+    label: Mapped[str] = mapped_column(String(200))
+    chapter_id: Mapped[str | None] = mapped_column(
+        ForeignKey("taxonomy_node.id"), nullable=True, index=True
+    )
+    #: the model's own words on why this is one thing a student can fail
+    rationale: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    #: chunk references, every one of them verified to be a passage actually shown
+    evidence: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    #: section numbers it draws on, e.g. ['14.1']
+    from_sections: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    #: set when the proposal has been turned into a taxonomy node
+    applied_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
 class BookSource(Base, PkMixin, TimestampMixin):
     """What was uploaded for a subject, and what the contents page says to expect.
 

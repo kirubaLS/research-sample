@@ -315,3 +315,66 @@ def test_a_family_under_a_chapter_that_does_not_exist_is_refused(client, school)
     )
     assert r.json()["created"] == 0
     assert "X.MATH.NOSUCHCHAPTER" in r.json()["unknown_chapters"]
+
+
+# --- proposing families by reading the chapter ---------------------------------------------
+
+def test_proposing_with_a_model_refuses_without_a_key_rather_than_falling_back(client):
+    """Falling back to the headings here would be the worst outcome: the caller asked for
+    the reading, would be billed nothing, and would get a different answer with nothing
+    saying so."""
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = None
+    try:
+        r = client.post("/platform/books/X.MATH/concept-families/propose-llm", headers=HEAD)
+    finally:
+        settings.anthropic_api_key = before
+    assert r.status_code in (422, 503), r.text
+    if r.status_code == 503:
+        assert "YAADHUM_ANTHROPIC_API_KEY" in r.json()["detail"]
+
+
+def test_proposals_read_back_empty_before_any_run(client):
+    body = client.get("/platform/books/X.MATH/concept-families/proposals", headers=HEAD).json()
+    assert body["proposed"] == 0 and body["families"] == [] and body["runs"] == []
+
+
+def test_a_stored_run_reads_back_with_its_evidence_and_blocks_a_silent_rerun(client):
+    """The pass costs real money. A second one must be asked for explicitly, and must not
+    overwrite the proposals a person may already have reviewed."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal, TaxonomyNode
+
+    db = SessionLocal()
+    chapter = db.scalar(
+        select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS")
+    )
+    run = str(uuid.uuid4())
+    db.add(
+        ConceptFamilyProposal(
+            curriculum_version="CBSE-2026-27", subject_code="X.MATH", run_id=run,
+            source="llm", model="claude-haiku-4-5",
+            code="X.MATH.CF.STEP_DEVIATION_METHOD", label="Step-deviation method",
+            chapter_id=chapter.id if chapter else None,
+            rationale="Exercise 14.1 drills it separately from the direct method.",
+            evidence=["EXERCISE 14.1"], from_sections=["14.1"],
+        )
+    )
+    db.commit()
+    db.close()
+
+    body = client.get("/platform/books/X.MATH/concept-families/proposals", headers=HEAD).json()
+    assert body["proposed"] == 1
+    [family] = body["families"]
+    assert family["label"] == "Step-deviation method"
+    assert family["evidence"] == ["EXERCISE 14.1"]     # the proof travels with the proposal
+    assert family["applied_at"] is None                # stored is not applied
+
+    again = client.post("/platform/books/X.MATH/concept-families/propose-llm", headers=HEAD)
+    assert again.status_code == 409
+    assert "force=true" in again.json()["detail"]

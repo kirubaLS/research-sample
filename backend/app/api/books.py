@@ -12,6 +12,7 @@ checked against, and a chapter accepted without it would be accepted on trust.
 from __future__ import annotations
 
 import tempfile
+import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -43,6 +44,7 @@ from app.models import (
     BookSource,
     CanonicalProcedure,
     ChapterBoardUnit,
+    ConceptFamilyProposal,
     TaxonomyNode,
 )
 
@@ -644,3 +646,172 @@ def embed_batch(
         )
     )
     return {"embedded": len(pending), "remaining": remaining or 0, "done": not remaining}
+
+
+# --------------------------------------------------------------------------------------
+# Reading the chapter, rather than only its headings
+# --------------------------------------------------------------------------------------
+def _chapter_passages(
+    db: Session, subject: str, chapter_id: str
+) -> list[tuple[str, str, str]]:
+    """(reference, section number, text) for one chapter, in the book's own order.
+
+    Sections come from the subtopic nodes the chunks hang off, so the number shown to the
+    model is the one the taxonomy holds -- not one re-derived from the text, which could
+    disagree with what a later placement is checked against.
+    """
+    sections = {
+        n.id: n.code.rsplit(".S", 1)[-1].replace("_", ".")
+        for n in db.scalars(
+            select(TaxonomyNode).where(TaxonomyNode.parent_id == chapter_id)
+        )
+    }
+    out: list[tuple[str, str, str]] = []
+    for chunk in db.scalars(
+        select(BookChunk)
+        .where(BookChunk.subject_code == subject)
+        .where(BookChunk.node_id.in_([chapter_id, *sections]))
+        .order_by(BookChunk.id)
+    ):
+        out.append((chunk.reference or "?", sections.get(chunk.node_id, ""), chunk.text))
+    return out
+
+
+@router.get("/{subject}/concept-families/proposals")
+def read_proposals(subject: str, db: Session = Depends(get_session)) -> dict:
+    """What the last run proposed, whether or not any of it was applied."""
+    version = "CBSE-2026-27"
+    rows = list(
+        db.scalars(
+            select(ConceptFamilyProposal)
+            .where(ConceptFamilyProposal.subject_code == subject)
+            .where(ConceptFamilyProposal.curriculum_version == version)
+            .order_by(ConceptFamilyProposal.created_at)
+        )
+    )
+    if not rows:
+        return {"subject": subject, "runs": [], "proposed": 0, "families": []}
+
+    labels = {n.id: n.label for n in db.scalars(select(TaxonomyNode))}
+    latest = rows[-1].run_id
+    current = [r for r in rows if r.run_id == latest]
+    return {
+        "subject": subject,
+        "run_id": latest,
+        "runs": sorted({r.run_id for r in rows}),
+        "model": current[0].model,
+        "source": current[0].source,
+        "proposed": len(current),
+        "applied": sum(1 for r in current if r.applied_at),
+        "families": [
+            {
+                "code": r.code, "label": r.label,
+                "chapter": labels.get(r.chapter_id or "", None),
+                "rationale": r.rationale,
+                "evidence": r.evidence or [],
+                "from_sections": r.from_sections or [],
+                "applied_at": r.applied_at,
+            }
+            for r in current
+        ],
+    }
+
+
+@router.post("/{subject}/concept-families/propose-llm", status_code=status.HTTP_201_CREATED)
+def propose_families_with_a_model(
+    subject: str,
+    force: bool = False,
+    db: Session = Depends(get_session),
+) -> dict:
+    """Read every loaded chapter of a subject and propose its families. One-time.
+
+    Refuses to run a second time unless ``force=true``: the pass costs real money, and a
+    silent re-run would also produce a second set of proposals for the same subject with
+    nothing saying which one a person actually looked at. A forced re-run is stored under
+    a new run id beside the first rather than replacing it.
+
+    Nothing is applied. The proposals are stored and reviewed, because renaming a family
+    after a class has been tested breaks every trend that references it.
+    """
+    version = "CBSE-2026-27"
+    settings = get_settings()
+
+    existing = db.scalar(
+        select(func.count(ConceptFamilyProposal.id))
+        .where(ConceptFamilyProposal.subject_code == subject)
+        .where(ConceptFamilyProposal.curriculum_version == version)
+    )
+    if existing and not force:
+        raise HTTPException(
+            409,
+            f"{subject} already has {existing} stored proposals -- read them at "
+            f"GET /platform/books/{subject}/concept-families/proposals. Pass force=true "
+            f"to run again; the new run is stored beside the old one, not over it.",
+        )
+
+    chapters = [
+        n for n in db.scalars(
+            select(TaxonomyNode)
+            .where(TaxonomyNode.kind == "chapter")
+            .where(TaxonomyNode.code.startswith(f"{subject}."))
+            .order_by(TaxonomyNode.path)
+        )
+    ]
+    if not chapters:
+        raise HTTPException(422, f"no chapters loaded for {subject}")
+
+    from app.curriculum.families import slugify
+    from app.curriculum.llm_families import AnthropicFamilyProposer
+
+    try:
+        proposer = AnthropicFamilyProposer(
+            settings.anthropic_api_key or "", model=settings.model_high_volume
+        )
+    except ValueError as exc:
+        raise HTTPException(503, str(exc)) from exc
+
+    run_id = str(uuid.uuid4())
+    written = 0
+    skipped: list[str] = []
+    for chapter in chapters:
+        passages = _chapter_passages(db, subject, chapter.id)
+        if not passages:
+            skipped.append(f"{chapter.label}: no chunks loaded")
+            continue
+        seen: set[str] = set()
+        for family in proposer.propose(chapter.label, passages):
+            code = f"{subject}.CF.{slugify(family.label)}"
+            if code in seen:
+                continue
+            seen.add(code)
+            db.add(
+                ConceptFamilyProposal(
+                    curriculum_version=version, subject_code=subject, run_id=run_id,
+                    source="llm", model=proposer.model,
+                    code=code, label=family.label, chapter_id=chapter.id,
+                    rationale=family.rationale, evidence=family.evidence,
+                    from_sections=family.from_sections,
+                )
+            )
+            written += 1
+    db.commit()
+
+    return {
+        "subject": subject,
+        "run_id": run_id,
+        "model": proposer.model,
+        "chapters_read": len(chapters) - len(skipped),
+        "proposed": written,
+        "skipped": skipped,
+        # Every field the knowledge base could not vouch for, kept rather than logged
+        # away: how often the model has to be corrected is the measure of whether its
+        # reading can be trusted at all.
+        "corrections": [
+            {"chapter": chapter, "dropped": violations}
+            for chapter, violations in proposer.violations
+        ],
+        "next": (
+            f"Review at GET /platform/books/{subject}/concept-families/proposals, then "
+            f"POST the ones you want to /platform/books/{subject}/concept-families."
+        ),
+    }
