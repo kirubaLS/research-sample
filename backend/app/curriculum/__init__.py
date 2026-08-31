@@ -113,7 +113,7 @@ X_SCIENCE = Curriculum(
         Chapter("X.SCI.CONTROL", "Control and Coordination", "X.SCI.U.LIVING"),
         Chapter("X.SCI.REPRO", "How do Organisms Reproduce?", "X.SCI.U.LIVING"),
         Chapter("X.SCI.HEREDITY", "Heredity", "X.SCI.U.LIVING"),
-        Chapter("X.SCI.LIGHT", "Light -- Reflection and Refraction", "X.SCI.U.PHENOMENA"),
+        Chapter("X.SCI.LIGHT", "Light \u2013 Reflection and Refraction", "X.SCI.U.PHENOMENA"),
         Chapter("X.SCI.EYE", "The Human Eye and the Colourful World", "X.SCI.U.PHENOMENA"),
         Chapter("X.SCI.ELECTRICITY", "Electricity", "X.SCI.U.CURRENT"),
         Chapter("X.SCI.MAGNETIC", "Magnetic Effects of Electric Current", "X.SCI.U.CURRENT"),

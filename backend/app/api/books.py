@@ -29,10 +29,10 @@ from app.ingest.book import (
     Section,
     chapter_number,
     extract_chapter,
-    normalise,
     parse_toc,
     parse_toc_chapters,
     stem_hash,
+    title_key,
     verify_against_toc,
     verify_structure,
 )
@@ -286,9 +286,7 @@ async def upload_chapter(
             # No section list published for this subject. Check what the contents page
             # does say -- that this is the chapter the book calls `number` -- then check
             # the chapter's own numbering for gaps, and leave it marked unverified.
-            if expected_title and normalise(expected_title).casefold() != normalise(
-                extract.title
-            ).casefold():
+            if expected_title and title_key(expected_title) != title_key(extract.title):
                 extract.problems.append(
                     f"the contents page calls chapter {number} "
                     f"{expected_title!r}, not {extract.title!r}"

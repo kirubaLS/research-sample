@@ -473,7 +473,7 @@ def test_science_chapters_come_from_the_contents_page_in_book_order():
     assert len(X_SCIENCE.chapters) == 13
     assert chapter_title("X.SCI", 1) == "Chemical Reactions and Equations"
     assert chapter_title("X.SCI", 8) == "Heredity"
-    assert chapter_title("X.SCI", 9) == "Light -- Reflection and Refraction"
+    assert chapter_title("X.SCI", 9) == "Light \u2013 Reflection and Refraction"
     assert chapter_title("X.SCI", 13) == "Our Environment"
     assert chapter_title("X.SCI", 14) is None
 

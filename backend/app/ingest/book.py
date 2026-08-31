@@ -104,6 +104,23 @@ def normalise(text: str) -> str:
     return re.sub(r"\s+", " ", text).strip()
 
 
+#: en dash, em dash and a doubled hyphen all appear for the same mark: NCERT prints
+#: "Light – Reflection and Refraction" with an en dash, source files carry "--", and a
+#: reprint may switch either way.
+_DASHES = re.compile(r"\s*(?:--+|[\u2010-\u2015])\s*")
+
+
+def title_key(text: str) -> str:
+    """Compare two spellings of the same chapter title.
+
+    Kept apart from ``normalise`` deliberately: normalise feeds stem_hash, and folding
+    characters there would change every hash already stored. This only ever compares
+    titles, where the difference between an en dash and two hyphens is presentation and
+    rejecting a correct chapter over it would be absurd.
+    """
+    return _DASHES.sub(" - ", normalise(text)).casefold()
+
+
 def stem_hash(text: str) -> str:
     return hashlib.sha256(normalise(text).encode("utf-8")).hexdigest()
 

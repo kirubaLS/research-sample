@@ -488,3 +488,18 @@ def test_the_science_contents_page_yields_chapters_where_it_yields_no_sections()
         9: "Light – Reflection and Refraction",
         13: "Our Environment",
     }
+
+
+def test_a_dash_spelling_does_not_reject_a_correct_chapter():
+    """NCERT prints 'Light – Reflection and Refraction' with an en dash. Comparing it
+    against a '--' spelling character by character rejected chapter 9 outright."""
+    from app.ingest.book import title_key
+
+    assert title_key("Light – Reflection and Refraction") == title_key(
+        "Light -- Reflection and Refraction"
+    )
+    assert title_key("Light — Reflection and Refraction") == title_key(
+        "Light - Reflection and Refraction"
+    )
+    # Not a blanket fold: different chapters stay different.
+    assert title_key("Heredity") != title_key("Electricity")
