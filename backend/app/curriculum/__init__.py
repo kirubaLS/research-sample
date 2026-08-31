@@ -100,7 +100,28 @@ X_SCIENCE = Curriculum(
         BoardUnit("X.SCI.U.PHENOMENA", "Natural Phenomena", 12.0),
         BoardUnit("X.SCI.U.RESOURCES", "Natural Resources", 5.0),
     ],
-    chapters=[],
+    # Read off the contents page of the NCERT Class X Science textbook, Reprint 2026-27
+    # (jesc1ps.pdf, page xi): thirteen chapters, in book order. Order is load-bearing --
+    # chapter_title() resolves an NCERT filename like jesc108.pdf by position, so an
+    # inserted or reordered row silently retitles a chapter.
+    chapters=[
+        Chapter("X.SCI.CHEMRXN", "Chemical Reactions and Equations", "X.SCI.U.CHEMICAL"),
+        Chapter("X.SCI.ACIDS", "Acids, Bases and Salts", "X.SCI.U.CHEMICAL"),
+        Chapter("X.SCI.METALS", "Metals and Non-metals", "X.SCI.U.CHEMICAL"),
+        Chapter("X.SCI.CARBON", "Carbon and its Compounds", "X.SCI.U.CHEMICAL"),
+        Chapter("X.SCI.LIFEPROC", "Life Processes", "X.SCI.U.LIVING"),
+        Chapter("X.SCI.CONTROL", "Control and Coordination", "X.SCI.U.LIVING"),
+        Chapter("X.SCI.REPRO", "How do Organisms Reproduce?", "X.SCI.U.LIVING"),
+        Chapter("X.SCI.HEREDITY", "Heredity", "X.SCI.U.LIVING"),
+        Chapter("X.SCI.LIGHT", "Light -- Reflection and Refraction", "X.SCI.U.PHENOMENA"),
+        Chapter("X.SCI.EYE", "The Human Eye and the Colourful World", "X.SCI.U.PHENOMENA"),
+        Chapter("X.SCI.ELECTRICITY", "Electricity", "X.SCI.U.CURRENT"),
+        Chapter("X.SCI.MAGNETIC", "Magnetic Effects of Electric Current", "X.SCI.U.CURRENT"),
+        Chapter("X.SCI.ENVIRONMENT", "Our Environment", "X.SCI.U.RESOURCES"),
+    ],
+    # Deliberately empty. The Maths families were proposed from the book's own section
+    # headings once the chapters were embedded, then reviewed; Science gets the same
+    # treatment and not a set invented ahead of the text.
     concept_families=[],
 )
 

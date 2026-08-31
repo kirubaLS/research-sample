@@ -460,17 +460,55 @@ def test_the_science_units_carry_the_boards_own_marks():
     assert len(X_SCIENCE.units) == 5
 
 
-def test_science_declares_no_chapters_until_its_book_is_read():
-    """The rationalised syllabus renumbered the book and secondary sources disagree. A
-    chapter mapped to the wrong unit sends a student's marks to the wrong place in the
-    report, so the contents page decides -- as it already does for sections."""
+def test_science_chapters_come_from_the_contents_page_in_book_order():
+    """The rationalised syllabus renumbered the book and secondary sources disagree, so the
+    contents page of Reprint 2026-27 decides -- thirteen chapters, page xi.
+
+    Order is load-bearing: chapter_title() resolves jesc108.pdf by position, so a row
+    inserted or moved silently retitles a chapter, and every question placed in it lands
+    under the wrong heading in the report.
+    """
+    from app.curriculum import X_SCIENCE, chapter_title
+
+    assert len(X_SCIENCE.chapters) == 13
+    assert chapter_title("X.SCI", 1) == "Chemical Reactions and Equations"
+    assert chapter_title("X.SCI", 8) == "Heredity"
+    assert chapter_title("X.SCI", 9) == "Light -- Reflection and Refraction"
+    assert chapter_title("X.SCI", 13) == "Our Environment"
+    assert chapter_title("X.SCI", 14) is None
+
+
+def test_every_science_chapter_maps_to_a_unit_the_board_actually_weights():
+    """A chapter pointing at a unit that does not exist drops its marks out of the
+    board-impact figure entirely, and the figure still renders -- which is the dangerous
+    part. Both directions are checked: no orphan chapter, and no unit left untested."""
     from app.curriculum import X_SCIENCE
 
-    assert X_SCIENCE.chapters == []
+    units = {u.code for u in X_SCIENCE.units}
+    assert {c.board_unit for c in X_SCIENCE.chapters} == units
+    assert all(c.board_unit in units for c in X_SCIENCE.chapters)
+    assert len({c.code for c in X_SCIENCE.chapters}) == 13
+
+    by_unit: dict[str, int] = {}
+    for c in X_SCIENCE.chapters:
+        by_unit[c.board_unit] = by_unit.get(c.board_unit, 0) + 1
+    assert by_unit == {
+        "X.SCI.U.CHEMICAL": 4, "X.SCI.U.LIVING": 4,
+        "X.SCI.U.PHENOMENA": 2, "X.SCI.U.CURRENT": 2, "X.SCI.U.RESOURCES": 1,
+    }
 
 
-def test_applying_a_curriculum_with_no_chapters_still_sets_up_its_units(tmp_path):
-    """The intermediate state has to be usable: units first, chapters when the book lands."""
+def test_science_declares_no_concept_families_until_its_book_is_read():
+    """Families are proposed from the book's own section headings once the chapters are
+    embedded, then reviewed. Inventing them ahead of the text is the creativity this
+    pipeline is built to refuse."""
+    from app.curriculum import X_SCIENCE
+
+    assert X_SCIENCE.concept_families == []
+
+
+def test_applying_the_science_curriculum_sets_up_its_units_and_chapters(tmp_path):
+    """Units carry the board's marks; chapters carry the mapping into them."""
     from sqlalchemy import create_engine, func, select
     from sqlalchemy.orm import Session
 
@@ -483,7 +521,7 @@ def test_applying_a_curriculum_with_no_chapters_still_sets_up_its_units(tmp_path
     with Session(engine) as db:
         created = apply(db, X_SCIENCE)
         assert created["units"] == 5
-        assert created["chapters"] == 0
+        assert created["chapters"] == 13
         assert db.scalar(
             select(func.count(TaxonomyNode.id)).where(TaxonomyNode.kind == "board_unit")
         ) == 5
