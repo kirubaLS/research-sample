@@ -407,3 +407,80 @@ def test_a_stored_proposal_carries_the_chapter_code_needed_to_apply_it(client):
         "created": 1, "already_existed": 0, "unknown_chapters": [],
         "note": "Existing families are left alone; a rename would break past comparisons.",
     }
+
+
+def test_a_chapter_that_fails_does_not_throw_away_the_chapters_already_paid_for(
+    client, school
+):
+    """A failure on one chapter used to abort the request with a bare 500: the money was
+    spent, the work was done, and nothing was kept or explained. Each chapter is now
+    committed as it completes, and the failure is reported with its reason."""
+    from unittest.mock import patch
+
+    from sqlalchemy import select
+
+    from app.curriculum.llm_families import FamilyProposal
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal
+
+    settings = get_settings()
+    before_key = settings.anthropic_api_key
+    settings.anthropic_api_key = "sk-not-used-the-call-is-patched"
+
+    # Two chapters with content, so one can succeed while the other fails.
+    db = SessionLocal()
+    from app.models import BookChunk, TaxonomyNode
+
+    for code, section, ref in (
+        ("X.MATH.STATS", "S14_1", "Section 14.1"),
+        ("X.MATH.PROB", "S15_1", "Section 15.1"),
+    ):
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        node = TaxonomyNode(
+            kind="subtopic", code=f"{code}.{section}", label="A section",
+            parent_id=chapter.id, path=f"{code}.{section}",
+            curriculum_version=chapter.curriculum_version,
+        )
+        db.add(node)
+        db.flush()
+        db.add(BookChunk(
+            curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+            node_id=node.id, bucket="T", reference=ref,
+            text="taught content", normalised="taught content", stem_hash=ref,
+        ))
+    db.commit()
+    db.close()
+
+    calls = {"n": 0}
+
+    def flaky(self, chapter_label, passages):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("upstream said no")
+        return [FamilyProposal(label=f"Family for {chapter_label}", rationale="r",
+                               evidence=[passages[0][0]], from_sections=[])]
+
+    try:
+        with patch(
+            "app.curriculum.llm_families.AnthropicFamilyProposer.propose", flaky
+        ):
+            r = client.post(
+                "/platform/books/X.MATH/concept-families/propose-llm",
+                headers=HEAD, params={"force": "true"},
+            )
+    finally:
+        settings.anthropic_api_key = before_key
+
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert len(body["failed"]) == 1
+    assert "upstream said no" in body["failed"][0]["error"]
+    assert body["proposed"] >= 1, "the chapters that succeeded must survive the one that did not"
+    assert "re-run with force=true" in body["warning"]
+
+    db = SessionLocal()
+    stored = db.scalars(
+        select(ConceptFamilyProposal).where(ConceptFamilyProposal.run_id == body["run_id"])
+    ).all()
+    db.close()
+    assert len(stored) == body["proposed"]

@@ -779,13 +779,27 @@ def propose_families_with_a_model(
     run_id = str(uuid.uuid4())
     written = 0
     skipped: list[str] = []
+    failed: list[dict] = []
     for chapter in chapters:
         passages = _chapter_passages(db, subject, chapter.id)
         if not passages:
             skipped.append(f"{chapter.label}: no chunks loaded")
             continue
+        # One chapter at a time, committed as it completes. Without this a failure on
+        # chapter seven threw away the six already paid for and returned a bare 500: the
+        # money was spent, the work was done, and nothing was kept or explained.
+        try:
+            proposed = proposer.propose(chapter.label, passages)
+        except Exception as exc:  # noqa: BLE001 -- the reason is reported, not swallowed
+            db.rollback()
+            failed.append({
+                "chapter": chapter.label,
+                "error": f"{type(exc).__name__}: {exc}"[:400],
+            })
+            continue
+
         seen: set[str] = set()
-        for family in proposer.propose(chapter.label, passages):
+        for family in proposed:
             code = f"{subject}.CF.{slugify(family.label)}"
             if code in seen:
                 continue
@@ -800,15 +814,18 @@ def propose_families_with_a_model(
                 )
             )
             written += 1
-    db.commit()
+        db.commit()
 
     return {
         "subject": subject,
         "run_id": run_id,
         "model": proposer.model,
-        "chapters_read": len(chapters) - len(skipped),
+        "chapters_read": len(chapters) - len(skipped) - len(failed),
         "proposed": written,
         "skipped": skipped,
+        #: chapters whose model call raised. The run keeps going and keeps what it has;
+        #: re-running with force=true retries them in a new run.
+        "failed": failed,
         # Every field the knowledge base could not vouch for, kept rather than logged
         # away: how often the model has to be corrected is the measure of whether its
         # reading can be trusted at all.
@@ -824,8 +841,13 @@ def propose_families_with_a_model(
             "Every proposed family was dropped. Nothing was stored and this is not a "
             "result about the book -- read `corrections` and fix the cause before "
             "re-running."
-            if written == 0 and proposer.violations
-            else None
+            if written == 0 and proposer.violations and not failed
+            else (
+                f"{len(failed)} of {len(chapters)} chapters failed -- see `failed`. What "
+                f"succeeded is stored; re-run with force=true to retry."
+                if failed
+                else None
+            )
         ),
         "next": (
             f"Review at GET /platform/books/{subject}/concept-families/proposals, then "
