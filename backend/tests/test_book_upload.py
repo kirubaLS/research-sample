@@ -378,3 +378,32 @@ def test_a_stored_run_reads_back_with_its_evidence_and_blocks_a_silent_rerun(cli
     again = client.post("/platform/books/X.MATH/concept-families/propose-llm", headers=HEAD)
     assert again.status_code == 409
     assert "force=true" in again.json()["detail"]
+
+
+def test_a_stored_proposal_carries_the_chapter_code_needed_to_apply_it(client):
+    """POST /concept-families is keyed on chapter_code. Returning only a display label
+    made the review-then-apply round trip impossible: the chapter silently landed in
+    unknown_chapters and the family was never created."""
+    body = client.get(
+        "/platform/books/X.MATH/concept-families/proposals", headers=HEAD
+    ).json()
+    assert body["families"], "expected the proposal stored by the previous test"
+    [family] = body["families"]
+    assert family["chapter_code"] == "X.MATH.STATS"
+    assert family["chapter"] == "Statistics"
+
+    # The exact shape the apply endpoint reads, built only from what this response gave us.
+    applied = client.post(
+        "/platform/books/X.MATH/concept-families",
+        headers=HEAD,
+        json={"families": [{
+            "code": family["code"],
+            "label": family["label"],
+            "chapter_code": family["chapter_code"],
+        }]},
+    )
+    assert applied.status_code == 201, applied.text
+    assert applied.json() == {
+        "created": 1, "already_existed": 0, "unknown_chapters": [],
+        "note": "Existing families are left alone; a rename would break past comparisons.",
+    }

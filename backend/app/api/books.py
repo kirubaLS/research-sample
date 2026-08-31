@@ -692,7 +692,10 @@ def read_proposals(subject: str, db: Session = Depends(get_session)) -> dict:
     if not rows:
         return {"subject": subject, "runs": [], "proposed": 0, "families": []}
 
-    labels = {n.id: n.label for n in db.scalars(select(TaxonomyNode))}
+    # Both, not just the label: applying a proposal at POST /concept-families is keyed on
+    # chapter_code, so returning only a human label made the review-then-apply round trip
+    # impossible without a second lookup nobody would guess they needed.
+    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
     latest = rows[-1].run_id
     current = [r for r in rows if r.run_id == latest]
     return {
@@ -706,7 +709,8 @@ def read_proposals(subject: str, db: Session = Depends(get_session)) -> dict:
         "families": [
             {
                 "code": r.code, "label": r.label,
-                "chapter": labels.get(r.chapter_id or "", None),
+                "chapter": nodes[r.chapter_id].label if r.chapter_id in nodes else None,
+                "chapter_code": nodes[r.chapter_id].code if r.chapter_id in nodes else None,
                 "rationale": r.rationale,
                 "evidence": r.evidence or [],
                 "from_sections": r.from_sections or [],
