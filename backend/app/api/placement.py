@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import require_admin, require_reader
 from app.classify.pipeline import place_paper
 from app.config import get_settings
 from app.db import get_session
@@ -234,7 +234,7 @@ def _unit_node_id(db: Session, nodes: dict, unit_code: str) -> str | None:
 @router.get("/{assessment_id}/review")
 def review_queue(
     assessment_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
     """The questions a person still has to settle, with what the machine had to go on."""

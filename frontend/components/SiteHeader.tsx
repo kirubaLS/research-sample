@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getPlatformKey } from "@/lib/session";
+import { getPlatformKey, getRole } from "@/lib/session";
 
 /**
  * The navigation that was missing. A student following a class link sees only the brand —
@@ -18,6 +18,15 @@ export function SiteHeader() {
   // exist during the server render, and reading it inline would mismatch on hydration.
   const [isOperator, setIsOperator] = useState(false);
   useEffect(() => setIsOperator(Boolean(getPlatformKey())), [pathname]);
+
+  // A principal reads results; they do not run the scanners. Offering links that lead to
+  // a refusal is worse than not offering them, so the nav follows the role. Read after
+  // mount for the same reason as the operator key above.
+  const [canRun, setCanRun] = useState(true);
+  useEffect(() => {
+    const role = getRole();
+    setCanRun(role === null || role.can.scan_papers);
+  }, [pathname]);
 
   return (
     <header className="siteheader">
@@ -38,24 +47,30 @@ export function SiteHeader() {
             <Link href="/admin" aria-current={pathname.startsWith("/admin") ? "page" : undefined}>
               Dashboard
             </Link>
-            <Link
-              href="/admin/paper"
-              aria-current={pathname === "/admin/paper" ? "page" : undefined}
-            >
-              Question paper
-            </Link>
-            <Link
-              href="/admin/answers"
-              aria-current={pathname === "/admin/answers" ? "page" : undefined}
-            >
-              Answer sheet
-            </Link>
-            <Link
-              href="/admin/scan"
-              aria-current={pathname === "/admin/scan" ? "page" : undefined}
-            >
-              Scan scripts
-            </Link>
+            {canRun && (
+              <Link
+                href="/admin/paper"
+                aria-current={pathname === "/admin/paper" ? "page" : undefined}
+              >
+                Question paper
+              </Link>
+            )}
+            {canRun && (
+              <Link
+                href="/admin/answers"
+                aria-current={pathname === "/admin/answers" ? "page" : undefined}
+              >
+                Answer sheet
+              </Link>
+            )}
+            {canRun && (
+              <Link
+                href="/admin/scan"
+                aria-current={pathname === "/admin/scan" ? "page" : undefined}
+              >
+                Scan scripts
+              </Link>
+            )}
             {(isOperator || pathname.startsWith("/platform")) && (
               <Link
                 href="/platform"

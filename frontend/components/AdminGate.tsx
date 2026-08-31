@@ -2,7 +2,19 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError, apiBase, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
-import { getApiKey, getSchoolName, setApiKey, signOut } from "@/lib/session";
+import { usePathname } from "next/navigation";
+import Link from "next/link";
+import { getApiKey, getSchoolName, setApiKey, setRole, signOut, type StaffRole } from "@/lib/session";
+
+/**
+ * Routes an admin key opens and a principal key does not. A principal signs in to read
+ * results and progress; producing them -- scanning a paper, entering marks -- is the
+ * admin's job and a separate credential.
+ *
+ * This list only decides what is *offered*. Every one of these screens calls an endpoint
+ * the API refuses to a principal anyway, so a stale browser cannot become a way in.
+ */
+const ADMIN_ONLY = ["/admin/paper", "/admin/answers", "/admin/scan"];
 
 /**
  * The dashboard's sign-in.
@@ -11,8 +23,10 @@ import { getApiKey, getSchoolName, setApiKey, signOut } from "@/lib/session";
  * this — they arrive on a class link and have no account at all.
  */
 export function AdminGate({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname() ?? "";
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [staff, setStaff] = useState<StaffRole | null>(null);
   const [school, setSchool] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -27,6 +41,8 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
       .whoami(key)
       .then((me) => {
         setSchool(me.name);
+        setStaff({ role: me.role, can: me.can });
+        setRole({ role: me.role, can: me.can });
         setSignedIn(true);
       })
       .catch(() => signOut())
@@ -41,6 +57,8 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     try {
       const me = await api.whoami(key);
       setApiKey(key, me.name);
+      setRole({ role: me.role, can: me.can });
+      setStaff({ role: me.role, can: me.can });
       setSchool(me.name);
       setSignedIn(true);
     } catch (err) {
@@ -113,6 +131,9 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     );
   }
 
+  const blocked =
+    staff !== null && staff.role !== "admin" && ADMIN_ONLY.some((p) => pathname.startsWith(p));
+
   return (
     <>
       <div
@@ -126,7 +147,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           alignItems: "center",
         }}
       >
-        <span className="small muted">{school ?? getSchoolName()}</span>
+        <span className="small muted">
+          {school ?? getSchoolName()}
+          {staff && ` · ${staff.role === "admin" ? "Admin" : "Principal"}`}
+        </span>
         <button
           className="secondary tiny"
           onClick={() => {
@@ -137,7 +161,24 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           Sign out
         </button>
       </div>
-      {children}
+      {blocked ? (
+        <main className="narrow">
+          <div className="hero">
+            <p className="eyebrow">Principal</p>
+            <h1>That screen needs an admin key</h1>
+            <p className="lede">
+              Your key reads every student&rsquo;s results and progress across the school.
+              Producing them &mdash; scanning a question paper, entering marks &mdash; is a
+              separate credential, so that a signed-in office laptop cannot alter a mark.
+            </p>
+          </div>
+          <p style={{ marginTop: 18 }}>
+            <Link href="/admin">Back to the dashboard</Link>
+          </p>
+        </main>
+      ) : (
+        children
+      )}
     </>
   );
 }

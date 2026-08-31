@@ -4,11 +4,19 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CopyLink } from "@/components/CopyLink";
 import { api, type Overview } from "@/lib/api";
-import { getApiKey } from "@/lib/session";
+import { getApiKey, getRole } from "@/lib/session";
 
 export default function Dashboard() {
   const [data, setData] = useState<Overview | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A principal sees the results; the three cards below produce them, which is the
+  // admin's job. Read after mount -- localStorage does not exist during the server render.
+  const [canRun, setCanRun] = useState(true);
+
+  useEffect(() => {
+    const role = getRole();
+    setCanRun(role === null || role.can.scan_papers);
+  }, []);
 
   useEffect(() => {
     const key = getApiKey();
@@ -108,6 +116,7 @@ export default function Dashboard() {
         <h2>Papers and scripts</h2>
       </div>
       <div className="grid two">
+        {canRun && (
         <Link href="/admin/paper" className="card">
           <h3>Read a question paper</h3>
           <p className="cardnote">
@@ -117,7 +126,9 @@ export default function Dashboard() {
           </p>
           <span className="arrow">Open the paper reader →</span>
         </Link>
+        )}
 
+        {canRun && (
         <Link href="/admin/answers" className="card">
           <h3>Enter an answer sheet</h3>
           <p className="cardnote">
@@ -127,7 +138,9 @@ export default function Dashboard() {
           </p>
           <span className="arrow">Open the answer sheet →</span>
         </Link>
+        )}
 
+        {canRun && (
         <Link href="/admin/scan" className="card">
           <h3>Scan a script</h3>
           <p className="cardnote">
@@ -136,6 +149,7 @@ export default function Dashboard() {
           </p>
           <span className="arrow">Open the scanner →</span>
         </Link>
+        )}
 
         <div className="card">
           <h3>Assessments</h3>

@@ -18,7 +18,7 @@ from app.analysis.diagnostics import (
     skill_by_tier,
 )
 from app.analysis.paper_quality import cronbach_alpha, item_analysis, typology_alignment
-from app.api.deps import require_admin
+from app.api.deps import require_reader
 from app.db import get_session
 from app.models import (
     Assessment,
@@ -237,7 +237,7 @@ def _topic_axis(rows: list[MarkRow]) -> tuple[str, list]:
 def student_report(
     student_id: str,
     assessment_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
     a = db.get(Assessment, assessment_id)
@@ -280,7 +280,7 @@ def student_report(
 
 @router.get("/paper/{assessment_id}")
 def paper_report(
-    assessment_id: str, school: School = Depends(require_admin), db: Session = Depends(get_session)
+    assessment_id: str, school: School = Depends(require_reader), db: Session = Depends(get_session)
 ) -> dict:
     a = db.get(Assessment, assessment_id)
     if a is None or a.school_id != school.id:
@@ -314,7 +314,7 @@ def paper_report(
 
 @router.get("/interest/{student_id}")
 def interest_report(
-    student_id: str, school: School = Depends(require_admin), db: Session = Depends(get_session)
+    student_id: str, school: School = Depends(require_reader), db: Session = Depends(get_session)
 ) -> dict:
     """The RIASEC profile — principal and admin only. Never returned to a student route."""
     student = db.get(StudentProfile, student_id)

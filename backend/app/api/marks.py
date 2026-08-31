@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import require_admin, require_reader
 from app.api.schemas import (
     AssessmentIn,
     MarkBatchIn,
@@ -69,7 +69,7 @@ def create_assessment(
 
 @router.get("")
 def list_assessments(
-    school: School = Depends(require_admin), db: Session = Depends(get_session)
+    school: School = Depends(require_reader), db: Session = Depends(get_session)
 ) -> dict:
     """Every paper this school has, and how far each one has got.
 
@@ -489,7 +489,7 @@ async def scan_paper(
 @router.get("/{assessment_id}/scan")
 def read_scan(
     assessment_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
     """The staged questions, and what is stopping each one becoming a real question."""
@@ -893,7 +893,7 @@ def _student_for(db: Session, school: School, student_id: str) -> StudentProfile
 def read_answer_sheet(
     assessment_id: str,
     student_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
     """Every question on the paper, with this student's mark if one has been recorded.

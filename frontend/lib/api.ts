@@ -195,6 +195,14 @@ export interface IssuedKey {
   api_key_notice: string;
 }
 
+export interface StaffKeySummary {
+  id: string;
+  role: "principal" | "admin";
+  label: string;
+  created_at: string | null;
+  revoked_at: string | null;
+}
+
 export interface BookStatus {
   subject: string;
   curriculum_ready: boolean;
@@ -361,7 +369,18 @@ export const api = {
     }),
 
   // --- dashboard ---
-  whoami: (key: string) => authed<{ name: string; state: string | null }>("/admin/me", key),
+  whoami: (key: string) =>
+    authed<{
+      name: string;
+      state: string | null;
+      role: "principal" | "admin";
+      can: {
+        read_results: boolean;
+        scan_papers: boolean;
+        enter_marks: boolean;
+        manage_roster: boolean;
+      };
+    }>("/admin/me", key),
 
   overview: (key: string) => authed<Overview>("/admin/overview", key),
 
@@ -402,6 +421,20 @@ export const api = {
       method: "POST",
       body: JSON.stringify(section),
     }),
+
+  listStaffKeys: (key: string, schoolId: string) =>
+    operator<StaffKeySummary[]>(`/platform/schools/${schoolId}/keys`, key),
+
+  issueStaffKey: (key: string, schoolId: string, role: string, label: string) =>
+    operator<StaffKeySummary & IssuedKey>(`/platform/schools/${schoolId}/keys`, key, {
+      method: "POST",
+      body: JSON.stringify({ role, label }),
+    }),
+
+  revokeStaffKey: (key: string, schoolId: string, keyId: string) =>
+    operator<{ id: string; revoked_at: string }>(
+      `/platform/schools/${schoolId}/keys/${keyId}/revoke`, key, { method: "POST" },
+    ),
 
   rotateKey: (key: string, schoolId: string) =>
     operator<IssuedKey & { school_id: string; name: string }>(

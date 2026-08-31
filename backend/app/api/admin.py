@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import Staff, require_reader, require_staff
 from app.db import get_session
 from app.models import (
     Assessment,
@@ -25,20 +25,32 @@ router = APIRouter(prefix="/admin", tags=["dashboard"])
 
 
 @router.get("/me")
-def whoami(school: School = Depends(require_admin)) -> dict:
-    """Validates an API key and names the school. The dashboard's sign-in check."""
+def whoami(staff: Staff = Depends(require_staff)) -> dict:
+    """Validates a key, names the school, and says what this key may do.
+
+    The permissions come from the server rather than being inferred in the browser from
+    the role name. A screen that hides a button it guessed at is one release away from
+    hiding the wrong one; this way the dashboard and the API cannot disagree.
+    """
     return {
-        "school_id": school.id,
-        "name": school.name,
-        "board": school.board,
-        "state": school.state,
-        "training_consent": school.training_consent,
+        "school_id": staff.school.id,
+        "name": staff.school.name,
+        "board": staff.school.board,
+        "state": staff.school.state,
+        "training_consent": staff.school.training_consent,
+        "role": staff.role,
+        "can": {
+            "read_results": True,
+            "scan_papers": staff.is_admin,
+            "enter_marks": staff.is_admin,
+            "manage_roster": staff.is_admin,
+        },
     }
 
 
 @router.get("/overview")
 def overview(
-    school: School = Depends(require_admin), db: Session = Depends(get_session)
+    school: School = Depends(require_reader), db: Session = Depends(get_session)
 ) -> dict:
     """Everything the landing dashboard shows: classes, their student link, and progress."""
     sections = list(
@@ -113,7 +125,7 @@ def overview(
 @router.get("/sections/{section_id}/students")
 def roster(
     section_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
     """The roster, each row carrying enough state to decide what to do next."""
@@ -184,7 +196,7 @@ def roster(
 @router.get("/cohort/{section_id}")
 def cohort(
     section_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
     """Class-level interest distribution — the view that helps plan section sizes."""

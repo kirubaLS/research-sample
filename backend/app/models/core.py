@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from sqlalchemy import Date, ForeignKey, Integer, String, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, PkMixin, TimestampMixin
@@ -21,6 +23,35 @@ class School(Base, PkMixin, TimestampMixin):
     training_consent: Mapped[str] = mapped_column(String(32), default="operational_only")
 
     sections: Mapped[list[Section]] = relationship(back_populates="school")
+
+
+#: Ordered from least to most authority. A route that says "principal or above" is
+#: written once, here, rather than as a set literal repeated at every call site.
+STAFF_ROLES = ("principal", "admin")
+
+
+class StaffKey(Base, PkMixin, TimestampMixin):
+    """A credential belonging to one person at one school, carrying one role.
+
+    The school's own ``api_key`` predates this table and remains the school's admin key,
+    so no deployment loses access by this arriving. Everything issued afterwards is a row
+    here, which is what makes it possible to give a principal a key that can read every
+    student's progress without being able to scan a paper, create a class or rotate a
+    credential.
+
+    Revoking sets ``revoked_at`` rather than deleting: who held access, and until when, is
+    the first question asked after anything goes wrong.
+    """
+
+    __tablename__ = "staff_key"
+
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    api_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    role: Mapped[str] = mapped_column(String(16), default="principal")
+    label: Mapped[str] = mapped_column(String(120), default="")
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    school: Mapped[School] = relationship()
 
 
 class Section(Base, PkMixin, TimestampMixin):

@@ -15,6 +15,7 @@ Two rules the routes here are built around:
 from __future__ import annotations
 
 import secrets
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
@@ -24,7 +25,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_platform_admin
 from app.config import get_settings
 from app.db import get_session
-from app.models import School, Section, StudentProfile
+from app.models import STAFF_ROLES, School, Section, StaffKey, StudentProfile
 from app.ratelimit import FixedWindowLimiter, client_key
 
 router = APIRouter(
@@ -44,6 +45,11 @@ class SectionIn(BaseModel):
     def _normalise(cls, v: str) -> str:
         # 'a' and 'A' are the same class; storing both would split a roster in two
         return v.strip().upper()
+
+
+class StaffKeyIn(BaseModel):
+    role: str = Field(default="principal")
+    label: str = Field(default="", max_length=120)
 
 
 class SchoolIn(BaseModel):
@@ -168,6 +174,78 @@ def add_section(
     db.commit()
     db.refresh(section)
     return _section_view(section)
+
+
+@router.get("/schools/{school_id}/keys")
+def list_staff_keys(school_id: str, db: Session = Depends(get_session)) -> list[dict]:
+    """Who holds a key at this school, and with what role. The secrets are not here.
+
+    There is no route anywhere that reads a key back. If one is lost it is revoked and a
+    new one issued, which is also the only honest thing to tell a principal who asks.
+    """
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+    keys = db.scalars(
+        select(StaffKey).where(StaffKey.school_id == school_id).order_by(StaffKey.created_at)
+    ).all()
+    return [
+        {
+            "id": k.id,
+            "role": k.role,
+            "label": k.label,
+            "created_at": k.created_at.isoformat() if k.created_at else None,
+            "revoked_at": k.revoked_at.isoformat() if k.revoked_at else None,
+        }
+        for k in keys
+    ]
+
+
+@router.post("/schools/{school_id}/keys", status_code=status.HTTP_201_CREATED)
+def issue_staff_key(school_id: str, body: StaffKeyIn, db: Session = Depends(get_session)) -> dict:
+    """Issue a key for one person at one school.
+
+    A principal key reads results and progress across the school. It cannot scan a paper,
+    enter marks or change the roster -- so the person who runs the assessments and the
+    person who reads them are no longer the same credential, and an office laptop left
+    signed in cannot alter a mark.
+    """
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+    if body.role not in STAFF_ROLES:
+        raise HTTPException(422, f"role must be one of {', '.join(STAFF_ROLES)}")
+
+    key = StaffKey(
+        school_id=school.id, api_key=secrets.token_urlsafe(24),
+        role=body.role, label=body.label.strip(),
+    )
+    db.add(key)
+    db.commit()
+    db.refresh(key)
+    return {
+        "id": key.id,
+        "role": key.role,
+        "label": key.label,
+        "api_key": key.api_key,
+        "api_key_notice": (
+            "Shown once. Give it to the person named and store it somewhere safe -- there "
+            "is no route that reads it back, only revoke and re-issue."
+        ),
+    }
+
+
+@router.post("/schools/{school_id}/keys/{key_id}/revoke")
+def revoke_staff_key(school_id: str, key_id: str, db: Session = Depends(get_session)) -> dict:
+    """Stop a key working. The row stays: who held access, and until when, is the first
+    question asked after anything goes wrong."""
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such key")
+    if key.revoked_at is None:
+        key.revoked_at = datetime.now(UTC)
+        db.commit()
+    return {"id": key.id, "role": key.role, "revoked_at": key.revoked_at.isoformat()}
 
 
 @router.post("/schools/{school_id}/rotate-key")

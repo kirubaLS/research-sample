@@ -13,7 +13,7 @@ from app.models.assessment import (
     ScannedQuestion,
 )
 from app.models.base import Base, new_id, utcnow
-from app.models.core import School, Section, StudentProfile
+from app.models.core import STAFF_ROLES, School, Section, StaffKey, StudentProfile
 from app.models.corpus import (
     CaptureAsset,
     Crop,
@@ -52,6 +52,6 @@ __all__ = [
     "QuestionTier",
     "DataQualityFlag", "AnalysisRun", "TIERS", "CBSE_TIER_TARGET",
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
-    "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
+    "STAFF_ROLES", "StaffKey", "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
     "CaptureAsset", "Crop", "Prediction", "HumanLabel", "Disagreement",
 ]

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CopyLink } from "@/components/CopyLink";
 import { CopySecret } from "@/components/CopySecret";
-import { api, ApiError, PlatformSchool } from "@/lib/api";
+import { api, ApiError, PlatformSchool, StaffKeySummary } from "@/lib/api";
 import { getPlatformKey } from "@/lib/session";
 
 const CONSENT = [
@@ -31,9 +31,28 @@ export default function PlatformConsole() {
     }
   }, []);
 
+  const [staffKeys, setStaffKeys] = useState<Record<string, StaffKeySummary[]>>({});
+
+  const loadKeys = useCallback(async (schoolId: string) => {
+    const key = getPlatformKey();
+    if (!key) return;
+    try {
+      const rows = await api.listStaffKeys(key, schoolId);
+      setStaffKeys((all) => ({ ...all, [schoolId]: rows }));
+    } catch {
+      /* the school still lists; a key panel that failed to load says nothing false */
+    }
+  }, []);
+
   useEffect(() => {
     load();
   }, [load]);
+
+  // Once the schools are known, fetch each one's staff keys. Listing carries no secrets,
+  // only who holds what -- there is no route anywhere that reads a key back.
+  useEffect(() => {
+    (schools ?? []).forEach((s) => void loadKeys(s.id));
+  }, [schools, loadKeys]);
 
   function describe(err: unknown, fallback: string): string {
     if (err instanceof ApiError && err.status === 409) {
@@ -88,12 +107,42 @@ export default function PlatformConsole() {
     }
   }
 
+  async function issueKey(school: PlatformSchool, role: "principal" | "admin") {
+    const key = getPlatformKey();
+    if (!key) return;
+    const label = window.prompt(
+      `Who is this ${role} key for at ${school.name}? (a name, so it can be revoked later)`,
+      "",
+    );
+    if (label === null) return;
+    try {
+      const created = await api.issueStaffKey(key, school.id, role, label);
+      setIssued({ name: `${school.name} — ${role}`, api_key: created.api_key, notice: created.api_key_notice });
+      await loadKeys(school.id);
+    } catch (err) {
+      setError(describe(err, "Could not issue the key."));
+    }
+  }
+
+  async function revokeKey(school: PlatformSchool, entry: StaffKeySummary) {
+    const key = getPlatformKey();
+    if (!key) return;
+    if (!window.confirm(`Revoke the ${entry.role} key${entry.label ? ` for ${entry.label}` : ""}? They are signed out immediately.`)) return;
+    try {
+      await api.revokeStaffKey(key, school.id, entry.id);
+      await loadKeys(school.id);
+    } catch (err) {
+      setError(describe(err, "Could not revoke the key."));
+    }
+  }
+
   async function rotate(school: PlatformSchool) {
     const key = getPlatformKey();
     if (!key) return;
     const ok = window.confirm(
-      `Issue a new key for ${school.name}?\n\nThe principal's current key stops working ` +
-        `immediately and they will have to sign in again. Class links are not affected.`,
+      `Issue a new ADMIN key for ${school.name}?\n\nThe school's current admin key stops ` +
+        `working immediately and whoever holds it will have to sign in again. Principal ` +
+        `keys and class links are not affected.`,
     );
     if (!ok) return;
     try {
@@ -228,7 +277,49 @@ export default function PlatformConsole() {
                 Add a class
               </button>
               <button className="secondary tiny" onClick={() => rotate(school)}>
-                Issue a new principal key
+                Rotate the admin key
+              </button>
+            </div>
+
+            <p className="eyebrow" style={{ marginTop: 18 }}>
+              Staff keys
+            </p>
+            <p className="small muted" style={{ marginTop: 0 }}>
+              A principal key reads results and progress across the school. It cannot scan a
+              paper, enter marks or change the roster &mdash; so the person who runs the
+              assessments and the person who reads them are separate credentials.
+            </p>
+            {(staffKeys[school.id] ?? []).length === 0 ? (
+              <p className="small muted">
+                None issued. The school&rsquo;s own key is its admin key.
+              </p>
+            ) : (
+              <div className="stack" style={{ gap: 6 }}>
+                {(staffKeys[school.id] ?? []).map((entry) => (
+                  <div className="row between" key={entry.id}>
+                    <span className="small">
+                      <span className="mono">{entry.role}</span>
+                      {entry.label ? ` · ${entry.label}` : ""}
+                      {entry.revoked_at && <span className="muted"> · revoked</span>}
+                    </span>
+                    {!entry.revoked_at && (
+                      <button
+                        className="secondary tiny"
+                        onClick={() => revokeKey(school, entry)}
+                      >
+                        Revoke
+                      </button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
+              <button className="secondary tiny" onClick={() => issueKey(school, "principal")}>
+                Issue a principal key
+              </button>
+              <button className="secondary tiny" onClick={() => issueKey(school, "admin")}>
+                Issue an admin key
               </button>
             </div>
           </div>
