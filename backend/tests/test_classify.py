@@ -530,3 +530,24 @@ def test_applying_the_science_curriculum_sets_up_its_units_and_chapters(tmp_path
             w.source_doc_url
             for w in db.scalars(select(BoardUnitWeight))
         )
+
+
+def test_a_heading_the_book_shouts_is_not_a_family_name():
+    """Science prints its section headings in full capitals. Carried through, the report
+    would say the student is weak at 'HOW DO OUR ACTIVITIES AFFECT THE ENVIRONMENT?'."""
+    from app.curriculum.families import propose, readable
+
+    assert readable("HOW DO OUR ACTIVITIES AFFECT THE ENVIRONMENT?") == (
+        "How do our activities affect the environment?"
+    )
+    assert readable("OHM’S LAW") == "Ohm’s law"
+    assert readable("ECO-SYSTEM — WHAT ARE ITS COMPONENTS?") == (
+        "Eco-system — what are its components?"
+    )
+    # Maths already sets its headings properly and must come through untouched.
+    assert readable("Volume of a Combination of Solids") == "Volume of a Combination of Solids"
+
+    [p] = propose([("X.SCI.ELECTRICITY", "Electricity", "ELECTRIC POWER", 3)], "X.SCI")
+    assert p.label == "Electric power"
+    # The code is derived from the words, so it is unaffected by the casing fix.
+    assert p.code == "X.SCI.CF.ELECTRIC_POWER"

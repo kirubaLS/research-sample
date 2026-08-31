@@ -42,6 +42,27 @@ class Proposal:
     chunks: int
 
 
+def readable(label: str) -> str:
+    """Undo a typographic choice, without changing a word.
+
+    Science sets its section headings in full capitals -- that is how the book prints
+    them, not what they are called. Carried through, a report would tell a teacher the
+    student is weak at "HOW DO OUR ACTIVITIES AFFECT THE ENVIRONMENT?".
+
+    Sentence case rather than title case: these headings are as often questions as noun
+    phrases, and "How Do Our Activities Affect The Environment?" is no better. A label
+    that is not entirely uppercase is left exactly as the book set it -- Maths already
+    prints "Volume of a Combination of Solids" and there is nothing to fix.
+    """
+    if not label.isupper():
+        return label
+    out = label.lower()
+    for i, ch in enumerate(out):
+        if ch.isalpha():
+            return out[:i] + ch.upper() + out[i + 1:]
+    return out
+
+
 def slugify(label: str) -> str:
     """A stable code from a label. Stable is the whole point: this outlives the label."""
     cleaned = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
@@ -66,7 +87,7 @@ def propose(
     out: list[Proposal] = []
     seen: set[str] = set()
     for chapter_code, chapter_label, section_label, chunks in sections:
-        label = section_label.strip()
+        label = readable(section_label.strip())
         if label.lower() in NOT_A_FAMILY:
             continue
         code = f"{subject_code}.CF.{slugify(label)}"
