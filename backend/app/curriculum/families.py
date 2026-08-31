@@ -22,6 +22,7 @@ commitment is a person's to make.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass
 
@@ -63,12 +64,42 @@ def readable(label: str) -> str:
     return out
 
 
+#: Long enough to stay readable, short enough for a report column and an index.
+CODE_CHARS = 40
+#: Reserved at the end of a truncated code for the digest that keeps it unique.
+DIGEST_CHARS = 6
+
+
 def slugify(label: str) -> str:
-    """A stable code from a label. Stable is the whole point: this outlives the label."""
+    """A stable code from a label. Stable is the whole point: this outlives the label.
+
+    A plain character cut was wrong in two ways, and codes are never renamed, so both
+    would have been permanent. It severed words -- "Trigonometric ratios of standard
+    angles (0 deg, 30 deg...)" became ...ANGLES_0_3, which reads as nought point three --
+    and two labels sharing a 40-character prefix produced one code for two families,
+    silently merging two trends into one row.
+
+    So a truncated code is cut at a word boundary and carries a short digest of the whole
+    label. The digest makes it unique by construction rather than by luck; the word
+    boundary keeps it legible to whoever reads it in a report six months from now. A label
+    that fits is untouched, which is most of them and every one written so far.
+    """
     cleaned = re.sub(r"[^a-z0-9]+", "_", label.lower()).strip("_")
     # drop the filler that makes codes long without making them distinct
     parts = [p for p in cleaned.split("_") if p not in {"of", "a", "the", "to", "and", "on"}]
-    return "_".join(parts)[:40].upper()
+    full = "_".join(parts)
+    if len(full) <= CODE_CHARS:
+        return full.upper()
+
+    digest = hashlib.sha256(label.strip().encode("utf-8")).hexdigest()[:DIGEST_CHARS]
+    room = CODE_CHARS - DIGEST_CHARS - 1
+    kept: list[str] = []
+    for part in parts:
+        if len("_".join([*kept, part])) > room:
+            break
+        kept.append(part)
+    stem = "_".join(kept) or full[:room].rstrip("_")
+    return f"{stem}_{digest}".upper()
 
 
 def propose(

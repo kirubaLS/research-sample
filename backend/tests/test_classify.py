@@ -551,3 +551,44 @@ def test_a_heading_the_book_shouts_is_not_a_family_name():
     assert p.label == "Electric power"
     # The code is derived from the words, so it is unaffected by the casing fix.
     assert p.code == "X.SCI.CF.ELECTRIC_POWER"
+
+
+def test_a_long_label_is_cut_at_a_word_and_kept_unique():
+    """Codes are never renamed, so a bad one is permanent. A plain character cut severed
+    words -- 'Trigonometric ratios of standard angles (0 deg, 30 deg, ...)' ended
+    ...ANGLES_0_3, which reads as nought point three."""
+    from app.curriculum.families import CODE_CHARS, slugify
+
+    code = slugify("Trigonometric ratios of standard angles (0°, 30°, 45°, 60°, 90°)")
+    assert len(code) <= CODE_CHARS
+    assert not code.endswith("_")
+    assert code.startswith("TRIGONOMETRIC_RATIOS_STANDARD_")
+
+
+def test_two_labels_sharing_a_long_prefix_do_not_become_one_code():
+    """The dangerous case: one code for two families silently merges two trends into one
+    report row, and nothing downstream can tell."""
+    from app.curriculum.families import slugify
+
+    a = slugify("Finding heights and distances using angles of elevation from a tower")
+    b = slugify("Finding heights and distances using angles of elevation from a cliff")
+    assert a != b
+    assert a.startswith("FINDING_HEIGHTS_DISTANCES_USING_")
+
+
+def test_a_label_that_fits_is_left_exactly_as_it_was():
+    """Most labels fit, including every family created so far. Adding a digest to those
+    would change codes already applied, which is the one thing this must never do."""
+    from app.curriculum.families import slugify
+
+    assert slugify("Volume of composite solids") == "VOLUME_COMPOSITE_SOLIDS"
+    assert slugify("Area of a sector") == "AREA_SECTOR"
+    assert slugify("Corrosion") == "CORROSION"
+
+
+def test_the_digest_is_stable_across_runs():
+    """A code that changed between runs would fork the trend it exists to hold together."""
+    from app.curriculum.families import slugify
+
+    label = "Mean for grouped data using step-deviation method"
+    assert slugify(label) == slugify(label) == "MEAN_FOR_GROUPED_DATA_USING_STEP_1010A8"
