@@ -153,7 +153,7 @@ export default function BooksPage() {
         <h1>Load a book</h1>
         <p className="lede">
           The chapter tree, the taught content and the exercises come from the NCERT book.
-          Upload the contents page first &mdash; every chapter is checked against it, and one
+          Upload the contents page first. Every chapter is checked against it, and one
           that disagrees is refused rather than loaded.
         </p>
       </div>
@@ -204,7 +204,7 @@ export default function BooksPage() {
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>
-          The board units and their weightage &mdash; from CBSE&apos;s syllabus, not from the
+          The board units and their weightage, from CBSE&apos;s syllabus rather than from the
           book. A unit may span several chapters (Algebra covers four) or exist where no
           chapter does, so it cannot be derived from the book and has to be in place before
           one is loaded.
@@ -223,7 +223,7 @@ export default function BooksPage() {
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>
-          The prelims file &mdash; NCERT names it <span className="mono">jemh1ps.pdf</span> for
+          The prelims file, which NCERT names <span className="mono">jemh1ps.pdf</span> for
           Maths. It lists every section of every chapter, which is what makes an extraction
           checkable rather than merely plausible.
         </p>
@@ -243,7 +243,7 @@ export default function BooksPage() {
         <p className="cardnote" style={{ marginBottom: 14 }}>
           Select them all at once, under NCERT&apos;s own names (
           <span className="mono">jemh101.pdf</span>) or as{" "}
-          <span className="mono">NN-slug.pdf</span> &mdash; no renaming needed. The contents
+          <span className="mono">NN-slug.pdf</span>, with no renaming needed. The contents
           page, the answers and the appendices are refused: the answers file matches
           &ldquo;EXERCISE&rdquo; 31 times and would load the answer key as practice content.
         </p>
@@ -268,8 +268,8 @@ export default function BooksPage() {
         </p>
         {status && !status.embeddings_configured && (
           <div className="notice warn" style={{ marginBottom: 14 }}>
-            No embedding key on the API service. Set{" "}
-            <span className="mono">YAADHUM_JINA_API_KEY</span> and redeploy.
+            The embedding service is not configured for this deployment, so nothing can be
+            embedded yet. Add its key and publish again.
           </div>
         )}
         <button onClick={embed} disabled={busy || !status?.chunks || !status?.embeddings_configured}>

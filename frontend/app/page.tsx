@@ -16,7 +16,7 @@ export default function Home() {
         </h1>
         <p className="lede">
           Yaadhum reads question-level performance and says where marks were lost, whether
-          the gap is recall or application, and which concepts need reteaching — plus an
+          the gap is recall or application, and which concepts need reteaching, plus an
           interest profile that helps a student choose a stream.
         </p>
       </div>
@@ -52,7 +52,7 @@ export default function Home() {
         <div className="card">
           <h3>Interest profiling</h3>
           <p className="cardnote">
-            A validated six-type inventory, scored with the person&apos;s own baseline removed —
+            A validated six-type inventory, scored with the person&apos;s own baseline removed,
             and withheld entirely when a profile is too flat to call.
           </p>
         </div>
@@ -67,7 +67,7 @@ export default function Home() {
           <h3>Paper quality</h3>
           <p className="cardnote">
             Whether the paper matches the board&apos;s own balance of recall, application and
-            analysis — and which chapters it never tested at all.
+            analysis, and which chapters it never tested at all.
           </p>
         </div>
       </div>

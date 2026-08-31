@@ -129,7 +129,7 @@ def list_schools(db: Session = Depends(get_session)) -> list[dict]:
 
 @router.post("/schools", status_code=status.HTTP_201_CREATED)
 def create_school(body: SchoolIn, db: Session = Depends(get_session)) -> dict:
-    """Create a school, its sections, and the principal's key.
+    """Create a school, its sections, and the school's own admin key.
 
     The key comes back exactly once, in this response. There is no route that reads it
     back later -- only ``/rotate``, which replaces it.
@@ -159,8 +159,8 @@ def create_school(body: SchoolIn, db: Session = Depends(get_session)) -> dict:
     view = _school_view(db, school)
     view["api_key"] = school.api_key
     view["api_key_notice"] = (
-        "This key is shown once. Give it to the principal and store it somewhere safe -- "
-        "if it is lost, issue a new one with Rotate."
+        "This key is shown once. It runs this one school and cannot reach another or "
+        "create one. Store it safely; if it is lost, rotate it rather than looking it up."
     )
     return view
 
@@ -294,7 +294,7 @@ def revoke_staff_key(school_id: str, key_id: str, db: Session = Depends(get_sess
 
 @router.post("/schools/{school_id}/rotate-key")
 def rotate_key(school_id: str, db: Session = Depends(get_session)) -> dict:
-    """Issue a new principal key. The old one stops working immediately.
+    """Issue a new admin key for this school. The old one stops working immediately.
 
     Sections and every student record are untouched -- rotating a credential must not
     disturb a class link a school has already handed out.

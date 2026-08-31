@@ -28,6 +28,22 @@ import { getApiKey } from "@/lib/session";
 
 type Draft = { marks: string; state: string };
 
+/**
+ * Where a mark came from, said in words. The stored values name the part of the pipeline
+ * that produced them, which means nothing to the person reading the sheet.
+ */
+const SOURCE_LABEL: Record<string, string> = {
+  page_ocr: "read from the page",
+  cover_ocr: "read from the cover",
+  csv: "imported from a file",
+  teacher: "confirmed by a teacher",
+};
+
+/** "1 mark" or "3 marks". A person should never have to read "mark(s)". */
+function counted(n: number): string {
+  return `${n} mark${n === 1 ? "" : "s"}`;
+}
+
 const STATES = [
   ["awarded", "Awarded"],
   ["zero", "Zero"],
@@ -185,14 +201,17 @@ export default function AnswersPage() {
     setError(null);
     try {
       const out = await api.confirmAnswers(key, sheet.assessment.id, sheet.student.id, answers, by);
+      // Re-read first, then say what happened: reloading clears the last message, so
+      // setting it beforehand wiped the only confirmation the person ever gets.
+      await load();
       setRejected(Object.fromEntries(out.rejected.map((r) => [r.address, r.reason])));
       setSaved(
         out.complete
-          ? `Complete — ${out.scored} of ${out.available}. ${out.written} mark(s) recorded.`
-          : `${out.written} mark(s) recorded. ${out.remaining} question(s) still to enter, ` +
-            `so ${out.scored} of ${out.available} is a running figure, not a result.`,
+          ? `Complete. ${out.scored} of ${out.available}, with ${counted(out.written)} recorded.`
+          : `${counted(out.written)} recorded. ${out.remaining} question${
+              out.remaining === 1 ? "" : "s"
+            } still to enter, so ${out.scored} of ${out.available} is a running figure, not a result.`,
       );
-      await load();
     } catch (err) {
       setError(explain(err));
     } finally {
@@ -202,7 +221,8 @@ export default function AnswersPage() {
 
   return (
     <main className="wrap">
-      <h1>Answer sheet</h1>
+      <p className="eyebrow">Answer sheet</p>
+      <h1>Enter one student&rsquo;s marks</h1>
       <p className="lede">
         Enter one student&rsquo;s marks against a paper that has already been scanned and
         mapped to the book. Every question appears, including the ones with nothing against
@@ -218,7 +238,7 @@ export default function AnswersPage() {
               {ready.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.title} · {p.subject_code} · {p.questions} questions
-                  {p.stage === "mapped" ? "" : " (not mapped to the book)"}
+                  {p.stage === "mapped" ? "" : " (not linked to the book yet)"}
                 </option>
               ))}
             </select>
@@ -244,7 +264,7 @@ export default function AnswersPage() {
               <option value="">Choose a student…</option>
               {students.map((s) => (
                 <option key={s.student_id} value={s.student_id}>
-                  {s.roll_no} — {s.name}
+                  {s.roll_no}. {s.name}
                 </option>
               ))}
             </select>
@@ -254,7 +274,7 @@ export default function AnswersPage() {
         {papers.length > 0 && ready.length === 0 && (
           <p className="warnish">
             No paper has been read yet. Scan and confirm one on the Question paper screen
-            first — marks have nothing to attach to until then.
+            first. Marks have nothing to attach to until then.
           </p>
         )}
       </section>
@@ -370,7 +390,7 @@ function Row({
         {q.chapter && <span className="chip">{q.chapter}</span>}
         {q.concept_family && <span className="chip strong">{q.concept_family}</span>}
         {q.source && q.source !== "teacher" && (
-          <span className="chip">read by {q.source.replace("_", " ")}</span>
+          <span className="chip">{SOURCE_LABEL[q.source] ?? "read automatically"}</span>
         )}
         {q.source === "teacher" && <span className="chip strong">confirmed</span>}
       </div>
@@ -402,7 +422,7 @@ function Row({
         </label>
       </div>
 
-      {rejected && <p className="rej">Not recorded — {rejected}</p>}
+      {rejected && <p className="rej">Not recorded. {rejected}</p>}
 
       <style jsx>{`
         li { border: 1px solid #e3e3e6; border-left: 4px solid #16324f; border-radius: 10px; padding: 12px; background: #fff; }

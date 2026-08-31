@@ -6,10 +6,17 @@ import { CopySecret } from "@/components/CopySecret";
 import { api, ApiError, PlatformSchool, StaffKeySummary } from "@/lib/api";
 import { getPlatformKey } from "@/lib/session";
 
+/** The stored values are for the database. These are what a person reads. */
+const CONSENT_LABEL: Record<string, string> = {
+  operational_only: "Operational only",
+  improve_models: "May improve models",
+  research: "Research",
+};
+
 const CONSENT = [
-  ["operational_only", "Operational only — run the product, no model training"],
-  ["improve_models", "Improve models — anonymised work may train recognition"],
-  ["research", "Research — as above, plus aggregate study"],
+  ["operational_only", "Operational only: run the product, no model training"],
+  ["improve_models", "Improve models: anonymised work may train recognition"],
+  ["research", "Research: as above, plus aggregate study"],
 ] as const;
 
 /** A key the operator must copy now: there is no route that reads one back later. */
@@ -60,7 +67,7 @@ export default function PlatformConsole() {
     try {
       const created = await api.issueAdminKey(key, label);
       setIssued({
-        name: `Admin — ${label || "unnamed"}`,
+        name: `Admin key for ${label || "an unnamed person"}`,
         api_key: created.api_key,
         notice: created.api_key_notice,
       });
@@ -105,7 +112,7 @@ export default function PlatformConsole() {
 
   function describe(err: unknown, fallback: string): string {
     if (err instanceof ApiError && err.status === 409) {
-      return "That name is already taken — a school with it exists.";
+      return "That name is already taken by a school that exists.";
     }
     return fallback;
   }
@@ -166,7 +173,7 @@ export default function PlatformConsole() {
     if (label === null) return;
     try {
       const created = await api.issueStaffKey(key, school.id, role, label);
-      setIssued({ name: `${school.name} — ${role}`, api_key: created.api_key, notice: created.api_key_notice });
+      setIssued({ name: `${school.name}, ${role} key`, api_key: created.api_key, notice: created.api_key_notice });
       await loadKeys(school.id);
     } catch (err) {
       setError(describe(err, "Could not issue the key."));
@@ -226,7 +233,7 @@ export default function PlatformConsole() {
         <h1>Schools</h1>
         <p className="lede">
           Create a school, add its classes, and issue the key its principal signs in with.
-          No student data is visible here — that stays inside each school&apos;s own dashboard.
+          No student data is visible here. That stays inside each school&apos;s own dashboard.
         </p>
       </div>
 
@@ -256,7 +263,7 @@ export default function PlatformConsole() {
       <div className="card">
         <p className="small muted" style={{ marginTop: 0 }}>
           An admin key belongs to no school. It creates schools, loads books and works
-          across every school here &mdash; and because it has no home school, every request
+          across every school here. Because it has no home school, every request
           it makes has to name the one it is about, so there is no school it can act on by
           accident. The operator key below is only needed to issue the first one.
         </p>
@@ -342,7 +349,7 @@ export default function PlatformConsole() {
             <p className="cardnote">
               {school.board}
               {school.state ? ` · ${school.state}` : ""} · {school.students} students ·{" "}
-              <span className="mono">{school.training_consent}</span>
+              {CONSENT_LABEL[school.training_consent] ?? school.training_consent}
             </p>
 
             <p className="eyebrow" style={{ marginTop: 18 }}>
@@ -371,7 +378,7 @@ export default function PlatformConsole() {
             </p>
             <p className="small muted" style={{ marginTop: 0 }}>
               A principal key reads results and progress for this school and no other. It
-              cannot scan a paper, enter marks or change the roster &mdash; so the person
+              cannot scan a paper, enter marks or change the roster, so the person
               who runs the assessments and the person who reads them are separate
               credentials. A key for this school only can do all of that here, but cannot
               create a school or reach another one.
@@ -385,7 +392,7 @@ export default function PlatformConsole() {
                 {(staffKeys[school.id] ?? []).map((entry) => (
                   <div className="row between" key={entry.id}>
                     <span className="small">
-                      <span className="mono">{entry.role}</span>
+                      <strong>{entry.role === "admin" ? "Admin" : "Principal"}</strong>
                       {entry.label ? ` · ${entry.label}` : ""}
                       {entry.revoked_at && <span className="muted"> · revoked</span>}
                     </span>

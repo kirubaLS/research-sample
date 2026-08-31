@@ -59,7 +59,7 @@ export default function PaperPage() {
     } catch {
       /* the body was not JSON; fall through to the status */
     }
-    if (err.status === 404) return "Sign in again — that key was not recognised.";
+    if (err.status === 404) return "That key was not recognised. Please sign in again.";
     return `The API returned ${err.status}.`;
   }
 
@@ -150,7 +150,7 @@ export default function PaperPage() {
           <p className="eyebrow">Question paper</p>
           <h1>Read a paper, and map it onto the book</h1>
           <p className="lede">
-            Every question is matched to a chapter, a section and a concept family — all of
+            Every question is matched to a chapter, a section and a concept family, all of
             them from the textbook you loaded, none of them from memory. A question that
             cannot be matched keeps its place here and says why.
           </p>
@@ -210,7 +210,7 @@ export default function PaperPage() {
           >
             <p className="drop-title">Drop the question paper here</p>
             <p className="drop-hint">
-              One page or many — PDFs or photographs, in the order you add them. A paper
+              One page or many, as PDFs or photographs, in the order you add them. A paper
               with selectable text is read now; a photographed one is reported plainly
               rather than returned as an empty result.
             </p>
@@ -265,7 +265,7 @@ export default function PaperPage() {
             <div className="verdict warn">
               <p>
                 <strong>The paper disagrees with what was read.</strong> Nothing is wrong
-                with storing it — but these are the gaps a person has to close.
+                with storing it, but these are the gaps a person has to close.
               </p>
               <ul>
                 {scan.problems.map((p) => (
@@ -290,7 +290,7 @@ export default function PaperPage() {
                 {busy ?? "These questions are correct"}
               </button>
               <p className="muted">
-                Nothing is mapped until someone checks it. Correct any row below first —
+                Nothing is mapped until someone checks it. Correct any row below first;
                 after you confirm, the rows are locked and re-reading the paper is the only
                 way to change them.
               </p>

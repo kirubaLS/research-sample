@@ -26,7 +26,7 @@ export default function ScanPage() {
       done += 1;
       setStatus(`Uploaded ${done} of ${pages.length}`);
     }
-    setStatus(`Uploaded ${pages.length} page(s). The script will appear on the student's record.`);
+    setStatus(`Uploaded ${pages.length} page${pages.length === 1 ? "" : "s"}. The script will appear on the student's record.`);
     if (mode === "cover") setMode("script");
   }
 

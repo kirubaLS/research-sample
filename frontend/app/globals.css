@@ -123,6 +123,23 @@ main.narrow { max-width: 680px; }
 .navlinks a:hover { background: var(--surface-2); color: var(--ink); }
 .navlinks a[aria-current="page"] { background: var(--surface-2); color: var(--ink); font-weight: 600; }
 
+/* On a phone the links are wider than the screen. They scroll sideways on their own row
+   rather than pushing the page wider, which is what made every screen scroll horizontally
+   and the right-hand edge of every card sit off-screen. */
+@media (max-width: 760px) {
+  .siteheader .inner { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+  .navlinks {
+    margin-left: 0;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .navlinks::-webkit-scrollbar { display: none; }
+  .navlinks a { white-space: nowrap; padding: 7px 9px; }
+}
+
 /* --- hero ----------------------------------------------------------------------------- */
 .hero { padding: 26px 0 8px; }
 .hero .lede { font-size: 19px; color: var(--ink-2); max-width: 60ch; }

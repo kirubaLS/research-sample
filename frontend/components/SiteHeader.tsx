@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getPlatformKey, getRole } from "@/lib/session";
+import { getActiveSchool, getApiKey, getPlatformKey, getRole } from "@/lib/session";
 
 /**
  * The navigation that was missing. A student following a class link sees only the brand —
@@ -22,12 +22,19 @@ export function SiteHeader() {
   // A principal reads results; they do not run the scanners. Offering links that lead to
   // a refusal is worse than not offering them, so the nav follows the role. Read after
   // mount for the same reason as the operator key above.
-  const [canRun, setCanRun] = useState(true);
+  // Nothing on the staff side is offered until somebody is actually signed in, and then
+  // only what their key opens. Offering a link that leads to a sign-in page or a refusal
+  // is worse than not offering it. Read after mount, like the operator key above.
+  const [canRun, setCanRun] = useState(false);
   const [canManageSchools, setCanManageSchools] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
   useEffect(() => {
     const role = getRole();
-    setCanRun(role === null || role.can.scan_papers);
-    setCanManageSchools(Boolean(role?.can.manage_schools));
+    const staffKey = Boolean(getApiKey());
+    setSignedIn(staffKey);
+    setCanManageSchools(Boolean(role?.can.manage_schools) || Boolean(getPlatformKey()));
+    // An admin who has not chosen a school yet has nothing for these screens to act on.
+    setCanRun(staffKey && Boolean(role?.can.scan_papers) && Boolean(getActiveSchool() || role?.scope === "one_school"));
   }, [pathname]);
 
   return (
@@ -46,9 +53,11 @@ export function SiteHeader() {
 
         {!isStudentFlow && (
           <nav className="navlinks">
-            <Link href="/admin" aria-current={pathname.startsWith("/admin") ? "page" : undefined}>
-              Dashboard
-            </Link>
+            {signedIn && (
+              <Link href="/admin" aria-current={pathname === "/admin" ? "page" : undefined}>
+                Dashboard
+              </Link>
+            )}
             {canRun && (
               <Link
                 href="/admin/paper"

@@ -47,8 +47,11 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key", "X-Platform-Key"],
+    # PATCH is here because correcting a scanned question uses it, and PUT because the
+    # syllabus scope does. A method missing from this list fails in the browser only --
+    # every server-side test passes, which is exactly how it goes unnoticed.
+    allow_methods=["GET", "POST", "PATCH", "PUT", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Platform-Key", "X-School-Id"],
     max_age=600,
 )
 

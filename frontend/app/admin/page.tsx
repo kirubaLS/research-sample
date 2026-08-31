@@ -74,7 +74,7 @@ export default function Dashboard() {
         <div className="card empty">
           <div className="big">No classes yet</div>
           <p className="cardnote">
-            Run <span className="mono">python -m scripts.seed</span> to create a demo class.
+            Add one below to get started.
           </p>
         </div>
       ) : (
@@ -96,7 +96,7 @@ export default function Dashboard() {
                 {s.flagged > 0 && <> · {s.flagged} flagged</>}
               </p>
 
-              <label>Student link — give this to the class</label>
+              <label>Student link, to give to the class</label>
               <CopyLink path={s.student_path} />
 
               <div className="row" style={{ marginTop: 16 }}>
@@ -121,7 +121,7 @@ export default function Dashboard() {
           <h3>Read a question paper</h3>
           <p className="cardnote">
             Upload the paper and every question is matched to a chapter, a section and a
-            concept family — from the textbook, not from memory. Anything that cannot be
+            concept family, from the textbook rather than from memory. Anything that cannot be
             matched says so.
           </p>
           <span className="arrow">Open the paper reader →</span>

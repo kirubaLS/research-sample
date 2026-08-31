@@ -94,7 +94,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
         {report.scales.map((s) => (
           <div className="scalerow" key={s.scale}>
             <span className="nm">{SCALE_NAMES[s.scale] ?? s.scale}</span>
-            <div className="scaletrack" title={`95% interval ${s.ci[0]}–${s.ci[1]}`}>
+            <div className="scaletrack" title={`95% interval ${s.ci[0]} to ${s.ci[1]}`}>
               <div
                 className={`scalefill ${s.scale === lead ? "lead" : ""}`}
                 style={{ width: `${Math.max(2, s.percentile)}%` }}
@@ -105,7 +105,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
         ))}
         <p className="small muted" style={{ marginTop: 14, marginBottom: 0 }}>
           Percentile against the cohort, shrunk toward the prior while the cohort is small.
-          Hover a bar for its 95% interval — they are wide on purpose at this sample size.
+          Hover a bar for its 95% interval. They are wide on purpose at this sample size.
         </p>
       </div>
 

@@ -109,8 +109,8 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                       </span>
                     )}
                   </td>
-                  <td className="mono">{s.holland_code ?? "—"}</td>
-                  <td>{s.withheld ? <span className="muted">withheld</span> : (s.top_stream ?? "—")}</td>
+                  <td className="mono">{s.holland_code ?? "not yet"}</td>
+                  <td>{s.withheld ? <span className="muted">withheld</span> : (s.top_stream ?? "not yet")}</td>
                   <td>
                     {s.status === "complete" && (
                       <Link className="btn secondary tiny" href={`/admin/students/${s.student_id}`}>

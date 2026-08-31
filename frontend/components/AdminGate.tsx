@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, apiBase, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
+import { api, ApiError, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
@@ -47,6 +47,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   const [signedIn, setSignedIn] = useState(false);
   const [staff, setStaff] = useState<StaffRole | null>(null);
   const [needsSchool, setNeedsSchool] = useState(false);
+  const [stale, setStale] = useState<string | null>(null);
   const [school, setSchool] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -73,9 +74,20 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           setNeedsSchool(true);
           setSignedIn(true);
           setStaff({ role: "admin", scope: "all_schools", can: ADMIN_CAN });
+          setRole({ role: "admin", scope: "all_schools", can: ADMIN_CAN });
           return;
         }
-        signOut();
+        // Only a rejected key signs anyone out. A server still starting, or a network
+        // that dropped, is not a reason to throw away a session and make a teacher find
+        // their key again -- they will simply see the error and can retry.
+        if (err instanceof ApiError && err.status === 404) {
+          signOut();
+          return;
+        }
+        setStale(
+          "Could not check your session just now. Reload in a moment; you are still signed in.",
+        );
+        setSignedIn(true);
       })
       .finally(() => setReady(true));
   }, []);
@@ -98,6 +110,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         setApiKey(key, "");
         clearActiveSchool();
         setStaff({ role: "admin", scope: "all_schools", can: ADMIN_CAN });
+        setRole({ role: "admin", scope: "all_schools", can: ADMIN_CAN });
         setNeedsSchool(true);
         setSignedIn(true);
         setBusy(false);
@@ -105,7 +118,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
       }
       setError(
         err instanceof ApiUnreachable
-          ? `Could not reach the API at ${err.base}. Either the backend is down, or this site was built without NEXT_PUBLIC_API_BASE pointing at it, or the API's CORS origins do not include this site.`
+          ? "Could not reach the server. It may be starting up, or this site may be pointed at the wrong address. Try again in a minute, and tell whoever set up this deployment if it keeps happening."
           : err instanceof ApiError && err.status === 404
             ? "That key was not recognised. Check it against the one the operator console issued."
             : "Something went wrong signing in.",
@@ -130,17 +143,16 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           <p className="eyebrow">Principal &amp; admin</p>
           <h1>Sign in</h1>
           <p className="lede">
-            The dashboard is for school staff. Students do not sign in — they open a class
-            link instead.
+            The dashboard is for school staff. Students do not sign in; they open the class
+            link their teacher gives them.
           </p>
         </div>
 
         {apiBaseIsDefault() && (
           <div className="notice warn" style={{ marginTop: 18 }}>
-            This site was built without <span className="mono">NEXT_PUBLIC_API_BASE</span>, so
-            it is calling <span className="mono">{apiBase()}</span> — your own machine. Set it
-            to the API service&apos;s URL and deploy again; it is read at build time, so a
-            restart alone will not pick it up.
+            This site has not been told where its server is, so it is asking your own
+            computer and nothing will load. Whoever set up this deployment needs to point
+            it at the server and publish it again. Restarting will not fix it on its own.
           </div>
         )}
 
@@ -156,12 +168,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
               required
             />
             <p className="hint">
-              One key per person. A principal&rsquo;s key reads their own school; an
-              admin&rsquo;s works across every school and is asked which one on the way in.
-              Both are issued in the console at{" "}
-              <span className="mono">/platform</span>, which also re-issues it if this one is
-              lost. From a shell, <span className="mono">python -m scripts.admin_key</span>
-              {" "}prints it instead.
+              One key per person. A principal&rsquo;s key opens their own school. An
+              admin&rsquo;s key works across every school and asks which one on the way in.
+              If you have lost yours, whoever set up this deployment can issue a new one;
+              keys cannot be looked up, only replaced.
             </p>
           </div>
           {error && <p className="error">{error}</p>}
@@ -190,8 +200,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         }}
       >
         <span className="small muted">
-          {school ?? getSchoolName()}
-          {staff && ` · ${staff.role === "admin" ? "Admin" : "Principal"}`}
+          {[needsSchool ? null : (school ?? getSchoolName()) || null,
+            staff ? (staff.role === "admin" ? "Admin" : "Principal") : null]
+            .filter(Boolean)
+            .join(" · ")}
         </span>
         {staff?.scope === "all_schools" && !needsSchool && (
           <button
@@ -214,6 +226,11 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           Sign out
         </button>
       </div>
+      {stale && (
+        <p className="notice warn" style={{ maxWidth: "var(--max)", margin: "0 auto 12px" }}>
+          {stale}
+        </p>
+      )}
       {needsSchool ? (
         <SchoolPicker
           onPick={(id) => {
@@ -231,8 +248,8 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
             <h1>That screen needs an admin key</h1>
             <p className="lede">
               Your key reads every student&rsquo;s results and progress across the school.
-              Producing them &mdash; scanning a question paper, entering marks &mdash; is a
-              separate credential, so that a signed-in office laptop cannot alter a mark.
+              Producing them, by scanning a question paper or entering marks, needs a
+              separate key, so that a computer left signed in cannot change a mark.
             </p>
           </div>
           <p style={{ marginTop: 18 }}>
@@ -283,11 +300,16 @@ function SchoolPicker({ onPick }: { onPick: (id: string) => void }) {
 
       <div className="stack" style={{ gap: 10, marginTop: 18 }}>
         {schools.map((s) => (
-          <button key={s.id} className="card" style={{ textAlign: "left" }} onClick={() => onPick(s.id)}>
-            <h3 style={{ margin: 0 }}>{s.name}</h3>
-            <p className="cardnote" style={{ margin: "4px 0 0" }}>
+          <button
+            key={s.id}
+            className="card schoolpick"
+            onClick={() => onPick(s.id)}
+            type="button"
+          >
+            <span className="schoolname">{s.name}</span>
+            <span className="cardnote">
               {s.students} student{s.students === 1 ? "" : "s"}
-            </p>
+            </span>
           </button>
         ))}
       </div>
@@ -296,6 +318,31 @@ function SchoolPicker({ onPick }: { onPick: (id: string) => void }) {
         Creating a school, loading a book or issuing a key happens in the{" "}
         <Link href="/platform">console</Link>.
       </p>
+
+      <style jsx>{`
+        .schoolpick {
+          display: block;
+          width: 100%;
+          text-align: left;
+          background: var(--surface, #fff);
+          color: inherit;
+          border: 1px solid var(--line, #e3e3e6);
+          cursor: pointer;
+        }
+        .schoolpick:hover {
+          border-color: var(--ink, #16324f);
+        }
+        .schoolname {
+          display: block;
+          font-size: 19px;
+          font-weight: 600;
+          color: var(--ink, #16324f);
+        }
+        .cardnote {
+          display: block;
+          margin-top: 4px;
+        }
+      `}</style>
     </main>
   );
 }

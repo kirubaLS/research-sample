@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, apiBase, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
+import { api, ApiError, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
 import { getPlatformKey, setPlatformKey, signOutPlatform } from "@/lib/session";
 
 /**
@@ -48,9 +48,9 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
       // cannot tell them apart — which means the UI has to name both possibilities.
       setError(
         err instanceof ApiUnreachable
-          ? `Could not reach the API at ${err.base}. Either the backend is down, or this site was built without NEXT_PUBLIC_API_BASE pointing at it, or the API's CORS origins do not include this site.`
+          ? "Could not reach the server. It may be starting up, or this site may be pointed at the wrong address. Try again in a minute."
           : err instanceof ApiError && err.status === 404
-          ? "Not accepted. Either the key is wrong, or YAADHUM_PLATFORM_ADMIN_KEY is not set on the API service — the console stays off until it is."
+          ? "Not accepted. Either the key is wrong, or the console has not been switched on for this deployment yet."
           : err instanceof ApiError && err.status === 429
             ? "Too many attempts from this network. Try again shortly."
             : "Something went wrong signing in.",
@@ -75,32 +75,27 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
           <p className="eyebrow">Operator console</p>
           <h1>Platform sign-in</h1>
           <p className="lede">
-            For whoever runs this deployment. An admin key works here as well as at{" "}
-            <span className="mono">/admin</span>. Principals do not — their key reads their
-            own school and nothing else.
+            For whoever runs this deployment. An admin key works here as well as on the
+            dashboard. A principal&rsquo;s key does not; it opens their own school and
+            nothing else.
           </p>
         </div>
 
         {apiBaseIsDefault() && (
           <div className="notice warn" style={{ marginTop: 18 }}>
-            This site was built without <span className="mono">NEXT_PUBLIC_API_BASE</span>, so
-            it is calling <span className="mono">{apiBase()}</span> — your own machine. Set it
-            to the API service&apos;s URL and deploy again; it is read at build time, so a
-            restart alone will not pick it up.
+            This site has not been told where its server is, so it is asking your own
+            computer and nothing will load. Point it at the server and publish it again.
+            Restarting will not fix it on its own.
           </div>
         )}
 
         <form onSubmit={submit} className="card" style={{ marginTop: 22 }}>
           <div className="field">
-            <label htmlFor="key">Platform or admin key</label>
+            <label htmlFor="key">Your key</label>
             <input id="key" name="key" type="password" autoComplete="current-password" required />
             <p className="hint">
-              An admin key issued from this console, or the value of{" "}
-              <span className="mono">YAADHUM_PLATFORM_ADMIN_KEY</span> on the API service —
-              which is what you need the first time, before any admin key exists. Generate
-              one with{" "}
-              <span className="mono">python -c &quot;import secrets;print(secrets.token_urlsafe(32))&quot;</span>{" "}
-              and set it in the Render dashboard.
+              An admin key issued from this console. The first time, before any admin key
+              exists, use the setup key chosen when this deployment was created.
             </p>
           </div>
           {error && <p className="error">{error}</p>}

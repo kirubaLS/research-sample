@@ -241,7 +241,8 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
 
       {weakPages.length > 0 && (
         <p className="muted" style={{ fontSize: 13 }}>
-          {weakPages.length} page(s) marked for a possible retake — you can continue, but a
+          {weakPages.length} page{weakPages.length === 1 ? " is" : "s are"} marked for a
+          possible retake. You can continue, but a
           clearer photo reads more reliably.
         </p>
       )}
