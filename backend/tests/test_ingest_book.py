@@ -367,3 +367,124 @@ def test_the_activity_pattern_does_not_disturb_the_maths_book():
         for p in chapter_files(BOOK)
         for c in extract_chapter(p).chunks
     )
+
+
+# --- Science: a book that is typeset differently -------------------------------------------
+
+def test_a_heading_set_one_character_per_line_is_rejoined():
+    """Science sets EXERCISES and QUESTIONS vertically, so the text layer holds
+    'E\\nX\\nE\\nR\\nC\\nI\\nS\\nE\\nS'. Every exercise pattern missed it, which left the drilled
+    bucket empty for the whole subject with nothing saying so."""
+    from app.ingest.book import _collapse_vertical
+
+    lines = ["some prose", *"EXERCISES", "1.", "Which of the statements"]
+    assert _collapse_vertical(lines)[:2] == ["some prose", "EXERCISES"]
+
+    # A run of the same character is a bullet list, not a word, and is left alone.
+    bullets = ["n", "n", "n", "n", "n", "n"]
+    assert _collapse_vertical(bullets) == bullets
+
+
+def test_a_fake_bold_heading_is_rebuilt_from_its_overlapping_draws():
+    """Verbatim from jesc112.pdf: the heading is drawn five times and split mid-word, with
+    a single bridge line spanning each pair of fragments."""
+    from app.ingest.book import _collapse_bold
+
+    lines = [
+        *["12.2"] * 5,
+        "12.2 MA", *["MA"] * 3,
+        "MAGNETIC FIELD DUE TO A CURRENT", *["GNETIC FIELD DUE TO A CURRENT"] * 3,
+        "GNETIC FIELD DUE TO A CURRENT-CARRYING", *["ARRYING"] * 4,
+        *["CONDUCTOR"] * 5,
+        "A compass needle is a small magnet.",
+    ]
+    out = _collapse_bold(lines)
+    assert "12.2 MAGNETIC FIELD DUE TO A CURRENT-CARRYING CONDUCTOR" in out
+    assert "A compass needle is a small magnet." in out
+
+
+def test_a_one_character_overlap_does_not_swallow_the_paragraph_below():
+    """'AFFECT THE' followed by 'ENVIRONMENT?' share a T, and merging on it produced
+    'AFFECT THENVIRONMENT?'. Only a bridge line -- drawn once -- may join mid-word."""
+    from app.ingest.book import _collapse_bold
+
+    lines = [
+        *["13.2"] * 5,
+        *["HOW DO OUR ACTIVITIES AFFECT THE"] * 5,
+        *["ENVIRONMENT?"] * 5,
+        "We are an integral part of the environment.",
+    ]
+    out = _collapse_bold(lines)
+    assert "13.2 HOW DO OUR ACTIVITIES AFFECT THE ENVIRONMENT?" in out
+    assert "We are an integral part of the environment." in out
+
+
+def test_two_bold_labels_side_by_side_are_not_glued_together():
+    """'Activity 1.2' and 'Figure 1.2' are drawn next to each other, five times each. Both
+    are complete labels; joining adjacent bold fragments unconditionally merged them."""
+    from app.ingest.book import _collapse_bold
+
+    out = _collapse_bold([*["Activity 1.2"] * 5, *["Figure 1.2"] * 5])
+    assert out == ["Activity 1.2", "Figure 1.2"]
+
+
+def test_structural_verification_reports_a_gap_in_the_numbering():
+    """Science publishes no section list, so this is the strongest check available: a
+    missing 9.3 shows up as a gap between 9.2 and 9.4."""
+    from app.ingest.book import Chunk, ChapterExtract, Section, verify_structure
+
+    extract = ChapterExtract(
+        number=9, title="Light", source_path="x", sha256="y",
+        sections=[Section("9.1", "A"), Section("9.2", "B"), Section("9.4", "D")],
+        chunks=[Chunk("E", "exercise", "Exercises 9.1", "text", "h", section="9.4")],
+    )
+    verify_structure(extract)
+    assert extract.problems == ["chapter 9: missing section 9.3"]
+    assert not extract.ok
+
+
+def test_structural_verification_refuses_a_chapter_with_no_drilled_content():
+    """No exercises means no question from the chapter could ever be judged PRACTISED --
+    a hole in the knowledge base that is invisible once loaded."""
+    from app.ingest.book import Chunk, ChapterExtract, Section, verify_structure
+
+    extract = ChapterExtract(
+        number=8, title="Heredity", source_path="x", sha256="y",
+        sections=[Section("8.1", "A"), Section("8.2", "B")],
+        chunks=[Chunk("T", "body", "Section 8.1", "text", "h", section="8.1")],
+    )
+    verify_structure(extract)
+    assert extract.problems == [
+        "chapter 8: no exercises or questions were found, so no question from it could "
+        "ever be judged PRACTISED"
+    ]
+
+
+def test_structural_verification_cannot_see_a_missing_last_section():
+    """Stated as a test so the limit is not mistaken for a guarantee: with no published
+    section count, a chapter truncated at the end verifies clean."""
+    from app.ingest.book import Chunk, ChapterExtract, Section, verify_structure
+
+    extract = ChapterExtract(
+        number=11, title="Electricity", source_path="x", sha256="y",
+        sections=[Section("11.1", "A"), Section("11.2", "B")],   # the book has eight
+        chunks=[Chunk("E", "exercise", "Exercises 11.1", "t", "h", section="11.2")],
+    )
+    assert verify_structure(extract).ok
+
+
+def test_the_science_contents_page_yields_chapters_where_it_yields_no_sections():
+    from app.ingest.book import TOC_CHAPTER
+
+    page = (
+        "CONTENTS\nForeword\niii\n"
+        "Chapter 1\nChemical Reactions and Equations\n1\n"
+        "Chapter 9\nLight – Reflection and Refraction\n134\n"
+        "Chapter 13\nOur Environment\n208\n"
+    )
+    found = {int(n): t for n, t in TOC_CHAPTER.findall(page)}
+    assert found == {
+        1: "Chemical Reactions and Equations",
+        9: "Light – Reflection and Refraction",
+        13: "Our Environment",
+    }

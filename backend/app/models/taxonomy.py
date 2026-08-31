@@ -174,5 +174,11 @@ class BookSource(Base, PkMixin, TimestampMixin):
     edition: Mapped[str | None] = mapped_column(String(120), nullable=True)
     #: {chapter_number: [{"number": "1.1", "title": "Introduction"}, ...]}
     expected_sections: Mapped[dict] = mapped_column(JSON)
+    #: {chapter_number: "Light -- Reflection and Refraction"}. All the Science contents
+    #: page publishes: it stops at chapter titles where the Maths one lists every section.
+    #: A chapter still gets checked against it -- that the file uploaded as 9 is the
+    #: chapter the book calls 9 -- but a chapter verified only this far must stay marked
+    #: unverified at section level rather than passing as fully checked.
+    expected_chapters: Mapped[dict] = mapped_column(JSON, default=dict)
     #: {"01-real-numbers.pdf": {"sha256": ..., "chunks": 16, "loaded_at": ...}}
     files: Mapped[dict] = mapped_column(JSON, default=dict)

@@ -29,9 +29,12 @@ from app.ingest.book import (
     Section,
     chapter_number,
     extract_chapter,
+    normalise,
     parse_toc,
+    parse_toc_chapters,
     stem_hash,
     verify_against_toc,
+    verify_structure,
 )
 from app.ingest.embed import classify_familiarity
 from app.ingest.probe import LexicalIndex, SemanticIndex, locate
@@ -183,39 +186,55 @@ async def upload_contents(
     path = await _to_tempfile(file)
     try:
         toc = parse_toc(path)
+        chapters = parse_toc_chapters(path)
     finally:
         path.unlink(missing_ok=True)
 
-    if not toc:
+    if not toc and not chapters:
         raise HTTPException(
             422,
             "no table of contents found. This should be the prelims file -- NCERT names it "
-            "jemh1ps.pdf for Maths -- not a chapter.",
+            "jemh1ps.pdf for Maths, jesc1ps.pdf for Science -- not a chapter.",
         )
 
     expected = {
         str(chapter): [{"number": s.number, "title": s.title} for s in sections]
         for chapter, sections in toc.items()
     }
+    expected_chapters = {str(n): t for n, t in chapters.items()}
     source = _source(db, subject, version)
     if source is None:
         source = BookSource(
             curriculum_version=version, subject_code=subject,
-            edition=edition, expected_sections=expected, files={},
+            edition=edition, expected_sections=expected,
+            expected_chapters=expected_chapters, files={},
         )
         db.add(source)
     else:
         # re-uploading the contents page replaces the oracle but keeps what is loaded
         source.expected_sections = expected
+        source.expected_chapters = expected_chapters
         if edition:
             source.edition = edition
     db.commit()
 
+    count = len(expected) or len(expected_chapters)
     return {
         "subject": subject,
-        "chapters_expected": len(expected),
+        "chapters_expected": count,
         "sections_expected": sum(len(v) for v in expected.values()),
-        "next": f"Upload the {len(expected)} chapter files.",
+        # Said plainly rather than left to be inferred from a zero. Science publishes no
+        # section list, so its chapters can only be checked for structure, and a user who
+        # is not told that will read a Science load as being as verified as a Maths one.
+        "section_oracle": bool(expected),
+        "verification": (
+            "Each chapter will be checked section by section against this page."
+            if expected
+            else "This contents page lists chapters only, with no section numbers. "
+                 "Chapters will be checked for chapter identity and for gaps in their own "
+                 "numbering, and their section numbers will be recorded as unverified."
+        ),
+        "next": f"Upload the {count} chapter files.",
     }
 
 
@@ -259,7 +278,23 @@ async def upload_chapter(
             int(k): [Section(s["number"], s["title"]) for s in v]
             for k, v in source.expected_sections.items()
         }
-        verify_against_toc(extract, toc)
+        expected_title = (source.expected_chapters or {}).get(str(number))
+        if toc:
+            verify_against_toc(extract, toc)
+            extract.verified_against = source.edition or "contents page"
+        else:
+            # No section list published for this subject. Check what the contents page
+            # does say -- that this is the chapter the book calls `number` -- then check
+            # the chapter's own numbering for gaps, and leave it marked unverified.
+            if expected_title and normalise(expected_title).casefold() != normalise(
+                extract.title
+            ).casefold():
+                extract.problems.append(
+                    f"the contents page calls chapter {number} "
+                    f"{expected_title!r}, not {extract.title!r}"
+                )
+            verify_structure(extract)
+            extract.verified_against = None
     finally:
         path.unlink(missing_ok=True)
 
@@ -281,7 +316,9 @@ async def upload_chapter(
 
     return {
         "chapter": extract.number, "title": extract.title,
-        "sections": len(extract.sections), **written,
+        "sections": len(extract.sections),
+        "verified_against": extract.verified_against,
+        **written,
     }
 
 

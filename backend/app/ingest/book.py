@@ -42,6 +42,11 @@ EXAMPLE = re.compile(r"^\s*Example\s+(\d+)\s*(\*?)\s*(?:\([^)]*\))?\s*:\s*(.*)$"
 #: straight to end-of-line silently dropped it. An optional exercise is also outside the
 #: examinable set, so it is worth knowing rather than merely worth matching.
 EXERCISE = re.compile(r"^\s*EXERCISE\s+(\d+\.\d+)\s*(\(Optional\)\*?)?\s*$", re.M)
+#: bucket E for Science, which numbers nothing. Questions appear mid-chapter after each
+#: teaching block and EXERCISES closes the chapter; both are drilled, so a question
+#: resembling one is PRACTISED. Matched only after the vertical-heading collapse in
+#: read_text -- the book sets these one character per line.
+SCIENCE_DRILL = re.compile(r"^\s*(QUESTIONS|EXERCISES)\s*$", re.M)
 
 
 @dataclass(frozen=True)
@@ -75,6 +80,12 @@ class ChapterExtract:
     chunks: list[Chunk] = field(default_factory=list)
     #: populated by verify_against_toc; empty means the extraction agrees with the book
     problems: list[str] = field(default_factory=list)
+    #: What the extraction was actually checked against. None means no section-level
+    #: oracle existed -- the Science contents page lists chapters only -- and every
+    #: section number from this chapter must stay visibly unverified downstream. An
+    #: unverified number that looks like a verified one is the failure this field exists
+    #: to prevent.
+    verified_against: str | None = None
 
     @property
     def ok(self) -> bool:
@@ -97,9 +108,139 @@ def stem_hash(text: str) -> str:
     return hashlib.sha256(normalise(text).encode("utf-8")).hexdigest()
 
 
+#: A heading NCERT sets vertically arrives as one character per line. Four is not enough
+#: to be sure -- "n" bullet runs and single-letter algebra reach four -- so require five,
+#: which "QUESTIONS" (9) and "EXERCISES" (9) clear comfortably.
+_MIN_VERTICAL_RUN = 5
+#: Fake bold is the same string drawn several times at small offsets. Three is the
+#: threshold: two identical consecutive lines happen in real prose, three do not.
+_MIN_BOLD_REPEAT = 3
+
+
+def _collapse_vertical(lines: list[str]) -> list[str]:
+    """Rejoin a heading the typesetter set one character per line.
+
+    Science renders EXERCISES and QUESTIONS vertically, so the text layer holds
+    'E\\nX\\nE\\nR\\nC\\nI\\nS\\nE\\nS'. Every exercise pattern missed it, which meant no
+    Science question could ever be marked PRACTISED -- the drilled bucket was empty and
+    nothing said so.
+
+    A run of the same character repeated (five 'n' bullets) is left alone: that is a list,
+    not a word.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(lines):
+        j = i
+        while j < len(lines) and len(lines[j].strip()) == 1 and lines[j].strip().isalnum():
+            j += 1
+        run = [ln.strip() for ln in lines[i:j]]
+        if len(run) >= _MIN_VERTICAL_RUN and len(set(run)) > 1:
+            out.append("".join(run))
+        else:
+            out.extend(lines[i:j])
+        out.append(lines[j]) if j < len(lines) else None
+        i = j + 1
+    return out
+
+
+def _overlap(acc: str, fragment: str) -> int:
+    """Length of the longest prefix of ``fragment`` that ``acc`` already ends with."""
+    for k in range(min(len(acc), len(fragment)), 0, -1):
+        if acc.endswith(fragment[:k]):
+            return k
+    return 0
+
+
+def _collapse_bold(lines: list[str]) -> list[str]:
+    """Rebuild a heading that fake bold split across overlapping draws.
+
+    Science draws each heading five times at small offsets, and the text layer records the
+    passes interleaved with a bridge line that spans two fragments:
+
+        12.2 (x4) / 12.2 MA / MA (x3) / MAGNETIC FIELD DUE TO A CURRENT
+        / GNETIC FIELD DUE TO A CURRENT (x3) / GNETIC FIELD DUE TO A CURRENT-CARRYING
+        / ARRYING (x4) / CONDUCTOR (x5)
+
+    Concatenating the fragments is wrong ('MA' + 'MAGNETIC...'), and so is deduplicating
+    them ('MAGNETIC FIELD DUE TO A CURRENT' and its '-CARRYING' continuation are not
+    duplicates). What is stable is the *overlap*: every fragment either repeats the tail
+    of what has been read so far, or extends it. So merge on the longest overlap, and take
+    a fragment sharing nothing with the tail as the next line of the heading.
+
+    A run only ever starts at a line opening with a section number, which is what keeps a
+    fake-bold 'Activity 1.2' from being glued to the 'Figure 1.2' drawn beside it.
+    """
+    groups: list[tuple[str, int]] = []
+    i = 0
+    while i < len(lines):
+        j = i
+        while j < len(lines) and lines[j] == lines[i]:
+            j += 1
+        groups.append((lines[i], j - i))
+        i = j
+
+    out: list[str] = []
+    k = 0
+    opens_section = re.compile(r"^\s*\d+\.\d+\s+\S")
+    #: Where the number is drawn in its own box, it arrives as a bold line of its own and
+    #: the title follows as the next fragment -- '13.2' (x5) then 'HOW DO OUR ACTIVITIES
+    #: AFFECT THE' (x5). Without this the heading has no number and the section is lost.
+    bare_number = re.compile(r"^\s*\d+\.\d+\s*$")
+    while k < len(groups):
+        line, count = groups[k]
+        starts = bool(opens_section.match(line)) or (
+            count >= _MIN_BOLD_REPEAT and bool(bare_number.match(line))
+        )
+        if not starts:
+            out.append(line)
+            k += 1
+            continue
+
+        acc = line.strip()
+        k += 1
+        while k < len(groups):
+            candidate, candidate_count = groups[k]
+            fragment = candidate.strip()
+            bold = candidate_count >= _MIN_BOLD_REPEAT
+            # Science sets its section headings in capitals, and that is the guard that
+            # stops a one-character overlap from swallowing the paragraph underneath:
+            # 'SCATTERING OF LIGHT' followed by 'The interplay of light...' shares a 'T'.
+            if not fragment or any(ch.islower() for ch in fragment):
+                break
+            if acc.endswith(fragment):        # another pass over the same fragment
+                k += 1
+                continue
+            shared = 0 if bold else _overlap(acc, fragment)
+            if shared:
+                # Only a bridge line -- one drawn once, between two repeated fragments --
+                # extends the tail mid-word. Tested before the section-number check
+                # because the first bridge repeats the number: '1.1 CHEMIC' is continued
+                # by '1.1 CHEMICAL EQUA', not ended by it.
+                acc += fragment[shared:]
+            elif opens_section.match(candidate):
+                break
+            elif bold:
+                # A fresh repeated fragment starts the heading's next line. Joined with a
+                # space, never on overlap: 'AFFECT THE' and 'ENVIRONMENT?' share a 'T',
+                # and merging on it produced 'AFFECT THENVIRONMENT?'.
+                acc += " " + fragment
+            else:
+                break
+            k += 1
+        out.append(acc)
+    return out
+
+
 def read_text(path: str | Path) -> str:
+    """Page text, with the two layout tricks Science uses undone.
+
+    Both are no-ops on a book that does not use them: Maths has no vertical headings and
+    no repeated draws, so nothing in it matches either rule.
+    """
     with pymupdf.open(path) as doc:
-        return "\n".join(page.get_text() for page in doc)
+        raw = "\n".join(page.get_text() for page in doc)
+    return "\n".join(_collapse_bold(_collapse_vertical(raw.split("\n"))))
 
 
 def file_sha256(path: str | Path) -> str:
@@ -156,13 +297,74 @@ def chapter_files(directory: str | Path) -> list[Path]:
 
 
 def parse_toc(contents_pdf: str | Path) -> dict[int, list[Section]]:
-    """The expected tree, from the prelims file. This is what makes verification possible."""
+    """The expected section tree, from the prelims file, where the book publishes one.
+
+    Maths lists every section of every chapter here, which is what makes a Maths
+    extraction checkable. Science does not -- its contents page stops at chapter titles --
+    so this returns empty for Science and the caller must fall back to
+    ``verify_structure``. Returning empty is the honest answer; inventing an expectation
+    would make an unchecked load look checked.
+    """
     text = read_text(contents_pdf)
     out: dict[int, list[Section]] = {}
-    for number, title in re.findall(r"^\s*(\d+\.\d+)\s+([A-Z][^\n]{2,60})$", text, re.M):
+    for number, title in re.findall(r"^\s*(\d+\.\d+)\s+([A-Z][^\n]{2,120})$", text, re.M):
         chapter = int(number.split(".")[0])
         out.setdefault(chapter, []).append(Section(number, title.strip()))
     return out
+
+
+#: 'Chapter 9' then the title on the following line, as the Science prelims sets it
+TOC_CHAPTER = re.compile(r"^\s*Chapter\s+(\d{1,2})\s*$\n^\s*(\S[^\n]{2,80})$", re.M)
+
+
+def parse_toc_chapters(contents_pdf: str | Path) -> dict[int, str]:
+    """Chapter numbers and titles from the contents page.
+
+    Present in both books, and the only thing the Science contents page offers. It still
+    verifies something worth verifying: that the file uploaded as chapter 9 is the chapter
+    the book calls 9.
+    """
+    text = read_text(contents_pdf)
+    return {int(n): title.strip() for n, title in TOC_CHAPTER.findall(text)}
+
+
+def verify_structure(extract: ChapterExtract) -> ChapterExtract:
+    """The checks that survive when the book publishes no section list.
+
+    Weaker than verify_against_toc and deliberately not dressed up as equivalent: nothing
+    here can detect a section the extractor never saw at the *end* of a chapter, because
+    there is nothing that says how many there should be. What it does catch is a gap in
+    the middle -- 9.1, 9.2, 9.4 means 9.3 was missed -- a chapter that yielded no sections
+    at all, and one that yielded no drilled content, each of which is a silent hole in the
+    knowledge base rather than a visible failure.
+    """
+    numbers = [s.number for s in extract.sections]
+    if not numbers:
+        extract.problems.append(
+            f"chapter {extract.number}: no sections were found, so nothing can be placed "
+            f"in it"
+        )
+        return extract
+
+    indexes = sorted(int(n.split(".")[1]) for n in numbers)
+    if indexes[0] != 1:
+        extract.problems.append(
+            f"chapter {extract.number}: sections start at {extract.number}.{indexes[0]}, "
+            f"so {extract.number}.1 was missed"
+        )
+    for lower, upper in zip(indexes, indexes[1:], strict=False):
+        if upper != lower + 1:
+            missing = ", ".join(
+                f"{extract.number}.{n}" for n in range(lower + 1, upper)
+            )
+            extract.problems.append(f"chapter {extract.number}: missing section {missing}")
+
+    if not any(c.bucket == "E" for c in extract.chunks):
+        extract.problems.append(
+            f"chapter {extract.number}: no exercises or questions were found, so no "
+            f"question from it could ever be judged PRACTISED"
+        )
+    return extract
 
 
 def extract_sections(text: str, chapter: int) -> list[Section]:
@@ -171,7 +373,7 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
     The scoping is the whole point: 'Example 5 : ... = 28.5 m\nTherefore, ...' produced a
     phantom section '28.5 Therefore,' when the pattern was chapter-agnostic.
     """
-    pattern = re.compile(rf"^\s*({chapter}\.\d+)\s+([A-Z][^\n]{{2,60}})$", re.M)
+    pattern = re.compile(rf"^\s*({chapter}\.\d+)\s+([A-Z][^\n]{{2,120}})$", re.M)
     seen: set[str] = set()
     found: list[tuple[str, str, int, int]] = []
     for m in pattern.finditer(text):
@@ -216,6 +418,13 @@ def extract_chunks(text: str, chapter: int) -> list[Chunk]:
     for m in EXERCISE.finditer(text):
         markers.append((m.start(), "exercise", "E", f"EXERCISE {m.group(1)}"))
         optional[m.start()] = bool(m.group(2))
+    # Science repeats the bare word QUESTIONS several times in a chapter, so the
+    # occurrence is numbered to keep the reference unique -- an identical reference is
+    # dropped below as a back-reference, which would have thrown away every block but the
+    # first and emptied the drilled bucket for the subject.
+    for n, m in enumerate(SCIENCE_DRILL.finditer(text), start=1):
+        label = m.group(1).title()
+        markers.append((m.start(), "exercise", "E", f"{label} {chapter}.{n}"))
 
     markers.sort()
     # A reference appearing twice is a back-reference in body text, not a restatement:
