@@ -21,7 +21,7 @@ from app.mapping.association import (
 )
 from app.mapping.solver import Constraint, QuestionDist, SolveResult, solve
 from app.scanning.adjudicate import Adjudication, adjudicate
-from app.scanning.recognise import MarkRecognizer, clamp
+from app.scanning.recognise import MarkRecognizer, abstains, clamp
 from app.vision.ink import InkLayers, separate
 from app.vision.localise import find_mark_candidates, find_total_candidates
 
@@ -102,6 +102,20 @@ def read_script(
             continue
         crop = (crops or {}).get(candidate.candidate_id)
         distribution = clamp(recognizer.predict(crop, legal), legal)
+
+        if abstains(distribution):
+            # No value, rather than the best of a bad set. The candidate still goes to L5
+            # and L6 -- the totals may pin it exactly -- and if they cannot, L7 shows a
+            # person the crop. What never happens is a digit nobody could actually read.
+            out.notes.append(f"{candidate.candidate_id}: too uncertain to read; left for the totals")
+            read.append(
+                MarkCandidate(
+                    candidate_id=candidate.candidate_id, page=candidate.page,
+                    x=candidate.x, y=candidate.y, value=None, confidence=0.0,
+                )
+            )
+            continue
+
         best = max(distribution, key=lambda v: distribution[v])
         total = sum(distribution.values()) or 1.0
         read.append(

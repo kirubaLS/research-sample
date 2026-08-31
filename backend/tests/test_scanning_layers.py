@@ -14,7 +14,7 @@ from app.mapping.association import Anchor
 from app.mapping.solver import Constraint
 from app.scanning import read_script
 from app.scanning.adjudicate import adjudicate
-from app.scanning.recognise import clamp, flat
+from app.scanning.recognise import abstains, clamp, flat
 from app.vision.localise import (
     Component,
     components,
@@ -210,3 +210,76 @@ def test_the_review_queue_grows_as_the_threshold_rises(threshold):
     out = read_script([_red_page([(30, 40)])], anchors, _Recognizer(), threshold=threshold)
     assert out.adjudication is not None
     assert out.adjudication.review_load in (0, 1)
+
+
+# --- never assert a digit nobody could read --------------------------------------------
+
+def test_a_coin_toss_between_two_digits_is_not_a_reading():
+    """0.50 for 3 against 0.48 for 1 is not a reading of a 3. A recogniser asked for a
+    digit will always name one -- the question forces it -- so the refusal cannot live
+    inside the model."""
+    from app.scanning.recognise import abstains
+
+    assert abstains({3.0: 0.50, 1.0: 0.48})
+    assert abstains({3.0: 0.40, 1.0: 0.30, 2.0: 0.30})   # best below the floor
+    assert not abstains({3.0: 0.90, 1.0: 0.10})
+
+
+def test_an_unreadable_crop_carries_no_value_and_is_not_guessed():
+    """The abstention has to reach the pipeline, not just exist as a helper."""
+    anchors = [Anchor(address="1", page=1, x=40.0, y=36.0, max_marks=3.0, step=1.0)]
+
+    class Unsure:
+        def predict(self, crop, legal_values):
+            return {3.0: 0.34, 1.0: 0.33, 2.0: 0.33}
+
+    out = read_script([_red_page([(30, 40)])], anchors, Unsure())
+    assert all(c.value is None for c in out.candidates), "a guess reached the assignment"
+    assert any("too uncertain to read" in n for n in out.notes)
+
+
+def test_the_totals_can_still_pin_a_mark_nobody_could_read():
+    """An abstention is not a loss. The crop was unreadable and the answer is still exact,
+    because the teacher's total leaves only one possibility."""
+    anchors = [
+        Anchor(address="1", page=1, x=40.0, y=36.0, max_marks=2.0, step=1.0),
+        Anchor(address="2", page=1, x=40.0, y=96.0, max_marks=2.0, step=1.0),
+    ]
+
+    class OneUnreadable:
+        def predict(self, crop, legal_values):
+            if crop == "p1-m1":
+                return {0.0: 0.34, 1.0: 0.33, 2.0: 0.33}      # abstains
+            return {2.0: 0.97, 1.0: 0.03}
+
+    out = read_script(
+        [_red_page([(30, 40), (90, 40)])], anchors, OneUnreadable(),
+        constraints=[Constraint(name="grand", indices=frozenset({0, 1}), total=3.0)],
+        crops={"p1-m0": "p1-m0", "p1-m1": "p1-m1"},
+    )
+    assert out.solution is not None and out.solution.feasible
+    assert out.solution.assignment == {"1": 2.0, "2": 1.0}
+
+
+def test_two_recognisers_that_disagree_assert_nothing():
+    """The failure mode of one model is systematic: it will be confidently wrong about the
+    same badly-formed 1 every time, and asking it twice does not help. Averaging the two
+    would manufacture a distribution moderately sure of something, which is the one thing
+    this must never produce."""
+    from app.scanning.recognise import Ensemble
+
+    class Says3:
+        def predict(self, crop, legal_values):
+            return {3.0: 0.85, 1.0: 0.15}
+
+    class Says1:
+        def predict(self, crop, legal_values):
+            return {1.0: 0.85, 3.0: 0.15}
+
+    legal = [0.0, 1.0, 2.0, 3.0]
+    disagreeing = Ensemble(Says3(), Says1()).predict(None, legal)
+    assert abstains(disagreeing), disagreeing
+
+    agreeing = Ensemble(Says3(), Says3()).predict(None, legal)
+    assert not abstains(agreeing)
+    assert max(agreeing, key=lambda v: agreeing[v]) == 3.0
