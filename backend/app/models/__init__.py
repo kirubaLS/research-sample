@@ -10,6 +10,7 @@ from app.models.assessment import (
     QuestionPlacement,
     QuestionSkill,
     QuestionTier,
+    ScannedQuestion,
 )
 from app.models.base import Base, new_id, utcnow
 from app.models.core import School, Section, StudentProfile
@@ -47,6 +48,7 @@ __all__ = [
     "ConceptFamilyProposal",
     "CanonicalProcedure", "BookChunk", "NODE_KINDS",
     "Assessment", "LogicalPage", "Question", "QuestionJudgment", "QuestionPlacement", "QuestionSkill",
+    "ScannedQuestion",
     "QuestionTier",
     "DataQualityFlag", "AnalysisRun", "TIERS", "CBSE_TIER_TARGET",
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",

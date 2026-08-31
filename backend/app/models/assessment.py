@@ -168,6 +168,46 @@ class Question(Base, PkMixin, TimestampMixin):
     # performance across more than one school (app.analysis.difficulty), never tagged.
 
 
+class ScannedQuestion(Base, PkMixin, TimestampMixin):
+    """A question as the paper prints it, before anything is known about the curriculum.
+
+    Deliberately a separate table from Question rather than nullable columns on it.
+    Question requires board_unit_id and concept_family_id precisely because a null there
+    removes a question from board-impact reporting while the report still renders -- the
+    silent failure that constraint exists to prevent. But a scan genuinely cannot know
+    either: they come from the book, through retrieval and the judge, and that is a later
+    step which may need a person.
+
+    So the scan writes what the paper says -- number, section, marks, the stem as printed --
+    and mapping promotes it to a Question once the chapter is known and the board unit and
+    family follow from it. A row here that never got promoted is a question the pipeline
+    could not place, which is a fact worth keeping rather than a gap to explain away.
+    """
+
+    __tablename__ = "scanned_question"
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "address", name="uq_scanned_address"),
+    )
+
+    assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
+    address: Mapped[str] = mapped_column(String(40), index=True)
+    section: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    question_no: Mapped[str] = mapped_column(String(12))
+    sub_part: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    choice_alt: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    #: Nullable here where Question's is not: a mark label the extractor could not read is
+    #: a gap for a person to fill, not a reason to refuse the whole paper.
+    max_marks: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    stem_text: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    logical_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: set when this row has been promoted to a Question
+    question_id: Mapped[str | None] = mapped_column(
+        ForeignKey("question.id"), nullable=True, index=True
+    )
+    #: why it has not been, when it has not
+    blocked_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+
 class QuestionSkill(Base, PkMixin):
     """The Q-matrix. Multi-skill rows are allowed and are what make the diagnosis work."""
 

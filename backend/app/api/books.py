@@ -11,10 +11,8 @@ checked against, and a chapter accepted without it would be accepted on trust.
 
 from __future__ import annotations
 
-import tempfile
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
@@ -22,6 +20,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_platform_admin
+from app.api.upload import to_tempfile
 from app.config import get_settings
 from app.curriculum import CURRICULA, chapter_title
 from app.curriculum.apply import apply as apply_curriculum
@@ -53,27 +52,13 @@ router = APIRouter(
     dependencies=[Depends(require_platform_admin)],
 )
 
-#: NCERT chapter PDFs run to about 3 MB; well above that is not a chapter
-MAX_UPLOAD_BYTES = 25 * 1024 * 1024
-
 #: Below this gap to the runner-up, the top chapter won by a hair. On the 30(B) set the
 #: single wrong answer had the smallest margin of any row, so this is where a question
 #: should go to a human rather than into a report.
 MIN_MARGIN = 0.002
 
 
-async def _to_tempfile(upload: UploadFile) -> Path:
-    if not (upload.filename or "").lower().endswith(".pdf"):
-        raise HTTPException(422, "expected a PDF")
-    data = await upload.read()
-    if len(data) > MAX_UPLOAD_BYTES:
-        raise HTTPException(413, f"file is larger than {MAX_UPLOAD_BYTES // 1024 // 1024} MB")
-    if not data:
-        raise HTTPException(422, "the file is empty")
-    handle = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-    handle.write(data)
-    handle.close()
-    return Path(handle.name)
+_to_tempfile = to_tempfile
 
 
 def _source(db: Session, subject: str, version: str) -> BookSource | None:

@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin
@@ -15,17 +15,24 @@ from app.api.schemas import (
     QuestionBatchIn,
     ReconcileIn,
 )
+from app.api.upload import to_tempfile
 from app.db import get_session
 from app.extraction.address import Address, AddressResolver
 from app.extraction.choice import group_choices
 from app.extraction.verification import verify_paper
+from app.ingest.book import stem_hash
 from app.mapping.solver import Constraint, QuestionDist, solve
 from app.models import (
     Assessment,
+    BookChunk,
+    ChapterBoardUnit,
+    ConceptFamilyProposal,
     DataQualityFlag,
     MarkEvent,
     Question,
+    QuestionPlacement,
     QuestionSkill,
+    ScannedQuestion,
     School,
     StudentProfile,
     TaxonomyNode,
@@ -296,4 +303,347 @@ def reconcile(
         "mean_logp": None if result.mean_logp == float("-inf") else round(result.mean_logp, 4),
         "failed_constraint": result.failed_constraint,
         "detail": result.detail,
+    }
+
+
+# --------------------------------------------------------------------------------------
+# Scanning a question paper
+# --------------------------------------------------------------------------------------
+@router.post("/{assessment_id}/scan", status_code=status.HTTP_201_CREATED)
+async def scan_paper(
+    assessment_id: str,
+    file: UploadFile = File(...),
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Read a question paper PDF into staged questions.
+
+    Writes to scanned_question, not to question: a question row needs a board unit and a
+    concept family, and neither is knowable from the paper. They come from the book, in
+    the mapping step that follows.
+
+    Re-scanning replaces the staged rows for questions that have not been promoted yet, so
+    a paper can be re-read after a bad upload without unpicking what mapping already did.
+    """
+    from app.extraction.paper import extract_paper
+
+    assessment = _get_assessment(db, school, assessment_id)
+    if assessment.qmatrix_frozen_at:
+        raise HTTPException(409, "the Q-matrix is frozen; create a new version to re-scan")
+
+    path = await to_tempfile(file)
+    try:
+        extract = extract_paper(path)
+        source_sha = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
+    finally:
+        path.unlink(missing_ok=True)
+
+    if extract.route == "vision":
+        assessment.route = "vision"
+        assessment.pdf_page_count = extract.page_count
+        db.commit()
+        raise HTTPException(
+            422,
+            "; ".join(extract.problems)
+            + " Upload a PDF that carries a text layer, or wait for the vision route.",
+        )
+
+    promoted = {
+        row.address
+        for row in db.scalars(
+            select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
+        )
+        if row.question_id
+    }
+    for row in db.scalars(
+        select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
+    ):
+        if row.address not in promoted:
+            db.delete(row)
+    db.flush()
+
+    written, kept = 0, 0
+    for question in extract.questions:
+        if question.address in promoted:
+            kept += 1
+            continue
+        db.add(ScannedQuestion(
+            assessment_id=assessment.id, address=question.address,
+            section=question.section, question_no=question.question_no,
+            sub_part=question.sub_part, choice_alt=question.choice_alt,
+            max_marks=question.max_marks, stem_text=question.stem_text,
+            logical_page=question.logical_page,
+        ))
+        written += 1
+
+    assessment.route = "text"
+    assessment.pdf_page_count = extract.page_count
+    assessment.source_sha256 = source_sha
+    assessment.declared = {
+        **(assessment.declared or {}),
+        "sections": extract.declared_sections or None,
+        "question_count": extract.declared_count,
+    }
+    db.commit()
+
+    primaries = [q for q in extract.questions if q.choice_alt is None]
+    return {
+        "assessment_id": assessment.id,
+        "route": extract.route,
+        "pages": extract.page_count,
+        "questions": len(primaries),
+        "choice_alternatives": len(extract.questions) - len(primaries),
+        "total_marks": extract.total_marks,
+        "staged": written,
+        "already_promoted": kept,
+        "declared": {
+            "questions": extract.declared_count,
+            "sections": extract.declared_sections or None,
+        },
+        #: Every disagreement between the extraction and what the paper says about itself.
+        #: Empty means the two agree, which is the only evidence the read is right.
+        "problems": extract.problems,
+        "next": f"Review at GET /assessments/{assessment.id}/scan, then POST /map.",
+    }
+
+
+@router.get("/{assessment_id}/scan")
+def read_scan(
+    assessment_id: str,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """The staged questions, and what is stopping each one becoming a real question."""
+    assessment = _get_assessment(db, school, assessment_id)
+    rows = list(db.scalars(
+        select(ScannedQuestion)
+        .where(ScannedQuestion.assessment_id == assessment.id)
+        .order_by(ScannedQuestion.section, ScannedQuestion.logical_page)
+    ))
+    questions = {q.id: q for q in db.scalars(
+        select(Question).where(Question.assessment_id == assessment.id)
+    )}
+    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+
+    def mapped(row: ScannedQuestion) -> dict | None:
+        question = questions.get(row.question_id or "")
+        if question is None:
+            return None
+        chapter = nodes.get(question.chapter_id or "")
+        family = nodes.get(question.concept_family_id or "")
+        unit = nodes.get(question.board_unit_id or "")
+        return {
+            "chapter": chapter.label if chapter else None,
+            "curriculum_section": question.curriculum_section,
+            "concept_family": family.label if family else None,
+            "board_unit": unit.label if unit else None,
+        }
+
+    return {
+        "assessment_id": assessment.id,
+        "route": assessment.route,
+        "staged": len(rows),
+        "mapped": sum(1 for r in rows if r.question_id),
+        "marks_missing": sum(1 for r in rows if r.max_marks is None),
+        "questions": [
+            {
+                "address": r.address, "section": r.section, "question_no": r.question_no,
+                "choice_alt": r.choice_alt,
+                "max_marks": float(r.max_marks) if r.max_marks is not None else None,
+                "stem_text": r.stem_text, "page": r.logical_page,
+                "mapped_to": mapped(r),
+                "blocked_reason": r.blocked_reason,
+            }
+            for r in rows
+        ],
+    }
+
+
+def _chapter_of(node_id: str | None, nodes: dict[str, TaxonomyNode]) -> TaxonomyNode | None:
+    """Walk up to the chapter. Retrieval lands on whichever node the winning chunk hangs
+    off, which is a sub-topic as often as a chapter."""
+    seen: set[str] = set()
+    current = nodes.get(node_id or "")
+    while current is not None and current.id not in seen:
+        if current.kind == "chapter":
+            return current
+        seen.add(current.id)
+        current = nodes.get(current.parent_id or "")
+    return None
+
+
+def _section_number(code: str) -> str | None:
+    """'X.MATH.STATS.S14_1' -> '14.1'. None when the code carries no section."""
+    tail = code.rsplit(".", 1)[-1]
+    if not tail.startswith("S"):
+        return None
+    return tail[1:].replace("_", ".")
+
+
+@router.post("/{assessment_id}/map")
+def map_paper_to_book(
+    assessment_id: str,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Place every staged question against the book, and promote what can be placed.
+
+    This is the join the whole product rests on: a mark is only diagnostic because the
+    question it was scored on is known to belong to a chapter, a section and a concept
+    family, and all three come from the book rather than from anyone's memory.
+
+    A question that cannot be placed is left staged with the reason recorded. That is not
+    a failure to hide -- an unplaceable question is a real fact about the paper or about
+    how much of the curriculum has been reviewed, and forcing it into a chapter to keep
+    the numbers tidy is exactly the invention this pipeline exists to refuse.
+    """
+    from app.config import get_settings
+    from app.ingest.probe import LexicalIndex, SemanticIndex, locate
+
+    assessment = _get_assessment(db, school, assessment_id)
+    settings = get_settings()
+
+    staged = [
+        row for row in db.scalars(
+            select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
+        )
+        if row.question_id is None
+    ]
+    if not staged:
+        raise HTTPException(422, "nothing staged to map; scan the paper first")
+
+    chunks = list(db.scalars(
+        select(BookChunk).where(BookChunk.subject_code == assessment.subject_code)
+    ))
+    if not chunks:
+        raise HTTPException(
+            422,
+            f"no book is loaded for {assessment.subject_code}, so there is nothing to map "
+            f"against. Upload the chapters first.",
+        )
+
+    indexes: list = [LexicalIndex(chunks)]
+    mode = "lexical"
+    if any(c.embedding for c in chunks) and settings.jina_api_key:
+        from app.ingest.jina import JinaEmbedder
+
+        indexes.append(SemanticIndex(chunks, JinaEmbedder(
+            settings.jina_api_key, model=settings.embedding_model,
+            dimensions=settings.embedding_dimensions,
+        )))
+        mode = "hybrid"
+
+    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+    units = {
+        row.chapter_id: row.board_unit_id
+        for row in db.scalars(select(ChapterBoardUnit).where(
+            ChapterBoardUnit.curriculum_version == assessment.curriculum_version
+        ))
+    }
+    families: dict[str, list[TaxonomyNode]] = {}
+    for node in nodes.values():
+        if node.kind == "concept_family" and node.parent_id:
+            families.setdefault(node.parent_id, []).append(node)
+    #: family code -> the sections the run said it draws on, so a family can be chosen by
+    #: the section the book put the question in rather than by name similarity
+    sections_of = {
+        row.code: set(row.from_sections or [])
+        for row in db.scalars(select(ConceptFamilyProposal).where(
+            ConceptFamilyProposal.subject_code == assessment.subject_code
+        ))
+    }
+
+    mapped, blocked = 0, []
+    for row in staged:
+        if not (row.stem_text or "").strip():
+            row.blocked_reason = "no stem text was extracted, so there is nothing to place"
+            blocked.append(row.address)
+            continue
+        if row.max_marks is None:
+            row.blocked_reason = "no mark label was read; supply the marks before mapping"
+            blocked.append(row.address)
+            continue
+
+        verdict = locate(row.stem_text, indexes)
+        chapter = _chapter_of(verdict.node_id, nodes)
+        if chapter is None:
+            row.blocked_reason = "no chapter in the book matched this question"
+            blocked.append(row.address)
+            continue
+
+        unit_id = units.get(chapter.id)
+        if unit_id is None:
+            row.blocked_reason = (
+                f"{chapter.label} is not mapped to a board unit, so its marks have "
+                f"nowhere to count"
+            )
+            blocked.append(row.address)
+            continue
+
+        landed = nodes.get(verdict.node_id or "")
+        section = _section_number(landed.code) if landed else None
+
+        candidates = families.get(chapter.id, [])
+        if not candidates:
+            row.blocked_reason = (
+                f"no concept family has been applied for {chapter.label}. Review the "
+                f"proposals for this subject and create the families first."
+            )
+            blocked.append(row.address)
+            continue
+        family = next(
+            (f for f in candidates if section and section in sections_of.get(f.code, set())),
+            candidates[0] if len(candidates) == 1 else None,
+        )
+        if family is None:
+            row.blocked_reason = (
+                f"{len(candidates)} families exist for {chapter.label} and none of them "
+                f"claims section {section or '?'}; a person must choose"
+            )
+            blocked.append(row.address)
+            continue
+
+        question = Question(
+            assessment_id=assessment.id, address=row.address, section=row.section,
+            question_no=row.question_no, sub_part=row.sub_part, choice_alt=row.choice_alt,
+            max_marks=row.max_marks, stem_text=row.stem_text,
+            stem_hash=stem_hash(row.stem_text), logical_page=row.logical_page,
+            board_unit_id=unit_id, chapter_id=chapter.id, curriculum_section=section,
+            concept_family_id=family.id,
+            concept_variant=row.stem_text[:200],
+            variant_hash=variant_hash(row.stem_text[:200]),
+            verified_against=f"retrieval:{mode}",
+        )
+        db.add(question)
+        db.flush()
+        db.add(QuestionPlacement(
+            question_id=question.id, chapter_id=chapter.id, board_unit_id=unit_id,
+            curriculum_section=section, confidence=verdict.score,
+            source="model", needs_review=not verdict.agreed,
+            reasoning=f"{mode} retrieval, margin {verdict.margin:.3f}",
+            # The chunk references, not the Candidate objects: JSON has to hold what a
+            # reviewer reads, and the objects are not serialisable anyway.
+            evidence=[c.reference for c in verdict.evidence if c.reference][:6],
+            candidates=[
+                nodes[n].label for n, _ in verdict.runners_up if n in nodes
+            ][:4],
+        ))
+        row.question_id = question.id
+        row.blocked_reason = None
+        mapped += 1
+
+    db.commit()
+    return {
+        "assessment_id": assessment.id,
+        "retrieval": mode,
+        "mapped": mapped,
+        "blocked": len(blocked),
+        "blocked_addresses": blocked[:20],
+        "needs_review": db.scalar(select(func.count(QuestionPlacement.id)).where(
+            QuestionPlacement.needs_review.is_(True),
+            QuestionPlacement.question_id.in_(
+                select(Question.id).where(Question.assessment_id == assessment.id)
+            ),
+        )) or 0,
+        "next": f"Review at GET /assessments/{assessment.id}/scan.",
     }
