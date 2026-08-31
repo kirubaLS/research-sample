@@ -105,9 +105,19 @@ export default function Dashboard() {
       )}
 
       <div className="section-head">
-        <h2>Answer scripts</h2>
+        <h2>Papers and scripts</h2>
       </div>
       <div className="grid two">
+        <Link href="/admin/paper" className="card">
+          <h3>Read a question paper</h3>
+          <p className="cardnote">
+            Upload the paper and every question is matched to a chapter, a section and a
+            concept family — from the textbook, not from memory. Anything that cannot be
+            matched says so.
+          </p>
+          <span className="arrow">Open the paper reader →</span>
+        </Link>
+
         <Link href="/admin/scan" className="card">
           <h3>Scan a script</h3>
           <p className="cardnote">

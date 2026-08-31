@@ -162,18 +162,73 @@ export interface BookStatus {
 }
 
 /** Multipart, so it cannot go through `request` -- setting Content-Type by hand drops the
- *  boundary the server needs to parse the body. */
-async function upload<T>(path: string, key: string, file: File): Promise<T> {
+ *  boundary the server needs to parse the body. The header name is a parameter because
+ *  the operator surface and the school surface authenticate differently, and hard-coding
+ *  one of them here would silently 404 every call from the other. */
+async function upload<T>(
+  path: string,
+  key: string,
+  file: File,
+  header: "X-Platform-Key" | "X-API-Key" = "X-Platform-Key",
+): Promise<T> {
   const body = new FormData();
   body.append("file", file);
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { method: "POST", headers: { "X-Platform-Key": key }, body });
+    res = await fetch(`${BASE}${path}`, { method: "POST", headers: { [header]: key }, body });
   } catch {
     throw new ApiUnreachable(BASE);
   }
   if (!res.ok) throw new ApiError(res.status, await res.text());
   return (await res.json()) as T;
+}
+
+export interface ScanResult {
+  route: "text" | "vision";
+  pages: number;
+  questions: number;
+  choice_alternatives: number;
+  total_marks: number;
+  staged: number;
+  already_promoted: number;
+  declared: { questions: number | null; sections: Record<string, number> | null };
+  problems: string[];
+}
+
+export interface MappedTo {
+  chapter: string | null;
+  curriculum_section: string | null;
+  concept_family: string | null;
+  board_unit: string | null;
+}
+
+export interface StagedQuestion {
+  address: string;
+  section: string | null;
+  question_no: string;
+  choice_alt: string | null;
+  max_marks: number | null;
+  stem_text: string | null;
+  page: number | null;
+  mapped_to: MappedTo | null;
+  blocked_reason: string | null;
+}
+
+export interface ScanReview {
+  assessment_id: string;
+  route: string;
+  staged: number;
+  mapped: number;
+  marks_missing: number;
+  questions: StagedQuestion[];
+}
+
+export interface MapResult {
+  retrieval: string;
+  mapped: number;
+  blocked: number;
+  blocked_addresses: string[];
+  needs_review: number;
 }
 
 export interface ProbeRow {
@@ -283,6 +338,22 @@ export const api = {
     operator<{ label: string; board_units: number; chapters: number; next: string }>(
       `/platform/books/${subject}/curriculum`, key, { method: "POST" },
     ),
+
+  // --- question papers ---
+  createAssessment: (key: string, body: Record<string, unknown>) =>
+    authed<{ assessment_id: string; status: string }>("/assessments", key, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  scanPaper: (key: string, assessmentId: string, file: File) =>
+    upload<ScanResult>(`/assessments/${assessmentId}/scan`, key, file, "X-API-Key"),
+
+  readScan: (key: string, assessmentId: string) =>
+    authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),
+
+  mapPaper: (key: string, assessmentId: string) =>
+    authed<MapResult>(`/assessments/${assessmentId}/map`, key, { method: "POST" }),
 
   uploadContents: (key: string, subject: string, file: File, edition: string) =>
     upload<{ chapters_expected: number; sections_expected: number; next: string }>(

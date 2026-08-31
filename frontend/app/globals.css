@@ -277,3 +277,200 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------------------------------------------------------------------------------------
+   Reading a question paper.
+
+   Two columns of information on one row: what the paper printed, and what the book made
+   of it. That pairing is the only judgement a teacher is actually making here, and it is
+   impossible when the two live on separate screens.
+--------------------------------------------------------------------------------------- */
+
+.paper-page {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 20px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.ph { padding: 40px 0 4px; }
+.ph h1 { margin: 6px 0 10px; font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.02em; }
+.ph .lede { margin: 0; color: var(--ink-2); max-width: 62ch; }
+
+/* --- the three steps, which are a real sequence and so are numbered --- */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.step {
+  background: var(--surface);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.step-n {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--rule-2);
+  color: var(--ink-3);
+}
+.step-b { display: flex; flex-direction: column; line-height: 1.3; }
+.step-b strong { font-size: 15px; }
+.step-b em { font-style: normal; font-size: 13px; color: var(--ink-3); }
+.step-now { background: var(--mark-soft); }
+.step-now .step-n { border-color: var(--mark); color: var(--mark); }
+.step-done .step-n { background: var(--verify); border-color: var(--verify); color: #fff; }
+.step-done .step-n::after { content: "✓"; }
+.step-done .step-n { font-size: 0; }
+.step-done .step-n::after { font-size: 13px; }
+
+/* --- cards --- */
+.paper-page .card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.field > span { color: var(--ink-2); font-weight: 600; }
+.field input, .field select {
+  font: inherit;
+  padding: 9px 11px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* --- the drop zone --- */
+.drop {
+  border: 1.5px dashed var(--rule-2);
+  border-radius: var(--radius);
+  padding: 34px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-2);
+}
+.drop-title { margin: 0; font-size: 18px; font-weight: 650; }
+.drop-hint { margin: 0; max-width: 52ch; color: var(--ink-3); font-size: 14px; }
+.drop button, .paper-page button.primary {
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--mark);
+  background: var(--mark);
+  color: #fff;
+  cursor: pointer;
+}
+.drop button:disabled, .paper-page button.primary:disabled { opacity: 0.55; cursor: default; }
+.paper-page button.primary { align-self: flex-start; }
+
+/* --- number tiles --- */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.tile { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile-n { font-size: 25px; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.tile-l { font-size: 12.5px; color: var(--ink-3); }
+.tile-good .tile-n { color: var(--verify); }
+.tile-warn .tile-n { color: var(--warn); }
+
+/* --- the verdict, which is the point of the scan step --- */
+.verdict { margin: 0; padding: 14px 16px; border-radius: var(--radius); border-left: 3px solid; font-size: 15px; }
+.verdict.good { background: var(--verify-soft); border-color: var(--verify); color: var(--ink); }
+.verdict.warn { background: var(--warn-soft); border-color: var(--warn); }
+.verdict ul { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; }
+.verdict p { margin: 0; }
+
+.alert {
+  margin: 0;
+  padding: 12px 15px;
+  background: var(--mark-soft);
+  border-left: 3px solid var(--mark);
+  border-radius: var(--radius);
+  color: var(--ink);
+}
+.paper-page .muted { margin: 0; color: var(--ink-3); font-size: 14px; }
+
+/* --- filters --- */
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; }
+.toolbar h2 { margin: 0; font-size: 19px; }
+.filters { display: flex; gap: 1px; background: var(--rule-2); border: 1px solid var(--rule-2); border-radius: var(--radius); overflow: hidden; }
+.filters button {
+  font: inherit;
+  font-size: 13.5px;
+  padding: 6px 12px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.filters button.on { background: var(--ink); color: var(--paper); }
+
+/* --- the question list --- */
+.qlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.qrow { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.qrow-blocked { background: var(--warn-soft); }
+.qhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.qno { font-weight: 700; font-size: 15px; }
+.qmarks { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.warnish { color: var(--warn); font-style: normal; }
+.qstem { margin: 0; font-size: 14.5px; color: var(--ink-2); max-width: 78ch; }
+
+.qmap { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface-2);
+}
+.chip-l { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); }
+.chip-strong { border-color: var(--verify); background: var(--verify-soft); color: var(--ink); font-weight: 600; }
+.qblocked { margin: 0; font-size: 14px; color: var(--warn); }
+
+@media (max-width: 620px) {
+  .ph { padding-top: 26px; }
+  .qhead { flex-direction: column; gap: 2px; }
+}
+
+/* Present to assistive technology and to tests; invisible to sighted users. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
