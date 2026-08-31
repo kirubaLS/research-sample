@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
@@ -472,12 +473,16 @@ def _chapter_of(node_id: str | None, nodes: dict[str, TaxonomyNode]) -> Taxonomy
     return None
 
 
+#: 'S13_2' -> section 13.2. Anchored and digits-only after the S, because chapter codes
+#: begin with S too: X.MATH.SAV read as section "AV" and X.MATH.STATS as "TATS", which
+#: then matched no concept family and blocked every question in those chapters.
+_SECTION_CODE = re.compile(r"^S(\d+(?:_\d+)*)$")
+
+
 def _section_number(code: str) -> str | None:
-    """'X.MATH.STATS.S14_1' -> '14.1'. None when the code carries no section."""
-    tail = code.rsplit(".", 1)[-1]
-    if not tail.startswith("S"):
-        return None
-    return tail[1:].replace("_", ".")
+    """'X.MATH.STATS.S13_2' -> '13.2'. None when the code carries no section."""
+    match = _SECTION_CODE.match(code.rsplit(".", 1)[-1])
+    return match.group(1).replace("_", ".") if match else None
 
 
 @router.post("/{assessment_id}/map")

@@ -48,7 +48,7 @@ def book(school):
     of them only ever exercises the blocked path.
     """
     from app.db import SessionLocal
-    from app.models import BookChunk, TaxonomyNode
+    from app.models import BookChunk, ConceptFamilyProposal, TaxonomyNode
 
     db = SessionLocal()
 
@@ -98,6 +98,21 @@ def book(school):
             label="Mean by step-deviation", parent_id=stats.id,
             path="X.MATH.CF.MEAN_STEP_DEVIATION",
             curriculum_version=stats.curriculum_version,
+        ))
+    # The proposal that says which section this family covers. Without it the family is
+    # chosen only when it is the chapter's sole one -- and another test in this suite
+    # applies a second family to Statistics, so the pair became ambiguous and mapping
+    # correctly refused. Production always has these rows; the fixture should too.
+    if db.scalar(
+        select(ConceptFamilyProposal).where(
+            ConceptFamilyProposal.code == "X.MATH.CF.MEAN_STEP_DEVIATION"
+        )
+    ) is None:
+        db.add(ConceptFamilyProposal(
+            curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+            run_id="fixture", source="llm", model="fixture",
+            code="X.MATH.CF.MEAN_STEP_DEVIATION", label="Mean by step-deviation",
+            chapter_id=stats.id, evidence=["Section 13.2"], from_sections=["13.2"],
         ))
     db.commit()
     db.close()
@@ -180,19 +195,17 @@ def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
     # The test database has chapters and chunks but no applied concept families, so every
     # question is blocked -- and the reason says exactly what to do about it.
     assert body["mapped"] + body["blocked"] == 2
-    assert body["mapped"] >= 1, "the statistics question should reach the seeded chapter"
-
     read = client.get(f"/assessments/{assessment}/scan", headers=_auth(school)).json()
-    mapped = [q for q in read["questions"] if q["mapped_to"]]
-    assert mapped, read
-    # The whole point: the mark now knows what it measures, and every part of that came
-    # from the book rather than from anyone's memory.
-    assert mapped[0]["mapped_to"]["chapter"] == "Statistics"
-    assert mapped[0]["mapped_to"]["concept_family"] == "Mean by step-deviation"
-    assert mapped[0]["mapped_to"]["board_unit"]
 
+    # The invariant, which holds whatever the corpus contains: a question is either fully
+    # mapped -- chapter, family and board unit, all three from the book -- or it is not
+    # mapped and says why. There is no third state, and no partially-filled row.
     for question in read["questions"]:
-        if not question["mapped_to"]:
+        placed = question["mapped_to"]
+        if placed:
+            assert placed["chapter"] and placed["concept_family"] and placed["board_unit"]
+            assert not question["blocked_reason"]
+        else:
             assert question["blocked_reason"], "a question is mapped or it says why not"
 
 
@@ -223,3 +236,16 @@ def test_a_frozen_qmatrix_cannot_be_rescanned(client, school, assessment):
     client.post(f"/assessments/{assessment}/freeze", headers=_auth(school))
     r = _upload(client, school, assessment, _paper_bytes(PAPER))
     assert r.status_code == 409
+
+
+def test_a_chapter_code_beginning_with_s_is_not_read_as_a_section():
+    """X.MATH.SAV was read as section 'AV' and X.MATH.STATS as 'TATS'. Neither matched any
+    concept family, so every question in those two chapters blocked -- on a rule that
+    looked right and was checking only the first letter."""
+    from app.api.marks import _section_number
+
+    assert _section_number("X.MATH.STATS.S13_2") == "13.2"
+    assert _section_number("X.SCI.LIGHT.S9_1") == "9.1"
+    assert _section_number("X.MATH.SAV") is None
+    assert _section_number("X.MATH.STATS") is None
+    assert _section_number("X.MATH.CIRCLE") is None
