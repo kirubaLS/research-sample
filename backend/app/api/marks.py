@@ -17,7 +17,7 @@ from app.api.schemas import (
     QuestionBatchIn,
     ReconcileIn,
 )
-from app.api.upload import to_tempfile
+from app.api.upload import pages_to_pdf
 from app.db import get_session
 from app.extraction.address import Address, AddressResolver
 from app.extraction.choice import group_choices
@@ -314,7 +314,7 @@ def reconcile(
 @router.post("/{assessment_id}/scan", status_code=status.HTTP_201_CREATED)
 async def scan_paper(
     assessment_id: str,
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     school: School = Depends(require_admin),
     db: Session = Depends(get_session),
 ) -> dict:
@@ -333,7 +333,8 @@ async def scan_paper(
     if assessment.qmatrix_frozen_at:
         raise HTTPException(409, "the Q-matrix is frozen; create a new version to re-scan")
 
-    path = await to_tempfile(file)
+    # One page or twenty, PDFs or photographs, in the order the caller sent them.
+    path = await pages_to_pdf(files)
     try:
         extract = extract_paper(path)
         source_sha = __import__("hashlib").sha256(path.read_bytes()).hexdigest()

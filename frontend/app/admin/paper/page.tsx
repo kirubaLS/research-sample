@@ -69,7 +69,7 @@ export default function PaperPage() {
     setReview(await api.readScan(key, id));
   }, []);
 
-  async function onFile(file: File) {
+  async function onFiles(files: File[]) {
     const key = getApiKey();
     if (!key) {
       setError("Sign in first.");
@@ -84,7 +84,7 @@ export default function PaperPage() {
         id = created.assessment_id;
         setAssessmentId(id);
       }
-      setScan(await api.scanPaper(key, id, file));
+      setScan(await api.scanPaper(key, id, files));
       setMapped(null);
       setConfirmation(null);
       await refresh(id);
@@ -204,29 +204,31 @@ export default function PaperPage() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
-              const file = e.dataTransfer.files?.[0];
-              if (file) onFile(file);
+              const dropped = Array.from(e.dataTransfer.files ?? []);
+              if (dropped.length) onFiles(dropped);
             }}
           >
             <p className="drop-title">Drop the question paper here</p>
             <p className="drop-hint">
-              A PDF with selectable text. A photographed or scanned paper cannot be read
-              yet — the app will tell you plainly rather than returning an empty result.
+              One page or many — PDFs or photographs, in the order you add them. A paper
+              with selectable text is read now; a photographed one is reported plainly
+              rather than returned as an empty result.
             </p>
             <button type="button" onClick={() => fileInput.current?.click()} disabled={!!busy}>
-              {busy ?? "Choose a PDF"}
+              {busy ?? "Choose pages"}
             </button>
             <input
               ref={fileInput}
               type="file"
-              accept="application/pdf"
+              accept="application/pdf,image/*"
+              multiple
               // Hidden with CSS, not the `hidden` attribute: `hidden` removes the input
               // from the accessibility tree, so assistive technology and automated tests
               // cannot reach the only control that accepts a file.
               className="visually-hidden"
               onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) onFile(file);
+                const chosen = Array.from(e.target.files ?? []);
+                if (chosen.length) onFiles(chosen);
               }}
             />
           </div>

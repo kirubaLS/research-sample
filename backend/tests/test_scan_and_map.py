@@ -137,7 +137,16 @@ def _upload(client, school, aid, data, name="paper.pdf"):
     return client.post(
         f"/assessments/{aid}/scan",
         headers=_auth(school),
-        files={"file": (name, io.BytesIO(data), "application/pdf")},
+        files=[("files", (name, io.BytesIO(data), "application/pdf"))],
+    )
+
+
+def _upload_many(client, school, aid, parts):
+    """parts: list of (filename, bytes, content-type), in page order."""
+    return client.post(
+        f"/assessments/{aid}/scan",
+        headers=_auth(school),
+        files=[("files", (name, io.BytesIO(data), mime)) for name, data, mime in parts],
     )
 
 
@@ -372,3 +381,88 @@ def test_a_corrected_row_stays_distinguishable_from_one_the_machine_got_right(
     assert read["edited"] == 1
     edited = [q for q in read["questions"] if q["edited_by"]]
     assert [q["edited_by"] for q in edited] == ["Mrs Rani"]
+
+
+# --- one page or many, PDFs or photographs -------------------------------------------------
+
+def _one_page_pdf(lines):
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    for x, y, text in lines:
+        page.insert_text((x, y), text, fontsize=10)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def _png(colour=(255, 255, 255)):
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new("RGB", (595, 842), colour).save(buf, "PNG")
+    return buf.getvalue()
+
+
+def test_several_pdf_pages_are_read_as_one_paper(client, school, assessment):
+    first = _one_page_pdf([
+        (60, 90, "SECTION A"),
+        (60, 130, "1. First question on the first page."), (MARK_X, 130, "2"),
+    ])
+    second = _one_page_pdf([
+        (60, 90, "2. Second question, on a separate page."), (MARK_X, 90, "3"),
+    ])
+    r = _upload_many(client, school, assessment, [
+        ("p1.pdf", first, "application/pdf"),
+        ("p2.pdf", second, "application/pdf"),
+    ])
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["pages"] == 2
+    assert body["questions"] == 2
+    assert body["total_marks"] == 5.0
+
+
+def test_the_order_sent_is_the_order_read_not_the_filename_order(client, school, assessment):
+    """A phone names photographs by the second they were taken and a scanner by a counter
+    that resets. Sorting by name reorders a paper silently, and a paper read out of order
+    produces question numbers that look plausible and are wrong."""
+    page_one = _one_page_pdf([
+        (60, 90, "SECTION A"),
+        (60, 130, "1. This is the first question."), (MARK_X, 130, "1"),
+    ])
+    page_two = _one_page_pdf([(60, 90, "2. This is the second question."), (MARK_X, 90, "1")])
+
+    r = _upload_many(client, school, assessment, [
+        ("zzz-taken-first.pdf", page_one, "application/pdf"),
+        ("aaa-taken-second.pdf", page_two, "application/pdf"),
+    ])
+    assert r.status_code == 201, r.text
+    read = client.get(f"/assessments/{assessment}/scan", headers=_auth(school)).json()
+    assert [q["question_no"] for q in read["questions"]] == ["1", "2"]
+    assert [q["page"] for q in read["questions"]] == [1, 2]
+
+
+def test_a_photograph_is_accepted_and_routed_to_vision(client, school, assessment):
+    """A teacher photographing a paper has JPEGs, not a PDF. The image is accepted, and
+    then correctly reported as unreadable text -- which is a different failure from
+    'wrong file type', and the difference matters to whoever is standing there."""
+    r = _upload_many(client, school, assessment, [("page1.png", _png(), "image/png")])
+    assert r.status_code == 422
+    assert "no usable text layer" in r.json()["detail"]
+
+
+def test_a_file_that_is_neither_says_which_one(client, school, assessment):
+    r = _upload_many(client, school, assessment, [("notes.docx", b"PK\x03\x04zzz", "application/octet-stream")])
+    assert r.status_code == 422
+    detail = r.json()["detail"]
+    assert "notes.docx" in detail and "not a PDF or an image" in detail
+
+
+def test_an_empty_page_is_named_rather_than_silently_skipped(client, school, assessment):
+    good = _one_page_pdf([(60, 90, "SECTION A"), (60, 130, "1. A question."), (MARK_X, 130, "1")])
+    r = _upload_many(client, school, assessment, [
+        ("good.pdf", good, "application/pdf"),
+        ("blank.pdf", b"", "application/pdf"),
+    ])
+    assert r.status_code == 422
+    assert "blank.pdf is empty" in r.json()["detail"]

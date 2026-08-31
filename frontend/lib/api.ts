@@ -183,6 +183,26 @@ async function upload<T>(
   return (await res.json()) as T;
 }
 
+async function uploadMany<T>(
+  path: string,
+  key: string,
+  files: File[],
+  header: "X-Platform-Key" | "X-API-Key",
+): Promise<T> {
+  const body = new FormData();
+  // The field name repeats rather than being indexed: that is what FastAPI reads as a
+  // list, and the order of appends is the page order the server keeps.
+  for (const file of files) body.append("files", file);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, { method: "POST", headers: { [header]: key }, body });
+  } catch {
+    throw new ApiUnreachable(BASE);
+  }
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return (await res.json()) as T;
+}
+
 export interface ScanResult {
   route: "text" | "vision";
   pages: number;
@@ -358,8 +378,9 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  scanPaper: (key: string, assessmentId: string, file: File) =>
-    upload<ScanResult>(`/assessments/${assessmentId}/scan`, key, file, "X-API-Key"),
+  /** One page or many, PDFs or photographs, in the order given. */
+  scanPaper: (key: string, assessmentId: string, files: File[]) =>
+    uploadMany<ScanResult>(`/assessments/${assessmentId}/scan`, key, files, "X-API-Key"),
 
   readScan: (key: string, assessmentId: string) =>
     authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),
