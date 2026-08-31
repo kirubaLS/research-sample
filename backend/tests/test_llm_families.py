@@ -96,21 +96,23 @@ def test_a_chapter_shredded_into_paragraphs_is_capped():
     assert any("more than that" in v for v in result.violations)
 
 
-def test_the_prompt_shows_the_reference_the_model_must_copy():
-    """A fabricated citation is detectable only because the reference was printed."""
+def test_the_prompt_tags_every_passage_and_asks_for_tags():
+    """A fabricated citation is detectable only because each passage carries a handle the
+    model can copy exactly. Asking it to copy the human reference did not work."""
     prompt = build_prompt("Statistics", PASSAGES)
-    assert "[EXERCISE 14.1] (section 14.1)" in prompt
+    assert "[P3] EXERCISE 14.1 (section 14.1)" in prompt
     assert "Chapter: Statistics" in prompt
     assert "step-deviation method" in prompt
+    assert '"evidence": ["P3", "P7"]' in prompt
 
 
 def test_a_long_passage_is_truncated_not_dropped():
     """An 8500-character exercise must still reach the model as itself, shortened."""
     long_passage = [("EXERCISE 14.2", "14.2", "frequency table. " * 2000)]
     prompt = build_prompt("Statistics", long_passage)
-    assert "[EXERCISE 14.2]" in prompt
-    assert prompt.rstrip().endswith("Propose the concept families for this chapter.")
-    assert len(prompt) < 3000
+    assert "[P1] EXERCISE 14.2" in prompt
+    assert prompt.rstrip().endswith("in its evidence list.")
+    assert len(prompt) < 3200
 
 
 def test_the_proposer_refuses_to_start_without_a_key_rather_than_degrading_quietly():
@@ -156,3 +158,102 @@ def test_an_unknown_model_gets_no_effort_rather_than_a_guess():
     from app.llm import output_config
 
     assert output_config("claude-something-new", "low") is None
+
+
+# --- what the first real run over Class X Maths actually returned -------------------------
+#
+# Every one of the hundred-odd families proposed was dropped, because the model cited
+# passage TEXT where the prompt wanted the reference label. The reading itself was right --
+# it found the three separately-drilled methods for the mean of grouped data, which is the
+# exact split the section headings cannot see. These are its real citations, verbatim.
+
+MATHS_PASSAGES = [
+    ("Section 5.2", "5.2",
+     "A given list of numbers a1, a2, a3, . . . is an AP, if the differences a2 - a1, "
+     "a3 - a2, a4 - a3, . . ., give the same value."),
+    ("EXERCISE 5.1", "5.1",
+     "1. In which of the following situations, does the list of numbers involved make an "
+     "arithmetic progression, and why?"),
+    ("Example 2", "5.2",
+     "Example 2: Which of the following list of numbers form an AP? If they form an AP, "
+     "write the next two terms."),
+]
+
+
+def test_a_citation_that_quotes_the_passage_is_accepted():
+    """Verbatim from the run: the model quoted the body text of Section 5.2. A quote long
+    enough to be found in a passage shown is a stricter proof than a label, not a weaker
+    one -- a fabricated quote is not in the corpus at all."""
+    result = ground(
+        _families(("Identifying arithmetic progressions", [
+            "A given list of numbers a1, a2, a3, . . . is an AP, if the differences "
+            "a2 - a1, a3 - a2, a4 - a3, . . ., give the same value.",
+        ])),
+        MATHS_PASSAGES,
+    )
+    assert result.violations == []
+    [family] = result.families
+    # Stored as the reference, so the proof points at a real chunk rather than at whatever
+    # the model happened to type.
+    assert family.evidence == ["Section 5.2"]
+
+
+def test_a_citation_that_appends_the_question_to_the_label_is_accepted():
+    """Also verbatim: it copied 'EXERCISE 5.1' as told, then kept going into the question."""
+    result = ground(
+        _families(("Recognising APs from situations", [
+            "EXERCISE 5.1: Which of the following situations, does the list of numbers "
+            "involved make an arithmetic progression, and why?",
+        ])),
+        MATHS_PASSAGES,
+    )
+    assert result.violations == []
+    assert result.families[0].evidence == ["EXERCISE 5.1"]
+
+
+def test_the_tag_the_prompt_now_asks_for_is_accepted():
+    result = ground(_families(("First term and common difference", ["P2"])), MATHS_PASSAGES)
+    assert result.violations == []
+    assert result.families[0].evidence == ["EXERCISE 5.1"]
+
+
+def test_two_citations_resolving_to_one_passage_are_not_stored_twice():
+    result = ground(
+        _families(("Identifying APs", ["P2", "EXERCISE 5.1"])), MATHS_PASSAGES
+    )
+    assert result.families[0].evidence == ["EXERCISE 5.1"]
+
+
+def test_a_fabricated_quote_is_still_rejected():
+    """The relaxation must not become 'any text passes'. This sentence is plausible, is
+    about the right chapter, and is in no passage that was shown."""
+    result = ground(
+        _families(("Sum of an infinite AP", [
+            "The sum of an infinite arithmetic progression converges when the common "
+            "difference is negative and the first term is positive.",
+        ])),
+        MATHS_PASSAGES,
+    )
+    assert result.families == []
+    assert "cited passages that were not shown" in result.violations[0]
+
+
+def test_a_quote_too_short_to_prove_anything_is_rejected():
+    """'the same value' appears in the corpus, and proves nothing -- two common words are
+    in every chapter."""
+    result = ground(_families(("Common difference", ["the same"])), MATHS_PASSAGES)
+    assert result.families == []
+    assert "cited passages that were not shown" in result.violations[0]
+
+
+def test_a_tag_beyond_the_passages_shown_is_rejected():
+    result = ground(_families(("Invented", ["P99"])), MATHS_PASSAGES)
+    assert result.families == []
+
+
+def test_the_correction_message_stays_readable_when_the_citation_is_a_paragraph():
+    """The first run produced correction lines thousands of characters long, because each
+    dropped citation was a full quoted passage. Unreadable is unusable."""
+    result = ground(_families(("Nonsense", ["x" * 4000])), MATHS_PASSAGES)
+    assert result.families == []
+    assert len(result.violations[0]) < 200

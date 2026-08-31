@@ -816,8 +816,21 @@ def propose_families_with_a_model(
             {"chapter": chapter, "dropped": violations}
             for chapter, violations in proposer.violations
         ],
+        # Zero survivors is not "no families in this book" -- it means the guardrail
+        # rejected every one, which is a fault in the prompt or the citation format, not a
+        # finding about the subject. It read as an ordinary empty result the first time and
+        # cost a paid run to notice.
+        "warning": (
+            "Every proposed family was dropped. Nothing was stored and this is not a "
+            "result about the book -- read `corrections` and fix the cause before "
+            "re-running."
+            if written == 0 and proposer.violations
+            else None
+        ),
         "next": (
             f"Review at GET /platform/books/{subject}/concept-families/proposals, then "
             f"POST the ones you want to /platform/books/{subject}/concept-families."
+            if written
+            else "Nothing was stored, so there is nothing to review."
         ),
     }
