@@ -78,6 +78,54 @@ export interface Overview {
   }[];
 }
 
+export interface PaperSummary {
+  id: string;
+  title: string;
+  subject_code: string;
+  paper_code: string | null;
+  total_marks: number | null;
+  created_at: string | null;
+  stage: "empty" | "scanned" | "confirmed" | "mapped";
+  scanned_questions: number;
+  questions: number;
+  mapped_questions: number;
+  students_with_marks: number;
+  ready_for_answer_sheets: boolean;
+}
+
+export interface AnswerRow {
+  address: string;
+  section: string | null;
+  question_no: string;
+  choice_alt: string | null;
+  max_marks: number;
+  stem_text: string | null;
+  chapter: string | null;
+  concept_family: string | null;
+  marks: number | null;
+  state: string | null;
+  source: string | null;
+}
+
+export interface AnswerSheet {
+  assessment: { id: string; title: string; subject_code: string; total_marks: number | null };
+  student: { id: string; name: string; roll_no: string };
+  questions: AnswerRow[];
+  entered: number;
+  remaining: number;
+  scored: number;
+  available: number;
+}
+
+export interface ConfirmAnswersResult {
+  written: number;
+  rejected: { address: string; reason: string }[];
+  scored: number;
+  available: number;
+  remaining: number;
+  complete: boolean;
+}
+
 export interface RosterRow {
   student_id: string;
   name: string;
@@ -430,6 +478,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ questions }),
     }),
+
+  listPapers: (key: string) =>
+    authed<{ assessments: PaperSummary[] }>("/assessments", key),
+
+  answerSheet: (key: string, assessmentId: string, studentId: string) =>
+    authed<AnswerSheet>(`/assessments/${assessmentId}/answers/${studentId}`, key),
+
+  confirmAnswers: (
+    key: string,
+    assessmentId: string,
+    studentId: string,
+    answers: { address: string; marks?: number | null; state?: string }[],
+    by: string,
+  ) =>
+    authed<ConfirmAnswersResult>(
+      `/assessments/${assessmentId}/answers/${studentId}/confirm`,
+      key,
+      { method: "POST", body: JSON.stringify({ answers, by }) },
+    ),
 
   interestReport: (key: string, studentId: string) =>
     authed<InterestReport>(`/reports/interest/${studentId}`, key),

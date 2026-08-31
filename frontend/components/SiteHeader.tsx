@@ -45,6 +45,12 @@ export function SiteHeader() {
               Question paper
             </Link>
             <Link
+              href="/admin/answers"
+              aria-current={pathname === "/admin/answers" ? "page" : undefined}
+            >
+              Answer sheet
+            </Link>
+            <Link
               href="/admin/scan"
               aria-current={pathname === "/admin/scan" ? "page" : undefined}
             >

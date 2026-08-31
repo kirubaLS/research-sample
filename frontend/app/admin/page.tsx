@@ -118,6 +118,16 @@ export default function Dashboard() {
           <span className="arrow">Open the paper reader →</span>
         </Link>
 
+        <Link href="/admin/answers" className="card">
+          <h3>Enter an answer sheet</h3>
+          <p className="cardnote">
+            Pick a paper that has been read, pick a student, and enter their marks question
+            by question. Each row says which chapter and concept the mark counts towards,
+            and a question nobody has marked yet stays visible until it is.
+          </p>
+          <span className="arrow">Open the answer sheet →</span>
+        </Link>
+
         <Link href="/admin/scan" className="card">
           <h3>Scan a script</h3>
           <p className="cardnote">

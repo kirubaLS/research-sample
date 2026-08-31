@@ -210,3 +210,24 @@ def test_a_sheet_for_an_unmapped_paper_says_what_to_do(client, school, student):
     out = client.get(f"/assessments/{aid}/answers/{student}", headers=_auth(school))
     assert out.status_code == 422
     assert "no mapped questions" in out.json()["detail"]
+
+
+def test_the_paper_list_says_which_papers_can_take_an_answer_sheet(
+    client, school, mapped_paper
+):
+    """A teacher picking a paper to enter marks against should not have to discover at the
+    point of entry that it was never mapped."""
+    created = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Not scanned yet", "total_marks": 5},
+    ).json()["assessment_id"]
+
+    rows = client.get("/assessments", headers=_auth(school)).json()["assessments"]
+    by_id = {r["id"]: r for r in rows}
+
+    assert by_id[mapped_paper]["stage"] == "mapped"
+    assert by_id[mapped_paper]["questions"] > 0
+    assert by_id[mapped_paper]["ready_for_answer_sheets"] is True
+
+    assert by_id[created]["stage"] == "empty"
+    assert by_id[created]["ready_for_answer_sheets"] is False

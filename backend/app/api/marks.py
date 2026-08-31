@@ -67,6 +67,76 @@ def create_assessment(
     return {"assessment_id": a.id, "status": a.status}
 
 
+@router.get("")
+def list_assessments(
+    school: School = Depends(require_admin), db: Session = Depends(get_session)
+) -> dict:
+    """Every paper this school has, and how far each one has got.
+
+    The stage is derived from what is actually stored rather than from a status column
+    somebody has to remember to update: a paper is mapped when its questions carry
+    chapters, confirmed when the extraction has been signed off, scanned when pages were
+    read, and otherwise empty. Only a mapped paper can take an answer sheet, and the list
+    says so instead of letting someone find out at the point of entry.
+    """
+    assessments = list(db.scalars(
+        select(Assessment)
+        .where(Assessment.school_id == school.id)
+        .order_by(Assessment.created_at.desc())
+    ))
+    ids = [a.id for a in assessments]
+
+    scanned = dict(db.execute(
+        select(ScannedQuestion.assessment_id, func.count())
+        .where(ScannedQuestion.assessment_id.in_(ids))
+        .group_by(ScannedQuestion.assessment_id)
+    ).all()) if ids else {}
+    questions = dict(db.execute(
+        select(Question.assessment_id, func.count())
+        .where(Question.assessment_id.in_(ids))
+        .group_by(Question.assessment_id)
+    ).all()) if ids else {}
+    mapped = dict(db.execute(
+        select(Question.assessment_id, func.count())
+        .where(Question.assessment_id.in_(ids), Question.chapter_id.is_not(None))
+        .group_by(Question.assessment_id)
+    ).all()) if ids else {}
+    marked = dict(db.execute(
+        select(MarkEvent.assessment_id, func.count(func.distinct(MarkEvent.student_id)))
+        .where(MarkEvent.assessment_id.in_(ids))
+        .group_by(MarkEvent.assessment_id)
+    ).all()) if ids else {}
+
+    rows = []
+    for a in assessments:
+        n_questions = questions.get(a.id, 0)
+        n_mapped = mapped.get(a.id, 0)
+        if n_mapped:
+            stage = "mapped"
+        elif n_questions:
+            stage = "confirmed"
+        elif scanned.get(a.id):
+            stage = "scanned"
+        else:
+            stage = "empty"
+        rows.append({
+            "id": a.id,
+            "title": a.title,
+            "subject_code": a.subject_code,
+            "paper_code": a.paper_code,
+            "total_marks": float(a.total_marks) if a.total_marks else None,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+            "stage": stage,
+            "scanned_questions": scanned.get(a.id, 0),
+            "questions": n_questions,
+            "mapped_questions": n_mapped,
+            "students_with_marks": marked.get(a.id, 0),
+            #: What the answer-sheet screen needs to know before it offers this paper.
+            "ready_for_answer_sheets": n_questions > 0,
+        })
+    return {"assessments": rows}
+
+
 @router.post("/{assessment_id}/questions")
 def add_questions(
     assessment_id: str,
