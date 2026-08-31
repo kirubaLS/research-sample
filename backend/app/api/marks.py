@@ -25,6 +25,8 @@ from app.extraction.verification import verify_paper
 from app.ingest.book import stem_hash
 from app.mapping.solver import Constraint, QuestionDist, solve
 from app.models import (
+    MARK_STATES,
+    SOURCE_PRECEDENCE,
     Assessment,
     BookChunk,
     ChapterBoardUnit,
@@ -790,4 +792,179 @@ def map_paper_to_book(
             ),
         )) or 0,
         "next": f"Review at GET /assessments/{assessment.id}/scan.",
+    }
+
+
+# --------------------------------------------------------------------------------------
+# The answer sheet: one student, against the paper already scanned and mapped
+# --------------------------------------------------------------------------------------
+class AnswerIn(BaseModel):
+    address: str = Field(max_length=40)
+    marks: float | None = Field(default=None, ge=0, le=100)
+    #: 'awarded' | 'absent' | 'not_offered'. not_offered is the unattempted half of a
+    #: choice pair and is excluded from every denominator -- absence of evidence, not
+    #: evidence of weakness.
+    state: str = Field(default="awarded", max_length=16)
+
+
+class AnswerSheetIn(BaseModel):
+    answers: list[AnswerIn] = Field(min_length=1, max_length=400)
+    by: str = Field(default="teacher", max_length=64)
+
+
+def _student_for(db: Session, school: School, student_id: str) -> StudentProfile:
+    student = db.get(StudentProfile, student_id)
+    if student is None or student.school_id != school.id:
+        raise HTTPException(404, "not found")
+    return student
+
+
+@router.get("/{assessment_id}/answers/{student_id}")
+def read_answer_sheet(
+    assessment_id: str,
+    student_id: str,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Every question on the paper, with this student's mark if one has been recorded.
+
+    Driven by the paper rather than by the marks: a question with no mark yet must appear,
+    because the gap is the thing the person entering them is looking for. A screen built
+    from the marks alone shows a complete-looking list that is missing exactly what needs
+    attention.
+    """
+    assessment = _get_assessment(db, school, assessment_id)
+    student = _student_for(db, school, student_id)
+
+    questions = list(db.scalars(
+        select(Question).where(Question.assessment_id == assessment.id).order_by(Question.address)
+    ))
+    if not questions:
+        raise HTTPException(
+            422,
+            "this paper has no mapped questions yet. Scan it, confirm the extraction and "
+            "map it to the book first.",
+        )
+
+    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+    latest: dict[str, MarkEvent] = {}
+    rank = {s: i for i, s in enumerate(SOURCE_PRECEDENCE)}
+    for event in db.scalars(
+        select(MarkEvent).where(
+            MarkEvent.assessment_id == assessment.id, MarkEvent.student_id == student.id
+        )
+    ):
+        seen = latest.get(event.question_id)
+        if (
+            seen is None
+            or rank.get(event.source, -1) > rank.get(seen.source, -1)
+            or (event.source == seen.source and event.created_at >= seen.created_at)
+        ):
+            latest[event.question_id] = event
+
+    rows = []
+    for question in questions:
+        event = latest.get(question.id)
+        family = nodes.get(question.concept_family_id or "")
+        chapter = nodes.get(question.chapter_id or "")
+        rows.append({
+            "address": question.address,
+            "section": question.section,
+            "question_no": question.question_no,
+            "choice_alt": question.choice_alt,
+            "max_marks": float(question.max_marks),
+            "stem_text": question.stem_text,
+            "chapter": chapter.label if chapter else None,
+            "concept_family": family.label if family else None,
+            "marks": float(event.marks) if event and event.marks is not None else None,
+            "state": event.state if event else None,
+            "source": event.source if event else None,
+        })
+
+    entered = [r for r in rows if r["marks"] is not None or r["state"] == "absent"]
+    return {
+        "assessment": {
+            "id": assessment.id, "title": assessment.title,
+            "subject_code": assessment.subject_code,
+            "total_marks": float(assessment.total_marks) if assessment.total_marks else None,
+        },
+        "student": {"id": student.id, "name": student.name, "roll_no": student.roll_no},
+        "questions": rows,
+        "entered": len(entered),
+        "remaining": len(rows) - len(entered),
+        "scored": sum(r["marks"] or 0.0 for r in rows if r["state"] != "not_offered"),
+        "available": sum(
+            r["max_marks"] for r in rows
+            if r["state"] != "not_offered" and r["choice_alt"] in (None, "a")
+        ),
+    }
+
+
+@router.post("/{assessment_id}/answers/{student_id}/confirm")
+def confirm_answer_sheet(
+    assessment_id: str,
+    student_id: str,
+    body: AnswerSheetIn,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """A person puts their name to this student's marks.
+
+    Written as 'teacher', which outranks every automatic source, so a confirmation always
+    supersedes whatever a scan proposed and never the other way round. Nothing is
+    overwritten -- the earlier reading stays in the log, because how a mark was arrived at
+    is part of being able to defend it later.
+
+    A mark above what the question is worth is refused rather than clamped. Clamping would
+    turn a typo into a plausible number nobody would ever question again.
+    """
+    assessment = _get_assessment(db, school, assessment_id)
+    student = _student_for(db, school, student_id)
+
+    questions = {
+        q.address: q for q in db.scalars(
+            select(Question).where(Question.assessment_id == assessment.id)
+        )
+    }
+    written, rejected = 0, []
+    for answer in body.answers:
+        question = questions.get(answer.address)
+        if question is None:
+            rejected.append({"address": answer.address, "reason": "no such question on this paper"})
+            continue
+        if answer.state not in MARK_STATES:
+            rejected.append({"address": answer.address, "reason": f"unknown state {answer.state!r}"})
+            continue
+        if answer.state == "awarded":
+            if answer.marks is None:
+                rejected.append({"address": answer.address, "reason": "awarded but no marks given"})
+                continue
+            if answer.marks > float(question.max_marks):
+                rejected.append({
+                    "address": answer.address,
+                    "reason": f"{answer.marks:g} is more than the {float(question.max_marks):g} "
+                              f"this question is worth",
+                })
+                continue
+
+        db.add(MarkEvent(
+            assessment_id=assessment.id, student_id=student.id, question_id=question.id,
+            state=answer.state,
+            marks=answer.marks if answer.state == "awarded" else None,
+            source="teacher", confidence=1.0, actor_id=body.by[:36],
+            provenance={"confirmed_by": body.by},
+        ))
+        written += 1
+    db.commit()
+
+    sheet = read_answer_sheet(assessment.id, student.id, school, db)
+    return {
+        "written": written,
+        "rejected": rejected,
+        "scored": sheet["scored"],
+        "available": sheet["available"],
+        "remaining": sheet["remaining"],
+        #: Said rather than assumed: a sheet with questions still unmarked is not finished,
+        #: and a total computed over a partial sheet reads exactly like a low score.
+        "complete": sheet["remaining"] == 0,
     }

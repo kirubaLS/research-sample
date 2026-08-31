@@ -327,7 +327,11 @@ def test_proposing_with_a_model_refuses_without_a_key_rather_than_falling_back(c
     before = settings.anthropic_api_key
     settings.anthropic_api_key = None
     try:
-        r = client.post("/platform/books/X.MATH/concept-families/propose-llm", headers=HEAD)
+        # force=true so the request reaches the key check rather than stopping at the
+        # already-has-proposals conflict, which depends on what else has run.
+        r = client.post(
+            "/platform/books/X.MATH/concept-families/propose-llm?force=true", headers=HEAD
+        )
     finally:
         settings.anthropic_api_key = before
     assert r.status_code in (422, 503), r.text
@@ -336,7 +340,9 @@ def test_proposing_with_a_model_refuses_without_a_key_rather_than_falling_back(c
 
 
 def test_proposals_read_back_empty_before_any_run(client):
-    body = client.get("/platform/books/X.MATH/concept-families/proposals", headers=HEAD).json()
+    # A subject no run has touched. Asking X.MATH made this assertion a statement about
+    # every other test in the suite rather than about the endpoint.
+    body = client.get("/platform/books/X.SCI/concept-families/proposals", headers=HEAD).json()
     assert body["proposed"] == 0 and body["families"] == [] and body["runs"] == []
 
 
