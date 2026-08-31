@@ -47,6 +47,18 @@ class SectionIn(BaseModel):
         return v.strip().upper()
 
 
+def _key_view(k: StaffKey) -> dict:
+    """Never carries ``api_key``. Listing a key must not be a way of reading it."""
+    return {
+        "id": k.id,
+        "role": k.role,
+        "label": k.label,
+        "school_id": k.school_id,
+        "created_at": k.created_at.isoformat() if k.created_at else None,
+        "revoked_at": k.revoked_at.isoformat() if k.revoked_at else None,
+    }
+
+
 class StaffKeyIn(BaseModel):
     role: str = Field(default="principal")
     label: str = Field(default="", max_length=120)
@@ -176,6 +188,50 @@ def add_section(
     return _section_view(section)
 
 
+@router.get("/keys")
+def list_admin_keys(db: Session = Depends(get_session)) -> list[dict]:
+    """Admin keys, which belong to no school. The secrets are not here."""
+    keys = db.scalars(
+        select(StaffKey).where(StaffKey.school_id.is_(None)).order_by(StaffKey.created_at)
+    ).all()
+    return [_key_view(k) for k in keys]
+
+
+@router.post("/keys", status_code=status.HTTP_201_CREATED)
+def issue_admin_key(body: StaffKeyIn, db: Session = Depends(get_session)) -> dict:
+    """Issue an admin key: every school on this deployment, and the power to create more.
+
+    Not attached to a school, on purpose. An admin who had a home school would be one
+    forgotten header away from acting on the wrong one; with none, every request has to
+    name the school it is about.
+    """
+    key = StaffKey(
+        school_id=None, api_key=secrets.token_urlsafe(24), role="admin",
+        label=body.label.strip(),
+    )
+    db.add(key)
+    db.commit()
+    db.refresh(key)
+    view = _key_view(key)
+    view["api_key"] = key.api_key
+    view["api_key_notice"] = (
+        "Shown once. This key can create schools and act on every school on this "
+        "deployment -- store it as carefully as the operator key itself."
+    )
+    return view
+
+
+@router.post("/keys/{key_id}/revoke")
+def revoke_admin_key(key_id: str, db: Session = Depends(get_session)) -> dict:
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such key")
+    if key.revoked_at is None:
+        key.revoked_at = datetime.now(UTC)
+        db.commit()
+    return _key_view(key)
+
+
 @router.get("/schools/{school_id}/keys")
 def list_staff_keys(school_id: str, db: Session = Depends(get_session)) -> list[dict]:
     """Who holds a key at this school, and with what role. The secrets are not here.
@@ -189,16 +245,7 @@ def list_staff_keys(school_id: str, db: Session = Depends(get_session)) -> list[
     keys = db.scalars(
         select(StaffKey).where(StaffKey.school_id == school_id).order_by(StaffKey.created_at)
     ).all()
-    return [
-        {
-            "id": k.id,
-            "role": k.role,
-            "label": k.label,
-            "created_at": k.created_at.isoformat() if k.created_at else None,
-            "revoked_at": k.revoked_at.isoformat() if k.revoked_at else None,
-        }
-        for k in keys
-    ]
+    return [_key_view(k) for k in keys]
 
 
 @router.post("/schools/{school_id}/keys", status_code=status.HTTP_201_CREATED)
@@ -223,16 +270,13 @@ def issue_staff_key(school_id: str, body: StaffKeyIn, db: Session = Depends(get_
     db.add(key)
     db.commit()
     db.refresh(key)
-    return {
-        "id": key.id,
-        "role": key.role,
-        "label": key.label,
-        "api_key": key.api_key,
-        "api_key_notice": (
-            "Shown once. Give it to the person named and store it somewhere safe -- there "
-            "is no route that reads it back, only revoke and re-issue."
-        ),
-    }
+    view = _key_view(key)
+    view["api_key"] = key.api_key
+    view["api_key_notice"] = (
+        "Shown once. Give it to the person named and store it somewhere safe -- there is "
+        "no route that reads it back, only revoke and re-issue."
+    )
+    return view
 
 
 @router.post("/schools/{school_id}/keys/{key_id}/revoke")
@@ -245,7 +289,7 @@ def revoke_staff_key(school_id: str, key_id: str, db: Session = Depends(get_sess
     if key.revoked_at is None:
         key.revoked_at = datetime.now(UTC)
         db.commit()
-    return {"id": key.id, "role": key.role, "revoked_at": key.revoked_at.isoformat()}
+    return _key_view(key)
 
 
 @router.post("/schools/{school_id}/rotate-key")

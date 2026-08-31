@@ -31,13 +31,20 @@ STAFF_ROLES = ("principal", "admin")
 
 
 class StaffKey(Base, PkMixin, TimestampMixin):
-    """A credential belonging to one person at one school, carrying one role.
+    """A credential belonging to one person, carrying one role.
 
-    The school's own ``api_key`` predates this table and remains the school's admin key,
-    so no deployment loses access by this arriving. Everything issued afterwards is a row
-    here, which is what makes it possible to give a principal a key that can read every
-    student's progress without being able to scan a paper, create a class or rotate a
-    credential.
+    ``school_id`` is what separates the two roles, and it is the whole design:
+
+    * a **principal** key names a school, and can only ever see that school -- the id is
+      not a default the request may override but the only school the key can resolve to;
+    * an **admin** key names none, because an admin creates schools and works across all
+      of them. They say which school they are acting on per request.
+
+    So a principal cannot be given another school's data by any header, parameter or
+    mistake, because there is no code path that reads a school from the request for them.
+
+    The school's own ``api_key`` predates this table and still works, as an admin bound to
+    that one school -- no deployment loses access by this arriving.
 
     Revoking sets ``revoked_at`` rather than deleting: who held access, and until when, is
     the first question asked after anything goes wrong.
@@ -45,13 +52,15 @@ class StaffKey(Base, PkMixin, TimestampMixin):
 
     __tablename__ = "staff_key"
 
-    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    school_id: Mapped[str | None] = mapped_column(
+        ForeignKey("school.id"), index=True, nullable=True
+    )
     api_key: Mapped[str] = mapped_column(String(64), unique=True, index=True)
     role: Mapped[str] = mapped_column(String(16), default="principal")
     label: Mapped[str] = mapped_column(String(120), default="")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
-    school: Mapped[School] = relationship()
+    school: Mapped[School | None] = relationship()
 
 
 class Section(Base, PkMixin, TimestampMixin):

@@ -23,9 +23,11 @@ export function SiteHeader() {
   // a refusal is worse than not offering them, so the nav follows the role. Read after
   // mount for the same reason as the operator key above.
   const [canRun, setCanRun] = useState(true);
+  const [canManageSchools, setCanManageSchools] = useState(false);
   useEffect(() => {
     const role = getRole();
     setCanRun(role === null || role.can.scan_papers);
+    setCanManageSchools(Boolean(role?.can.manage_schools));
   }, [pathname]);
 
   return (
@@ -71,7 +73,7 @@ export function SiteHeader() {
                 Scan scripts
               </Link>
             )}
-            {(isOperator || pathname.startsWith("/platform")) && (
+            {(isOperator || canManageSchools || pathname.startsWith("/platform")) && (
               <Link
                 href="/platform"
                 aria-current={pathname.startsWith("/platform") ? "page" : undefined}
@@ -79,7 +81,7 @@ export function SiteHeader() {
                 Schools
               </Link>
             )}
-            {(isOperator || pathname.startsWith("/platform")) && (
+            {(isOperator || canManageSchools || pathname.startsWith("/platform")) && (
               <Link
                 href="/platform/books"
                 aria-current={pathname === "/platform/books" ? "page" : undefined}
@@ -87,7 +89,7 @@ export function SiteHeader() {
                 Books
               </Link>
             )}
-            {(isOperator || pathname.startsWith("/platform")) && (
+            {(isOperator || canManageSchools || pathname.startsWith("/platform")) && (
               <Link
                 href="/platform/probe"
                 aria-current={pathname === "/platform/probe" ? "page" : undefined}

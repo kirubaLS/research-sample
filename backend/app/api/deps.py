@@ -17,12 +17,13 @@ from app.models import School, StaffKey
 class Staff:
     """Who is asking, and with what authority.
 
-    Roles are ordered: an admin can do everything a principal can. Routes state the
-    minimum they need rather than listing the roles that happen to satisfy it today.
+    ``home`` is the school the key itself names. A principal has one and it is the only
+    school they can ever reach. An admin has none, because an admin works across schools
+    and says which one per request.
     """
 
-    school: School
     role: str
+    home: School | None
 
     @property
     def is_admin(self) -> bool:
@@ -33,41 +34,71 @@ def current_staff(
     x_api_key: str = Header(..., alias="X-API-Key"),
     db: Session = Depends(get_session),
 ) -> Staff:
-    """Resolve a key to a school and a role.
+    """Resolve a key to a role, and to the school it names if it names one.
 
-    A school's own ``api_key`` predates per-person keys and remains that school's admin
-    credential, so no deployment loses access. Everything issued since is a ``staff_key``
-    row, which is where a principal's read-only key lives.
+    A school's own ``api_key`` predates per-person keys and still works, as an admin bound
+    to that one school, so no deployment loses access.
     """
     school = db.scalar(select(School).where(School.api_key == x_api_key))
     if school is not None:
-        return Staff(school=school, role="admin")
+        return Staff(role="admin", home=school)
 
     staff = db.scalar(select(StaffKey).where(StaffKey.api_key == x_api_key))
     # A revoked key is treated exactly like one that never existed: answering differently
     # would tell whoever kept it that it was once real.
     if staff is None or staff.revoked_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-    return Staff(school=staff.school, role=staff.role)
+    return Staff(role=staff.role, home=staff.school)
 
 
-def require_staff(staff: Staff = Depends(current_staff)) -> Staff:
-    """Any signed-in member of school staff. Read-only surfaces use this."""
+def school_in_scope(staff: Staff, requested: str | None, db: Session) -> School:
+    """Which school this request is about.
+
+    For anyone who is not an admin the answer comes from their key and nothing else. The
+    requested id is not consulted, not compared and not reported on -- there is simply no
+    path by which a principal's request reads a school from the request, which is a
+    stronger guarantee than checking that it matches.
+    """
+    if not staff.is_admin:
+        assert staff.home is not None, "a non-admin key always names its school"
+        return staff.home
+
+    if requested:
+        school = db.get(School, requested)
+        if school is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+        return school
+    if staff.home is not None:
+        return staff.home
+    raise HTTPException(
+        status.HTTP_400_BAD_REQUEST,
+        "this key works across schools, so the request has to say which one. Send the "
+        "school id in the X-School-Id header.",
+    )
+
+
+def require_staff(
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> Staff:
+    """Any signed-in member of staff. Read-only surfaces use this."""
+    school_in_scope(staff, x_school_id, db)      # rejects an admin who named no school
     return staff
 
 
 def require_admin_staff(staff: Staff = Depends(current_staff)) -> Staff:
-    """Anything that changes the school's data, and the whole marks engine.
+    """Anything that changes a school's data, and the whole marks engine.
 
-    A principal is refused here with 403 rather than 404: unlike a wrong key, they are
+    A principal is refused with 403 rather than 404: unlike a wrong key, they are
     genuinely signed in, and telling them the surface exists but is not theirs is the
     honest answer -- there is nothing to hide from someone already inside the school.
     """
     if not staff.is_admin:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "this needs an admin key. A principal key can read results and progress, but "
-            "not scan papers, enter marks or change the roster.",
+            "this needs an admin key. A principal key reads results and progress for "
+            "their own school, but does not scan papers, enter marks or change the roster.",
         )
     return staff
 
@@ -83,40 +114,57 @@ def current_school(
     return school
 
 
-def require_admin(staff: Staff = Depends(require_admin_staff)) -> School:
-    """The school an admin key belongs to. Students never reach these routes.
+def require_admin(
+    staff: Staff = Depends(require_admin_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """The school an admin request is acting on. Students never reach these routes."""
+    return school_in_scope(staff, x_school_id, db)
 
-    Kept returning a ``School`` so every route already depending on it is unchanged in
-    behaviour except for now refusing a principal key.
-    """
-    return staff.school
 
-
-def require_reader(staff: Staff = Depends(require_staff)) -> School:
-    """The school any staff key belongs to -- principal or admin. Read-only routes."""
-    return staff.school
+def require_reader(
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """The school a read is about -- an admin's chosen one, or a principal's only one."""
+    return school_in_scope(staff, x_school_id, db)
 
 
 def require_platform_admin(
-    x_platform_key: str = Header(..., alias="X-Platform-Key"),
+    x_platform_key: str | None = Header(default=None, alias="X-Platform-Key"),
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    db: Session = Depends(get_session),
 ) -> None:
-    """The operator surface: creating schools and minting principal keys.
+    """Creating schools, loading books, issuing keys.
 
-    Deliberately not derived from a school key. A principal holds one key for one school;
-    if that key could also create schools or read another school's key, one leaked key
-    would compromise every school on the deployment.
+    Two credentials open this, and only two:
 
-    Unset ``platform_admin_key`` disables the surface entirely rather than falling back to
-    something weaker -- a deployment that forgot to configure it must fail closed.
+    * the operator key, ``YAADHUM_PLATFORM_ADMIN_KEY``, which bootstraps a deployment and
+      is the only way to issue the first admin key;
+    * an **admin** staff key that names no school, because an admin creates schools and
+      works across them -- that is the whole point of the role.
+
+    A principal key never opens it, and neither does a school's own key, which is an admin
+    bound to one school: it can run that school, not create another. So one leaked school
+    credential still cannot reach a second school's data.
+
+    Unset ``platform_admin_key`` disables the operator key entirely rather than falling
+    back to something weaker -- a deployment that forgot to configure it must fail closed.
+    An admin staff key still works, because it was issued deliberately.
     """
     from app.config import get_settings
 
     expected = get_settings().platform_admin_key
-    if not expected:
-        raise HTTPException(
-            status.HTTP_404_NOT_FOUND,
-            "not found",
-        )
     # constant time: a byte-by-byte comparison leaks the key one character at a time
-    if not secrets.compare_digest(x_platform_key, expected):
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    if expected and x_platform_key and secrets.compare_digest(x_platform_key, expected):
+        return
+
+    if x_api_key:
+        staff = db.scalar(select(StaffKey).where(StaffKey.api_key == x_api_key))
+        if staff and staff.revoked_at is None and staff.role == "admin" and staff.school_id is None:
+            return
+
+    # 404 for every failure, so a probe cannot tell a wrong key from a disabled console
+    raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")

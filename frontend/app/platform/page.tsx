@@ -32,6 +32,55 @@ export default function PlatformConsole() {
   }, []);
 
   const [staffKeys, setStaffKeys] = useState<Record<string, StaffKeySummary[]>>({});
+  const [adminKeys, setAdminKeys] = useState<StaffKeySummary[]>([]);
+
+  const loadAdminKeys = useCallback(async () => {
+    const key = getPlatformKey();
+    if (!key) return;
+    try {
+      setAdminKeys(await api.listAdminKeys(key));
+    } catch {
+      /* the console still works; a panel that failed to load says nothing false */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadAdminKeys();
+  }, [loadAdminKeys]);
+
+  async function issueAdminKey() {
+    const key = getPlatformKey();
+    if (!key) return;
+    const label = window.prompt(
+      "Who is this admin key for? (a name, so it can be revoked later)\n\nIt can create " +
+        "schools and act on every school on this deployment.",
+      "",
+    );
+    if (label === null) return;
+    try {
+      const created = await api.issueAdminKey(key, label);
+      setIssued({
+        name: `Admin — ${label || "unnamed"}`,
+        api_key: created.api_key,
+        notice: created.api_key_notice,
+      });
+      await loadAdminKeys();
+    } catch (err) {
+      setError(describe(err, "Could not issue the admin key."));
+    }
+  }
+
+  async function revokeAdminKey(entry: StaffKeySummary) {
+    const key = getPlatformKey();
+    if (!key) return;
+    if (!window.confirm(`Revoke the admin key${entry.label ? ` for ${entry.label}` : ""}? They are signed out of every school immediately.`)) return;
+    try {
+      await api.revokeAdminKey(key, entry.id);
+      await loadAdminKeys();
+    } catch (err) {
+      setError(describe(err, "Could not revoke the key."));
+    }
+  }
 
   const loadKeys = useCallback(async (schoolId: string) => {
     const key = getPlatformKey();
@@ -202,6 +251,42 @@ export default function PlatformConsole() {
       {error && <div className="notice warn" style={{ marginTop: 18 }}>{error}</div>}
 
       <div className="section-head">
+        <h2>Admin keys</h2>
+      </div>
+      <div className="card">
+        <p className="small muted" style={{ marginTop: 0 }}>
+          An admin key belongs to no school. It creates schools, loads books and works
+          across every school here &mdash; and because it has no home school, every request
+          it makes has to name the one it is about, so there is no school it can act on by
+          accident. The operator key below is only needed to issue the first one.
+        </p>
+        {adminKeys.length === 0 ? (
+          <p className="small muted">None issued yet.</p>
+        ) : (
+          <div className="stack" style={{ gap: 6 }}>
+            {adminKeys.map((entry) => (
+              <div className="row between" key={entry.id}>
+                <span className="small">
+                  {entry.label || <span className="muted">unnamed</span>}
+                  {entry.revoked_at && <span className="muted"> · revoked</span>}
+                </span>
+                {!entry.revoked_at && (
+                  <button className="secondary tiny" onClick={() => revokeAdminKey(entry)}>
+                    Revoke
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+        <div style={{ marginTop: 12 }}>
+          <button className="secondary tiny" onClick={issueAdminKey}>
+            Issue an admin key
+          </button>
+        </div>
+      </div>
+
+      <div className="section-head">
         <h2>Add a school</h2>
       </div>
       <form onSubmit={createSchool} className="card">
@@ -285,9 +370,11 @@ export default function PlatformConsole() {
               Staff keys
             </p>
             <p className="small muted" style={{ marginTop: 0 }}>
-              A principal key reads results and progress across the school. It cannot scan a
-              paper, enter marks or change the roster &mdash; so the person who runs the
-              assessments and the person who reads them are separate credentials.
+              A principal key reads results and progress for this school and no other. It
+              cannot scan a paper, enter marks or change the roster &mdash; so the person
+              who runs the assessments and the person who reads them are separate
+              credentials. A key for this school only can do all of that here, but cannot
+              create a school or reach another one.
             </p>
             {(staffKeys[school.id] ?? []).length === 0 ? (
               <p className="small muted">
@@ -319,7 +406,7 @@ export default function PlatformConsole() {
                 Issue a principal key
               </button>
               <button className="secondary tiny" onClick={() => issueKey(school, "admin")}>
-                Issue an admin key
+                Issue a key for this school only
               </button>
             </div>
           </div>

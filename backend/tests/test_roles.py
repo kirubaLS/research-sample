@@ -49,9 +49,10 @@ def test_a_principal_is_told_what_their_key_may_do(client, school, principal):
     body = client.get("/admin/me", headers=principal).json()
     assert body["role"] == "principal"
     assert body["can"] == {
-        "read_results": True, "scan_papers": False,
-        "enter_marks": False, "manage_roster": False,
+        "read_results": True, "scan_papers": False, "enter_marks": False,
+        "manage_roster": False, "manage_schools": False,
     }
+    assert body["scope"] == "one_school"
 
     admin = client.get("/admin/me", headers=_admin(school)).json()
     assert admin["role"] == "admin"
@@ -136,5 +137,112 @@ def test_an_unknown_role_is_refused_rather_than_stored(client, school):
             headers=PLATFORM, json={"role": "superuser", "label": "no"},
         )
         assert r.status_code == 422
+    finally:
+        settings.platform_admin_key = before
+
+
+@pytest.fixture
+def platform_admin(client):
+    """An admin key: no school, every school."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import StaffKey
+
+    db = SessionLocal()
+    if db.scalar(select(StaffKey).where(StaffKey.api_key == "admin-key-all")) is None:
+        db.add(StaffKey(school_id=None, api_key="admin-key-all", role="admin", label="Yaadhum"))
+        db.commit()
+    db.close()
+    return {"X-API-Key": "admin-key-all"}
+
+
+@pytest.fixture
+def second_school(client):
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import School, Section
+
+    db = SessionLocal()
+    s = db.scalar(select(School).where(School.name == "Second School"))
+    if s is None:
+        s = School(name="Second School", api_key="second-school-key", state="Tamil Nadu")
+        db.add(s)
+        db.flush()
+        db.add(Section(school_id=s.id, grade=10, name="A"))
+        db.commit()
+    out = s.id
+    db.close()
+    return out
+
+
+def test_an_admin_can_act_on_any_school_by_naming_it(
+    client, school, second_school, platform_admin
+):
+    first = client.get(
+        "/admin/me", headers={**platform_admin, "X-School-Id": school["school_id"]}
+    ).json()
+    second = client.get(
+        "/admin/me", headers={**platform_admin, "X-School-Id": second_school}
+    ).json()
+
+    assert first["name"] == "Bharath International Sr. Sec."
+    assert second["name"] == "Second School"
+    assert first["scope"] == second["scope"] == "all_schools"
+    assert first["can"]["manage_schools"] is True
+
+
+def test_an_admin_who_names_no_school_is_asked_which_one(client, platform_admin):
+    """Guessing one would be the worst outcome: every answer would look correct, for the
+    wrong school."""
+    r = client.get("/admin/me", headers=platform_admin)
+    assert r.status_code == 400
+    assert "X-School-Id" in r.json()["detail"]
+
+
+def test_a_principal_cannot_reach_another_school_by_naming_it(
+    client, school, second_school, principal
+):
+    """Not by being compared and refused -- by there being no code path that reads a
+    school from a principal's request at all."""
+    body = client.get(
+        "/admin/me", headers={**principal, "X-School-Id": second_school}
+    ).json()
+    assert body["school_id"] == school["school_id"]
+    assert body["name"] == "Bharath International Sr. Sec."
+
+
+def test_a_principal_cannot_create_a_school(client, principal):
+    r = client.post(
+        "/platform/schools", headers=principal,
+        json={"name": "Their Own School", "sections": [{"grade": 10, "name": "A"}]},
+    )
+    assert r.status_code == 404, "the console must not even acknowledge itself to them"
+
+
+def test_a_school_bound_key_cannot_create_a_second_school(client, school):
+    """The school's own key is an admin for that school. It runs the school; it does not
+    get to make another one, so one leaked school credential stays one school."""
+    r = client.post(
+        "/platform/schools", headers=_admin(school),
+        json={"name": "Sneaky School", "sections": [{"grade": 10, "name": "A"}]},
+    )
+    assert r.status_code == 404
+
+
+def test_an_admin_key_creates_schools_without_the_operator_key(client, platform_admin):
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.platform_admin_key
+    settings.platform_admin_key = None      # the operator key is not even configured
+    try:
+        r = client.post(
+            "/platform/schools", headers=platform_admin,
+            json={"name": "Third School", "sections": [{"grade": 10, "name": "B"}]},
+        )
+        assert r.status_code == 201, r.text
+        assert r.json()["name"] == "Third School"
     finally:
         settings.platform_admin_key = before

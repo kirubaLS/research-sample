@@ -6,11 +6,11 @@ Without these there is no way to answer the two questions a principal opens the 
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import Staff, require_reader, require_staff
+from app.api.deps import Staff, require_reader, require_staff, school_in_scope
 from app.db import get_session
 from app.models import (
     Assessment,
@@ -25,25 +25,34 @@ router = APIRouter(prefix="/admin", tags=["dashboard"])
 
 
 @router.get("/me")
-def whoami(staff: Staff = Depends(require_staff)) -> dict:
-    """Validates a key, names the school, and says what this key may do.
+def whoami(
+    staff: Staff = Depends(require_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Validates a key, names the school it is acting on, and says what it may do.
 
     The permissions come from the server rather than being inferred in the browser from
     the role name. A screen that hides a button it guessed at is one release away from
     hiding the wrong one; this way the dashboard and the API cannot disagree.
     """
+    school = school_in_scope(staff, x_school_id, db)
     return {
-        "school_id": staff.school.id,
-        "name": staff.school.name,
-        "board": staff.school.board,
-        "state": staff.school.state,
-        "training_consent": staff.school.training_consent,
+        "school_id": school.id,
+        "name": school.name,
+        "board": school.board,
+        "state": school.state,
+        "training_consent": school.training_consent,
         "role": staff.role,
+        #: An admin key is not tied to a school, so the dashboard has to offer a choice of
+        #: them. A principal's key names one and the question does not arise.
+        "scope": "all_schools" if staff.is_admin and staff.home is None else "one_school",
         "can": {
             "read_results": True,
             "scan_papers": staff.is_admin,
             "enter_marks": staff.is_admin,
             "manage_roster": staff.is_admin,
+            "manage_schools": staff.is_admin,
         },
     }
 

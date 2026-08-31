@@ -3,6 +3,8 @@
 // deployment, which is why apiBaseIsDefault() exists -- an unset variable in production
 // makes the browser ask the *visitor's* machine for the API, and the resulting failure
 // looks like a dead backend rather than a missing setting.
+import { getActiveSchool } from "@/lib/session";
+
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 export function apiBase(): string {
@@ -45,12 +47,34 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-function authed<T>(path: string, key: string, init?: RequestInit): Promise<T> {
-  return request<T>(path, { ...init, headers: { "X-API-Key": key, ...(init?.headers ?? {}) } });
+/**
+ * Which school this request is about. Sent on every authenticated call because an admin
+ * key belongs to no school and the API refuses rather than guessing one. A principal's
+ * key names its school and the API never reads this, so it is harmless to send.
+ */
+function scopeHeader(): Record<string, string> {
+  const active = getActiveSchool();
+  return active ? { "X-School-Id": active } : {};
 }
 
+function authed<T>(path: string, key: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, {
+    ...init,
+    headers: { "X-API-Key": key, ...scopeHeader(), ...(init?.headers ?? {}) },
+  });
+}
+
+/**
+ * The console takes two credentials -- the operator key that bootstraps a deployment, and
+ * an admin key that names no school. They arrive on different headers, and which one is
+ * held is not worth tracking separately, so the stored secret is offered as both: the
+ * wrong one simply matches nothing.
+ */
 function operator<T>(path: string, key: string, init?: RequestInit): Promise<T> {
-  return request<T>(path, { ...init, headers: { "X-Platform-Key": key, ...(init?.headers ?? {}) } });
+  return request<T>(path, {
+    ...init,
+    headers: { "X-Platform-Key": key, "X-API-Key": key, ...(init?.headers ?? {}) },
+  });
 }
 
 // --- dashboard types ------------------------------------------------------------------
@@ -197,6 +221,8 @@ export interface IssuedKey {
 
 export interface StaffKeySummary {
   id: string;
+  /** null for an admin key: it belongs to no school, which is what lets it span them. */
+  school_id: string | null;
   role: "principal" | "admin";
   label: string;
   created_at: string | null;
@@ -231,7 +257,11 @@ async function upload<T>(
   body.append("file", file);
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { method: "POST", headers: { [header]: key }, body });
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { [header]: key, ...(header === "X-API-Key" ? scopeHeader() : {}) },
+      body,
+    });
   } catch {
     throw new ApiUnreachable(BASE);
   }
@@ -251,7 +281,11 @@ async function uploadMany<T>(
   for (const file of files) body.append("files", file);
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { method: "POST", headers: { [header]: key }, body });
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { [header]: key, ...(header === "X-API-Key" ? scopeHeader() : {}) },
+      body,
+    });
   } catch {
     throw new ApiUnreachable(BASE);
   }
@@ -373,12 +407,15 @@ export const api = {
     authed<{
       name: string;
       state: string | null;
+      school_id: string;
       role: "principal" | "admin";
+      scope: "all_schools" | "one_school";
       can: {
         read_results: boolean;
         scan_papers: boolean;
         enter_marks: boolean;
         manage_roster: boolean;
+        manage_schools: boolean;
       };
     }>("/admin/me", key),
 
@@ -421,6 +458,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify(section),
     }),
+
+  listAdminKeys: (key: string) => operator<StaffKeySummary[]>("/platform/keys", key),
+
+  issueAdminKey: (key: string, label: string) =>
+    operator<StaffKeySummary & IssuedKey>("/platform/keys", key, {
+      method: "POST",
+      body: JSON.stringify({ role: "admin", label }),
+    }),
+
+  revokeAdminKey: (key: string, keyId: string) =>
+    operator<StaffKeySummary>(`/platform/keys/${keyId}/revoke`, key, { method: "POST" }),
 
   listStaffKeys: (key: string, schoolId: string) =>
     operator<StaffKeySummary[]>(`/platform/schools/${schoolId}/keys`, key),

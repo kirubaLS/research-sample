@@ -7,9 +7,13 @@ import { getPlatformKey, setPlatformKey, signOutPlatform } from "@/lib/session";
 /**
  * Sign-in for the operator console.
  *
- * A separate credential from the school key, on purpose: a principal holds one key for
- * one school, and if that key could also create schools or read another school's key,
- * one leaked key would compromise every school on the deployment.
+ * Two credentials open this. The operator key bootstraps a deployment and is the only
+ * way to issue the first admin key; an admin key, which belongs to no school, works here
+ * too because creating and running schools is the whole of that role.
+ *
+ * A principal key never does, and neither does a school's own key -- that is an admin
+ * bound to one school, so one leaked school credential still cannot reach a second
+ * school's data.
  */
 export function PlatformGate({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
@@ -71,8 +75,9 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
           <p className="eyebrow">Operator console</p>
           <h1>Platform sign-in</h1>
           <p className="lede">
-            For whoever runs this deployment — not for a school. Principals sign in at{" "}
-            <span className="mono">/admin</span> with their school key instead.
+            For whoever runs this deployment. An admin key works here as well as at{" "}
+            <span className="mono">/admin</span>. Principals do not — their key reads their
+            own school and nothing else.
           </p>
         </div>
 
@@ -87,11 +92,13 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
 
         <form onSubmit={submit} className="card" style={{ marginTop: 22 }}>
           <div className="field">
-            <label htmlFor="key">Platform key</label>
+            <label htmlFor="key">Platform or admin key</label>
             <input id="key" name="key" type="password" autoComplete="current-password" required />
             <p className="hint">
-              The value of <span className="mono">YAADHUM_PLATFORM_ADMIN_KEY</span> on the API
-              service. Generate one with{" "}
+              An admin key issued from this console, or the value of{" "}
+              <span className="mono">YAADHUM_PLATFORM_ADMIN_KEY</span> on the API service —
+              which is what you need the first time, before any admin key exists. Generate
+              one with{" "}
               <span className="mono">python -c &quot;import secrets;print(secrets.token_urlsafe(32))&quot;</span>{" "}
               and set it in the Render dashboard.
             </p>
@@ -118,7 +125,7 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
           alignItems: "center",
         }}
       >
-        <span className="small muted">Platform operator</span>
+        <span className="small muted">Platform console</span>
         <button
           className="secondary tiny"
           onClick={() => {
