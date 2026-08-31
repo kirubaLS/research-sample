@@ -431,7 +431,7 @@ def test_two_bold_labels_side_by_side_are_not_glued_together():
 def test_structural_verification_reports_a_gap_in_the_numbering():
     """Science publishes no section list, so this is the strongest check available: a
     missing 9.3 shows up as a gap between 9.2 and 9.4."""
-    from app.ingest.book import Chunk, ChapterExtract, Section, verify_structure
+    from app.ingest.book import ChapterExtract, Chunk, Section, verify_structure
 
     extract = ChapterExtract(
         number=9, title="Light", source_path="x", sha256="y",
@@ -446,7 +446,7 @@ def test_structural_verification_reports_a_gap_in_the_numbering():
 def test_structural_verification_refuses_a_chapter_with_no_drilled_content():
     """No exercises means no question from the chapter could ever be judged PRACTISED --
     a hole in the knowledge base that is invisible once loaded."""
-    from app.ingest.book import Chunk, ChapterExtract, Section, verify_structure
+    from app.ingest.book import ChapterExtract, Chunk, Section, verify_structure
 
     extract = ChapterExtract(
         number=8, title="Heredity", source_path="x", sha256="y",
@@ -463,7 +463,7 @@ def test_structural_verification_refuses_a_chapter_with_no_drilled_content():
 def test_structural_verification_cannot_see_a_missing_last_section():
     """Stated as a test so the limit is not mistaken for a guarantee: with no published
     section count, a chapter truncated at the end verifies clean."""
-    from app.ingest.book import Chunk, ChapterExtract, Section, verify_structure
+    from app.ingest.book import ChapterExtract, Chunk, Section, verify_structure
 
     extract = ChapterExtract(
         number=11, title="Electricity", source_path="x", sha256="y",
