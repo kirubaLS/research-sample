@@ -76,9 +76,15 @@ this work. Keep it — it goes in step 4.
 
 <https://aistudio.google.com/apikey> → Create API key. Copy it.
 
-Gemini has a free tier that comfortably covers one meeting a day, so there is no billing to set
-up. This is the main reason to prefer it over Claude here — the code supports both, and you flip
-between them with one setting.
+**Then enable billing on that key**, even though the free tier would cover one meeting a day.
+This is not about quota. On the free tier, Google's terms let it use submitted content to improve
+its products, and let human reviewers read it — and what you are submitting is your team's
+meeting transcripts. On the paid tier Google commits not to train on your content. It costs on
+the order of ₹100–200 a month for a daily stand-up, and it is not a close call.
+
+Correcting an earlier note in this guide: the free tier is fine for the *test runs* in step 7,
+using a meeting whose contents you would not mind being read. It is not the right basis for
+running this continuously.
 
 ## 4. Cloud project + Apps Script
 
@@ -206,8 +212,8 @@ The three things that will ever go wrong, in order of likelihood:
    recurring event predates the automatic-transcription setting.
 2. **Someone's name changed** in their Google profile, so `ROSTER` no longer matches. Log says
    `NO MATCH`. Fix the line.
-3. **Gemini quota.** Log says `HTTP 429`. The script retries once; if the free tier is not
-   enough, enable billing on the AI Studio key.
+3. **Gemini quota.** Log says `HTTP 429`. The script retries once. If you are still on the free
+   tier, this is one more reason to enable billing (step 3).
 
 | Function | What it does |
 |---|---|
