@@ -128,9 +128,10 @@ export function MarksReader({
         <div>
           <strong>Read the marks from a file</strong>
           <p className="muted">
-            A spreadsheet, a CSV, or a PDF that has text in it. Nothing is recorded until
-            you have checked it below. A photograph of a mark sheet cannot be read yet and
-            will say so rather than guess.
+            A spreadsheet, a CSV, or a PDF with text in it, including a scan made with
+            text recognition turned on. Nothing is recorded until you have checked it
+            below. A plain scan is a picture of a page with no text in it, and that is
+            said plainly rather than guessed at.
           </p>
         </div>
         <input

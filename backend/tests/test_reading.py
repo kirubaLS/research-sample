@@ -223,3 +223,87 @@ def test_a_file_of_a_kind_we_cannot_read_says_so_and_says_what_to_send(
     out = _read(client, school, paper, student, "marks.docx", b"PK\x03\x04nonsense")
     assert out.status_code == 422
     assert "CSV" in out.json()["detail"]
+
+
+def _printed_marks_pdf() -> bytes:
+    """A marks sheet as a school prints it: a title, a header row, aligned columns."""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((60, 60), "BHARATH INTERNATIONAL SR. SEC. SCHOOL", fontsize=12)
+    page.insert_text((60, 80), "Cycle Test I - Mathematics - Class 10-A", fontsize=10)
+    columns = [60, 200, 300, 400, 500]
+    for x, text in zip(columns, ["Roll No", "Q1", "B/2", "B/3", "Total"], strict=True):
+        page.insert_text((x, 120), text, fontsize=10)
+    for i, row in enumerate([["077", "2", "3", "4.5", "9.5"], ["078", "1", "AB", "5", "6"]]):
+        for x, text in zip(columns, row, strict=True):
+            page.insert_text((x, 145 + i * 22), text, fontsize=10)
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def test_a_printed_marks_sheet_is_read_out_of_the_pdf(client, school, paper, student):
+    """A PDF exported from a computer carries its text, so it needs no recognition at all.
+
+    This is the common case a school actually has: the exam cell prints the mark list to
+    PDF rather than sending the spreadsheet.
+    """
+    out = client.post(
+        f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
+        files=[("file", ("marks.pdf", io.BytesIO(_printed_marks_pdf()), "application/pdf"))],
+    )
+    assert out.status_code == 201, out.text
+    body = out.json()
+    assert body["read"] == 3
+    # The Total column is not a question, so it is not read as one.
+    assert all("Total" not in u["raw_address"] for u in body["unmatched"])
+
+    sheet = client.get(
+        f"/assessments/{paper}/answers/{student}/reading", headers=_auth(school)
+    ).json()
+    marks = {q["question_no"]: q["marks"] for q in sheet["questions"]}
+    assert marks == {"1": 2.0, "2": 3.0, "3": 4.5}
+
+
+def test_a_pdf_table_is_read_from_its_geometry_not_from_line_breaks():
+    """Splitting the page text on whitespace looked reasonable and lost every row: PyMuPDF
+    emits each cell of a table on its own line, so a five-column sheet arrived as five
+    one-word lines."""
+    import pymupdf
+
+    from app.extraction.marksheet import table_from_words
+
+    doc = pymupdf.open(stream=_printed_marks_pdf(), filetype="pdf")
+    table = table_from_words(doc[0].get_text("words"))
+    doc.close()
+
+    header = next(row for row in table if any(c == "Q1" for c in row))
+    body = next(row for row in table if any(c == "077" for c in row))
+    assert header.index("Q1") == body.index("2"), "a cell must land under its own heading"
+    assert header.index("B/3") == body.index("4.5")
+
+
+def test_a_scanned_pdf_says_what_to_do_instead_of_reading_nothing(
+    client, school, paper, student
+):
+    """A scanner produces a picture of a page unless it was set to make a searchable PDF.
+    Saying which, and what to do about it, is the whole of the answer."""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    pix = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 400, 500))
+    pix.set_rect(pix.irect, (240, 240, 240))
+    page.insert_image(pymupdf.Rect(40, 40, 440, 540), pixmap=pix)
+    data = doc.tobytes()
+    doc.close()
+
+    out = client.post(
+        f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
+        files=[("file", ("scan.pdf", io.BytesIO(data), "application/pdf"))],
+    )
+    assert out.status_code == 422
+    detail = out.json()["detail"]
+    assert "searchable PDF" in detail and "spreadsheet" in detail

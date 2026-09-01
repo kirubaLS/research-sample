@@ -265,28 +265,75 @@ def read_xlsx(data: bytes, source: str = "spreadsheet") -> Reading:
     return reading
 
 
+#: Two words whose tops differ by less than this are on the same printed line.
+ROW_TOLERANCE = 6.0
+#: Two words starting within this many points of each other are in the same column.
+COLUMN_TOLERANCE = 18.0
+
+
+def table_from_words(words: list[tuple]) -> list[list[str]]:
+    """Rebuild a printed table from positioned words.
+
+    A PDF has no rows and no columns, only glyphs at coordinates. Reading it as lines of
+    text and splitting on runs of whitespace looks reasonable and does not work: PyMuPDF
+    emits each cell of a table on its own line, so a five-column mark sheet arrives as five
+    one-word lines and every row is lost.
+
+    So the grid is recovered from the geometry. Words sharing a baseline are a row;
+    x-positions that recur down the page are a column. That is what a person reading the
+    sheet does, and unlike counting whitespace it survives columns one space apart.
+    """
+    if not words:
+        return []
+
+    rows: list[list[tuple]] = []
+    for word in sorted(words, key=lambda w: (round(w[1], 1), w[0])):
+        if rows and abs(rows[-1][0][1] - word[1]) <= ROW_TOLERANCE:
+            rows[-1].append(word)
+        else:
+            rows.append([word])
+
+    # Column anchors: every x a word starts at, merged when near enough to be one column,
+    # then used as the grid for every row.
+    anchors: list[float] = []
+    for x in sorted(w[0] for row in rows for w in row):
+        if not anchors or x - anchors[-1] > COLUMN_TOLERANCE:
+            anchors.append(x)
+
+    table: list[list[str]] = []
+    for row in rows:
+        cells = [""] * len(anchors)
+        for word in sorted(row, key=lambda w: w[0]):
+            i = min(range(len(anchors)), key=lambda j: abs(anchors[j] - word[0]))
+            cells[i] = f"{cells[i]} {word[4]}".strip()
+        table.append(cells)
+    return table
+
+
 def read_pdf(path: Path, source: str = "pdf") -> Reading:
-    """A PDF that carries a text layer. A photograph of one is refused, not attempted."""
+    """A PDF that carries a text layer. A picture of one is refused, not attempted."""
     import pymupdf  # noqa: PLC0415
 
     out = Reading(source=source)
+    table: list[list[str]] = []
     with pymupdf.open(path) as doc:
         pages = doc.page_count
-        chunks, images = [], 0
+        characters, images = 0, 0
         for page in doc:
-            chunks.append(page.get_text("text"))
+            words = page.get_text("words")
+            characters += sum(len(w[4]) for w in words)
             images += len(page.get_images(full=True))
-        text = "\n".join(chunks)
+            table.extend(table_from_words(words))
 
-    if pages and len(text.strip()) < SCAN_CHARS_PER_PAGE * pages and images >= pages:
+    if pages and characters < SCAN_CHARS_PER_PAGE * pages and images >= pages:
         out.refused = (
-            "this PDF is a photograph of a page, not a document with text in it. Reading "
-            "handwriting is not switched on yet, so enter these marks by hand for now."
+            "this PDF is a picture of a page rather than a document with text in it, which "
+            "is what a scanner produces unless it was set to make a searchable PDF. Reading "
+            "handwriting is not switched on yet, so either rescan it with text recognition "
+            "turned on, or send the marks as a spreadsheet."
         )
         return out
 
-    # A text-layer PDF is a table whose columns are runs of whitespace.
-    table = [re.split(r"\s{2,}|\t", line.strip()) for line in text.splitlines() if line.strip()]
     return _rows_from_table(table, source)
 
 
