@@ -76,7 +76,18 @@ class ScanPage(Base, PkMixin, TimestampMixin):
     #: the capture-time quality metrics, kept because a disputed reading is usually a
     #: disputed photograph, and "it was blurred" is checkable only if we wrote it down
     quality: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    content: Mapped[bytes] = mapped_column(LargeBinary)
+
+    #: Where the bytes are. Pages live in the object store, so that a page is a page and
+    #: the database stays the size of the marks rather than the size of the photographs.
+    storage_key: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    storage_uri: Mapped[str | None] = mapped_column(String(600), nullable=True)
+    #: over the bytes as stored, so a page fetched back can be shown to be the one written
+    sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    #: Pages written before the move to the object store, and nothing else. Kept nullable
+    #: rather than backfilled: rewriting a school's scripts to move them is a worse risk
+    #: than reading two places, and a page that is already stored is already correct.
+    content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
     document: Mapped[ScanDocument] = relationship(back_populates="pages")
 

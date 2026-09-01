@@ -12,6 +12,7 @@ twenty megabytes at once, and so a page can be replaced without touching the res
 from __future__ import annotations
 
 import hashlib
+import io
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
@@ -21,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_admin, require_reader
 from app.db import get_session
 from app.models import Assessment, ScanDocument, ScanPage, School, StudentProfile
+from app.storage import get_object_store
 
 router = APIRouter(tags=["documents"])
 
@@ -74,6 +76,7 @@ def store_document(
         )
     ).all()
     for old in existing:
+        _forget_pages(old)
         db.delete(old)
     db.flush()
 
@@ -84,13 +87,62 @@ def store_document(
     )
     db.add(document)
     db.flush()
+
+    store = get_object_store()
     for index, (content, content_type, quality) in enumerate(pages):
+        key = _page_key(document, index, content_type)
+        stored = store.put(key, io.BytesIO(content), content_type=content_type)
         db.add(ScanPage(
             document_id=document.id, index=index, content_type=content_type,
-            byte_size=len(content), quality=quality, content=content,
+            byte_size=len(content), quality=quality,
+            storage_key=key, storage_uri=stored.uri, sha256=stored.sha256,
         ))
     db.flush()
     return document
+
+
+def _page_key(document: ScanDocument, index: int, content_type: str) -> str:
+    """Where a page lives in the store.
+
+    Keyed by school first, so one school's work is one prefix: that is what makes a bucket
+    policy, a lifecycle rule or a deletion request expressible without touching anything
+    else. The document id is in the path, so a re-scan writes new objects rather than
+    overwriting the ones a stored mark still refers to.
+    """
+    suffix = {v: k for k, v in CONTENT_TYPES.items()}.get(content_type, "bin")
+    return (
+        f"schools/{document.school_id}/assessments/{document.assessment_id}"
+        f"/{document.kind}/{document.id}/{index:03d}.{suffix}"
+    )
+
+
+def _forget_pages(document: ScanDocument) -> None:
+    """Best effort, on purpose.
+
+    A page left in the store after its row is gone costs storage. An upload that fails
+    because a delete failed costs a teacher their work, so the delete never gets to break
+    the request that supersedes it.
+    """
+    store = get_object_store()
+    for page in document.pages:
+        if page.storage_key:
+            try:
+                store.delete(page.storage_key)
+            except Exception:  # noqa: BLE001 - an orphan is safer than a failed upload
+                continue
+
+
+def _read_bytes(page: ScanPage) -> bytes:
+    """The page, from wherever it was written.
+
+    Two places, because pages written before the move to the object store are still in the
+    database and rewriting a school's scripts to relocate them is a worse risk than
+    reading both.
+    """
+    if page.storage_key:
+        with get_object_store().open(page.storage_key) as handle:
+            return handle.read()
+    return page.content or b""
 
 
 def _view(document: ScanDocument) -> dict:
@@ -251,7 +303,7 @@ def read_page(
     if page is None:
         raise HTTPException(404, "no such page")
     return Response(
-        content=page.content,
+        content=_read_bytes(page),
         media_type=page.content_type,
         headers={
             # Immutable: replacing a page writes a new document, so a cached page can

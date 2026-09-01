@@ -153,3 +153,73 @@ def test_an_empty_page_is_refused_rather_than_stored(client, school, assessment,
         files=[("files", ("blank.jpg", io.BytesIO(b""), "image/jpeg"))],
     )
     assert out.status_code == 422
+
+
+def test_pages_are_written_to_the_object_store_not_into_the_database(
+    client, school, assessment, student
+):
+    """A term of scripts is gigabytes. Keeping them as columns puts them in every backup,
+    every restore and every replica of a database that is otherwise the size of the marks."""
+    from app.db import SessionLocal
+    from app.models import ScanPage
+
+    body = _upload(client, school, assessment, student, [PAGE, PAGE + b"2"]).json()
+
+    db = SessionLocal()
+    rows = db.scalars(
+        select(ScanPage).where(ScanPage.document_id == body["document_id"])
+    ).all()
+    stored = [(r.content, r.storage_key, r.sha256) for r in rows]
+    db.close()
+
+    assert len(stored) == 2
+    for content, key, sha in stored:
+        assert content is None, "the bytes must not be in the row"
+        assert key and sha, "the row has to say where the bytes are, and what they were"
+
+    # and it still reads back byte for byte
+    assert client.get(body["pages"][0]["url"], headers=_auth(school)).content == PAGE
+
+
+def test_a_page_written_before_the_move_is_still_readable(
+    client, school, assessment, student
+):
+    """Rewriting a school's stored scripts to relocate them is a worse risk than reading
+    two places, so a row from before the object store keeps working untouched."""
+    from app.db import SessionLocal
+    from app.models import ScanPage
+
+    body = _upload(client, school, assessment, student, [PAGE]).json()
+
+    db = SessionLocal()
+    page = db.scalar(select(ScanPage).where(ScanPage.document_id == body["document_id"]))
+    page.content = b"\xff\xd8older-page-kept-in-the-database"
+    page.storage_key = None
+    page.storage_uri = None
+    db.commit()
+    db.close()
+
+    out = client.get(body["pages"][0]["url"], headers=_auth(school))
+    assert out.status_code == 200
+    assert out.content == b"\xff\xd8older-page-kept-in-the-database"
+
+
+def test_superseding_a_script_does_not_leave_its_pages_in_the_store(
+    client, school, assessment, student
+):
+    from app.storage import get_object_store
+
+    first = _upload(client, school, assessment, student, [PAGE]).json()
+
+    from app.db import SessionLocal
+    from app.models import ScanPage
+
+    db = SessionLocal()
+    key = db.scalar(
+        select(ScanPage.storage_key).where(ScanPage.document_id == first["document_id"])
+    )
+    db.close()
+    assert get_object_store().exists(key)
+
+    _upload(client, school, assessment, student, [PAGE + b"new"])
+    assert not get_object_store().exists(key), "the superseded page is not left behind"

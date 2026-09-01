@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import tempfile
 
 import pytest
@@ -13,7 +14,12 @@ def _tmp_db():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     os.environ["YAADHUM_DATABASE_URL"] = f"sqlite+pysqlite:///{path}"
+    # Scanned pages go to the object store, which on a laptop is a directory. Left at its
+    # default the suite writes a school's worth of pages into the working tree.
+    objects = tempfile.mkdtemp(prefix="yaadhum-objects-")
+    os.environ["YAADHUM_OBJECT_STORE_ROOT"] = objects
     yield
+    shutil.rmtree(objects, ignore_errors=True)
     try:
         os.unlink(path)
     except OSError:
