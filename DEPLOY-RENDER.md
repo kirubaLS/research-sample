@@ -9,12 +9,15 @@ All three are stated here rather than discovered.
 50 seconds for a cold start. Fine while you are building. Open the page a minute before
 you show it to anybody.
 
-**Scanned page images do not survive a restart.** A free instance has no persistent disk.
-The marks, the reports, the question papers and the roster are all in Postgres and are
-unaffected — it is the page *images* that go, and a request for one afterwards answers
-`410` with a sentence saying so rather than failing. Fix it by pointing the app at any
-S3-compatible bucket; Cloudflare R2 has a free tier and
-`YAADHUM_S3_ENDPOINT_URL` exists for exactly that.
+**Scanned pages go in Postgres, not in a bucket.** A free instance has no persistent disk,
+and this deployment has no object store, so Neon is the only thing that survives a
+restart — `YAADHUM_STORAGE_BACKEND=database` puts the page images in the row beside the
+marks and they last exactly as long.
+
+The cost is space. Neon's free project gives 0.5 GB, which the marks alone would never
+approach and photographs will: roughly **forty scripts of eight pages fills a third of it**.
+Watch the storage figure on the Neon dashboard and switch to `s3` before it is a problem,
+not after. On AWS it is `s3` from the start, which is why the setting exists.
 
 **Use Neon for Postgres, not Render's free database.** A free Render Postgres is deleted
 30 days after it is created, and the thirtieth day is not a day anybody remembers. Neon's
@@ -49,8 +52,8 @@ and reads it back, and fails the build if nothing comes out. After that:
 - `/healthz` answers 200.
 - `/admin` asks for a key.
 - Read a question paper, enter marks from a spreadsheet, issue a report.
-- Upload an answer script, then wait for a sleep and load it again: the page should say
-  `410` with an explanation, not break. That is the free tier working as described.
+- Upload an answer script, wait for the service to sleep, then load the page again. It
+  should still be there: the pages are in Neon, not on the instance's disk.
 
 ## Moving off
 

@@ -100,32 +100,21 @@ services:
         value: claude-opus-5
       - key: YAADHUM_MODEL_HIGH_VOLUME
         value: claude-haiku-4-5
-      # A free instance has no persistent disk, so "local" means pages live until the
-      # next restart or sleep -- which is fifteen idle minutes away. The marks, the
-      # reports and the question papers are all in Postgres and unaffected; it is the
-      # page IMAGES that go, and a request for one then answers 410 saying so rather
-      # than failing.
+      # Pages go in Postgres, because on this deployment Postgres is the only durable
+      # thing: a free instance has no disk, and there is no bucket. Neon keeps them for
+      # as long as it keeps the marks.
       #
-      # For anything you want to keep, set this to "s3" and fill in the four values
-      # below. Any S3-compatible bucket works -- Cloudflare R2 has a free tier and
-      # YAADHUM_S3_ENDPOINT_URL is there for exactly that.
+      # The cost is Neon's free 0.5 GB, which the marks would never approach and
+      # photographs will: roughly forty scripts of eight pages fills a third of it. Watch
+      # the Neon dashboard, and move to "s3" before that is a problem rather than after.
       - key: YAADHUM_STORAGE_BACKEND
-        value: local
-      - key: YAADHUM_S3_ENDPOINT_URL
-        sync: false
-      - key: YAADHUM_S3_REGION
-        value: ap-south-1
+        value: database
       # Secrets: set these in the Render dashboard, never in the repo.
       - key: ANTHROPIC_API_KEY
         sync: false
-      - key: YAADHUM_S3_BUCKET
-        sync: false
-      - key: YAADHUM_S3_ENDPOINT_URL
-        sync: false
-      - key: YAADHUM_S3_ACCESS_KEY_ID
-        sync: false
-      - key: YAADHUM_S3_SECRET_ACCESS_KEY
-        sync: false
+      # No S3 settings. This deployment has no bucket, and leaving four blank variables
+      # that look configurable is how somebody sets one of them and wonders why nothing
+      # changed. They are in infra/aws, where they are used.
       # Neon's free tier auto-suspends after a few minutes idle. pool_pre_ping absorbs the
       # wake-up, and a small pool keeps well inside the connection ceiling.
       - key: YAADHUM_DB_POOL_SIZE

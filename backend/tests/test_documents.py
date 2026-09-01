@@ -248,3 +248,64 @@ def test_a_page_whose_image_has_gone_says_so_rather_than_failing(
     assert "no longer in storage" in out.json()["detail"]
     # and the marks are still there, which is the part that matters
     assert client.get(f"/students/{student}/documents", headers=_auth(school)).status_code == 200
+
+
+def test_pages_can_be_kept_in_the_database_when_that_is_the_only_durable_thing(
+    client, school, assessment, student
+):
+    """A free host has no disk and no bucket, and Postgres is the one thing that survives
+    a restart. The bytes go in the row, and everything else behaves identically."""
+    from app.config import get_settings
+    from app.db import SessionLocal
+    from app.models import ScanPage
+
+    settings = get_settings()
+    before = settings.storage_backend
+    settings.storage_backend = "database"
+    try:
+        body = _upload(client, school, assessment, student, [PAGE, PAGE + b"2"]).json()
+
+        db = SessionLocal()
+        rows = db.scalars(
+            select(ScanPage).where(ScanPage.document_id == body["document_id"])
+        ).all()
+        stored = [(r.content, r.storage_key, r.sha256) for r in rows]
+        db.close()
+
+        assert len(stored) == 2
+        for content, key, sha in stored:
+            assert content, "the bytes have to be in the row"
+            assert key is None, "nothing was written to an object store"
+            assert sha, "and the row still records what the bytes were"
+
+        # served back byte for byte, from the same URL as any other page
+        assert client.get(body["pages"][1]["url"], headers=_auth(school)).content == PAGE + b"2"
+    finally:
+        settings.storage_backend = before
+
+
+def test_superseding_a_database_stored_script_removes_its_rows(
+    client, school, assessment, student
+):
+    """Without an object store there is nothing to orphan, but the old rows still have to
+    go: two versions of one script with no way to tell which the marks came from is the
+    thing being prevented, and it has nothing to do with where the bytes live."""
+    from app.config import get_settings
+    from app.db import SessionLocal
+    from app.models import ScanPage
+
+    settings = get_settings()
+    before = settings.storage_backend
+    settings.storage_backend = "database"
+    try:
+        first = _upload(client, school, assessment, student, [PAGE]).json()
+        _upload(client, school, assessment, student, [PAGE + b"new"])
+
+        db = SessionLocal()
+        left = db.scalars(
+            select(ScanPage).where(ScanPage.document_id == first["document_id"])
+        ).all()
+        db.close()
+        assert left == []
+    finally:
+        settings.storage_backend = before

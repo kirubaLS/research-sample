@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin, require_reader
+from app.config import get_settings
 from app.db import get_session
 from app.models import Assessment, ScanDocument, ScanPage, School, StudentProfile
 from app.storage import get_object_store
@@ -87,6 +88,19 @@ def store_document(
     )
     db.add(document)
     db.flush()
+
+    # 'database' is for a deployment whose only durable thing is Postgres. The bytes go
+    # in the row, which is what the old scan_page.content column was for and why it was
+    # kept nullable rather than dropped.
+    if get_settings().storage_backend == "database":
+        for index, (content, content_type, quality) in enumerate(pages):
+            db.add(ScanPage(
+                document_id=document.id, index=index, content_type=content_type,
+                byte_size=len(content), quality=quality, content=content,
+                sha256=hashlib.sha256(content).hexdigest(),
+            ))
+        db.flush()
+        return document
 
     store = get_object_store()
     for index, (content, content_type, quality) in enumerate(pages):
