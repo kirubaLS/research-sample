@@ -11,13 +11,18 @@
 # Virginia, Frankfurt and Singapore; Neon's nearest is Singapore (ap-southeast-1). Putting
 # both in Singapore co-locates them, which is right for testing.
 #
-# Student answer scripts contain children's handwriting, so where that data RESTS is a
-# DPDP Act question rather than a latency one. This stack cannot give Indian residency.
-# For testing with synthetic or consented data that is fine. Before a school's real
-# scripts go in, move the data tier to ap-south-1 (RDS or a self-hosted Postgres) and the
-# bucket to an ap-south-1 / jurisdiction-restricted store.
+# Student answer scripts are children's handwriting, so it is worth being exact about
+# where they rest. The DPDP Act does NOT require personal data to stay in India: it
+# permits transfer except to countries the government notifies, and none has been
+# notified. Keeping student work in India is a choice about what a school will accept and
+# what can honestly be promised a parent -- a good choice, and not a legal minimum.
 #
-# Never tell a school data stays in India while running on this stack.
+# What the Act does require, for anyone under 18, is verifiable parental consent before
+# their data is processed. Every Class X student is under 18. That follows the product
+# rather than the region, and student_profile.consent_ref is currently declared and never
+# written -- so it is not met here or anywhere else yet.
+#
+# Never tell a school data stays in India while running on this stack. It does not.
 # ───────────────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -90,22 +95,21 @@ services:
         value: claude-opus-5
       - key: YAADHUM_MODEL_HIGH_VOLUME
         value: claude-haiku-4-5
-      # Flip to "s3" once the scanner needs to store pages — with the four S3 secrets
-      # below filled in. Leaving it "s3" while they are blank fails at first use.
+      # Scanned pages go in Postgres, in scan_page.content, beside the marks. Neon is the
+      # only durable thing this deployment has -- a Render instance has no disk it keeps --
+      # so that is where they live, and they last exactly as long as the marks do.
+      #
+      # The cost is space: Neon's free project is 0.5 GB, which the marks would never
+      # approach and photographs will. Watch the storage figure on the Neon dashboard.
+      #
+      # There are no object-store settings here. app.storage can talk to any S3-compatible
+      # service if that day comes, but nothing in the page path calls it today, and
+      # leaving four blank variables that look configurable is how somebody fills one in
+      # and wonders why nothing changed.
       - key: YAADHUM_STORAGE_BACKEND
         value: local
-      - key: YAADHUM_S3_REGION
-        value: ap-south-1
       # Secrets: set these in the Render dashboard, never in the repo.
       - key: ANTHROPIC_API_KEY
-        sync: false
-      - key: YAADHUM_S3_BUCKET
-        sync: false
-      - key: YAADHUM_S3_ENDPOINT_URL
-        sync: false
-      - key: YAADHUM_S3_ACCESS_KEY_ID
-        sync: false
-      - key: YAADHUM_S3_SECRET_ACCESS_KEY
         sync: false
       # Neon's free tier auto-suspends after a few minutes idle. pool_pre_ping absorbs the
       # wake-up, and a small pool keeps well inside the connection ceiling.
