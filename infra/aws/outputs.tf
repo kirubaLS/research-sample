@@ -1,0 +1,46 @@
+output "api_url" {
+  description = "Point NEXT_PUBLIC_API_BASE at this when building the web app."
+  value       = var.certificate_arn == null ? "http://${aws_lb.main.dns_name}" : "https://${aws_lb.main.dns_name}"
+}
+
+output "ecr_repository_url" {
+  value = aws_ecr_repository.api.repository_url
+}
+
+output "cluster_name" {
+  value = aws_ecs_cluster.main.name
+}
+
+output "service_name" {
+  value = aws_ecs_service.api.name
+}
+
+output "migrate_task_family" {
+  value = aws_ecs_task_definition.migrate.family
+}
+
+output "private_subnet_ids" {
+  value = aws_subnet.private[*].id
+}
+
+output "api_security_group_id" {
+  value = aws_security_group.api.id
+}
+
+output "pages_bucket" {
+  value = aws_s3_bucket.pages.bucket
+}
+
+output "database_endpoint" {
+  value = aws_db_instance.main.address
+}
+
+output "database_master_secret_arn" {
+  description = "RDS manages the password. Read it once to write the app's database URL secret."
+  value       = aws_db_instance.main.master_user_secret[0].secret_arn
+}
+
+output "database_url_secret_arn" {
+  description = "Write the full SQLAlchemy URL here after the database exists."
+  value       = aws_secretsmanager_secret.database_url.arn
+}
