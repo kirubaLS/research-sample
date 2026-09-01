@@ -10,23 +10,16 @@ export default function ScanPage() {
   const [status, setStatus] = useState<string | null>(null);
 
   async function upload(pages: ScannedPage[]) {
-    // Resumable, one request per page: a dropped connection at page 14 must not lose 1-13.
-    let done = 0;
-    for (const page of pages) {
-      const body = new FormData();
-      body.append("file", page.blob, `page-${page.index + 1}.jpg`);
-      body.append("index", String(page.index));
-      body.append("session_id", page.sessionId);
-      body.append("quality", JSON.stringify(page.quality));
-      // Endpoint lands with the capture service; the client contract is fixed here.
-      await fetch(`${process.env.NEXT_PUBLIC_API_BASE}/capture/${sessionId}/pages`, {
-        method: "POST",
-        body,
-      }).catch(() => undefined);
-      done += 1;
-      setStatus(`Uploaded ${done} of ${pages.length}`);
-    }
-    setStatus(`Uploaded ${pages.length} page${pages.length === 1 ? "" : "s"}. The script will appear on the student's record.`);
+    // The server route that receives a script does not exist yet. It used to be called
+    // here with .catch(() => undefined), which swallowed every failure and then reported
+    // "the script will appear on the student's record" -- a success message for work that
+    // had not happened. That is the one thing this product must never do, so the screen
+    // now says exactly where the pages are: captured, held in this browser, not sent.
+    setStatus(
+      `${pages.length} page${pages.length === 1 ? "" : "s"} captured and held on this device. ` +
+        "They are not on the server yet: reading a script is not switched on. Nothing is " +
+        "lost, and nothing has been recorded against a student.",
+    );
     if (mode === "cover") setMode("script");
   }
 
@@ -35,6 +28,11 @@ export default function ScanPage() {
       <div className="hero">
         <p className="eyebrow">Answer scripts</p>
         <h1>{mode === "cover" ? "Scan the cover page" : "Scan every page"}</h1>
+      </div>
+      <div className="notice warn" style={{ marginBottom: 18 }}>
+        Reading a script is not switched on yet. Capture works and every page is kept on
+        this device, but nothing is sent to the server and no mark is recorded against a
+        student. Marks are entered on the Answer sheet screen in the meantime.
       </div>
       <p className="lede" style={{ marginBottom: 20 }}>
         {mode === "cover"
