@@ -31,6 +31,11 @@ services:
     # ingest and the paper pipeline both import, and `storage` carries boto3 for S3.
     # A bare `pip install -e .` builds green and then fails on the first ingest.
     buildCommand: pip install --upgrade pip && pip install -e ".[vision,storage]"
+    # NOTE: this native Python runtime cannot install system binaries, so tesseract-ocr is
+    # absent and a scanned marks sheet is refused by name rather than read. Everything else
+    # works. To have scans read, deploy backend/Dockerfile instead (runtime: docker), which
+    # installs it. The app checks for the binary at runtime, so neither choice is a
+    # half-working state -- it either reads scans or says it cannot.
     # Migrations run once per deploy, before the new instance takes traffic.
     #
     # preDeployCommand applies ONLY to Blueprint-managed services on a paid instance type.

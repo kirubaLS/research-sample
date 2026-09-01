@@ -287,6 +287,7 @@ export interface ReadingSheet {
 
 export interface ReadResult {
   read: number;
+  used_ocr: boolean;
   unmatched: { raw_address: string; raw_value: string; reason: string; origin: string }[];
   questions_on_paper: number;
   rolls_in_file: string[];
@@ -734,9 +735,13 @@ export const api = {
       { method: "POST", body: JSON.stringify({ answers, by }) },
     ),
 
-  readMarksFile: async (key: string, assessmentId: string, studentId: string, file: File) => {
+  readMarksFile: async (
+    key: string, assessmentId: string, studentId: string, files: File[],
+  ) => {
     const body = new FormData();
-    body.append("file", file);
+    // The field name repeats rather than being indexed: that is what FastAPI reads as a
+    // list, and the order of appends is the page order the server keeps.
+    for (const file of files) body.append("files", file);
     const res = await fetch(
       `${BASE}/assessments/${assessmentId}/answers/${studentId}/read`,
       { method: "POST", headers: { "X-API-Key": key, ...scopeHeader() }, body },

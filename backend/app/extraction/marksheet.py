@@ -24,10 +24,14 @@ from __future__ import annotations
 import csv
 import io
 import re
+import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.extraction.address import Address, normalise, normalise_numerals
+
+#: Below about 150 dpi Tesseract starts inventing punctuation in mark columns.
+OCR_DPI = 200
 
 #: Header text that names the student rather than a question.
 ROLL_HEADERS = ("roll", "roll no", "rollno", "roll number", "reg", "regno", "admission", "adm no")
@@ -57,9 +61,14 @@ class ProposedRow:
     raw_value: str
     #: why it cannot be used, when it cannot. Never silently dropped.
     problem: str | None = None
+    #: read by text recognition rather than out of the file's own text. Carried all the
+    #: way to the screen, because a recognised number and a typed one must never look
+    #: alike to the person deciding whether to accept it.
+    via_ocr: bool = False
 
     def as_dict(self) -> dict:
         return {
+            "via_ocr": self.via_ocr,
             "raw_address": self.raw_address,
             "address": self.address,
             "marks": self.marks,
@@ -79,6 +88,8 @@ class Reading:
     problems: list[str] = field(default_factory=list)
     #: set when the file cannot be read at all, rather than read badly
     refused: str | None = None
+    #: set when the text came from recognition rather than from the file
+    used_ocr: bool = False
 
 
 def _clean(cell: object) -> str:
@@ -201,12 +212,23 @@ def _rows_from_table(table: list[list[str]], source: str) -> Reading:
 
     # --- wide: one row per student, one column per question ---
     columns: list[tuple[int, str, str]] = []
+    ignored: list[str] = []
     for i, cell in enumerate(header):
         if _header_kind(cell) == "roll":
             continue
         address, _ = parse_address(cell)
         if address:
             columns.append((i, _clean(cell), address))
+        elif _clean(cell):
+            ignored.append(_clean(cell))
+    if ignored:
+        # Named, not dropped in silence. A 'Total' column belongs here; so does a heading
+        # text recognition misread, and the difference is obvious to whoever is looking at
+        # the sheet but invisible from a shorter list of results.
+        out.problems.append(
+            "these headings were not read as questions, so their columns were left out: "
+            + ", ".join(repr(c) for c in ignored)
+        )
     if not columns:
         out.refused = (
             "the header names no questions. Label each column with its question number, "
@@ -310,8 +332,29 @@ def table_from_words(words: list[tuple]) -> list[list[str]]:
     return table
 
 
-def read_pdf(path: Path, source: str = "pdf") -> Reading:
-    """A PDF that carries a text layer. A picture of one is refused, not attempted."""
+def ocr_available() -> bool:
+    """Whether text recognition can run here.
+
+    A capability, not an assumption: Tesseract is a system binary, so a deployment either
+    has it or does not, and the difference has to reach the person uploading rather than
+    surfacing as an empty result.
+    """
+    return shutil.which("tesseract") is not None
+
+
+def _ocr_words(page) -> list[tuple]:
+    """Recognised words with their positions, so the same grid logic applies."""
+    textpage = page.get_textpage_ocr(dpi=OCR_DPI, full=True)
+    return page.get_text("words", textpage=textpage)
+
+
+def read_pdf(path: Path, source: str = "pdf", *, allow_ocr: bool = True) -> Reading:
+    """A PDF, whether its text is in the file or has to be recognised.
+
+    Text already in the file is exact. Text that had to be recognised is a proposal, and
+    is marked as one all the way to the screen: on a real scan Tesseract reads ``Q1`` as
+    ``Qi`` often enough that treating the two alike would be dishonest.
+    """
     import pymupdf  # noqa: PLC0415
 
     out = Reading(source=source)
@@ -325,16 +368,36 @@ def read_pdf(path: Path, source: str = "pdf") -> Reading:
             images += len(page.get_images(full=True))
             table.extend(table_from_words(words))
 
-    if pages and characters < SCAN_CHARS_PER_PAGE * pages and images >= pages:
-        out.refused = (
-            "this PDF is a picture of a page rather than a document with text in it, which "
-            "is what a scanner produces unless it was set to make a searchable PDF. Reading "
-            "handwriting is not switched on yet, so either rescan it with text recognition "
-            "turned on, or send the marks as a spreadsheet."
-        )
-        return out
+        scanned = bool(pages) and characters < SCAN_CHARS_PER_PAGE * pages and images >= pages
+        if scanned:
+            if not (allow_ocr and ocr_available()):
+                out.refused = (
+                    "this PDF is a picture of a page rather than a document with text in "
+                    "it, and text recognition is not available on this deployment. Rescan "
+                    "it with the scanner's text recognition turned on, or send the marks "
+                    "as a spreadsheet."
+                )
+                return out
+            table = []
+            for page in doc:
+                table.extend(table_from_words(_ocr_words(page)))
+            out.used_ocr = True
 
-    return _rows_from_table(table, source)
+    reading = _rows_from_table(table, source)
+    reading.used_ocr = out.used_ocr
+    if out.used_ocr:
+        for row in reading.rows:
+            row.via_ocr = True
+        if reading.refused:
+            # Recognition ran and found nothing usable. Say that, rather than the generic
+            # "no header row", which sends somebody to fix a header that is perfectly fine
+            # on the paper in front of them.
+            reading.refused = (
+                "text recognition read this page but could not find a marks table in it: "
+                + reading.refused
+                + " Handwriting in particular is not something it can read."
+            )
+    return reading
 
 
 def read_any(filename: str, data: bytes, path: Path | None = None) -> Reading:

@@ -7,8 +7,14 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 # libGL and libglib are needed only by the optional opencv extra; keep the layer small.
+#
+# tesseract-ocr is what lets a scanned marks sheet be read at all. It is a system binary,
+# not a Python package, so Render's native Python runtime cannot install it: on that
+# runtime the app still works and refuses scans by name, which is why app.extraction
+# .marksheet checks for the binary rather than assuming it. Deploy this image instead of
+# the native runtime if you want scans read.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libpq5 \
+        build-essential libpq5 tesseract-ocr tesseract-ocr-eng \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv

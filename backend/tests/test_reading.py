@@ -64,7 +64,7 @@ def paper(client, school):
 def _read(client, school, paper, student, name, data):
     return client.post(
         f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
-        files=[("file", (name, io.BytesIO(data), "text/csv"))],
+        files=[("files", (name, io.BytesIO(data), "text/csv"))],
     )
 
 
@@ -176,10 +176,9 @@ def test_absent_and_not_offered_survive_the_read(client, school, paper, student)
     assert states == {"1": "absent", "2": "not_offered"}
 
 
-def test_a_photograph_is_refused_by_name_rather_than_half_read(
-    client, school, paper, student
-):
-    """Reading handwriting is not switched on. Saying so is the only honest answer."""
+def test_a_page_with_nothing_readable_on_it_says_so(client, school, paper, student):
+    """Whether or not recognition is available, a blank page yields no marks and says why.
+    What must never happen is an empty success that reads like a sheet of zeros."""
     import pymupdf
 
     doc = pymupdf.open()
@@ -192,10 +191,11 @@ def test_a_photograph_is_refused_by_name_rather_than_half_read(
 
     out = client.post(
         f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
-        files=[("file", ("photo.pdf", io.BytesIO(data), "application/pdf"))],
+        files=[("files", ("photo.pdf", io.BytesIO(data), "application/pdf"))],
     )
     assert out.status_code == 422
-    assert "handwriting" in out.json()["detail"]
+    detail = out.json()["detail"]
+    assert "handwriting" in detail or "could not find a marks table" in detail
 
 
 def test_a_spreadsheet_is_read_from_its_cells(client, school, paper, student):
@@ -210,7 +210,7 @@ def test_a_spreadsheet_is_read_from_its_cells(client, school, paper, student):
 
     out = client.post(
         f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
-        files=[("file", ("marks.xlsx", io.BytesIO(buffer.getvalue()),
+        files=[("files", ("marks.xlsx", io.BytesIO(buffer.getvalue()),
                          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))],
     )
     assert out.status_code == 201, out.text
@@ -252,7 +252,7 @@ def test_a_printed_marks_sheet_is_read_out_of_the_pdf(client, school, paper, stu
     """
     out = client.post(
         f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
-        files=[("file", ("marks.pdf", io.BytesIO(_printed_marks_pdf()), "application/pdf"))],
+        files=[("files", ("marks.pdf", io.BytesIO(_printed_marks_pdf()), "application/pdf"))],
     )
     assert out.status_code == 201, out.text
     body = out.json()
@@ -285,11 +285,12 @@ def test_a_pdf_table_is_read_from_its_geometry_not_from_line_breaks():
     assert header.index("B/3") == body.index("4.5")
 
 
-def test_a_scanned_pdf_says_what_to_do_instead_of_reading_nothing(
-    client, school, paper, student
+def test_a_scan_is_refused_by_name_where_recognition_is_not_installed(
+    client, school, paper, student, monkeypatch
 ):
-    """A scanner produces a picture of a page unless it was set to make a searchable PDF.
-    Saying which, and what to do about it, is the whole of the answer."""
+    """Text recognition is a system binary, so a deployment either has it or does not.
+    Without it a scan must say so and say what to send instead, never read as empty."""
+    monkeypatch.setattr("app.extraction.marksheet.ocr_available", lambda: False)
     import pymupdf
 
     doc = pymupdf.open()
@@ -302,8 +303,94 @@ def test_a_scanned_pdf_says_what_to_do_instead_of_reading_nothing(
 
     out = client.post(
         f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
-        files=[("file", ("scan.pdf", io.BytesIO(data), "application/pdf"))],
+        files=[("files", ("scan.pdf", io.BytesIO(data), "application/pdf"))],
     )
     assert out.status_code == 422
     detail = out.json()["detail"]
-    assert "searchable PDF" in detail and "spreadsheet" in detail
+    assert "text recognition is not available" in detail and "spreadsheet" in detail
+
+
+def _page_image(rows: list[list[str]]) -> bytes:
+    """A photograph of a printed marks sheet, as a PNG. What a phone camera produces."""
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    columns = [60, 200, 320, 440]
+    for i, row in enumerate(rows):
+        for x, text in zip(columns, row, strict=False):
+            page.insert_text((x, 120 + i * 40), text, fontsize=16)
+    pix = page.get_pixmap(dpi=200)
+    doc.close()
+    return pix.tobytes("png")
+
+
+def test_photographed_pages_are_read_through_the_same_path_as_the_question_paper(
+    client, school, paper, student
+):
+    """Images are merged into one document, in the order they were sent, and read from
+    there. Two upload paths accepting different things is how one ends up rejecting a file
+    the other allows, with nobody able to say which is right."""
+    if not __import__("app.extraction.marksheet", fromlist=["x"]).ocr_available():
+        pytest.skip("text recognition is not installed here")
+
+    first = _page_image([["Roll No", "Q1", "B/2"], ["077", "2", "3"]])
+    second = _page_image([["Roll No", "B/3"], ["077", "5"]])
+
+    out = client.post(
+        f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
+        files=[
+            ("files", ("page1.png", io.BytesIO(first), "image/png")),
+            ("files", ("page2.png", io.BytesIO(second), "image/png")),
+        ],
+    )
+    assert out.status_code == 201, out.text
+    body = out.json()
+    assert body["used_ocr"] is True
+    assert body["read"] >= 1, "at least one column has to survive recognition"
+    assert "2 pages" in body["source"]
+
+
+def test_every_recognised_mark_is_held_until_a_person_has_looked_at_it(
+    client, school, paper, student
+):
+    """Recognition proposes; it never asserts.
+
+    On a real scan Tesseract reads 'Q1' as 'Qi'. A value it misread the same way would be
+    indistinguishable from one read exactly, so no recognised mark may be confirmed until
+    somebody has checked it against the sheet -- and until then confirming is refused.
+    """
+    if not __import__("app.extraction.marksheet", fromlist=["x"]).ocr_available():
+        pytest.skip("text recognition is not installed here")
+
+    image = _page_image([["Roll No", "B/2"], ["077", "3"]])
+    client.post(
+        f"/assessments/{paper}/answers/{student}/read", headers=_auth(school),
+        files=[("files", ("sheet.png", io.BytesIO(image), "image/png"))],
+    )
+
+    sheet = client.get(
+        f"/assessments/{paper}/answers/{student}/reading", headers=_auth(school)
+    ).json()
+    recognised = [q for q in sheet["questions"] if q["read"]]
+    assert recognised, "recognition read nothing at all"
+    assert all("text recognition" in q["problem"] for q in recognised)
+    assert sheet["can_confirm"] is False
+
+    refused = client.post(
+        f"/assessments/{paper}/answers/{student}/reading/confirm",
+        headers=_auth(school), json={"by": "Mrs Rani"},
+    )
+    assert refused.status_code == 422
+
+    # A person accepts the value they can see is right, and now it may be confirmed.
+    for row in recognised:
+        client.patch(
+            f"/assessments/{paper}/answers/{student}/reading/{row['address']}",
+            headers=_auth(school),
+            json={"marks": row["marks"], "state": "awarded", "by": "Mrs Rani"},
+        )
+    after = client.get(
+        f"/assessments/{paper}/answers/{student}/reading", headers=_auth(school)
+    ).json()
+    assert after["can_confirm"] is True

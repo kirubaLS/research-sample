@@ -18,18 +18,16 @@ The controls that keep this honest are all at step 1, where it is cheapest to re
 
 from __future__ import annotations
 
-import tempfile
-from pathlib import Path
-
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin
+from app.api.upload import IMAGE_SUFFIXES, pages_to_pdf
 from app.db import get_session
 from app.extraction.address import Address
-from app.extraction.marksheet import Reading, read_any
+from app.extraction.marksheet import Reading, read_any, read_pdf
 from app.models import (
     MARK_STATES,
     Assessment,
@@ -102,11 +100,19 @@ def _match(questions: list[Question], raw: str | None) -> tuple[Question | None,
 async def read_marks(
     assessment_id: str,
     student_id: str,
-    file: UploadFile = File(...),
+    files: list[UploadFile] = File(...),
     school: School = Depends(require_admin),
     db: Session = Depends(get_session),
 ) -> dict:
-    """Parse a file into proposals. Writes nothing to the marks."""
+    """Parse what was uploaded into proposals. Writes nothing to the marks.
+
+    Takes what the question-paper scanner takes, through the same code: any number of
+    pages, as PDFs or photographs, in the order they were sent. Two upload paths that
+    accept different things is how one of them ends up rejecting a file the other allows,
+    with nobody able to say which is right.
+
+    A spreadsheet is its own case, because a spreadsheet has cells and a page does not.
+    """
     assessment = _assessment(db, school, assessment_id)
     student = _student(db, school, student_id)
 
@@ -118,23 +124,36 @@ async def read_marks(
             "to the book first, so a mark has something to attach to.",
         )
 
-    data = await file.read()
-    if not data:
-        raise HTTPException(422, "the file is empty")
-    if len(data) > MAX_SHEET_BYTES:
-        raise HTTPException(413, f"file is larger than {MAX_SHEET_BYTES // 1024 // 1024} MB")
+    if not files:
+        raise HTTPException(422, "no file was sent")
 
-    path: Path | None = None
-    try:
-        if (file.filename or "").lower().endswith(".pdf"):
-            handle = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-            handle.write(data)
-            handle.close()
-            path = Path(handle.name)
-        reading: Reading = read_any(file.filename or "", data, path)
-    finally:
-        if path:
+    first = files[0]
+    name = (first.filename or "").lower()
+    if len(files) == 1 and not name.endswith((".pdf", *IMAGE_SUFFIXES)):
+        # A spreadsheet or a CSV: read from its cells, not from a rendered page.
+        data = await first.read()
+        if not data:
+            raise HTTPException(422, "the file is empty")
+        if len(data) > MAX_SHEET_BYTES:
+            raise HTTPException(
+                413, f"file is larger than {MAX_SHEET_BYTES // 1024 // 1024} MB"
+            )
+        reading: Reading = read_any(first.filename or "", data, None)
+        source_name = first.filename or "file"
+    else:
+        # Pages: PDFs and photographs, merged in the order they were sent, exactly as the
+        # question paper is. An image becomes a page of a PDF and is read from there, so
+        # there is one extractor rather than two that can disagree.
+        path = await pages_to_pdf(files)
+        try:
+            reading = read_pdf(path, source=first.filename or "scan")
+        finally:
             path.unlink(missing_ok=True)
+        source_name = (
+            first.filename or "scan"
+            if len(files) == 1
+            else f"{len(files)} pages starting with {first.filename or 'a page'}"
+        )
 
     if reading.refused:
         # 422 and the reason, rather than an empty success. A file that could not be read
@@ -176,6 +195,12 @@ async def read_marks(
         problem = row.problem
         if row.state not in MARK_STATES and not problem:
             problem = f"nothing readable in this cell ({row.raw_value!r})"
+        # Recognised text is a proposal, never an assertion. Every OCR row is held until
+        # a person has looked at it against the sheet: on a real scan Tesseract reads 'Q1'
+        # as 'Qi', and a value it misread the same way would otherwise be indistinguishable
+        # from one read exactly.
+        if problem is None and row.via_ocr:
+            problem = "read by text recognition; check this one against the sheet"
         if problem is None and state == "awarded" and marks is not None:
             if marks > float(question.max_marks):
                 problem = (
@@ -188,7 +213,8 @@ async def read_marks(
         db.add(ProposedMark(
             school_id=school.id, assessment_id=assessment.id, student_id=student.id,
             address=question.address, marks=marks, state=state,
-            source_kind="file", source_name=(file.filename or "")[:200],
+            source_kind="ocr" if row.via_ocr else "file",
+            source_name=source_name[:200],
             origin=row.origin[:200], raw_value=row.raw_value[:64], problem=problem,
         ))
         written += 1
@@ -200,7 +226,8 @@ async def read_marks(
         "questions_on_paper": len(by_address),
         "rolls_in_file": reading.rolls,
         "problems": reading.problems,
-        "source": reading.source,
+        "source": source_name,
+        "used_ocr": reading.used_ocr,
         #: Said plainly: a file naming several students was read for this one only.
         "note": (
             "This file mentions several roll numbers. Only the marks matching the "

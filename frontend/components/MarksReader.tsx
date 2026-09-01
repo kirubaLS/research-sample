@@ -68,13 +68,13 @@ export function MarksReader({
     void refresh();
   }, [refresh]);
 
-  async function send(file: File | undefined) {
+  async function send(files: FileList | null) {
     const key = getApiKey();
-    if (!key || !file) return;
-    setBusy("Reading the file");
+    if (!key || !files || files.length === 0) return;
+    setBusy(files.length > 1 ? `Reading ${files.length} pages` : "Reading the file");
     setError(null);
     try {
-      setResult(await api.readMarksFile(key, assessmentId, studentId, file));
+      setResult(await api.readMarksFile(key, assessmentId, studentId, Array.from(files)));
       await refresh();
     } catch (err) {
       setResult(null);
@@ -128,17 +128,18 @@ export function MarksReader({
         <div>
           <strong>Read the marks from a file</strong>
           <p className="muted">
-            A spreadsheet, a CSV, or a PDF with text in it, including a scan made with
-            text recognition turned on. Nothing is recorded until you have checked it
-            below. A plain scan is a picture of a page with no text in it, and that is
-            said plainly rather than guessed at.
+            A spreadsheet, a CSV, a PDF, or photographs of the sheet, one or many pages in
+            the order you add them. Nothing is recorded until you have checked it below.
+            Anything read by text recognition is held until you have looked at it, because
+            a recognised number and a read one must never look alike.
           </p>
         </div>
         <input
           ref={input}
           type="file"
-          accept=".csv,.tsv,.txt,.xlsx,.xlsm,.pdf"
-          onChange={(e) => send(e.target.files?.[0])}
+          multiple
+          accept=".csv,.tsv,.txt,.xlsx,.xlsm,.pdf,image/*"
+          onChange={(e) => send(e.target.files)}
           disabled={!!busy}
         />
       </div>
@@ -151,6 +152,7 @@ export function MarksReader({
           <p>
             <strong>{result.read}</strong> of {result.questions_on_paper} questions read
             from <span className="mono">{result.source}</span>.
+            {result.used_ocr && " Read by text recognition, so every one needs checking."}
           </p>
           {result.note && <p className="warnish">{result.note}</p>}
           {result.problems.map((p) => (
@@ -309,7 +311,18 @@ function ReadingRow({
         </p>
       )}
       {!row.read && <p className="from">This question was not in the file.</p>}
-      {row.problem && <p className="problem">{row.problem}</p>}
+      {row.problem && (
+        <p className="problem">
+          {row.problem}
+          {/* One click for a value that is already right. Retyping a number you can see is
+              correct is how a person stops reading them and starts clicking through. */}
+          {row.marks != null && (
+            <button className="accept" onClick={() => onEdit(row, String(row.marks), state)}>
+              It is right, accept {row.marks}
+            </button>
+          )}
+        </p>
+      )}
 
       <style jsx>{`
         li { border: 1px solid #e3e3e6; border-left: 4px solid #16324f; border-radius: 10px; padding: 10px 12px; background: #fff; }
@@ -323,7 +336,12 @@ function ReadingRow({
         input[disabled] { background: #f4f4f5; color: #999; }
         select { flex: 1 1 160px; padding: 9px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; background: #fff; }
         .from { margin: 8px 0 0; font-size: 12px; color: #666; }
-        .problem { margin: 4px 0 0; font-size: 13px; color: #a11; }
+        .problem { margin: 4px 0 0; font-size: 13px; color: #a11; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        .accept {
+          background: #fff; border: 1px solid #a11; color: #a11; border-radius: 999px;
+          padding: 3px 12px; font-size: 12px; cursor: pointer;
+        }
+        .accept:hover { background: #a11; color: #fff; }
       `}</style>
     </li>
   );
