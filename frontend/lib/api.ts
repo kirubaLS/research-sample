@@ -225,6 +225,39 @@ export interface StudentDiagnosis {
   not_offered: string[];
 }
 
+export interface ScanPageRef {
+  index: number;
+  content_type: string;
+  byte_size: number;
+  url: string;
+}
+
+export interface ScanDoc {
+  document_id: string;
+  kind: "question_paper" | "answer_sheet";
+  assessment_id: string;
+  assessment_title?: string | null;
+  student_id: string | null;
+  page_count: number;
+  uploaded_at: string | null;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  pages: ScanPageRef[];
+}
+
+export interface IssuedReport {
+  report_id: string;
+  assessment_id: string;
+  assessment_title: string | null;
+  student_id: string;
+  issued_by: string;
+  issued_at: string | null;
+  sha256: string;
+  earned: number;
+  available: number;
+  payload?: StudentDiagnosis;
+}
+
 export interface SatPaper {
   assessment_id: string;
   title: string;
@@ -663,6 +696,36 @@ export const api = {
       key,
       { method: "POST", body: JSON.stringify({ answers, by }) },
     ),
+
+  uploadAnswerPages: (key: string, assessmentId: string, studentId: string, files: File[]) =>
+    uploadMany<ScanDoc>(
+      `/assessments/${assessmentId}/answers/${studentId}/pages`, key, files, "X-API-Key",
+    ),
+
+  /**
+   * One stored page, as a blob.
+   *
+   * Fetched rather than linked: the page endpoint needs the school key, and an <img src>
+   * or a plain link sends no headers, so a link would have been an affordance that shows
+   * nothing. The caller revokes the object URL when it is done with it.
+   */
+  pageBlob: async (key: string, url: string): Promise<string> => {
+    const res = await fetch(`${BASE}${url}`, { headers: { "X-API-Key": key, ...scopeHeader() } });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return URL.createObjectURL(await res.blob());
+  },
+
+  studentDocuments: (key: string, studentId: string) =>
+    authed<{ documents: ScanDoc[] }>(`/students/${studentId}/documents`, key),
+
+  issueReport: (key: string, studentId: string, assessmentId: string, by: string) =>
+    authed<IssuedReport>(`/reports/student/${studentId}/issue`, key, {
+      method: "POST",
+      body: JSON.stringify({ assessment_id: assessmentId, by }),
+    }),
+
+  issuedReports: (key: string, studentId: string) =>
+    authed<{ reports: IssuedReport[] }>(`/reports/student/${studentId}/issued`, key),
 
   studentPapers: (key: string, studentId: string) =>
     authed<{ student: { id: string; name: string; roll_no: string }; assessments: SatPaper[] }>(

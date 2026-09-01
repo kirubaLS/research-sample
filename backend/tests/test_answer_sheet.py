@@ -272,3 +272,95 @@ def test_a_paper_a_student_never_sat_is_not_offered_to_them(client, school, stud
     ).json()["assessment_id"]
     listed = client.get(f"/reports/student/{student}/assessments", headers=_auth(school)).json()
     assert all(a["assessment_id"] != created for a in listed["assessments"])
+
+
+def test_the_whole_chain_is_joined_paper_to_script_to_marks_to_an_issued_report(
+    client, school, mapped_paper, student
+):
+    """The end-to-end flow, asserted as one thing rather than six.
+
+    Scan the paper, keep it. Upload the student's script, keep it. Enter the marks. Issue
+    the report and keep that too. Every step has to be reachable from the student, because
+    that is the record a principal opens.
+    """
+    import io
+
+    # 1. the paper the marks are about was kept when it was scanned
+    papers = client.get(
+        f"/assessments/{mapped_paper}/documents", headers=_auth(school)
+    ).json()["documents"]
+    paper = next(d for d in papers if d["kind"] == "question_paper")
+    assert paper["page_count"] >= 1
+    assert client.get(paper["pages"][0]["url"], headers=_auth(school)).status_code == 200
+
+    # 2. the student's script, joined to that paper
+    script = client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/pages", headers=_auth(school),
+        files=[("files", ("p1.jpg", io.BytesIO(b"\xff\xd8script-page-one"), "image/jpeg"))],
+    ).json()
+    assert script["student_id"] == student and script["assessment_id"] == mapped_paper
+
+    # 3. the marks
+    sheet = client.get(
+        f"/assessments/{mapped_paper}/answers/{student}", headers=_auth(school)
+    ).json()
+    client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm", headers=_auth(school),
+        json={"answers": [
+            {"address": q["address"], "marks": q["max_marks"]} for q in sheet["questions"]
+        ], "by": "Mrs Rani"},
+    )
+
+    # 4. the report, issued and kept exactly as it read
+    issued = client.post(
+        f"/reports/student/{student}/issue", headers=_auth(school),
+        json={"assessment_id": mapped_paper, "by": "Mrs Rani"},
+    )
+    assert issued.status_code == 201, issued.text
+    report_id = issued.json()["report_id"]
+
+    # 5. all of it reachable from the student
+    assert client.get(f"/students/{student}/documents", headers=_auth(school)).json()["documents"]
+    listed = client.get(
+        f"/reports/student/{student}/issued", headers=_auth(school)
+    ).json()["reports"]
+    assert any(r["report_id"] == report_id for r in listed)
+
+    stored = client.get(f"/reports/issued/{report_id}", headers=_auth(school)).json()
+    assert stored["payload"]["topics"], "a stored report without its findings is not a report"
+    assert all(f["evidence"] for f in stored["payload"]["topics"]), (
+        "the proof has to be inside the stored copy, not regenerated beside it"
+    )
+
+
+def test_an_issued_report_does_not_change_when_the_marks_do(
+    client, school, mapped_paper, student
+):
+    """A parent holding last term's sheet must still be able to have it explained. The
+    live report follows the marks, as it should; the issued one does not."""
+    sheet = client.get(
+        f"/assessments/{mapped_paper}/answers/{student}", headers=_auth(school)
+    ).json()
+    first = sheet["questions"][0]
+    client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm", headers=_auth(school),
+        json={"answers": [{"address": first["address"], "marks": first["max_marks"]}]},
+    )
+    issued = client.post(
+        f"/reports/student/{student}/issue", headers=_auth(school),
+        json={"assessment_id": mapped_paper, "by": "Mrs Rani"},
+    ).json()
+
+    # the same question, re-marked down
+    client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm", headers=_auth(school),
+        json={"answers": [{"address": first["address"], "marks": 0}]},
+    )
+
+    live = client.get(
+        f"/reports/student/{student}?assessment_id={mapped_paper}", headers=_auth(school)
+    ).json()
+    stored = client.get(f"/reports/issued/{issued['report_id']}", headers=_auth(school)).json()
+
+    assert live["total"]["earned"] < issued["earned"], "the live report follows the marks"
+    assert stored["earned"] == issued["earned"], "the issued one is what was issued"

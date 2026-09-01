@@ -246,3 +246,34 @@ def test_an_admin_key_creates_schools_without_the_operator_key(client, platform_
         assert r.json()["name"] == "Third School"
     finally:
         settings.platform_admin_key = before
+
+
+def test_a_principal_can_issue_a_report_because_that_is_their_job(
+    client, school, principal
+):
+    """Everything else that writes is refused to them. This is not: sending a report to a
+    parent is the principal's own work, it changes no mark, and it records under whose
+    name the figures went out."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import MarkEvent, StudentProfile
+
+    db = SessionLocal()
+    student = db.scalar(
+        select(StudentProfile).where(StudentProfile.school_id == school["school_id"])
+    )
+    marked = db.scalar(
+        select(MarkEvent).where(MarkEvent.student_id == student.id)
+    ) if student else None
+    assessment_id = marked.assessment_id if marked else None
+    db.close()
+    if assessment_id is None:
+        pytest.skip("no marked paper in this database yet")
+
+    out = client.post(
+        f"/reports/student/{student.id}/issue", headers=principal,
+        json={"assessment_id": assessment_id, "by": "Mrs Rani"},
+    )
+    assert out.status_code == 201, out.text
+    assert out.json()["issued_by"] == "Mrs Rani"

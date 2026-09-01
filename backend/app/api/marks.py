@@ -11,6 +11,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin, require_reader
+from app.api.documents import content_type_for, store_document
 from app.api.schemas import (
     AssessmentIn,
     MarkBatchIn,
@@ -406,6 +407,17 @@ async def scan_paper(
         raise HTTPException(409, "the Q-matrix is frozen; create a new version to re-scan")
 
     # One page or twenty, PDFs or photographs, in the order the caller sent them.
+    #: Read once, before pages_to_pdf consumes the uploads, because the pages are kept:
+    #: a report is a claim about a piece of paper, and the paper has to survive the read.
+    originals = [
+        (await f.read(), content_type_for(f.filename, f.content_type), f.filename)
+        for f in files
+    ]
+    for upload, (content, _, _) in zip(files, originals, strict=True):
+        await upload.seek(0)
+        if not content:
+            raise HTTPException(422, f"{upload.filename or 'a file'} is empty")
+
     path = await pages_to_pdf(files)
     try:
         extract = extract_paper(path)
@@ -463,6 +475,13 @@ async def scan_paper(
         "sections": extract.declared_sections or None,
         "question_count": extract.declared_count,
     }
+
+    # The paper itself, kept exactly as it arrived. Storing only what we read off it left
+    # every later question -- "is that really what question 14 said?" -- unanswerable.
+    store_document(
+        db, school_id=school.id, assessment_id=assessment.id, kind="question_paper",
+        pages=[(content, content_type, None) for content, content_type, _ in originals],
+    )
     db.commit()
 
     primaries = [q for q in extract.questions if q.choice_alt is None]

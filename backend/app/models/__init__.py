@@ -21,6 +21,12 @@ from app.models.corpus import (
     HumanLabel,
     Prediction,
 )
+from app.models.documents import (
+    DOCUMENT_KINDS,
+    ScanDocument,
+    ScanPage,
+    StudentReport,
+)
 from app.models.marks import MARK_STATES, SOURCE_PRECEDENCE, MarkEvent
 from app.models.psychometric import (
     ItemResponse,
@@ -52,6 +58,8 @@ __all__ = [
     "QuestionTier",
     "DataQualityFlag", "AnalysisRun", "TIERS", "CBSE_TIER_TARGET",
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
-    "STAFF_ROLES", "StaffKey", "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
+    "STAFF_ROLES", "StaffKey",
+    "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport",
+    "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
     "CaptureAsset", "Crop", "Prediction", "HumanLabel", "Disagreement",
 ]

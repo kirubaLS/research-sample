@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AnswerRow,
   AnswerSheet,
   api,
+  ScanDoc,
   ApiError,
   ApiUnreachable,
   PaperSummary,
@@ -62,6 +63,7 @@ export default function AnswersPage() {
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [rejected, setRejected] = useState<Record<string, string>>({});
   const [by, setBy] = useState("");
+  const [script, setScript] = useState<ScanDoc | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
@@ -117,6 +119,18 @@ export default function AnswersPage() {
     try {
       const body = await api.answerSheet(key, paperId, studentId);
       setSheet(body);
+      // Whether this student's script is already on file. Entering marks with the script
+      // in hand and never storing it is how a mark ends up with nothing behind it.
+      api
+        .studentDocuments(key, studentId)
+        .then(({ documents }) =>
+          setScript(
+            documents.find(
+              (d) => d.kind === "answer_sheet" && d.assessment_id === paperId,
+            ) ?? null,
+          ),
+        )
+        .catch(() => setScript(null));
       // The draft starts from what is stored, so re-opening a half-entered sheet shows
       // the marks already there rather than blank boxes over the top of them.
       setDrafts(
@@ -284,6 +298,13 @@ export default function AnswersPage() {
 
       {sheet && (
         <>
+          <ScriptPanel
+            paperId={paperId}
+            studentId={studentId}
+            script={script}
+            onUploaded={setScript}
+            onError={(m) => setError(m)}
+          />
           <section className="panel sticky">
             <div className="tally">
               <div>
@@ -444,5 +465,88 @@ function Row({
         .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
       `}</style>
     </li>
+  );
+}
+
+
+/**
+ * The student's answer script, stored beside the marks.
+ *
+ * Optional on purpose: a school entering marks from paper in front of them should not be
+ * blocked by an upload. But the panel states plainly when nothing is on file, because a
+ * report that a parent may question is far easier to defend with the script attached, and
+ * "we did not keep it" is not an answer anyone wants to give later.
+ */
+function ScriptPanel({
+  paperId,
+  studentId,
+  script,
+  onUploaded,
+  onError,
+}: {
+  paperId: string;
+  studentId: string;
+  script: ScanDoc | null;
+  onUploaded: (doc: ScanDoc) => void;
+  onError: (message: string) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+
+  async function send(files: FileList | null) {
+    const key = getApiKey();
+    if (!key || !files || files.length === 0) return;
+    setBusy(true);
+    try {
+      onUploaded(await api.uploadAnswerPages(key, paperId, studentId, Array.from(files)));
+    } catch {
+      onError("Could not store those pages. Nothing was saved, so try again.");
+    } finally {
+      setBusy(false);
+      if (input.current) input.current.value = "";
+    }
+  }
+
+  return (
+    <section className="panel scriptpanel">
+      <div className="scriptrow">
+        <div>
+          <strong>Answer script</strong>
+          <p className="muted">
+            {script
+              ? `${script.page_count} page${script.page_count === 1 ? "" : "s"} on file. ` +
+                "Uploading again replaces them."
+              : "Nothing on file for this paper. The marks below stand on their own until a script is stored."}
+          </p>
+        </div>
+        <div>
+          <input
+            ref={input}
+            type="file"
+            multiple
+            accept="image/*,application/pdf"
+            onChange={(e) => send(e.target.files)}
+            disabled={busy}
+          />
+        </div>
+      </div>
+      {script && (
+        <div className="thumbs">
+          {script.pages.map((p) => (
+            <span className="thumb" key={p.index}>
+              Page {p.index + 1}
+            </span>
+          ))}
+        </div>
+      )}
+
+      <style jsx>{`
+        .scriptpanel { border-style: dashed; }
+        .scriptrow { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; align-items: center; }
+        .muted { color: #666; margin: 4px 0 0; font-size: 13px; max-width: 60ch; }
+        .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+        .thumb { font-size: 12px; background: #f1f2f4; border-radius: 999px; padding: 3px 10px; color: #444; }
+      `}</style>
+    </section>
   );
 }

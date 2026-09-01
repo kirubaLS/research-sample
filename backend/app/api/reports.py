@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -32,6 +36,7 @@ from app.models import (
     ScaleScore,
     School,
     StudentProfile,
+    StudentReport,
     TaxonomyNode,
     TestSession,
 )
@@ -336,6 +341,89 @@ def student_report(
         ],
         "not_offered": [r.address for r in rows if r.state == "not_offered"],
     }
+
+
+class IssueIn(BaseModel):
+    assessment_id: str
+    by: str = ""
+
+
+@router.post("/student/{student_id}/issue", status_code=201)
+def issue_student_report(
+    student_id: str,
+    body: IssueIn,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Keep this report, exactly as it reads now, and name who issued it.
+
+    The diagnosis is regenerable from the marks until a mark is corrected or the book is
+    reloaded, after which the same request returns something else. A parent holding a
+    sheet from last term must still be able to have it explained, so what was issued is
+    stored rather than recomputed.
+
+    A principal may do this, unlike everything else that writes. Sending a report to a
+    parent is their job, and this changes no mark -- it records which figures went out,
+    under whose name. Refusing it would have left the button on their screen doing nothing.
+    """
+    payload = student_report(student_id, body.assessment_id, school, db)
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+    record = StudentReport(
+        school_id=school.id, assessment_id=body.assessment_id, student_id=student_id,
+        issued_by=body.by[:120], sha256=hashlib.sha256(canonical).hexdigest(),
+        earned=payload["total"]["earned"], available=payload["total"]["available"],
+        payload=payload,
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+    return _issued_view(record)
+
+
+def _issued_view(record: StudentReport, *, full: bool = False) -> dict:
+    out = {
+        "report_id": record.id,
+        "assessment_id": record.assessment_id,
+        "student_id": record.student_id,
+        "issued_by": record.issued_by,
+        "issued_at": record.created_at.isoformat() if record.created_at else None,
+        "sha256": record.sha256,
+        "earned": float(record.earned),
+        "available": float(record.available),
+        "assessment_title": record.payload.get("assessment_title"),
+    }
+    if full:
+        out["payload"] = record.payload
+    return out
+
+
+@router.get("/student/{student_id}/issued")
+def list_issued_reports(
+    student_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Every report issued for this student, newest first."""
+    records = db.scalars(
+        select(StudentReport)
+        .where(StudentReport.student_id == student_id, StudentReport.school_id == school.id)
+        .order_by(StudentReport.created_at.desc())
+    ).all()
+    return {"reports": [_issued_view(r) for r in records]}
+
+
+@router.get("/issued/{report_id}")
+def read_issued_report(
+    report_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """A stored report, returned as it was issued and never recomputed."""
+    record = db.get(StudentReport, report_id)
+    if record is None or record.school_id != school.id:
+        raise HTTPException(404, "not found")
+    return _issued_view(record, full=True)
 
 
 @router.get("/paper/{assessment_id}")

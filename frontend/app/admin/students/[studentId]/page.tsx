@@ -3,7 +3,15 @@
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import { Diagnosis } from "@/components/Diagnosis";
-import { api, type InterestReport, type SatPaper, type StudentDiagnosis } from "@/lib/api";
+import { ScriptViewer } from "@/components/ScriptViewer";
+import {
+  api,
+  type InterestReport,
+  type IssuedReport,
+  type SatPaper,
+  type ScanDoc,
+  type StudentDiagnosis,
+} from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 
 const SCALE_NAMES: Record<string, string> = {
@@ -24,6 +32,10 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
   const [paperId, setPaperId] = useState("");
   const [diagnosis, setDiagnosis] = useState<StudentDiagnosis | null>(null);
   const [ready, setReady] = useState(false);
+  const [scripts, setScripts] = useState<ScanDoc[]>([]);
+  const [issued, setIssued] = useState<IssuedReport[]>([]);
+  const [issuing, setIssuing] = useState(false);
+  const [issuedNote, setIssuedNote] = useState<string | null>(null);
 
   // The two halves are independent. A student who sat a test but no interest inventory,
   // or the reverse, has a real record either way -- loading them together meant one
@@ -41,7 +53,29 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
       })
       .catch(() => undefined)
       .finally(() => setReady(true));
+    api.studentDocuments(key, studentId).then((b) => setScripts(b.documents)).catch(() => undefined);
+    api.issuedReports(key, studentId).then((b) => setIssued(b.reports)).catch(() => undefined);
   }, [studentId]);
+
+  async function issue() {
+    const key = getApiKey();
+    if (!key || !paperId) return;
+    const by = window.prompt("Your name, to go on the issued report:", "");
+    if (by === null) return;
+    setIssuing(true);
+    try {
+      const record = await api.issueReport(key, studentId, paperId, by);
+      setIssued((all) => [record, ...all]);
+      setIssuedNote(
+        "Saved. This copy keeps the figures exactly as they read now, even if a mark is " +
+          "corrected later.",
+      );
+    } catch {
+      setIssuedNote("Could not save a copy. Nothing was stored.");
+    } finally {
+      setIssuing(false);
+    }
+  }
 
   useEffect(() => {
     const key = getApiKey();
@@ -107,10 +141,47 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
             </div>
           )}
           {diagnosis && who ? (
-            <Diagnosis report={diagnosis} student={who} />
+            <>
+              <Diagnosis report={diagnosis} student={who} />
+              <div className="noprint" style={{ marginTop: 14 }}>
+                <button className="secondary" onClick={issue} disabled={issuing}>
+                  {issuing ? "Saving…" : "Save a copy of this report"}
+                </button>
+                {issuedNote && <p className="small muted">{issuedNote}</p>}
+                {issued.length > 0 && (
+                  <p className="small muted">
+                    {issued.length} cop{issued.length === 1 ? "y" : "ies"} saved. Latest by{" "}
+                    {issued[0].issued_by || "someone unnamed"} on{" "}
+                    {issued[0].issued_at?.slice(0, 10)}, {issued[0].earned} of{" "}
+                    {issued[0].available}.
+                  </p>
+                )}
+              </div>
+            </>
           ) : (
             <p className="muted">Loading the result…</p>
           )}
+        </>
+      )}
+
+      {scripts.length > 0 && (
+        <>
+          <div className="section-head">
+            <h2>Answer scripts</h2>
+          </div>
+          {scripts.map((doc) => (
+            <div className="card" key={doc.document_id} style={{ marginBottom: 12 }}>
+              <p className="small" style={{ marginTop: 0 }}>
+                <strong>{doc.assessment_title ?? "Paper"}</strong> ·{" "}
+                {doc.page_count} page{doc.page_count === 1 ? "" : "s"} · stored{" "}
+                {doc.uploaded_at?.slice(0, 10)}
+              </p>
+              <ScriptViewer doc={doc} />
+              <p className="small muted" style={{ marginBottom: 0, marginTop: 10 }}>
+                The script the marks were read from.
+              </p>
+            </div>
+          ))}
         </>
       )}
 
