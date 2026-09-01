@@ -189,6 +189,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       <div
+        className="accountbar"
         style={{
           maxWidth: "var(--max)",
           margin: "0 auto",
@@ -226,6 +227,13 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           Sign out
         </button>
       </div>
+      <style jsx global>{`
+        @media print {
+          .accountbar {
+            display: none !important;
+          }
+        }
+      `}</style>
       {stale && (
         <p className="notice warn" style={{ maxWidth: "var(--max)", margin: "0 auto 12px" }}>
           {stale}

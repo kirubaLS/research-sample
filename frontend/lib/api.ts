@@ -150,10 +150,95 @@ export interface ConfirmAnswersResult {
   complete: boolean;
 }
 
+export interface Proof {
+  question_no: string;
+  section: string | null;
+  sub_part: string | null;
+  choice_alt: string | null;
+  question_type: string | null;
+  stem_text: string | null;
+  logical_page: number | null;
+  curriculum_section: string | null;
+  curriculum_section_title: string | null;
+  concept_variant: string | null;
+  mark_source: string | null;
+  earned: number | null;
+  max_marks: number | null;
+  state: string | null;
+  placement: {
+    source: string | null;
+    confidence: number | null;
+    needs_review: boolean | null;
+    book_evidence: string[];
+    candidates: unknown[];
+    chapter: string | null;
+    concept_family: string | null;
+    board_unit: string | null;
+  } | null;
+}
+
+/** One reported figure, with the questions it was computed from. */
+export interface Finding {
+  kind: string;
+  scope: string;
+  /** The taxonomy code. Stable across cycles, and not for showing to anyone. */
+  key: string;
+  /** What the code is called in the book. Always prefer this on screen. */
+  label: string;
+  earned: number;
+  available: number;
+  questions: number;
+  rate: number | null;
+  ci: [number, number] | null;
+  sufficient: boolean;
+  message: string | null;
+  evidence: Proof[];
+}
+
+export interface StudentDiagnosis {
+  assessment_id: string;
+  assessment_title: string;
+  student_id: string;
+  total: { earned: number; available: number; rate: number | null; questions: number };
+  topic_axis: "concept_family" | "subtopic" | "chapter";
+  topics: Finding[];
+  strengths: Finding[];
+  focus: Finding[];
+  tier_summary: Finding[];
+  findings: Finding[];
+  all_crosstab: Finding[];
+  board_weighted_indicators: {
+    board_unit: string;
+    label: string;
+    /** Percentage points of the board's own weighting, already on a 0-100 scale. */
+    board_weight: number;
+    lost: number;
+    available: number;
+    weighted_loss: number;
+  }[];
+  coverage_gaps: {
+    board_unit: string;
+    label: string;
+    board_weight: number;
+    message: string;
+  }[];
+  not_offered: string[];
+}
+
+export interface SatPaper {
+  assessment_id: string;
+  title: string;
+  subject_code: string;
+  created_at: string | null;
+  questions_marked: number;
+}
+
 export interface RosterRow {
   student_id: string;
   name: string;
   roll_no: string;
+  /** How many papers this student has marks on. Zero is a real answer, not a gap. */
+  papers_marked: number;
   status: "not_started" | "in_progress" | "complete";
   validity: string | null;
   holland_code: string | null;
@@ -577,6 +662,18 @@ export const api = {
       `/assessments/${assessmentId}/answers/${studentId}/confirm`,
       key,
       { method: "POST", body: JSON.stringify({ answers, by }) },
+    ),
+
+  studentPapers: (key: string, studentId: string) =>
+    authed<{ student: { id: string; name: string; roll_no: string }; assessments: SatPaper[] }>(
+      `/reports/student/${studentId}/assessments`,
+      key,
+    ),
+
+  studentDiagnosis: (key: string, studentId: string, assessmentId: string) =>
+    authed<StudentDiagnosis>(
+      `/reports/student/${studentId}?assessment_id=${encodeURIComponent(assessmentId)}`,
+      key,
     ),
 
   interestReport: (key: string, studentId: string) =>

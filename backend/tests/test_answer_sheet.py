@@ -231,3 +231,44 @@ def test_the_paper_list_says_which_papers_can_take_an_answer_sheet(
 
     assert by_id[created]["stage"] == "empty"
     assert by_id[created]["ready_for_answer_sheets"] is False
+
+
+def test_a_student_report_is_reachable_from_the_marks_that_were_just_entered(
+    client, school, mapped_paper, student
+):
+    """The report is the product. A screen cannot offer a choice of papers honestly
+    without knowing which ones this student actually has marks on."""
+    sheet = client.get(
+        f"/assessments/{mapped_paper}/answers/{student}", headers=_auth(school)
+    ).json()
+    client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm",
+        headers=_auth(school),
+        json={"answers": [
+            {"address": q["address"], "marks": q["max_marks"]} for q in sheet["questions"]
+        ], "by": "Mrs Rani"},
+    )
+
+    listed = client.get(f"/reports/student/{student}/assessments", headers=_auth(school)).json()
+    mine = [a for a in listed["assessments"] if a["assessment_id"] == mapped_paper]
+    assert mine and mine[0]["questions_marked"] == len(sheet["questions"])
+
+    report = client.get(
+        f"/reports/student/{student}?assessment_id={mapped_paper}", headers=_auth(school)
+    )
+    assert report.status_code == 200, report.text
+    body = report.json()
+    assert body["total"]["available"] > 0
+    assert body["topic_axis"] in ("concept_family", "subtopic", "chapter")
+    # Every reported figure carries the questions it was computed from.
+    for finding in body["topics"]:
+        assert finding["evidence"], f"{finding['key']} reported without its questions"
+
+
+def test_a_paper_a_student_never_sat_is_not_offered_to_them(client, school, student):
+    created = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Someone else's test", "total_marks": 5},
+    ).json()["assessment_id"]
+    listed = client.get(f"/reports/student/{student}/assessments", headers=_auth(school)).json()
+    assert all(a["assessment_id"] != created for a in listed["assessments"])

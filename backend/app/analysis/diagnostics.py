@@ -268,8 +268,11 @@ def board_weighted_indicator(
     gaps = [
         CoverageGap(
             unit, weight,
-            f"This paper carries no marks for {unit}, which is {weight:.0f}% of the board "
-            f"weighting. The test gives you no information about it.",
+            # The code is not repeated into the sentence: the row already names the unit,
+            # and a reader should never be shown a taxonomy code where a name belongs.
+            # The weight is shown beside the unit's name by whatever displays this, so
+            # repeating it here printed the same percentage twice in one sentence.
+            "No marks in this paper, so the test says nothing about it either way.",
         )
         for unit, weight in board_weights.items()
         if unit not in agg or agg[unit].available <= 0
@@ -277,10 +280,24 @@ def board_weighted_indicator(
     return indicators, gaps
 
 
-def select_findings(findings: list[Finding], board_weights: dict[str, float], cap: int = 5) -> list[Finding]:
+#: At or above this rate a topic is a strength, not a place to work. One constant, used
+#: by both selectors, because the same report calling one topic both would be incoherent.
+STRENGTH_FLOOR = 0.8
+
+
+def select_findings(
+    findings: list[Finding],
+    board_weights: dict[str, float],
+    cap: int = 5,
+    floor: float = STRENGTH_FLOOR,
+) -> list[Finding]:
     """Rank by board weight x evidence strength x actionability, then cap.
 
     A report with fourteen findings changes no behaviour.
+
+    Anything at or above ``floor`` is dropped before ranking. Ranking alone put a topic
+    scored 94% under "where to work next" whenever the paper had fewer than five topics --
+    the list was never wrong about the number, it was wrong about what the number meant.
     """
     def rank(f: Finding) -> float:
         if not f.sufficient or f.rate is None:
@@ -290,12 +307,16 @@ def select_findings(findings: list[Finding], board_weights: dict[str, float], ca
         actionability = 1.0 - f.rate
         return weight * evidence * actionability
 
-    ranked = sorted((f for f in findings if f.sufficient), key=rank, reverse=True)
+    ranked = sorted(
+        (f for f in findings if f.sufficient and (f.rate is None or f.rate < floor)),
+        key=rank,
+        reverse=True,
+    )
     return ranked[:cap]
 
 
 def select_strengths(
-    findings: list[Finding], cap: int = 5, floor: float = 0.8
+    findings: list[Finding], cap: int = 5, floor: float = STRENGTH_FLOOR
 ) -> list[Finding]:
     """The other half of the diagnosis, computed from the same numbers.
 

@@ -7,13 +7,14 @@ Without these there is no way to answer the two questions a principal opens the 
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import Staff, require_reader, require_staff, school_in_scope
 from app.db import get_session
 from app.models import (
     Assessment,
+    MarkEvent,
     ProfileResult,
     School,
     Section,
@@ -165,6 +166,18 @@ def roster(
             ):
                 results[res.session_id] = res
 
+    # How many papers each student has marks on. The roster carried only the interest
+    # test, so a class that had sat a written test looked untouched -- and the marks are
+    # the half a principal opens the roster to see.
+    papers: dict[str, int] = {}
+    if students:
+        for student_id, count in db.execute(
+            select(MarkEvent.student_id, func.count(func.distinct(MarkEvent.assessment_id)))
+            .where(MarkEvent.student_id.in_([s.id for s in students]))
+            .group_by(MarkEvent.student_id)
+        ).all():
+            papers[student_id] = count
+
     rows = []
     for student in students:
         session = sessions.get(student.id)
@@ -181,6 +194,7 @@ def roster(
                 "name": student.name,
                 "roll_no": student.roll_no,
                 "status": status,
+                "papers_marked": papers.get(student.id, 0),
                 "validity": session.validity if session else None,
                 "holland_code": result.holland_code if result else None,
                 "withheld": bool(result.recommendation_withheld) if result else None,

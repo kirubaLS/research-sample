@@ -88,7 +88,8 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
               <tr>
                 <th>Roll</th>
                 <th>Name</th>
-                <th>Status</th>
+                <th>Papers marked</th>
+                <th>Interest test</th>
                 <th>Code</th>
                 <th>Indicated stream</th>
                 <th />
@@ -99,6 +100,13 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                 <tr key={s.student_id}>
                   <td className="num strong">{s.roll_no}</td>
                   <td className="strong">{s.name}</td>
+                  <td>
+                    {s.papers_marked > 0 ? (
+                      `${s.papers_marked} paper${s.papers_marked === 1 ? "" : "s"}`
+                    ) : (
+                      <span className="muted">none yet</span>
+                    )}
+                  </td>
                   <td>
                     <span className={`badge ${STATUS[s.status].cls}`}>
                       {STATUS[s.status].label}
@@ -112,11 +120,12 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                   <td className="mono">{s.holland_code ?? "not yet"}</td>
                   <td>{s.withheld ? <span className="muted">withheld</span> : (s.top_stream ?? "not yet")}</td>
                   <td>
-                    {s.status === "complete" && (
-                      <Link className="btn secondary tiny" href={`/admin/students/${s.student_id}`}>
-                        Report
-                      </Link>
-                    )}
+                    {/* Always linked. Gating this on the interest test being complete
+                        made a student who had sat a written test unreachable, which is
+                        the one record a principal opens the roster to read. */}
+                    <Link className="btn secondary tiny" href={`/admin/students/${s.student_id}`}>
+                      Open
+                    </Link>
                   </td>
                 </tr>
               ))}

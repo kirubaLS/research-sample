@@ -50,7 +50,7 @@ def test_a_board_unit_with_no_marks_is_a_coverage_gap_not_a_zero():
         _rows(), {"U.MENSURATION": 10.0, "U.TRIG": 12.0}
     )
     assert [g.board_unit for g in gaps] == ["U.TRIG"]
-    assert "no information" in gaps[0].message
+    assert "says nothing about it" in gaps[0].message
 
 
 def test_indicator_carries_an_interval_and_a_share():
@@ -143,3 +143,33 @@ def test_proof_distinguishes_a_confirmed_placement_from_a_guessed_one():
     assert confirmed["placement"]["reviewed_by"] == "teacher-7"
     # The book passage the decision rested on travels with the finding, both times.
     assert guessed["placement"]["book_evidence"] == ["Example 4"]
+
+
+def test_a_topic_scored_well_is_never_listed_as_where_to_work_next():
+    """Ranking by actionability alone put a 94% topic under "where to work next" whenever
+    the paper had fewer than five topics: the list was right about the number and wrong
+    about what it meant, which is the kind of error a teacher acts on."""
+    from app.analysis.diagnostics import (
+        MarkRow,
+        by_concept_family,
+        select_findings,
+        select_strengths,
+    )
+
+    rows = [
+        MarkRow(student_id="s", address=f"A/{i}//", earned=e, max_marks=m,
+                concept_family=fam, state="awarded")
+        for i, (fam, e, m) in enumerate([
+            ("STRONG", 4.0, 4.0), ("STRONG", 3.5, 4.0),
+            ("WEAK", 1.0, 4.0), ("WEAK", 1.0, 4.0),
+        ])
+    ]
+    topics = by_concept_family(rows)
+    focus = select_findings(topics, {})
+    strengths = select_strengths(topics)
+
+    assert {f.key for f in strengths} == {"STRONG"}
+    assert {f.key for f in focus} == {"WEAK"}
+    assert not ({f.key for f in focus} & {f.key for f in strengths}), (
+        "one report cannot call the same topic both"
+    )

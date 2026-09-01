@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.analysis.diagnostics import (
@@ -233,6 +233,48 @@ def _topic_axis(rows: list[MarkRow]) -> tuple[str, list]:
     return "chapter", by_chapter(rows)
 
 
+@router.get("/student/{student_id}/assessments")
+def student_assessments(
+    student_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """The papers this student has marks for, newest first.
+
+    A report needs a paper as well as a student, and a screen cannot offer that choice
+    honestly without knowing which papers have anything on them. Listing every paper the
+    school owns would offer tests this student never sat.
+    """
+    student = db.get(StudentProfile, student_id)
+    if student is None or student.school_id != school.id:
+        raise HTTPException(404, "not found")
+
+    rows = db.execute(
+        select(
+            Assessment.id, Assessment.title, Assessment.subject_code,
+            Assessment.created_at, func.count(func.distinct(MarkEvent.question_id)),
+        )
+        .join(MarkEvent, MarkEvent.assessment_id == Assessment.id)
+        .where(MarkEvent.student_id == student_id, Assessment.school_id == school.id)
+        .group_by(Assessment.id)
+        .order_by(Assessment.created_at.desc())
+    ).all()
+
+    return {
+        "student": {"id": student.id, "name": student.name, "roll_no": student.roll_no},
+        "assessments": [
+            {
+                "assessment_id": aid,
+                "title": title,
+                "subject_code": subject,
+                "created_at": created.isoformat() if created else None,
+                "questions_marked": marked,
+            }
+            for aid, title, subject, created, marked in rows
+        ],
+    }
+
+
 @router.get("/student/{student_id}")
 def student_report(
     student_id: str,
@@ -255,6 +297,20 @@ def student_report(
     counted = [r for r in rows if r.counts]
     earned = sum(r.earned for r in counted)
     available = sum(r.max_marks for r in counted)
+
+    # A finding is keyed by a taxonomy code, which is what makes it stable across cycles
+    # and useless to a reader. The label travels with it so a screen never has to guess a
+    # name from a code, and never shows the code to a teacher.
+    labels = {n.code: n.label for n in db.scalars(select(TaxonomyNode))}
+
+    def named(findings) -> list[dict]:
+        out = []
+        for f in findings:
+            row = f.as_dict()
+            row["label"] = labels.get(row["key"], row["key"])
+            out.append(row)
+        return out
+
     return {
         "assessment_id": a.id,
         "assessment_title": a.title,
@@ -266,14 +322,18 @@ def student_report(
         },
         # One axis for the whole report, named so nobody reads a family as a chapter.
         "topic_axis": axis,
-        "topics": [f.as_dict() for f in topics],
-        "strengths": [f.as_dict() for f in select_strengths(topics)],
-        "focus": [f.as_dict() for f in select_findings(topics, weights)],
-        "tier_summary": [f.as_dict() for f in by_tier(rows)],
-        "findings": [f.as_dict() for f in select_findings(crosstab, weights)],
-        "all_crosstab": [f.as_dict() for f in crosstab],
-        "board_weighted_indicators": indicators,
-        "coverage_gaps": [g.__dict__ for g in gaps],
+        "topics": named(topics),
+        "strengths": named(select_strengths(topics)),
+        "focus": named(select_findings(topics, weights)),
+        "tier_summary": named(by_tier(rows)),
+        "findings": named(select_findings(crosstab, weights)),
+        "all_crosstab": named(crosstab),
+        "board_weighted_indicators": [
+            {**i, "label": labels.get(i["board_unit"], i["board_unit"])} for i in indicators
+        ],
+        "coverage_gaps": [
+            {**g.__dict__, "label": labels.get(g.board_unit, g.board_unit)} for g in gaps
+        ],
         "not_offered": [r.address for r in rows if r.state == "not_offered"],
     }
 
