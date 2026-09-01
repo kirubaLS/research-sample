@@ -258,6 +258,43 @@ export interface IssuedReport {
   payload?: StudentDiagnosis;
 }
 
+export interface ReadRow {
+  address: string;
+  section: string | null;
+  question_no: string;
+  choice_alt: string | null;
+  max_marks: number;
+  stem_text: string | null;
+  read: boolean;
+  marks: number | null;
+  state: string | null;
+  origin: string | null;
+  raw_value: string | null;
+  problem: string | null;
+  edited_by: string | null;
+  source_name: string | null;
+}
+
+export interface ReadingSheet {
+  assessment: { id: string; title: string };
+  student: { id: string; name: string; roll_no: string };
+  questions: ReadRow[];
+  read: number;
+  missing: number;
+  blocked: number;
+  can_confirm: boolean;
+}
+
+export interface ReadResult {
+  read: number;
+  unmatched: { raw_address: string; raw_value: string; reason: string; origin: string }[];
+  questions_on_paper: number;
+  rolls_in_file: string[];
+  problems: string[];
+  source: string;
+  note: string | null;
+}
+
 export interface SatPaper {
   assessment_id: string;
   title: string;
@@ -695,6 +732,37 @@ export const api = {
       `/assessments/${assessmentId}/answers/${studentId}/confirm`,
       key,
       { method: "POST", body: JSON.stringify({ answers, by }) },
+    ),
+
+  readMarksFile: async (key: string, assessmentId: string, studentId: string, file: File) => {
+    const body = new FormData();
+    body.append("file", file);
+    const res = await fetch(
+      `${BASE}/assessments/${assessmentId}/answers/${studentId}/read`,
+      { method: "POST", headers: { "X-API-Key": key, ...scopeHeader() }, body },
+    );
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return (await res.json()) as ReadResult;
+  },
+
+  reading: (key: string, assessmentId: string, studentId: string) =>
+    authed<ReadingSheet>(`/assessments/${assessmentId}/answers/${studentId}/reading`, key),
+
+  editReading: (
+    key: string, assessmentId: string, studentId: string, address: string,
+    body: { marks: number | null; state: string; by: string },
+  ) =>
+    authed<ReadingSheet>(
+      `/assessments/${assessmentId}/answers/${studentId}/reading/${address}`,
+      key,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
+  confirmReading: (key: string, assessmentId: string, studentId: string, by: string) =>
+    authed<{ written: number; confirmed_by: string }>(
+      `/assessments/${assessmentId}/answers/${studentId}/reading/confirm`,
+      key,
+      { method: "POST", body: JSON.stringify({ by }) },
     ),
 
   uploadAnswerPages: (key: string, assessmentId: string, studentId: string, files: File[]) =>

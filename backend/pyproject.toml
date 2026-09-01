@@ -23,6 +23,9 @@ dependencies = [
   # imported lazily inside AnthropicJudge, so a missing install fails that one call rather
   # than the whole service -- but it is not optional to the product.
   "anthropic>=0.40",
+  # base, not an extra: a school's marks arrive as a spreadsheet more often than any other
+  # way, and a deployment that cannot open one sends them back to typing by hand
+  "openpyxl>=3.1",
 ]
 
 [project.optional-dependencies]

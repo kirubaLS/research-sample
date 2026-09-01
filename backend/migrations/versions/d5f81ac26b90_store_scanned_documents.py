@@ -72,8 +72,32 @@ def upgrade() -> None:
     for column in ("school_id", "assessment_id", "student_id", "sha256"):
         op.create_index(f"ix_student_report_{column}", "student_report", [column])
 
+    op.create_table(
+        "proposed_mark",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("school_id", sa.String(36), sa.ForeignKey("school.id"), nullable=False),
+        sa.Column("assessment_id", sa.String(36), sa.ForeignKey("assessment.id"), nullable=False),
+        sa.Column("student_id", sa.String(36), sa.ForeignKey("student_profile.id"), nullable=False),
+        sa.Column("address", sa.String(64), nullable=False),
+        sa.Column("marks", sa.Numeric(6, 2), nullable=True),
+        sa.Column("state", sa.String(16), nullable=False),
+        sa.Column("source_kind", sa.String(24), nullable=False),
+        sa.Column("source_name", sa.String(200), nullable=False),
+        sa.Column("origin", sa.String(200), nullable=False),
+        sa.Column("raw_value", sa.String(64), nullable=False),
+        sa.Column("problem", sa.String(300), nullable=True),
+        sa.Column("edited_by", sa.String(120), nullable=True),
+        sa.UniqueConstraint("assessment_id", "student_id", "address", name="uq_proposed_mark"),
+    )
+    for column in ("school_id", "assessment_id", "student_id"):
+        op.create_index(f"ix_proposed_mark_{column}", "proposed_mark", [column])
+
 
 def downgrade() -> None:
+    for column in ("student_id", "assessment_id", "school_id"):
+        op.drop_index(f"ix_proposed_mark_{column}", table_name="proposed_mark")
+    op.drop_table("proposed_mark")
     for column in ("sha256", "student_id", "assessment_id", "school_id"):
         op.drop_index(f"ix_student_report_{column}", table_name="student_report")
     op.drop_table("student_report")

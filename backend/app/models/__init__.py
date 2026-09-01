@@ -23,6 +23,7 @@ from app.models.corpus import (
 )
 from app.models.documents import (
     DOCUMENT_KINDS,
+    ProposedMark,
     ScanDocument,
     ScanPage,
     StudentReport,
@@ -59,7 +60,7 @@ __all__ = [
     "DataQualityFlag", "AnalysisRun", "TIERS", "CBSE_TIER_TARGET",
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
     "STAFF_ROLES", "StaffKey",
-    "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport",
+    "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport", "ProposedMark",
     "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
     "CaptureAsset", "Crop", "Prediction", "HumanLabel", "Disagreement",
 ]

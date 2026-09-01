@@ -106,3 +106,40 @@ class StudentReport(Base, PkMixin, TimestampMixin):
     earned: Mapped[float] = mapped_column(Numeric(7, 2), default=0)
     available: Mapped[float] = mapped_column(Numeric(7, 2), default=0)
     payload: Mapped[dict] = mapped_column(JSON)
+
+
+class ProposedMark(Base, PkMixin, TimestampMixin):
+    """A mark read out of a file, waiting for a person to confirm it.
+
+    Deliberately not a MarkEvent. Everything read is staged here first, so that reading a
+    file and accepting what it said are two separate acts by two different parties: the
+    machine proposes, a person disposes. Nothing here counts towards any figure until it
+    is confirmed, and confirming writes MarkEvents with source 'teacher', because the
+    person who pressed the button is the one standing behind the number.
+
+    ``origin`` and ``raw_value`` are kept as the file wrote them -- "row 12, column Q4",
+    "3/5" -- so a disputed mark can be traced to the cell it came from without reopening
+    the file, which by then may have been edited.
+    """
+
+    __tablename__ = "proposed_mark"
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "student_id", "address", name="uq_proposed_mark"),
+    )
+
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
+    student_id: Mapped[str] = mapped_column(ForeignKey("student_profile.id"), index=True)
+    #: resolved against the frozen Q-matrix. An address the paper does not have is not
+    #: stored at all -- it is reported as unmatched, never invented.
+    address: Mapped[str] = mapped_column(String(64))
+    marks: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    state: Mapped[str] = mapped_column(String(16), default="awarded")
+    source_kind: Mapped[str] = mapped_column(String(24), default="file")
+    source_name: Mapped[str] = mapped_column(String(200), default="")
+    origin: Mapped[str] = mapped_column(String(200), default="")
+    raw_value: Mapped[str] = mapped_column(String(64), default="")
+    #: why this row cannot be accepted as it stands: unreadable, above the maximum, and so
+    #: on. A row with a problem is shown and blocked, never dropped and never repaired.
+    problem: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    edited_by: Mapped[str | None] = mapped_column(String(120), nullable=True)

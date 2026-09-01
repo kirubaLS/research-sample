@@ -22,6 +22,7 @@ from app.api import (
     marks,
     placement,
     platform,
+    reading,
     reports,
 )
 from app.config import get_settings
@@ -105,6 +106,7 @@ app.include_router(placement.router)
 app.include_router(platform.router)
 app.include_router(reports.router)
 app.include_router(documents.router)
+app.include_router(reading.router)
 
 
 @app.get("/healthz", tags=["ops"])

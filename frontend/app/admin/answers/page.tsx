@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { MarksReader } from "@/components/MarksReader";
 import {
   AnswerRow,
   AnswerSheet,
@@ -298,6 +299,15 @@ export default function AnswersPage() {
 
       {sheet && (
         <>
+          <MarksReader
+            assessmentId={paperId}
+            studentId={studentId}
+            by={by}
+            onConfirmed={() => {
+              setSaved("Those marks were confirmed and recorded.");
+              void load();
+            }}
+          />
           <ScriptPanel
             paperId={paperId}
             studentId={studentId}
@@ -332,12 +342,16 @@ export default function AnswersPage() {
                 />
               </label>
               <button onClick={confirm} disabled={!!busy}>
-                Confirm these marks
+                Confirm what is typed below
               </button>
             </div>
             {saved && <p className="ok">{saved}</p>}
           </section>
 
+          <p className="handnote">
+            Or enter them by hand. This list is the marks as they stand now; reading a file
+            above fills it in for you, and either way nothing counts until it is confirmed.
+          </p>
           <ol className="qlist">
             {sheet.questions.map((q) => (
               <Row
@@ -368,6 +382,7 @@ export default function AnswersPage() {
         button { padding: 10px 16px; border-radius: 8px; border: 0; background: #16324f; color: #fff; font-size: 15px; }
         button[disabled] { opacity: .5; }
         .qlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+        .handnote { color: #555; font-size: 13px; max-width: 64ch; margin: 18px 0 8px; }
         .muted { color: #666; }
         .error { color: #a11; }
         .ok { color: #196b2c; margin: 8px 0 0; }
@@ -541,7 +556,13 @@ function ScriptPanel({
       )}
 
       <style jsx>{`
-        .scriptpanel { border-style: dashed; }
+        .scriptpanel {
+          border: 1px dashed #c7ccd2;
+          border-radius: 12px;
+          padding: 14px;
+          margin-bottom: 16px;
+          background: #fff;
+        }
         .scriptrow { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; align-items: center; }
         .muted { color: #666; margin: 4px 0 0; font-size: 13px; max-width: 60ch; }
         .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
