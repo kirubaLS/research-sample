@@ -14,6 +14,44 @@ variable "vpc_cidr" {
   default = "10.42.0.0/16"
 }
 
+variable "task_egress" {
+  description = <<-TEXT
+    How the task reaches the Anthropic and Jina APIs.
+
+    "nat"    a NAT gateway. The task is unroutable from the internet and this costs about
+             as much per month as the database.
+    "public" a public IP on the task, at a fraction of that. The task is addressable but
+             answers nothing: its security group accepts only the load balancer.
+
+    "public" is the honest trade for one pilot school. Buy the NAT back before several
+    schools' data sits behind it.
+  TEXT
+  type        = string
+  default     = "nat"
+
+  validation {
+    condition     = contains(["nat", "public"], var.task_egress)
+    error_message = "task_egress must be \"nat\" or \"public\"."
+  }
+}
+
+variable "cpu_architecture" {
+  description = <<-TEXT
+    ARM64 (Graviton) is about 20% cheaper per vCPU-hour and every dependency here has an
+    arm64 wheel. deploy.sh builds for whatever this says, so the two cannot disagree.
+
+    Left at X86_64 because that is the only architecture this image has been built for.
+    Switch it, run one deploy, and keep the saving if the build is clean.
+  TEXT
+  type        = string
+  default     = "X86_64"
+
+  validation {
+    condition     = contains(["X86_64", "ARM64"], var.cpu_architecture)
+    error_message = "cpu_architecture must be \"X86_64\" or \"ARM64\"."
+  }
+}
+
 variable "nat_per_az" {
   description = "A NAT gateway in each AZ. Doubles a real monthly cost to remove a failure mode that takes one school offline for minutes."
   type        = bool

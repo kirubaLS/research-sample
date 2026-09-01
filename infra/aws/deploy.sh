@@ -28,13 +28,16 @@ REPO=$(out ecr_repository_url)
 CLUSTER=$(out cluster_name)
 SERVICE=$(out service_name)
 MIGRATE=$(out migrate_task_family)
-SUBNETS=$(terraform output -json private_subnet_ids | tr -d '[]" ' )
+SUBNETS=$(terraform output -json task_subnet_ids | tr -d '[]" ')
+PUBLIC_IP=$(out task_assign_public_ip)
+PLATFORM=$(out docker_platform)
 SG=$(out api_security_group_id)
 
-echo "==> building ${REPO}:${TAG}"
-# linux/amd64 explicitly: an image built on an Apple laptop is arm64 and Fargate will pull
-# it, start it, and fail with an exec format error that reads like a broken entrypoint.
-docker build --platform linux/amd64 -t "${REPO}:${TAG}" ../../backend
+echo "==> building ${REPO}:${TAG} for ${PLATFORM}"
+# The platform comes from Terraform, not from this laptop. An image built for the wrong
+# architecture -- an Apple laptop defaults to arm64 -- pulls, starts, and dies with an
+# exec format error that reads like a broken entrypoint.
+docker build --platform "${PLATFORM}" -t "${REPO}:${TAG}" ../../backend
 
 echo "==> pushing"
 aws ecr get-login-password --region "$REGION" \
@@ -50,7 +53,7 @@ TASK=$(aws ecs run-task \
   --task-definition "$MIGRATE" \
   --launch-type FARGATE \
   --region "$REGION" \
-  --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SG}],assignPublicIp=DISABLED}" \
+  --network-configuration "awsvpcConfiguration={subnets=[${SUBNETS}],securityGroups=[${SG}],assignPublicIp=${PUBLIC_IP}}" \
   --query 'tasks[0].taskArn' --output text)
 
 aws ecs wait tasks-stopped --cluster "$CLUSTER" --tasks "$TASK" --region "$REGION"

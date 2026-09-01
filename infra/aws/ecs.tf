@@ -173,6 +173,11 @@ resource "aws_ecs_task_definition" "migrate" {
   execution_role_arn       = aws_iam_role.execution.arn
   task_role_arn            = aws_iam_role.task.arn
 
+  runtime_platform {
+    operating_system_family = "LINUX"
+    cpu_architecture        = var.cpu_architecture
+  }
+
   container_definitions = jsonencode([{
     name        = "migrate"
     image       = local.image
@@ -199,9 +204,9 @@ resource "aws_ecs_service" "api" {
   launch_type     = "FARGATE"
 
   network_configuration {
-    subnets          = aws_subnet.private[*].id
+    subnets          = local.task_subnets
     security_groups  = [aws_security_group.api.id]
-    assign_public_ip = false
+    assign_public_ip = local.task_public_ip
   }
 
   load_balancer {

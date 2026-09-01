@@ -19,8 +19,18 @@ output "migrate_task_family" {
   value = aws_ecs_task_definition.migrate.family
 }
 
-output "private_subnet_ids" {
-  value = aws_subnet.private[*].id
+output "task_subnet_ids" {
+  description = "Where a one-off task runs. Follows task_egress, so deploy.sh does not have to know which was chosen."
+  value       = local.task_subnets
+}
+
+output "task_assign_public_ip" {
+  value = local.task_public_ip ? "ENABLED" : "DISABLED"
+}
+
+output "docker_platform" {
+  description = "Read by deploy.sh. An image built for the wrong architecture pulls, starts, and dies with an exec format error that reads like a broken entrypoint."
+  value       = var.cpu_architecture == "ARM64" ? "linux/arm64" : "linux/amd64"
 }
 
 output "api_security_group_id" {

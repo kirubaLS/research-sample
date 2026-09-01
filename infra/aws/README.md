@@ -27,7 +27,9 @@ question, not a latency one. Every other choice here follows from that.
 ```bash
 cd infra/aws
 terraform init
-terraform apply -var pages_bucket_name=yaadhum-pages-<something-unguessable>
+terraform apply \
+  -var pages_bucket_name=yaadhum-pages-<something-unguessable> \
+  -var task_egress=public          # see Cost; drop this to keep the NAT gateway
 ```
 
 Then, once, write the database URL the app will use. RDS manages the master password, so
@@ -90,13 +92,43 @@ residency constraint the API does — but build it with `NEXT_PUBLIC_API_BASE` p
 the `api_url` output, because that value is baked in at build time and a restart will not
 pick up a change.
 
-## Cost, roughly, for one school
+## Cost
 
-The NAT gateway and the ALB dominate and are charged by the hour whether or not anyone is
-scanning; Fargate at 1 vCPU is the next line; RDS `t4g.micro` and S3 for a term of page
-images are close to noise. `nat_per_az = false` is the deliberate saving: one NAT is a
-failure mode that takes one school offline for minutes, and two costs the same again
-every month.
+Rough monthly figures for `ap-south-1`, one school, one task running all the time. Add
+18% GST on an AWS India invoice.
+
+| | Monthly | What you give up |
+|---|---|---|
+| As shipped (`task_egress = "nat"`) | ~$120 | nothing |
+| `task_egress = "public"` | **~$85** | the task has a public IP |
+| plus `cpu_architecture = "ARM64"` | **~$78** | one build to prove the image is clean |
+| One EC2 instance, docker compose | ~$20 | managed backups, zero-downtime deploys |
+
+The two switches are one line each in `terraform.tfvars`:
+
+```hcl
+task_egress      = "public"   # saves the NAT gateway, about $33/month
+cpu_architecture = "ARM64"    # Graviton, about 20% off the vCPU-hour
+```
+
+**What `task_egress = "public"` actually changes.** The task gets a public IP so it can
+reach the Anthropic and Jina APIs without a NAT gateway. It is then addressable from the
+internet and answers nothing: its security group accepts traffic from the load balancer's
+security group and from nowhere else. The database stays in the private subnets, which
+with no NAT have no route out at all. For one pilot school that is the honest trade. Buy
+the NAT back before several schools' data sits behind it — it is one variable.
+
+**What dominates.** The ALB and the NAT are charged by the hour whether or not anyone is
+scanning, and together they are more than half the bill. Fargate is next. RDS
+`db.t4g.micro`, S3 for a term of page images, ECR, Secrets Manager and logs are the rest,
+and none of them is large.
+
+**Two lines people forget.** Public IPv4 addresses are billed per hour each — the NAT and
+the ALB's two addresses are about $11/month between them. And AWS India adds 18% GST.
+
+**If the account is less than twelve months old**, RDS `db.t4g.micro` single-AZ with 20 GB
+is likely inside the free tier, which takes about $18 off until it expires. Do not build a
+budget on it: it ends, and it ends without the bill explaining why.
 
 ## Verified, and not
 

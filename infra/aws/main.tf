@@ -94,30 +94,50 @@ resource "aws_route_table_association" "public" {
   route_table_id = aws_route_table.public.id
 }
 
-# One NAT gateway, not two. The task needs egress for the Anthropic and Jina APIs; a
-# second NAT doubles a real monthly cost to remove a failure mode that takes one school
-# offline for minutes. Set nat_per_az when that trade stops being right.
+# The task needs egress for the Anthropic and Jina APIs, and there are two ways to give it
+# that. A NAT gateway keeps the task unroutable from the internet and costs about as much
+# per month as the database. A public IP on the task costs a fraction of that and leaves
+# the task addressable, though still refusing everything: its security group accepts
+# nothing but the load balancer.
+#
+# For one pilot school the second is the honest trade. Before several schools' data sits
+# behind it, buy the NAT back -- it is one variable.
+locals {
+  nat_count = var.task_egress == "nat" ? (var.nat_per_az ? 2 : 1) : 0
+  # Where the task runs follows from that choice: with no NAT there is no route out of a
+  # private subnet, so the task has to sit in a public one to reach anything.
+  task_subnets   = var.task_egress == "nat" ? aws_subnet.private[*].id : aws_subnet.public[*].id
+  task_public_ip = var.task_egress != "nat"
+}
+
 resource "aws_eip" "nat" {
-  count  = var.nat_per_az ? 2 : 1
+  count  = local.nat_count
   domain = "vpc"
   tags   = { Name = "${local.name}-nat-${count.index}" }
 }
 
 resource "aws_nat_gateway" "main" {
-  count         = var.nat_per_az ? 2 : 1
+  count         = local.nat_count
   allocation_id = aws_eip.nat[count.index].id
   subnet_id     = aws_subnet.public[count.index].id
   depends_on    = [aws_internet_gateway.main]
   tags          = { Name = "${local.name}-nat-${count.index}" }
 }
 
+# The private subnets hold the database either way. With no NAT they have no route out at
+# all, which is what you want for a database and is why RDS stays here regardless.
 resource "aws_route_table" "private" {
   count  = 2
   vpc_id = aws_vpc.main.id
-  route {
-    cidr_block     = "0.0.0.0/0"
-    nat_gateway_id = aws_nat_gateway.main[var.nat_per_az ? count.index : 0].id
+
+  dynamic "route" {
+    for_each = local.nat_count > 0 ? [1] : []
+    content {
+      cidr_block     = "0.0.0.0/0"
+      nat_gateway_id = aws_nat_gateway.main[var.nat_per_az ? count.index : 0].id
+    }
   }
+
   tags = { Name = "${local.name}-private-${count.index}" }
 }
 
