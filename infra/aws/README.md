@@ -126,9 +126,14 @@ and none of them is large.
 **Two lines people forget.** Public IPv4 addresses are billed per hour each — the NAT and
 the ALB's two addresses are about $11/month between them. And AWS India adds 18% GST.
 
-**If the account is less than twelve months old**, RDS `db.t4g.micro` single-AZ with 20 GB
-is likely inside the free tier, which takes about $18 off until it expires. Do not build a
-budget on it: it ends, and it ends without the bill explaining why.
+**On an account created after 15 July 2025 there is no twelve-month free tier.** AWS
+replaced it with credits: $100 on signup, up to $100 more for completing onboarding tasks,
+expiring after six months or when the credits run out, whichever comes first. At the
+trimmed configuration that is roughly two and a half months of running, and then the bill
+starts. Accounts opened before that date keep the old twelve-month tier.
+
+Set a budget alert on day one. Credits mean the first bill arrives long after the habits
+are formed, and a budget you set later is a budget you set after being surprised.
 
 ## Verified, and not
 
