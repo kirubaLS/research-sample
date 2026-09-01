@@ -1,25 +1,5 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
 #
-# TESTING. Production is AWS ap-south-1: see infra/aws.
-#
-# This runs the SAME image as production, from backend/Dockerfile, on purpose. Render's
-# native Python runtime is simpler and cannot install the tesseract binary, which would
-# have made scanned marks sheets refuse here and read there -- so the one path most worth
-# testing would never have run in testing. Two environments that differ in what they can
-# do are two environments, and the difference is always found in production.
-#
-# What still differs: neither Render nor Neon has an India region, so student work rests
-# in Singapore rather than in India.
-#
-# Read that accurately. The DPDP Act does NOT require personal data to stay in India: it
-# permits transfer except to countries the government notifies, and as of now none has
-# been notified. Keeping student work in India is a choice about what a school will accept
-# and what we can honestly promise a parent, not a legal minimum. What the Act does
-# require for under-18s is verifiable parental consent -- which is about the product, not
-# the region, and applies wherever this runs.
-#
-# Never tell a school data stays in India while running on this stack.
-#
 # Two web services and one managed Postgres. Deploy with:
 #   Render dashboard -> New -> Blueprint -> point at this repo
 #
@@ -31,41 +11,51 @@
 # Virginia, Frankfurt and Singapore; Neon's nearest is Singapore (ap-southeast-1). Putting
 # both in Singapore co-locates them, which is right for testing.
 #
-# Database: use Neon's free tier, not Render's. A free Render Postgres is DELETED thirty
-# days after it is created, and the thirtieth day is not a day anybody remembers. Neon's
-# free project has no such clock.
+# Student answer scripts contain children's handwriting, so where that data RESTS is a
+# DPDP Act question rather than a latency one. This stack cannot give Indian residency.
+# For testing with synthetic or consented data that is fine. Before a school's real
+# scripts go in, move the data tier to ap-south-1 (RDS or a self-hosted Postgres) and the
+# bucket to an ap-south-1 / jurisdiction-restricted store.
 #
+# Never tell a school data stays in India while running on this stack.
 # ───────────────────────────────────────────────────────────────────────────────────────
 
 services:
   - type: web
     name: yaadhum-api
-    # The same Dockerfile production runs, so tesseract is here and a scan behaves the
-    # same in both places. The image's own CMD migrates and then serves, which is right
-    # for one instance; on Fargate the migration is a separate task because several
-    # instances would race.
-    runtime: docker
-    dockerfilePath: ./backend/Dockerfile
-    dockerContext: ./backend
+    runtime: python
     region: singapore
-    # Free. Measured, not assumed: the app peaks at about 240 MB with numpy, scipy,
-    # PyMuPDF loaded and one page through text recognition, inside the 512 MB a free
-    # instance gets. Two things come with it and both are real:
+    plan: starter                 # free tier sleeps; a sleeping API breaks a live scan
+    rootDir: backend
+    # The extras are not optional in production: `vision` carries pymupdf, which the book
+    # ingest and the paper pipeline both import, and `storage` carries boto3 for S3.
+    # A bare `pip install -e .` builds green and then fails on the first ingest.
+    buildCommand: pip install --upgrade pip && pip install -e ".[vision,storage]"
+    # NOTE: this native Python runtime cannot install system binaries, so tesseract-ocr is
+    # absent and a scanned marks sheet is refused by name rather than read. Everything else
+    # works. To have scans read, deploy backend/Dockerfile instead (runtime: docker), which
+    # installs it. The app checks for the binary at runtime, so neither choice is a
+    # half-working state -- it either reads scans or says it cannot.
+    # Migrations run once per deploy, before the new instance takes traffic.
     #
-    #   * it sleeps after 15 minutes idle, and the next request waits ~50s for a cold
-    #     start. Fine for testing; wrong in front of a principal, so open the page a
-    #     minute before you show anyone.
-    #   * no persistent disk. See YAADHUM_STORAGE_BACKEND below -- without an external
-    #     bucket, scanned pages do not survive a restart.
-    #
-    # `plan: starter` removes both. It is the one line to change when this stops being a
-    # test deployment.
-    plan: free
+    # preDeployCommand applies ONLY to Blueprint-managed services on a paid instance type.
+    # A service created by hand in the dashboard ignores it, the schema is never created,
+    # and the first request fails with: relation "school" does not exist. If that is your
+    # setup, either run `cd backend && alembic upgrade head` once from the Shell tab, or
+    # fold it into the start command:
+    #   alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    # (fine for one instance; with several, they would race to migrate on every deploy).
+    preDeployCommand: alembic upgrade head
+    # One worker fits comfortably in starter's 512 MB with numpy and scipy loaded
+    # (~150 MB resident each). Raise WEB_CONCURRENCY when you move to a bigger plan.
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers ${WEB_CONCURRENCY:-1}
     # Liveness only. A health check that touches the database restarts a healthy process
     # every time the database hiccups.
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
       - key: YAADHUM_ENVIRONMENT
         value: production
       # Neon POOLED endpoint (the hostname contains "-pooler"). Set in the dashboard.
@@ -100,21 +90,23 @@ services:
         value: claude-opus-5
       - key: YAADHUM_MODEL_HIGH_VOLUME
         value: claude-haiku-4-5
-      # Pages go in Postgres, because on this deployment Postgres is the only durable
-      # thing: a free instance has no disk, and there is no bucket. Neon keeps them for
-      # as long as it keeps the marks.
-      #
-      # The cost is Neon's free 0.5 GB, which the marks would never approach and
-      # photographs will: roughly forty scripts of eight pages fills a third of it. Watch
-      # the Neon dashboard, and move to "s3" before that is a problem rather than after.
+      # Flip to "s3" once the scanner needs to store pages — with the four S3 secrets
+      # below filled in. Leaving it "s3" while they are blank fails at first use.
       - key: YAADHUM_STORAGE_BACKEND
-        value: database
+        value: local
+      - key: YAADHUM_S3_REGION
+        value: ap-south-1
       # Secrets: set these in the Render dashboard, never in the repo.
       - key: ANTHROPIC_API_KEY
         sync: false
-      # No S3 settings. This deployment has no bucket, and leaving four blank variables
-      # that look configurable is how somebody sets one of them and wonders why nothing
-      # changed. They are in infra/aws, where they are used.
+      - key: YAADHUM_S3_BUCKET
+        sync: false
+      - key: YAADHUM_S3_ENDPOINT_URL
+        sync: false
+      - key: YAADHUM_S3_ACCESS_KEY_ID
+        sync: false
+      - key: YAADHUM_S3_SECRET_ACCESS_KEY
+        sync: false
       # Neon's free tier auto-suspends after a few minutes idle. pool_pre_ping absorbs the
       # wake-up, and a small pool keeps well inside the connection ceiling.
       - key: YAADHUM_DB_POOL_SIZE
@@ -133,9 +125,7 @@ services:
     name: yaadhum-web
     runtime: node
     region: singapore
-    # Free, and it sleeps like the API does. The two wake independently, so the first
-    # visit of the day can wait for both.
-    plan: free
+    plan: starter
     rootDir: frontend
     buildCommand: npm ci && npm run build
     startCommand: npm start

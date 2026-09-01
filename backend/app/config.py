@@ -49,18 +49,7 @@ class Settings(BaseSettings):
     db_max_overflow: int = 5
     db_pool_recycle_seconds: int = 280        # under a typical managed-proxy idle timeout
 
-    # Where scanned page images go.
-    #
-    #   'local'     a directory. Right on a laptop; on a host with no persistent disk the
-    #               pages vanish at the next restart.
-    #   's3'        S3, R2, MinIO -- anything S3-compatible. Right for production.
-    #   'database'  the bytes go in scan_page.content, alongside the marks.
-    #
-    # 'database' exists for a deployment that has one durable thing and it is Postgres.
-    # It keeps the pages for as long as the marks, with nothing else to sign up for, and
-    # it puts photographs in every backup and every replica of a database that is
-    # otherwise the size of the marks. That is the wrong trade at any size and the right
-    # one when the alternative is losing the pages.
+    # object store: 'local' for a laptop, 's3' for anything real (S3, R2, MinIO)
     storage_backend: str = "local"
     object_store_root: str = "./var/objects"
     s3_bucket: str | None = None
