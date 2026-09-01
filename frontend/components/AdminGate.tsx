@@ -120,7 +120,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         err instanceof ApiUnreachable
           ? "Could not reach the server. It may be starting up, or this site may be pointed at the wrong address. Try again in a minute, and tell whoever set up this deployment if it keeps happening."
           : err instanceof ApiError && err.status === 404
-            ? "That key was not recognised. Check it against the one the operator console issued."
+            ? "That key was not recognised. This box takes a school's own key. The platform key is a different credential and opens the operator console, which has its own sign-in below."
             : "Something went wrong signing in.",
       );
     } finally {
@@ -168,10 +168,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
               required
             />
             <p className="hint">
-              One key per person. A principal&rsquo;s key opens their own school. An
-              admin&rsquo;s key works across every school and asks which one on the way in.
-              If you have lost yours, whoever set up this deployment can issue a new one;
-              keys cannot be looked up, only replaced.
+              A <strong>school&rsquo;s</strong> key, one per school, held by the principal.
+              It is not the platform key: that one opens the operator console, which
+              creates schools and issues these. If a school&rsquo;s key has been lost, the
+              console can issue a new one, and the old one stops working.
             </p>
           </div>
           {error && <p className="error">{error}</p>}
@@ -179,6 +179,13 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
             {busy ? "Checking…" : "Sign in"}
           </button>
         </form>
+
+        {/* The commonest wrong turn is arriving here holding the platform key. Naming the
+            other door, and linking it, costs one line and saves the hunt. */}
+        <p className="small muted" style={{ marginTop: 16 }}>
+          Holding the platform key instead?{" "}
+          <Link href="/platform">Open the operator console</Link>.
+        </p>
       </main>
     );
   }
