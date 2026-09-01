@@ -8,8 +8,17 @@
 # testing would never have run in testing. Two environments that differ in what they can
 # do are two environments, and the difference is always found in production.
 #
-# What still differs, and is the reason this is not production: neither Render nor Neon
-# has an India region, so student work rests outside the country.
+# What still differs: neither Render nor Neon has an India region, so student work rests
+# in Singapore rather than in India.
+#
+# Read that accurately. The DPDP Act does NOT require personal data to stay in India: it
+# permits transfer except to countries the government notifies, and as of now none has
+# been notified. Keeping student work in India is a choice about what a school will accept
+# and what we can honestly promise a parent, not a legal minimum. What the Act does
+# require for under-18s is verifiable parental consent -- which is about the product, not
+# the region, and applies wherever this runs.
+#
+# Never tell a school data stays in India while running on this stack.
 #
 # Two web services and one managed Postgres. Deploy with:
 #   Render dashboard -> New -> Blueprint -> point at this repo
@@ -22,13 +31,6 @@
 # Virginia, Frankfurt and Singapore; Neon's nearest is Singapore (ap-southeast-1). Putting
 # both in Singapore co-locates them, which is right for testing.
 #
-# Student answer scripts contain children's handwriting, so where that data RESTS is a
-# DPDP Act question rather than a latency one. This stack cannot give Indian residency.
-# For testing with synthetic or consented data that is fine. Before a school's real
-# scripts go in, move the data tier to ap-south-1 (RDS or a self-hosted Postgres) and the
-# bucket to an ap-south-1 / jurisdiction-restricted store.
-#
-# Never tell a school data stays in India while running on this stack.
 # ───────────────────────────────────────────────────────────────────────────────────────
 
 services:

@@ -1,8 +1,17 @@
 # Yaadhum on AWS
 
 Mumbai (`ap-south-1`), because answer scripts are children's handwriting and the marks
-derived from them are about named minors. Where that data **rests** is a DPDP Act
-question, not a latency one. Every other choice here follows from that.
+derived from them are about named minors.
+
+Be accurate about why. The DPDP Act does **not** require personal data to stay in India.
+It permits transfer except to countries the government notifies, and none has been
+notified. Keeping student work in India is a choice about what a school will accept and
+what can honestly be promised a parent — a good choice, and not a legal minimum.
+
+What the Act **does** require, for anyone under 18, is verifiable parental consent before
+their data is processed. Every Class X student is under 18. That obligation follows the
+product, not the region, and `student_profile.consent_ref` is currently declared and never
+written — so it is not met anywhere, including here.
 
 ```
         internet
