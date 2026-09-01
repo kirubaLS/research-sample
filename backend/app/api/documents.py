@@ -138,11 +138,26 @@ def _read_bytes(page: ScanPage) -> bytes:
     Two places, because pages written before the move to the object store are still in the
     database and rewriting a school's scripts to relocate them is a worse risk than
     reading both.
+
+    A row that points at bytes which are not there is answered with 410 and a sentence
+    saying so. It happens for one real reason -- a deployment whose object store does not
+    survive a restart, which is what a free tier gives you -- and a 500 would send somebody
+    hunting a bug in the reader instead of reading the sentence.
     """
     if page.storage_key:
-        with get_object_store().open(page.storage_key) as handle:
-            return handle.read()
-    return page.content or b""
+        try:
+            with get_object_store().open(page.storage_key) as handle:
+                return handle.read()
+        except Exception as exc:  # noqa: BLE001 - every store raises its own kind
+            raise HTTPException(
+                410,
+                "this page is recorded but its image is no longer in storage. On a "
+                "deployment without durable storage the pages do not survive a restart; "
+                "the marks and the report are unaffected.",
+            ) from exc
+    if page.content:
+        return page.content
+    raise HTTPException(410, "this page is recorded but no image was ever stored for it.")
 
 
 def _view(document: ScanDocument) -> dict:

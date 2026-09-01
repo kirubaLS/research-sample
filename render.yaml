@@ -31,6 +31,10 @@
 # Virginia, Frankfurt and Singapore; Neon's nearest is Singapore (ap-southeast-1). Putting
 # both in Singapore co-locates them, which is right for testing.
 #
+# Database: use Neon's free tier, not Render's. A free Render Postgres is DELETED thirty
+# days after it is created, and the thirtieth day is not a day anybody remembers. Neon's
+# free project has no such clock.
+#
 # ───────────────────────────────────────────────────────────────────────────────────────
 
 services:
@@ -44,7 +48,19 @@ services:
     dockerfilePath: ./backend/Dockerfile
     dockerContext: ./backend
     region: singapore
-    plan: starter                 # free tier sleeps; a sleeping API breaks a live scan
+    # Free. Measured, not assumed: the app peaks at about 240 MB with numpy, scipy,
+    # PyMuPDF loaded and one page through text recognition, inside the 512 MB a free
+    # instance gets. Two things come with it and both are real:
+    #
+    #   * it sleeps after 15 minutes idle, and the next request waits ~50s for a cold
+    #     start. Fine for testing; wrong in front of a principal, so open the page a
+    #     minute before you show anyone.
+    #   * no persistent disk. See YAADHUM_STORAGE_BACKEND below -- without an external
+    #     bucket, scanned pages do not survive a restart.
+    #
+    # `plan: starter` removes both. It is the one line to change when this stops being a
+    # test deployment.
+    plan: free
     # Liveness only. A health check that touches the database restarts a healthy process
     # every time the database hiccups.
     healthCheckPath: /healthz
@@ -84,10 +100,19 @@ services:
         value: claude-opus-5
       - key: YAADHUM_MODEL_HIGH_VOLUME
         value: claude-haiku-4-5
-      # Flip to "s3" once the scanner needs to store pages — with the four S3 secrets
-      # below filled in. Leaving it "s3" while they are blank fails at first use.
+      # A free instance has no persistent disk, so "local" means pages live until the
+      # next restart or sleep -- which is fifteen idle minutes away. The marks, the
+      # reports and the question papers are all in Postgres and unaffected; it is the
+      # page IMAGES that go, and a request for one then answers 410 saying so rather
+      # than failing.
+      #
+      # For anything you want to keep, set this to "s3" and fill in the four values
+      # below. Any S3-compatible bucket works -- Cloudflare R2 has a free tier and
+      # YAADHUM_S3_ENDPOINT_URL is there for exactly that.
       - key: YAADHUM_STORAGE_BACKEND
         value: local
+      - key: YAADHUM_S3_ENDPOINT_URL
+        sync: false
       - key: YAADHUM_S3_REGION
         value: ap-south-1
       # Secrets: set these in the Render dashboard, never in the repo.
@@ -119,7 +144,9 @@ services:
     name: yaadhum-web
     runtime: node
     region: singapore
-    plan: starter
+    # Free, and it sleeps like the API does. The two wake independently, so the first
+    # visit of the day can wait for both.
+    plan: free
     rootDir: frontend
     buildCommand: npm ci && npm run build
     startCommand: npm start

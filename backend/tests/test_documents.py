@@ -223,3 +223,28 @@ def test_superseding_a_script_does_not_leave_its_pages_in_the_store(
 
     _upload(client, school, assessment, student, [PAGE + b"new"])
     assert not get_object_store().exists(key), "the superseded page is not left behind"
+
+
+def test_a_page_whose_image_has_gone_says_so_rather_than_failing(
+    client, school, assessment, student
+):
+    """On a host without durable storage the images do not survive a restart. A 500 would
+    send somebody hunting a bug in the reader instead of reading the sentence."""
+    from app.db import SessionLocal
+    from app.models import ScanPage
+    from app.storage import get_object_store
+
+    body = _upload(client, school, assessment, student, [PAGE]).json()
+
+    db = SessionLocal()
+    key = db.scalar(
+        select(ScanPage.storage_key).where(ScanPage.document_id == body["document_id"])
+    )
+    db.close()
+    get_object_store().delete(key)
+
+    out = client.get(body["pages"][0]["url"], headers=_auth(school))
+    assert out.status_code == 410
+    assert "no longer in storage" in out.json()["detail"]
+    # and the marks are still there, which is the part that matters
+    assert client.get(f"/students/{student}/documents", headers=_auth(school)).status_code == 200
