@@ -1,5 +1,13 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
 #
+# NOT PRODUCTION. Production is AWS ap-south-1: see infra/aws.
+#
+# This stays for preview and demo deployments, where standing up a VPC to show somebody a
+# screen is a waste. Two things it cannot do, and they are the reasons it is not
+# production: its native Python runtime cannot install the tesseract binary, so a scanned
+# marks sheet is refused by name rather than read; and neither Render nor Neon has an
+# India region, so student work would rest outside the country.
+#
 # Two web services and one managed Postgres. Deploy with:
 #   Render dashboard -> New -> Blueprint -> point at this repo
 #
@@ -31,11 +39,10 @@ services:
     # ingest and the paper pipeline both import, and `storage` carries boto3 for S3.
     # A bare `pip install -e .` builds green and then fails on the first ingest.
     buildCommand: pip install --upgrade pip && pip install -e ".[vision,storage]"
-    # NOTE: this native Python runtime cannot install system binaries, so tesseract-ocr is
-    # absent and a scanned marks sheet is refused by name rather than read. Everything else
-    # works. To have scans read, deploy backend/Dockerfile instead (runtime: docker), which
-    # installs it. The app checks for the binary at runtime, so neither choice is a
-    # half-working state -- it either reads scans or says it cannot.
+    # This runtime cannot install system binaries, so tesseract-ocr is absent and a
+    # scanned marks sheet is refused by name rather than read. The app checks for the
+    # binary, so this is a stated limitation rather than a half-working state. Production
+    # runs backend/Dockerfile on Fargate, which has it.
     # Migrations run once per deploy, before the new instance takes traffic.
     #
     # preDeployCommand applies ONLY to Blueprint-managed services on a paid instance type.
