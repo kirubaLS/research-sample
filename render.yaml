@@ -1,12 +1,15 @@
 # Render Blueprint — https://render.com/docs/blueprint-spec
 #
-# NOT PRODUCTION. Production is AWS ap-south-1: see infra/aws.
+# TESTING. Production is AWS ap-south-1: see infra/aws.
 #
-# This stays for preview and demo deployments, where standing up a VPC to show somebody a
-# screen is a waste. Two things it cannot do, and they are the reasons it is not
-# production: its native Python runtime cannot install the tesseract binary, so a scanned
-# marks sheet is refused by name rather than read; and neither Render nor Neon has an
-# India region, so student work would rest outside the country.
+# This runs the SAME image as production, from backend/Dockerfile, on purpose. Render's
+# native Python runtime is simpler and cannot install the tesseract binary, which would
+# have made scanned marks sheets refuse here and read there -- so the one path most worth
+# testing would never have run in testing. Two environments that differ in what they can
+# do are two environments, and the difference is always found in production.
+#
+# What still differs, and is the reason this is not production: neither Render nor Neon
+# has an India region, so student work rests outside the country.
 #
 # Two web services and one managed Postgres. Deploy with:
 #   Render dashboard -> New -> Blueprint -> point at this repo
@@ -31,38 +34,20 @@
 services:
   - type: web
     name: yaadhum-api
-    runtime: python
+    # The same Dockerfile production runs, so tesseract is here and a scan behaves the
+    # same in both places. The image's own CMD migrates and then serves, which is right
+    # for one instance; on Fargate the migration is a separate task because several
+    # instances would race.
+    runtime: docker
+    dockerfilePath: ./backend/Dockerfile
+    dockerContext: ./backend
     region: singapore
     plan: starter                 # free tier sleeps; a sleeping API breaks a live scan
-    rootDir: backend
-    # The extras are not optional in production: `vision` carries pymupdf, which the book
-    # ingest and the paper pipeline both import, and `storage` carries boto3 for S3.
-    # A bare `pip install -e .` builds green and then fails on the first ingest.
-    buildCommand: pip install --upgrade pip && pip install -e ".[vision,storage]"
-    # This runtime cannot install system binaries, so tesseract-ocr is absent and a
-    # scanned marks sheet is refused by name rather than read. The app checks for the
-    # binary, so this is a stated limitation rather than a half-working state. Production
-    # runs backend/Dockerfile on Fargate, which has it.
-    # Migrations run once per deploy, before the new instance takes traffic.
-    #
-    # preDeployCommand applies ONLY to Blueprint-managed services on a paid instance type.
-    # A service created by hand in the dashboard ignores it, the schema is never created,
-    # and the first request fails with: relation "school" does not exist. If that is your
-    # setup, either run `cd backend && alembic upgrade head` once from the Shell tab, or
-    # fold it into the start command:
-    #   alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port $PORT
-    # (fine for one instance; with several, they would race to migrate on every deploy).
-    preDeployCommand: alembic upgrade head
-    # One worker fits comfortably in starter's 512 MB with numpy and scipy loaded
-    # (~150 MB resident each). Raise WEB_CONCURRENCY when you move to a bigger plan.
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers ${WEB_CONCURRENCY:-1}
     # Liveness only. A health check that touches the database restarts a healthy process
     # every time the database hiccups.
     healthCheckPath: /healthz
     autoDeploy: true
     envVars:
-      - key: PYTHON_VERSION
-        value: "3.12.7"
       - key: YAADHUM_ENVIRONMENT
         value: production
       # Neon POOLED endpoint (the hostname contains "-pooler"). Set in the dashboard.
