@@ -345,6 +345,22 @@ export default function BooksPage() {
               behind it can never be matched, so every question from it comes back saying
               no chapter matched, however healthy the total looks.
             </p>
+            {(() => {
+              const total = status.coverage.reduce((n, c) => n + c.chunks, 0);
+              const sectioned = status.coverage.reduce((n, c) => n + c.with_a_section, 0);
+              const without = total - sectioned;
+              if (!total || !without) return null;
+              return (
+                <div className="notice warn" style={{ marginBottom: 14 }}>
+                  {without} of {total} passages carry no section of their chapter. A
+                  question matched to one gets a chapter but no topic, and cannot be
+                  matched to a sub topic by section either. Books loaded before this was
+                  recorded are the usual cause: the reader works the section out for every
+                  passage, so uploading the chapters again fills them all in.
+                </div>
+              );
+            })()}
+
             {status.chapters_with_nothing_behind_them.length > 0 && (
               <div className="notice warn" style={{ marginBottom: 14 }}>
                 {status.chapters_with_nothing_behind_them.length} of{" "}
