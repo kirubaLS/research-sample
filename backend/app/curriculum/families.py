@@ -36,7 +36,10 @@ class Proposal:
     label: str
     chapter_code: str
     chapter_label: str
-    #: the section it came from, so a reviewer can see the source of the suggestion
+    #: The section NUMBER it came from -- '12.2'. Not the heading: the heading is already
+    #: the label, and this is the value the mapping step matches a question's section
+    #: against to decide which family of a chapter it belongs to. Storing the heading here
+    #: made that comparison one that could never succeed.
     from_section: str
     #: how much taught content sits under it -- a family with nothing behind it is a
     #: heading, not a learning area
@@ -103,12 +106,13 @@ def slugify(label: str) -> str:
 
 
 def propose(
-    sections: list[tuple[str, str, str, int]],
+    sections: list[tuple[str, str, str, str, int]],
     subject_code: str,
 ) -> list[Proposal]:
     """Candidate families from a chapter's section headings.
 
-    ``sections`` is (chapter code, chapter label, section label, chunks beneath it).
+    ``sections`` is (chapter code, chapter label, section number, section label, chunks
+    beneath it).
 
     The book's own section headings are the best starting point available: they are what
     the authors thought the divisions of the chapter were, and a teacher recognises them.
@@ -117,7 +121,7 @@ def propose(
     """
     out: list[Proposal] = []
     seen: set[str] = set()
-    for chapter_code, chapter_label, section_label, chunks in sections:
+    for chapter_code, chapter_label, section_number, section_label, chunks in sections:
         label = readable(section_label.strip())
         if label.lower() in NOT_A_FAMILY:
             continue
@@ -131,7 +135,7 @@ def propose(
                 label=label,
                 chapter_code=chapter_code,
                 chapter_label=chapter_label,
-                from_section=section_label,
+                from_section=section_number,
                 chunks=chunks,
             )
         )

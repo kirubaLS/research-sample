@@ -653,3 +653,20 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   .sidenav .grouplabel { display: none; }
   .sidenav .item { white-space: nowrap; padding: 7px 11px; }
 }
+
+
+/* --- concept family proposals ---------------------------------------------------------- */
+/* A long list a person reads down and ticks. The chapter and section sit under the label
+   rather than beside it, because the label is what is being judged and the source is what
+   the judgement rests on. */
+.famlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.famlist li {
+  padding: 9px 10px; border-radius: var(--radius); border: 1px solid transparent;
+}
+.famlist li:hover { background: var(--surface-2); }
+.famlist li.have { opacity: 0.62; }
+.famlist label { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
+.famlist li.have label { cursor: default; }
+.famlist input { margin: 0; width: 16px; height: 16px; flex: none; }
+.fam-l { font-weight: 600; font-size: 15px; }
+.fam-m { display: block; margin-left: 26px; color: var(--ink-3); font-size: 13px; }

@@ -10,7 +10,13 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import Staff, require_reader, require_staff, school_in_scope
+from app.api.deps import (
+    Staff,
+    current_staff,
+    require_reader,
+    require_staff,
+    school_in_scope,
+)
 from app.curriculum import CURRICULA
 from app.db import get_session
 from app.models import (
@@ -402,13 +408,17 @@ def cohort(
 
 @router.get("/subjects")
 def list_subjects(
-    _staff: Staff = Depends(require_staff), db: Session = Depends(get_session)
+    _staff: Staff = Depends(current_staff), db: Session = Depends(get_session)
 ) -> dict:
     """The subjects this deployment carries, and how far each one is loaded.
 
     The screens used to name Mathematics and Science in their own code, so a third subject
     could be added here and stay invisible to everybody using the app. The curriculum is
     the authority for what exists; this route is how a screen asks it.
+
+    Any signed-in member of staff, and deliberately not scoped to a school: which subjects
+    a deployment carries is the same answer for everybody, and demanding a school here shut
+    the operator console out of its own book screen.
     """
     out = []
     for curriculum in CURRICULA.values():

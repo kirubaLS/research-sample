@@ -436,6 +436,24 @@ export interface StaffKeySummary {
   revoked_at: string | null;
 }
 
+export interface FamilyProposal {
+  code: string;
+  label: string;
+  chapter_code: string;
+  chapter_label: string;
+  from_section: string;
+  chunks: number;
+  already_exists: boolean;
+}
+
+export interface FamilyProposals {
+  subject: string;
+  existing: number;
+  proposed: number;
+  families: FamilyProposal[];
+  note: string;
+}
+
 export interface BookStatus {
   subject: string;
   curriculum_ready: boolean;
@@ -733,6 +751,17 @@ export const api = {
   // --- knowledge base ---
   bookStatus: (key: string, subject: string) =>
     operator<BookStatus>(`/platform/books/${subject}`, key),
+
+  /** What families the loaded book's own section headings suggest. */
+  proposeFamilies: (key: string, subject: string) =>
+    operator<FamilyProposals>(`/platform/books/${subject}/concept-families`, key),
+
+  createFamilies: (key: string, subject: string, families: FamilyProposal[]) =>
+    operator<{ created: number; skipped: number; unknown_chapters: string[] }>(
+      `/platform/books/${subject}/concept-families`,
+      key,
+      { method: "POST", body: JSON.stringify({ families }) },
+    ),
 
   setupCurriculum: (key: string, subject: string) =>
     operator<{ label: string; board_units: number; chapters: number; next: string }>(

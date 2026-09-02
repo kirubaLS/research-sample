@@ -1,7 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, BookStatus, type Subject } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  BookStatus,
+  type FamilyProposals,
+  type Subject,
+} from "@/lib/api";
 import { getPlatformKey } from "@/lib/session";
 
 type Line = { text: string; bad?: boolean };
@@ -21,6 +27,8 @@ export default function BooksPage() {
   const [status, setStatus] = useState<BookStatus | null>(null);
   const [log, setLog] = useState<Line[]>([]);
   const [busy, setBusy] = useState(false);
+  const [families, setFamilies] = useState<FamilyProposals | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const say = (text: string, bad = false) => setLog((l) => [...l, { text, bad }]);
 
@@ -50,6 +58,44 @@ export default function BooksPage() {
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Cleared when the subject changes: the proposals belong to one book.
+  useEffect(() => {
+    setFamilies(null);
+    setPicked(new Set());
+  }, [subject]);
+
+  async function loadFamilies() {
+    const key = getPlatformKey();
+    if (!key || !subject) return;
+    setBusy(true);
+    try {
+      const out = await api.proposeFamilies(key, subject);
+      setFamilies(out);
+      say(`${out.proposed} families suggested by the book, ${out.existing} already exist.`);
+    } catch (err) {
+      say(describe(err), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveFamilies() {
+    const key = getPlatformKey();
+    if (!key || !subject || !families) return;
+    setBusy(true);
+    try {
+      const chosen = families.families.filter((f) => picked.has(f.code));
+      const out = await api.createFamilies(key, subject, chosen);
+      say(`${out.created} created, ${out.skipped} already existed.`);
+      setPicked(new Set());
+      setFamilies(await api.proposeFamilies(key, subject));
+    } catch (err) {
+      say(describe(err), true);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function describe(err: unknown): string {
     if (!(err instanceof ApiError)) return "Could not reach the API.";
@@ -286,6 +332,78 @@ export default function BooksPage() {
         <button onClick={embed} disabled={busy || !status?.chunks || !status?.embeddings_configured}>
           {busy ? "Working…" : `Embed ${status ? status.chunks - status.embedded : 0} chunks`}
         </button>
+      </div>
+
+      <div className="section-head">
+        <h2>5 &middot; Concept families</h2>
+      </div>
+      <div className="card">
+        <p className="cardnote" style={{ marginBottom: 14 }}>
+          A family is the learning area a report compares against itself over time. Chapter
+          is too coarse to act on and section numbers move when the book is reprinted, so
+          neither can carry a trend. Loading a book does not create these: a question can
+          only be placed in a chapter that has them, so a chapter with none blocks every
+          question that belongs to it.
+        </p>
+
+        {families === null ? (
+          <button onClick={loadFamilies} disabled={busy || !status?.chunks}>
+            {busy ? "Working…" : "Show what this book suggests"}
+          </button>
+        ) : (
+          <>
+            <p className="small" style={{ marginBottom: 12 }}>
+              {families.proposed} suggested from the book&rsquo;s own section headings,{" "}
+              {families.families.filter((f) => f.already_exists).length} of them already
+              created. {families.existing} exist for this subject in total.
+            </p>
+            <ul className="famlist">
+              {families.families.map((f) => (
+                <li key={f.code} className={f.already_exists ? "have" : undefined}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={f.already_exists || picked.has(f.code)}
+                      disabled={f.already_exists}
+                      onChange={(e) => {
+                        setPicked((was) => {
+                          const next = new Set(was);
+                          if (e.target.checked) next.add(f.code);
+                          else next.delete(f.code);
+                          return next;
+                        });
+                      }}
+                    />
+                    <span className="fam-l">{f.label}</span>
+                  </label>
+                  <span className="fam-m">
+                    {f.chapter_label} &middot; section {f.from_section}
+                    {/* Plain text, not an entity: this is a JS expression, and an entity
+                        written here reaches the page as its own characters. */}
+                    {f.already_exists ? " \u00b7 created" : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="row" style={{ marginTop: 14 }}>
+              <button onClick={saveFamilies} disabled={busy || picked.size === 0}>
+                {busy ? "Working…" : `Create ${picked.size} famil${picked.size === 1 ? "y" : "ies"}`}
+              </button>
+              <button
+                className="ghost"
+                onClick={() =>
+                  setPicked(
+                    new Set(
+                      families.families.filter((f) => !f.already_exists).map((f) => f.code),
+                    ),
+                  )
+                }
+              >
+                Select every one that is not created
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {log.length > 0 && (

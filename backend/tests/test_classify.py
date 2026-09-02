@@ -547,7 +547,9 @@ def test_a_heading_the_book_shouts_is_not_a_family_name():
     # Maths already sets its headings properly and must come through untouched.
     assert readable("Volume of a Combination of Solids") == "Volume of a Combination of Solids"
 
-    [p] = propose([("X.SCI.ELECTRICITY", "Electricity", "ELECTRIC POWER", 3)], "X.SCI")
+    [p] = propose(
+        [("X.SCI.ELECTRICITY", "Electricity", "12.5", "ELECTRIC POWER", 3)], "X.SCI"
+    )
     assert p.label == "Electric power"
     # The code is derived from the words, so it is unaffected by the casing fix.
     assert p.code == "X.SCI.CF.ELECTRIC_POWER"
@@ -592,3 +594,18 @@ def test_the_digest_is_stable_across_runs():
 
     label = "Mean for grouped data using step-deviation method"
     assert slugify(label) == slugify(label) == "MEAN_FOR_GROUPED_DATA_USING_STEP_1010A8"
+
+
+def test_a_proposed_family_records_the_section_number_not_its_heading():
+    """The number is what a question's section is matched against.
+
+    Recording the heading instead made that comparison one that could never succeed, so a
+    chapter with two families blocked every question in it for want of a choice.
+    """
+    from app.curriculum.families import propose
+
+    [p] = propose(
+        [("X.MATH.STATS", "Statistics", "13.2", "Mean of Grouped Data", 7)], "X.MATH"
+    )
+    assert p.from_section == "13.2"
+    assert p.label == "Mean of Grouped Data"

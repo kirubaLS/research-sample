@@ -511,11 +511,17 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
         (
             chapters[node.parent_id].code,
             chapters[node.parent_id].label,
+            # The section number, off the node's own code: 'X.MATH.CIRCLE.S10_1' -> '10.1'.
+            # This is what a question's section is matched against, so it has to be the
+            # number and not the heading.
+            node.code.rsplit(".", 1)[-1][1:].replace("_", "."),
             node.label,
             counts.get(node.parent_id, 0),
         )
         for node in nodes.values()
-        if node.kind == "subtopic" and node.parent_id in chapters
+        if node.kind == "subtopic"
+        and node.parent_id in chapters
+        and node.code.rsplit(".", 1)[-1].startswith("S")
     ]
     rows.sort(key=lambda r: (r[0], r[2]))
 
