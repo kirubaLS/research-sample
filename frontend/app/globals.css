@@ -315,9 +315,10 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   gap: 22px;
 }
 
-.ph { padding: 40px 0 4px; }
+.ph { padding: 40px 0 4px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
 .ph h1 { margin: 6px 0 10px; font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.02em; }
 .ph .lede { margin: 0; color: var(--ink-2); max-width: 62ch; }
+.ph-actions { display: flex; gap: 8px; flex-shrink: 0; }
 
 /* --- the three steps, which are a real sequence and so are numbered --- */
 .steps {

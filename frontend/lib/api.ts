@@ -44,6 +44,9 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = await res.text();
     throw new ApiError(res.status, detail || res.statusText);
   }
+  // A DELETE returns 204 with no body -- res.json() throws on empty input, which would
+  // turn a successful deletion into a reported failure.
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -817,6 +820,25 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+
+  /** Rename a paper, or correct its code / total marks. Refused once its scan is confirmed. */
+  editAssessment: (
+    key: string,
+    assessmentId: string,
+    body: { title?: string; paper_code?: string; total_marks?: number },
+  ) =>
+    authed<{ assessment_id: string; changed: string[] }>(`/assessments/${assessmentId}`, key, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  /** Removes the paper and everything staged, scanned, mapped or marked under it. */
+  deleteAssessment: (key: string, assessmentId: string) =>
+    authed<void>(`/assessments/${assessmentId}`, key, { method: "DELETE" }),
+
+  /** Removes one scanned document -- a question paper or an answer script -- and its pages. */
+  deleteDocument: (key: string, documentId: string) =>
+    authed<void>(`/documents/${documentId}`, key, { method: "DELETE" }),
 
   /** One page or many, PDFs or photographs, in the order given. */
   scanPaper: (key: string, assessmentId: string, files: File[]) =>

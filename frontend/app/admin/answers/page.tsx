@@ -318,6 +318,7 @@ export default function AnswersPage() {
             studentId={studentId}
             script={script}
             onUploaded={setScript}
+            onDeleted={() => setScript(null)}
             onError={(m) => setError(m)}
           />
           <section className="panel sticky">
@@ -506,12 +507,14 @@ function ScriptPanel({
   studentId,
   script,
   onUploaded,
+  onDeleted,
   onError,
 }: {
   paperId: string;
   studentId: string;
   script: ScanDoc | null;
   onUploaded: (doc: ScanDoc) => void;
+  onDeleted: () => void;
   onError: (message: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -531,6 +534,21 @@ function ScriptPanel({
     }
   }
 
+  async function remove() {
+    const key = getApiKey();
+    if (!key || !script) return;
+    if (!window.confirm("Delete this student's answer script? Its pages cannot be brought back.")) return;
+    setBusy(true);
+    try {
+      await api.deleteDocument(key, script.document_id);
+      onDeleted();
+    } catch {
+      onError("Could not delete the script. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <section className="panel scriptpanel">
       <div className="scriptrow">
@@ -543,7 +561,7 @@ function ScriptPanel({
               : "Nothing on file for this paper. The marks below stand on their own until a script is stored."}
           </p>
         </div>
-        <div>
+        <div className="scriptbtns">
           <input
             ref={input}
             type="file"
@@ -552,6 +570,11 @@ function ScriptPanel({
             onChange={(e) => send(e.target.files)}
             disabled={busy}
           />
+          {script && (
+            <button type="button" className="danger" onClick={remove} disabled={busy}>
+              Delete
+            </button>
+          )}
         </div>
       </div>
       {script && (
@@ -573,6 +596,7 @@ function ScriptPanel({
           background: #fff;
         }
         .scriptrow { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; align-items: center; }
+        .scriptbtns { display: flex; gap: 8px; align-items: center; }
         .muted { color: #666; margin: 4px 0 0; font-size: 13px; max-width: 60ch; }
         .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
         .thumb { font-size: 12px; background: #f1f2f4; border-radius: 999px; padding: 3px 10px; color: #444; }

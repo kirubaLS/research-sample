@@ -46,6 +46,8 @@ export default function PaperPage() {
   const [filter, setFilter] = useState<"all" | "mapped" | "blocked">("all");
   const [confirmedBy, setConfirmedBy] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmResult | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [deleted, setDeleted] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -88,6 +90,49 @@ export default function PaperPage() {
     }
     if (err.status === 404) return "That key was not recognised. Please sign in again.";
     return `The API returned ${err.status}.`;
+  }
+
+  async function onRename() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    const next = window.prompt("Rename this paper", title);
+    if (next === null || next.trim() === "" || next === title) return;
+    setRenaming(true);
+    setError(null);
+    try {
+      await api.editAssessment(key, assessmentId, { title: next.trim() });
+      setTitle(next.trim());
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  async function onDelete() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    if (!window.confirm(
+      "Delete this paper? Every scanned question, mapping and mark recorded against it " +
+        "goes with it, and none of it can be brought back.",
+    )) return;
+    setBusy("Deleting the paper…");
+    setError(null);
+    try {
+      await api.deleteAssessment(key, assessmentId);
+      setDeleted(true);
+      setAssessmentId(null);
+      setScan(null);
+      setReview(null);
+      setMapped(null);
+      setPlaced(null);
+      setConfirmation(null);
+      setTitle("Cycle Test I");
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
   }
 
   const refresh = useCallback(async (id: string) => {
@@ -202,7 +247,23 @@ export default function PaperPage() {
             cannot be matched keeps its place here and says why.
           </p>
         </div>
+        {assessmentId && (
+          <div className="ph-actions">
+            <button type="button" className="secondary" onClick={onRename} disabled={renaming || !!busy}>
+              {renaming ? "Renaming…" : "Rename"}
+            </button>
+            <button type="button" className="danger" onClick={onDelete} disabled={!!busy}>
+              Delete
+            </button>
+          </div>
+        )}
       </header>
+
+      {deleted && (
+        <p className="notice" style={{ marginBottom: 18 }}>
+          The paper was deleted. Start a new one below.
+        </p>
+      )}
 
       <ol className="steps" aria-label="Progress">
         {(

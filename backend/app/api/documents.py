@@ -185,6 +185,27 @@ def confirm_document(
     return _view(document)
 
 
+@router.delete("/documents/{document_id}", status_code=204)
+def delete_document(
+    document_id: str,
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> None:
+    """Remove a scanned document -- a question paper or an answer script -- and its pages.
+
+    A mis-scanned or wrong-student upload needs a way out that is not "upload a blank
+    replacement and hope nobody opens the old one": `store_document` already replaces a
+    script on re-upload, but there was no way to remove one that should never have existed
+    at all. Hard delete: ScanDocument's `pages` relationship cascades to ScanPage, so
+    nothing is left behind.
+    """
+    document = db.get(ScanDocument, document_id)
+    if document is None or document.school_id != school.id:
+        raise HTTPException(404, "not found")
+    db.delete(document)
+    db.commit()
+
+
 @router.get("/assessments/{assessment_id}/documents")
 def list_documents(
     assessment_id: str,

@@ -29,17 +29,22 @@ from app.models.assessment import TIER_ALIASES
 from app.models import (
     MARK_STATES,
     SOURCE_PRECEDENCE,
+    AnalysisRun,
     Assessment,
     BookChunk,
     ChapterBoardUnit,
     ConceptFamilyProposal,
     DataQualityFlag,
+    LogicalPage,
     MarkEvent,
+    ProposedMark,
     Question,
     QuestionPlacement,
     QuestionSkill,
     QuestionTier,
+    ScanDocument,
     ScannedQuestion,
+    StudentReport,
     School,
     StudentProfile,
     TaxonomyNode,
@@ -138,6 +143,86 @@ def list_assessments(
             "ready_for_answer_sheets": n_questions > 0,
         })
     return {"assessments": rows}
+
+
+class AssessmentEditIn(BaseModel):
+    """Rename a paper, or correct what was typed when it was created.
+
+    Never the questions, marks or mapping -- those come from a re-scan or a re-map, which
+    keep their own history. This is metadata a person can simply have gotten wrong.
+    """
+
+    title: str | None = None
+    paper_code: str | None = None
+    total_marks: float | None = None
+
+
+@router.patch("/{assessment_id}")
+def edit_assessment(
+    assessment_id: str, body: AssessmentEditIn,
+    school: School = Depends(require_scanner), db: Session = Depends(get_session),
+) -> dict:
+    a = _get_assessment(db, school, assessment_id)
+    if a.scan_confirmed_at:
+        # Once a person has signed off the extraction, every report downstream treats the
+        # paper's identity as fact. Renaming it after that would leave old reports
+        # pointing at a title or paper code that no longer matches what was confirmed.
+        raise HTTPException(
+            409,
+            "this paper's scan has already been confirmed; re-scan it to change its "
+            "identity rather than editing it in place",
+        )
+    changed = []
+    for field_name in ("title", "paper_code", "total_marks"):
+        value = getattr(body, field_name)
+        if value is None:
+            continue
+        setattr(a, field_name, value)
+        changed.append(field_name)
+    db.commit()
+    return {"assessment_id": a.id, "changed": changed}
+
+
+@router.delete("/{assessment_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_assessment(
+    assessment_id: str,
+    school: School = Depends(require_admin), db: Session = Depends(get_session),
+) -> None:
+    """Remove a paper and everything staged, scanned, mapped or marked under it.
+
+    Hard delete, like every other removal in this API (a re-upload replaces its old scan
+    document the same way) -- there is no soft-delete column on any of these tables to
+    honour instead. Admin-only: a principal can rename a paper they are still working on,
+    but undoing marks a school has already entered is a bigger blast radius than one
+    person's typo.
+    """
+    a = _get_assessment(db, school, assessment_id)
+    question_ids = list(db.scalars(
+        select(Question.id).where(Question.assessment_id == assessment_id)
+    ))
+    if question_ids:
+        db.execute(QuestionSkill.__table__.delete().where(
+            QuestionSkill.question_id.in_(question_ids)
+        ))
+        db.execute(QuestionTier.__table__.delete().where(
+            QuestionTier.question_id.in_(question_ids)
+        ))
+        db.execute(QuestionPlacement.__table__.delete().where(
+            QuestionPlacement.question_id.in_(question_ids)
+        ))
+    for model in (
+        Question, ScannedQuestion, LogicalPage, DataQualityFlag, AnalysisRun,
+        MarkEvent, StudentReport, ProposedMark,
+    ):
+        db.execute(model.__table__.delete().where(model.assessment_id == assessment_id))
+    # ScanDocument's own `pages` relationship cascades to ScanPage in the ORM, so this one
+    # goes through db.delete rather than a bulk table delete.
+    for document in db.scalars(
+        select(ScanDocument).where(ScanDocument.assessment_id == assessment_id)
+    ):
+        db.delete(document)
+    db.delete(a)
+    db.commit()
 
 
 @router.post("/{assessment_id}/questions")
