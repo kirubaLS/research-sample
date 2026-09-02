@@ -539,3 +539,173 @@ def test_the_marks_a_student_was_asked_for_count_a_choice_once(client, school):
     # A question the student was not asked at all counts for nothing.
     rows[2]["state"] = "not_offered"
     assert _available(rows) == 2.0
+
+
+# ----------------------------------------------------------------------------------------
+# Chapter, topic, sub-topic
+#
+# A book chunk is stored against its chapter with the section recorded beside it, which is
+# what the ingest writes. Recovering the section from the node the chunk hangs off worked
+# in this suite and never in production, where every chunk hangs off its chapter.
+# ----------------------------------------------------------------------------------------
+STATS_PAPER = [[
+    (60, 60, "Maximum Marks: 3"),
+    (60, 100, "SECTION A"),
+    (60, 130, "1. Find the mean of the grouped data by the step-deviation"),
+    (60, 144, "method with an assumed mean of 200 and a class size h."),
+    (MARK_X, 130, "3"),
+]]
+
+
+def test_a_mapped_question_gets_a_chapter_a_topic_and_a_sub_topic(client, school, book):
+    """All three, and each from the book rather than from anybody's memory."""
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Topics", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+
+    out = client.post(f"/assessments/{aid}/map", headers=h)
+    assert out.status_code == 200, out.text
+    assert out.json()["mapped"] == 1
+    assert out.json()["with_topic"] == 1
+
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert placed["blocked_reason"] is None
+    assert placed["mapped_to"]["chapter"] == "Statistics"
+    assert placed["mapped_to"]["curriculum_section"] == "13.2"
+    assert placed["mapped_to"]["topic"] == "Mean of Grouped Data"
+    assert placed["mapped_to"]["concept_family"] == "Mean by step-deviation"
+    assert placed["mapped_to"]["board_unit"] == "Statistics & Probability"
+
+
+def test_the_topic_is_recorded_as_a_skill_so_the_report_can_group_by_it(
+    client, school, book
+):
+    """Without this row a mapped question tested no sub-topic and every finding fell back
+    to the chapter, which is too coarse to act on."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Question, QuestionSkill, TaxonomyNode
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Skills", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    client.post(f"/assessments/{aid}/map", headers=h)
+
+    db = SessionLocal()
+    try:
+        question = db.scalar(select(Question).where(Question.assessment_id == aid))
+        links = list(db.scalars(
+            select(QuestionSkill).where(QuestionSkill.question_id == question.id)
+        ))
+        assert [db.get(TaxonomyNode, s.node_id).label for s in links] == [
+            "Mean of Grouped Data"
+        ]
+        assert links[0].source == "retrieval"
+    finally:
+        db.close()
+
+
+def test_the_cognitive_category_is_null_until_something_has_read_the_question(
+    client, school, book
+):
+    """Which tier a question sits in is not visible in its address or its marks.
+
+    Retrieval places a question in the book; it does not judge what the question asks a
+    student to DO. Reporting a tier here would be inventing one, so the field stays null
+    and the screen says it is not classified rather than showing a plausible letter.
+    """
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Tier", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    client.post(f"/assessments/{aid}/map", headers=h)
+
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert placed["mapped_to"]["tier"] is None
+    assert placed["mapped_to"]["tier_label"] is None
+
+
+def test_a_person_settling_a_tier_is_recorded_where_the_report_reads_it(
+    client, school, book
+):
+    """The judge and a teacher both wrote the tier onto the placement, and every report
+    reads it from the append-only tier row, so no tier ever reached a report."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Question, QuestionTier
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Settle", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    client.post(f"/assessments/{aid}/map", headers=h)
+
+    db = SessionLocal()
+    question_id = db.scalar(select(Question).where(Question.assessment_id == aid)).id
+    db.close()
+
+    out = client.post(
+        f"/assessments/{aid}/review/{question_id}", headers=h,
+        json={
+            "chapter_code": "X.MATH.STATS",
+            "curriculum_section": "13.2",
+            "tier": "Applying",
+            "reviewed_by": "Mrs Rani",
+        },
+    )
+    assert out.status_code == 200, out.text
+
+    db = SessionLocal()
+    try:
+        rows = list(db.scalars(
+            select(QuestionTier).where(QuestionTier.question_id == question_id)
+        ))
+        # Stored as the short code, which is what the report groups by and all the column
+        # has room for.
+        assert [r.tier for r in rows] == ["AP"]
+        assert rows[0].source == "human"
+    finally:
+        db.close()
+
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert placed["mapped_to"]["tier"] == "AP"
+    assert placed["mapped_to"]["tier_label"] == "Applying"
+
+
+def test_a_tier_that_is_not_a_tier_is_refused(client, school, book):
+    """The vocabulary is closed. A paraphrase of a tier is not a tier."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Question
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Bad tier", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    client.post(f"/assessments/{aid}/map", headers=h)
+
+    db = SessionLocal()
+    question_id = db.scalar(select(Question).where(Question.assessment_id == aid)).id
+    db.close()
+
+    out = client.post(
+        f"/assessments/{aid}/review/{question_id}", headers=h,
+        json={"chapter_code": "X.MATH.STATS", "tier": "hard", "reviewed_by": "x"},
+    )
+    assert out.status_code == 422
+    assert "is not a tier" in out.json()["detail"]

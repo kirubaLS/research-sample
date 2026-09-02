@@ -25,6 +25,7 @@ from app.extraction.choice import group_choices
 from app.extraction.verification import verify_paper
 from app.ingest.book import stem_hash
 from app.mapping.solver import Constraint, QuestionDist, solve
+from app.models.assessment import TIER_ALIASES
 from app.models import (
     MARK_STATES,
     SOURCE_PRECEDENCE,
@@ -37,6 +38,7 @@ from app.models import (
     Question,
     QuestionPlacement,
     QuestionSkill,
+    QuestionTier,
     ScannedQuestion,
     School,
     StudentProfile,
@@ -531,6 +533,20 @@ def read_scan(
     )}
     nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
 
+    skills: dict[str, list[str]] = {}
+    for link in db.scalars(select(QuestionSkill).where(
+        QuestionSkill.question_id.in_([r.question_id for r in rows if r.question_id] or [""])
+    )):
+        node = nodes.get(link.node_id)
+        if node is not None:
+            skills.setdefault(link.question_id, []).append(node.label)
+    tiers: dict[str, str] = {}
+    for row_tier in db.scalars(select(QuestionTier).where(
+        QuestionTier.question_id.in_([r.question_id for r in rows if r.question_id] or [""])
+    )):
+        if row_tier.tier:
+            tiers[row_tier.question_id] = row_tier.tier
+
     def mapped(row: ScannedQuestion) -> dict | None:
         question = questions.get(row.question_id or "")
         if question is None:
@@ -541,8 +557,15 @@ def read_scan(
         return {
             "chapter": chapter.label if chapter else None,
             "curriculum_section": question.curriculum_section,
+            #: the book's own heading for that section -- the topic, in its words
+            "topic": (skills.get(question.id) or [None])[0],
             "concept_family": family.label if family else None,
             "board_unit": unit.label if unit else None,
+            #: R&U, AP or AEC. Null until the classifier has read the question: which
+            #: cognitive tier a question sits in is not visible in its address or its
+            #: marks, and a tier nobody worked out must not read as one that was.
+            "tier": tiers.get(question.id),
+            "tier_label": TIER_ALIASES.get(tiers.get(question.id) or ""),
         }
 
     from app.extraction.paper import context_addresses
@@ -844,6 +867,16 @@ def map_paper_to_book(
             ChapterBoardUnit.curriculum_version == assessment.curriculum_version
         ))
     }
+    #: (chapter id, section number) -> the book's own heading for that section. This is
+    #: the topic, and it is the book's words rather than anybody's summary of them.
+    topics: dict[tuple[str, str], TaxonomyNode] = {}
+    for node in nodes.values():
+        if node.kind != "subtopic" or not node.parent_id:
+            continue
+        tail = node.code.rsplit(".", 1)[-1]
+        if tail.startswith("S"):
+            topics[(node.parent_id, tail[1:].replace("_", "."))] = node
+
     families: dict[str, list[TaxonomyNode]] = {}
     for node in nodes.values():
         if node.kind == "concept_family" and node.parent_id:
@@ -860,7 +893,7 @@ def map_paper_to_book(
     from app.extraction.paper import context_addresses
 
     context = context_addresses(staged)
-    mapped, blocked, context_kept = 0, [], 0
+    mapped, blocked, context_kept, with_topic = 0, [], 0, 0
     for row in staged:
         if row.address in context:
             # The shared stem of a case study. Its sub-parts are the questions and they
@@ -894,13 +927,22 @@ def map_paper_to_book(
             continue
 
         landed = nodes.get(verdict.node_id or "")
-        section = _section_number(landed.code) if landed else None
+        # The section the winning passages came from, and only then the code of whatever
+        # the retrieval landed on. Both are the book's, never a guess.
+        section = verdict.section or (_section_number(landed.code) if landed else None)
+        topic = topics.get((chapter.id, section)) if section else None
 
+        # The family is what every trend groups by and it is deliberately required, so a
+        # question whose family cannot be settled is left staged rather than placed under
+        # a guess. What changed is that the choice can now actually be made: the section
+        # comes from the winning passages, and a family created from the book records the
+        # section it came from, so the two can be matched.
         candidates = families.get(chapter.id, [])
         if not candidates:
             row.blocked_reason = (
-                f"no concept family has been applied for {chapter.label}. Review the "
-                f"proposals for this subject and create the families first."
+                f"no concept family exists for {chapter.label}. Open the book screen for "
+                f"this subject and create the families it proposes from the chapter's own "
+                f"section headings."
             )
             blocked.append(row.address)
             continue
@@ -910,8 +952,14 @@ def map_paper_to_book(
         )
         if family is None:
             row.blocked_reason = (
-                f"{len(candidates)} families exist for {chapter.label} and none of them "
-                f"claims section {section or '?'}; a person must choose"
+                f"{len(candidates)} families exist for {chapter.label} and none claims "
+                + (
+                    f"section {section}, which is where the book puts this question"
+                    if section
+                    else "a section, and the passages that matched name no section either"
+                )
+                + ". Settle it in review, or re-create the families from the book so each "
+                "one records the section it covers."
             )
             blocked.append(row.address)
             continue
@@ -932,6 +980,8 @@ def map_paper_to_book(
         db.add(QuestionPlacement(
             question_id=question.id, chapter_id=chapter.id, board_unit_id=unit_id,
             curriculum_section=section, confidence=verdict.score,
+            # A question whose family could not be settled is one for a person to look at,
+            # which is what this flag is for. It is not a reason to refuse the placement.
             source="model", needs_review=not verdict.agreed,
             reasoning=f"{mode} retrieval, margin {verdict.margin:.3f}",
             # The chunk references, not the Candidate objects: JSON has to hold what a
@@ -941,6 +991,14 @@ def map_paper_to_book(
                 nodes[n].label for n, _ in verdict.runners_up if n in nodes
             ][:4],
         ))
+        # The topic is a skill the question tests, which is what the report reads to group
+        # findings by sub-topic. Without this row a mapped question contributed to no topic
+        # at all and the report fell back to the chapter.
+        if topic is not None:
+            db.add(QuestionSkill(
+                question_id=question.id, node_id=topic.id, source="retrieval",
+            ))
+            with_topic += 1
         row.question_id = question.id
         row.blocked_reason = None
         mapped += 1
@@ -953,6 +1011,8 @@ def map_paper_to_book(
         "blocked": len(blocked),
         #: shared stems that were deliberately left unplaced, not failures
         "context_stems": context_kept,
+        #: placed, with a topic from the book. The rest sit in a chapter and no finer.
+        "with_topic": with_topic,
         "blocked_addresses": blocked[:20],
         "needs_review": db.scalar(select(func.count(QuestionPlacement.id)).where(
             QuestionPlacement.needs_review.is_(True),

@@ -31,6 +31,25 @@ TIER_ALIASES = {
     "AP": "Applying",
     "AEC": "Analysing, Evaluating & Creating",
 }
+#: the reverse of TIER_ALIASES. The tier is stored twice by design, in the board's words
+#: on a placement and as the short code on the append-only tier row, and one of the two
+#: had no way to be written from the other.
+TIER_CODES = {name: code for code, name in TIER_ALIASES.items()}
+
+
+def tier_code(tier: str | None) -> str | None:
+    """The short code for a tier, whichever of its two names arrives.
+
+    None in, None out: abstaining is a legitimate answer, and the only honest one when the
+    evidence does not settle which tier a question belongs to.
+    """
+    if not tier:
+        return None
+    if tier in TIER_CODES:
+        return TIER_CODES[tier]
+    return tier if tier in TIER_ALIASES else None
+
+
 #: target mark share of a board paper, used only as a tie-break on declared blueprints
 CBSE_TIER_TARGET = {
     "Remembering & Understanding": 0.54,

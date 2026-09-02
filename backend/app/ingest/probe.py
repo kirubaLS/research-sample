@@ -36,6 +36,8 @@ class Candidate:
     node_id: str | None
     bucket: str
     score: float
+    #: the section of the chapter this passage sits in, when the book said so
+    section: str | None = None
 
 
 class SemanticIndex:
@@ -57,7 +59,10 @@ class SemanticIndex:
             return []
         [vector] = self.embedder.embed_texts([question], is_query=True)
         scored = [
-            Candidate(c.id, c.reference, c.node_id, c.bucket, cosine(vector, c.embedding))
+            Candidate(
+                c.id, c.reference, c.node_id, c.bucket,
+                cosine(vector, c.embedding), getattr(c, "section_number", None),
+            )
             for c in self.chunks
         ]
         scored.sort(key=lambda c: -c.score)
@@ -85,8 +90,10 @@ class LexicalIndex:
             )
             if score > 0:
                 scored.append(
-                    Candidate(chunk.id, chunk.reference, chunk.node_id, chunk.bucket,
-                              score / norm)
+                    Candidate(
+                        chunk.id, chunk.reference, chunk.node_id, chunk.bucket,
+                        score / norm, getattr(chunk, "section_number", None),
+                    )
                 )
         scored.sort(key=lambda c: -c.score)
         return scored[:k]
@@ -105,6 +112,11 @@ class ChapterVerdict:
     agreed: bool                  # did both retrievers independently pick this chapter
     evidence: list[Candidate]     # the chunks that put it there
     runners_up: list[tuple[str | None, float]]
+    #: The section of the winning chapter that the winning passages came from, or None
+    #: when they disagree or the book never said. Voted by the same fused scores that
+    #: chose the chapter, so the topic rests on the same evidence and not on a second
+    #: guess: a section named by one weak passage does not outrank the chapter's own.
+    section: str | None = None
 
 
 #: reciprocal-rank fusion constant. 60 is the value the method was published with and
@@ -196,6 +208,14 @@ def locate(
     # agreement between independent retrievers is a cheap, honest confidence signal
     agreed = len(ranked) > 1 and len({lst[0].node_id for lst in ranked}) == 1
 
+    # Which section of the winning chapter its own evidence points at. Only passages that
+    # voted for this chapter count, and only the ones the book gave a section.
+    by_section: dict[str, float] = {}
+    for chunk_id, score in fused.items():
+        candidate = by_chunk[chunk_id]
+        if candidate.node_id == top_node and candidate.section:
+            by_section[candidate.section] = by_section.get(candidate.section, 0.0) + score
+
     return ChapterVerdict(
         node_id=top_node,
         score=top_score,
@@ -203,4 +223,5 @@ def locate(
         agreed=agreed,
         evidence=sorted(evidence[top_node], key=lambda c: -c.score)[:3],
         runners_up=[(n, round(s, 4)) for n, s in ordered[1:4]],
+        section=max(by_section, key=by_section.get) if by_section else None,
     )

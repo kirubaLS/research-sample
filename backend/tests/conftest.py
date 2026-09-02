@@ -117,9 +117,15 @@ def book(school):
             )
             db.add(node)
             db.flush()
+            # Filed under the CHAPTER with the section recorded beside it, which is what
+            # the book ingest does. Filing it under the section node instead -- as this
+            # fixture used to -- let the section be recovered from the node's code, so
+            # every test passed while production, where every chunk points at its chapter,
+            # could never work out a section at all.
             db.add(BookChunk(
                 curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
-                node_id=node.id, bucket="T", reference=reference, text=text,
+                node_id=chapter.id, bucket="T", reference=reference, text=text,
+                section_number=section[1:].replace("_", "."),
                 normalised=text.lower(), stem_hash=code,
             ))
 

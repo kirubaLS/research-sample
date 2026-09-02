@@ -344,6 +344,9 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
             db.add(BookChunk(
                 curriculum_version=version, subject_code=subject, node_id=chapter.id,
                 bucket=chunk.bucket, reference=chunk.reference,
+                # The section the extraction attributed this passage to. It was worked out
+                # and then dropped here, which is why no question could be given a topic.
+                section_number=(chunk.section or None),
                 text=chunk.text, normalised=chunk.text, stem_hash=chunk.stem_hash,
             ))
             written["chunks"] += 1
@@ -547,6 +550,7 @@ def create_families(
     """Create the reviewed families. Additive only: an existing one is never renamed."""
     nodes = {n.code: n for n in db.scalars(select(TaxonomyNode))}
     created, skipped, unknown = 0, 0, []
+    run_id = uuid.uuid4().hex
 
     for entry in body.families:
         code = str(entry.get("code", "")).strip()
@@ -568,6 +572,19 @@ def create_families(
             parent_id=chapter.id, path=code,
             curriculum_version=chapter.curriculum_version,
         ))
+        # Which section of the chapter this family covers, kept alongside it. Without this
+        # a chapter with two families had no way to say which of them a question in
+        # section 13.2 belongs to, so every question in that chapter was refused for want
+        # of a choice nothing had the information to make.
+        section = str(entry.get("from_section", "")).strip()
+        if section:
+            db.add(ConceptFamilyProposal(
+                curriculum_version=chapter.curriculum_version, subject_code=subject,
+                run_id=run_id, source="headings", model=None,
+                code=code, label=label, chapter_id=chapter.id,
+                rationale="proposed from the chapter's own section heading",
+                evidence=[section], from_sections=[section],
+            ))
         created += 1
     db.commit()
 

@@ -509,9 +509,29 @@ function QuestionRow({
       {placed ? (
         <div className="qmap">
           <Chip label="Chapter" value={placed.chapter} />
-          {placed.curriculum_section && <Chip label="Section" value={placed.curriculum_section} />}
-          <Chip label="Concept" value={placed.concept_family} strong />
+          {/* The topic is the book's own heading for the section the passages came from,
+              so it is shown in the book's words with the number beside it. */}
+          {placed.topic && (
+            <Chip
+              label="Topic"
+              value={
+                placed.curriculum_section
+                  ? `${placed.curriculum_section} ${placed.topic}`
+                  : placed.topic
+              }
+            />
+          )}
+          {!placed.topic && placed.curriculum_section && (
+            <Chip label="Topic" value={placed.curriculum_section} />
+          )}
+          <Chip label="Sub topic" value={placed.concept_family} strong />
           <Chip label="Board unit" value={placed.board_unit} />
+          {/* A tier nobody has worked out must not read as one that was. */}
+          <Chip
+            label="Category"
+            value={placed.tier ?? "not classified yet"}
+            title={placed.tier_label ?? undefined}
+          />
         </div>
       ) : (
         <p className="qblocked">{q.blocked_reason ?? "not mapped"}</p>
@@ -520,10 +540,20 @@ function QuestionRow({
   );
 }
 
-function Chip({ label, value, strong }: { label: string; value: string | null; strong?: boolean }) {
+function Chip({
+  label,
+  value,
+  strong,
+  title,
+}: {
+  label: string;
+  value: string | null;
+  strong?: boolean;
+  title?: string;
+}) {
   if (!value) return null;
   return (
-    <span className={`chip${strong ? " chip-strong" : ""}`}>
+    <span className={`chip${strong ? " chip-strong" : ""}`} title={title}>
       <span className="chip-l">{label}</span>
       {value}
     </span>

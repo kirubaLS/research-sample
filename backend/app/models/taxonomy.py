@@ -145,6 +145,10 @@ class BookChunk(Base, PkMixin):
     node_id: Mapped[str | None] = mapped_column(ForeignKey("taxonomy_node.id"), nullable=True)
     bucket: Mapped[str] = mapped_column(String(1), index=True)  # 'T' | 'E'
     reference: Mapped[str | None] = mapped_column(String(80), nullable=True)  # 'Ex 1.2 Q1'
+    #: '12.2' -- which section of the chapter this passage came from. The ingest works it
+    #: out and used to discard it, which left every chunk filed under its chapter and the
+    #: section unknowable, so no question could be given a topic.
+    section_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
     #: unbounded: a real exercise runs to 8500 characters of frequency tables, and a
     #: truncated one is a silently corrupted familiarity signal rather than a short row
     text: Mapped[str] = mapped_column(Text)

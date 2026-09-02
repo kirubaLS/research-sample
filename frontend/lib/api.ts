@@ -532,8 +532,13 @@ export interface ScanResult {
 export interface MappedTo {
   chapter: string | null;
   curriculum_section: string | null;
+  /** The book's own heading for that section. */
+  topic: string | null;
   concept_family: string | null;
   board_unit: string | null;
+  /** 'R&U' | 'AP' | 'AEC', or null when nothing has worked it out yet. */
+  tier: string | null;
+  tier_label: string | null;
 }
 
 export interface StagedQuestion {

@@ -23,9 +23,11 @@ from app.models import (
     BookChunk,
     Question,
     QuestionPlacement,
+    QuestionTier,
     School,
     TaxonomyNode,
 )
+from app.models.assessment import TIERS, tier_code
 
 router = APIRouter(prefix="/assessments", tags=["placement"])
 
@@ -184,6 +186,21 @@ def place(
             evidence=placed.evidence,
             candidates=[placed.chapter],
         ))
+        # The tier belongs on its own append-only row too. Reports read it from there, so
+        # writing it only onto the placement meant the judge decided the cognitive tier of
+        # every question and no report ever saw one.
+        db.add(QuestionTier(
+            question_id=placed.question_id,
+            tier=tier_code(placed.tier),
+            confidence=placed.confidence,
+            source="ensemble",
+            model_version=settings.model_classifier,
+            rationale=placed.reasoning,
+        ))
+        if placed.skill_required:
+            question = db.get(Question, placed.question_id)
+            if question is not None:
+                question.skill_required = placed.skill_required
     db.commit()
 
     return {
@@ -306,6 +323,11 @@ def confirm(
     if chapter is None:
         raise HTTPException(422, f"no chapter with code {body.chapter_code!r}")
 
+    if body.tier and tier_code(body.tier) is None:
+        raise HTTPException(
+            422,
+            f"{body.tier!r} is not a tier. Use one of: " + "; ".join(TIERS),
+        )
     db.add(QuestionPlacement(
         question_id=question_id,
         chapter_id=chapter.id,
@@ -321,6 +343,13 @@ def confirm(
     question.chapter_id = chapter.id
     if body.curriculum_section:
         question.curriculum_section = body.curriculum_section
+    if body.tier:
+        # A person's tier outranks the machine's, and both stay: how often a teacher
+        # overrules it is the only honest measure of whether it can be trusted.
+        db.add(QuestionTier(
+            question_id=question_id, tier=tier_code(body.tier), confidence=1.0,
+            source="human", rationale=f"settled by {body.reviewed_by}",
+        ))
     db.commit()
 
     # Placements are append-only, so the question just corrected still has its original
