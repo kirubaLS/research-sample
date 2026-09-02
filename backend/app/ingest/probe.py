@@ -38,6 +38,10 @@ class Candidate:
     score: float
     #: the section of the chapter this passage sits in, when the book said so
     section: str | None = None
+    #: The passage itself. Carried because the whole point of the classifier is a model
+    #: READING these; without the text it was shown a list of chapter names under the
+    #: heading "PASSAGES FROM THE BOOK" and nothing beneath it, and asked to choose.
+    text: str = ""
 
 
 class SemanticIndex:
@@ -62,6 +66,7 @@ class SemanticIndex:
             Candidate(
                 c.id, c.reference, c.node_id, c.bucket,
                 cosine(vector, c.embedding), getattr(c, "section_number", None),
+                getattr(c, "text", "") or "",
             )
             for c in self.chunks
         ]
@@ -93,6 +98,7 @@ class LexicalIndex:
                     Candidate(
                         chunk.id, chunk.reference, chunk.node_id, chunk.bucket,
                         score / norm, getattr(chunk, "section_number", None),
+                        getattr(chunk, "text", "") or "",
                     )
                 )
         scored.sort(key=lambda c: -c.score)
@@ -150,6 +156,8 @@ def locate(
     depth: int = 12,
     scope: set[str] | None = None,
     chapter_of=None,
+    evidence_passages: int = 3,
+    evidence_chapters: int = 1,
 ) -> ChapterVerdict:
     """Which chapter, from every retriever available, aggregated per chapter.
 
@@ -221,7 +229,41 @@ def locate(
         score=top_score,
         margin=top_score - runner_up,
         agreed=agreed,
-        evidence=sorted(evidence[top_node], key=lambda c: -c.score)[:3],
+        evidence=_evidence_across(
+            ordered, evidence, evidence_chapters, evidence_passages
+        ),
         runners_up=[(n, round(s, 4)) for n, s in ordered[1:4]],
         section=max(by_section, key=by_section.get) if by_section else None,
     )
+
+
+def _evidence_across(
+    ordered: list,
+    evidence: dict,
+    chapters: int,
+    passages: int,
+) -> list[Candidate]:
+    """The passages to hand a reader, spanning the chapters that were in contention.
+
+    Returning only the winner's passages made the judge's job impossible: it is asked to
+    choose one chapter from the candidates it is shown, and it was shown one. The whole
+    reason it exists -- that similarity cannot tell a question ABOUT a theorem from the
+    theorem, and picks the chapter full of right triangles for a cone -- needs the rival
+    chapter in front of it.
+
+    Round-robin rather than best-scoring-first, because the rival is by definition the
+    lower-scoring one: taking the top passages by score would return the winner's again.
+    """
+    ranked = [
+        sorted(evidence[node], key=lambda c: -c.score)
+        for node, _ in ordered[: max(1, chapters)]
+        if node in evidence
+    ]
+    out: list[Candidate] = []
+    rank = 0
+    while len(out) < passages and any(len(lst) > rank for lst in ranked):
+        for lst in ranked:
+            if len(lst) > rank and len(out) < passages:
+                out.append(lst[rank])
+        rank += 1
+    return out

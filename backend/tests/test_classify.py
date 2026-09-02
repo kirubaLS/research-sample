@@ -642,3 +642,69 @@ def test_the_classifier_request_is_one_its_configured_model_accepts():
     # models. Neither has any business in a structured-output call anyway.
     for rejected in ("temperature", "top_p", "top_k", "budget_tokens"):
         assert rejected not in source
+
+
+def test_the_reader_is_shown_the_chapters_that_were_in_contention():
+    """It is asked to choose one chapter from the candidates it is given.
+
+    It was given one: the passages all came from the chapter retrieval had already picked,
+    so the reading could never correct it. Correcting it is the whole reason the step
+    exists -- similarity picks the chapter full of right triangles for a cone, and only a
+    reader shown both can say otherwise.
+    """
+    from app.classify.judge import Evidence, build_prompt
+    from app.ingest.probe import LexicalIndex, locate
+
+    class Chunk:
+        def __init__(self, cid, text, node):
+            self.chunk_id = self.id = cid
+            self.text = self.reference = text if len(text) < 40 else cid
+            self.text = text
+            self.node_id = node
+            self.bucket = "T"
+            self.embedding = None
+            self.section_number = None
+
+    chunks = [
+        Chunk("m1", "cone slant height radius volume of a solid combination", "SAV"),
+        Chunk("m2", "surface area of a combination of solids cone hemisphere", "SAV"),
+        Chunk("t1", "tower height angle of elevation observer slant", "APPTRIG"),
+        Chunk("t2", "line of sight horizontal angle of elevation height", "APPTRIG"),
+    ]
+    chunks += [Chunk(f"p{i}", f"unrelated topic {i}", f"P{i}") for i in range(20)]
+
+    # A query both chapters score on, which is the case the reading exists to settle:
+    # "slant height" is a cone, "angle of elevation" is trigonometry, and similarity alone
+    # sees a right triangle in both.
+    verdict = locate(
+        "slant height angle of elevation", [LexicalIndex(chunks)],
+        evidence_passages=6, evidence_chapters=3,
+    )
+    shown = {c.node_id for c in verdict.evidence}
+    assert len(shown) > 1, "only the winner's passages were shown"
+    assert "APPTRIG" in shown, "the rival chapter never reached the reader"
+
+    # And the prompt says so, which is what the model is choosing between.
+    names = {"SAV": "Surface Areas and Volumes", "APPTRIG": "Applications of Trigonometry"}
+    prompt = build_prompt("slant height angle of elevation", [
+        Evidence(chapter=names[c.node_id], section="", reference=c.reference, text=c.text)
+        for c in verdict.evidence
+    ])
+    line = next(l for l in prompt.splitlines() if l.startswith("CANDIDATE CHAPTERS"))
+    assert "Surface Areas and Volumes" in line and "Applications of Trigonometry" in line
+
+    # And the passages are actually in it. They were not: the candidate carried a
+    # reference and a score and no text, so the prompt said "PASSAGES FROM THE BOOK" with
+    # nothing under it and the reading was a guess from two chapter names.
+    assert "angle of elevation" in prompt
+    assert "volume of a solid combination" in prompt
+
+
+def test_how_much_of_a_passage_the_reader_sees_is_a_setting_not_a_constant():
+    """It is the price of the call and the quality of the answer at once."""
+    from app.classify.judge import Evidence, build_prompt
+
+    long_passage = "a" * 5000
+    ev = [Evidence(chapter="Statistics", section="13.2", reference="Section 13.2",
+                   text=long_passage)]
+    assert len(build_prompt("q", ev, 400)) < len(build_prompt("q", ev, 1200))

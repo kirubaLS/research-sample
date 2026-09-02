@@ -28,6 +28,7 @@ class AnthropicJudge:
         *,
         known_sections: dict[str, set[str]] | None = None,
         effort: str | None = None,
+        passage_chars: int = 1200,
     ) -> None:
         if not api_key:
             raise ValueError(
@@ -44,8 +45,16 @@ class AnthropicJudge:
         self.output_config = output_config(model, effort)
         #: chapter -> the section numbers that actually exist for it, from the taxonomy
         self.known_sections = known_sections
+        #: how much of each passage the model is shown -- the price of the call
+        self.passage_chars = passage_chars
         #: every field the knowledge base could not vouch for, kept for inspection
         self.violations: list[tuple[str, list[str]]] = []
+        #: What was actually spent, added up as the paper is read. Reported rather than
+        #: estimated: every figure anybody quoted for a paper before this, mine included,
+        #: was arithmetic on a guess about the prompt.
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.calls = 0
 
     def classify(self, question: str, evidence: list[Evidence]) -> Classification:
         extra = {"output_config": self.output_config} if self.output_config else {}
@@ -57,10 +66,18 @@ class AnthropicJudge:
             # request, in production, which is exactly what app.llm exists to prevent.
             max_tokens=16000,
             system=SYSTEM,
-            messages=[{"role": "user", "content": build_prompt(question, evidence)}],
+            messages=[{
+                "role": "user",
+                "content": build_prompt(question, evidence, self.passage_chars),
+            }],
             output_format=Classification,
             **extra,
         )
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self.input_tokens += getattr(usage, "input_tokens", 0) or 0
+            self.output_tokens += getattr(usage, "output_tokens", 0) or 0
+        self.calls += 1
         checked: Grounded = ground(
             response.parsed_output, evidence, known_sections=self.known_sections
         )

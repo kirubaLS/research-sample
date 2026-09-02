@@ -612,6 +612,16 @@ export interface MapResult {
   context_stems: number;
 }
 
+export interface Spend {
+  model: string;
+  effort: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  passages_shown: number;
+  chapters_shown: number;
+}
+
 export interface PlaceResult {
   placed: number;
   /** Questions whose chapter, topic and sub-topic the judge settled on the question. */
@@ -623,6 +633,8 @@ export interface PlaceResult {
   needs_review: number;
   note: string | null;
   grounding_violations: { question: string; problems: string[] }[];
+  /** What the run actually spent, read back off the responses rather than estimated. */
+  spend: Spend;
 }
 
 export interface ProbeRow {

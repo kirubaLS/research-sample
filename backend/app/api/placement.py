@@ -160,6 +160,7 @@ def place(
         model=settings.model_classifier,
         known_sections=known_sections or None,
         effort=settings.model_effort,
+        passage_chars=settings.classifier_passage_chars,
     )
 
     scope = None
@@ -168,6 +169,9 @@ def place(
 
     result = place_paper(
         stems, indexes, judge,
+        # What the reader is shown, and so what the run costs. Both from settings.
+        evidence_passages=settings.classifier_evidence_passages,
+        evidence_chapters=settings.classifier_evidence_chapters,
         chapter_of=lambda nid: nodes[nid].label if nid in nodes else None,
         unit_of=lambda label: unit_by_chapter.get(label),
         section_of=lambda ref: None,
@@ -270,6 +274,18 @@ def place(
         #: the wrong one
         "family_refused": len(refused),
         "tiers": sum(1 for q in result.questions if tier_code(q.tier)),
+        #: What this run actually cost, in tokens, read back off the responses. Not an
+        #: estimate: every figure anybody has quoted for a paper so far was arithmetic on
+        #: a guess about the prompt, and the two differed by more than double.
+        "spend": {
+            "model": settings.model_classifier,
+            "effort": settings.model_effort,
+            "calls": getattr(judge, "calls", 0),
+            "input_tokens": getattr(judge, "input_tokens", 0),
+            "output_tokens": getattr(judge, "output_tokens", 0),
+            "passages_shown": settings.classifier_evidence_passages,
+            "chapters_shown": settings.classifier_evidence_chapters,
+        },
         "settled": result.settled,
         "needs_review": result.reviewed_count,
         "blueprint_feasible": result.feasible,

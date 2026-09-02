@@ -418,6 +418,18 @@ export default function PaperPage() {
             </p>
           )}
 
+          {/* Measured, not estimated. A model choice is a cost decision, and it should be
+              made on the figure this run produced rather than on arithmetic about a
+              prompt nobody had looked at. */}
+          <p className="small muted">
+            {placed.spend.calls} reading{placed.spend.calls === 1 ? "" : "s"} by{" "}
+            {placed.spend.model} at {placed.spend.effort} effort, each shown{" "}
+            {placed.spend.passages_shown} passages from up to{" "}
+            {placed.spend.chapters_shown} chapters.{" "}
+            {(placed.spend.input_tokens / 1000).toFixed(1)}k in,{" "}
+            {(placed.spend.output_tokens / 1000).toFixed(1)}k out.
+          </p>
+
           {placed.grounding_violations.length > 0 && (
             <div className="verdict warn">
               <p>

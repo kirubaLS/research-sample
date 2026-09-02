@@ -84,15 +84,31 @@ class Settings(BaseSettings):
     #: the classifier's judge. Without it, placement falls back to nearest-neighbour
     #: retrieval, which cannot tell a question about a theorem from the theorem.
     anthropic_api_key: str | None = None
-    #: One call per question, around forty per paper. The cheaper model was the default on
-    #: volume alone, which weighed the wrong thing: this call decides the chapter, the
-    #: topic and the cognitive tier that a school reads about a child, and it is the one
-    #: place in the pipeline where a wrong answer is confident rather than blank. A paper
-    #: costs cents either way.
-    model_classifier: str = "claude-opus-5"
+    #: One call per question, around forty per paper. This call decides the chapter, the
+    #: topic and the cognitive tier that a school reads about a child, so it is not the
+    #: place to take the cheapest thing available -- but it is not the place to take the
+    #: dearest without evidence either. Overridable per deployment, and the run reports
+    #: what it actually spent so the choice can be made on measurement rather than on a
+    #: guess about what a paper costs.
+    model_classifier: str = "claude-sonnet-5"
     #: How hard the model is asked to work, sent only to models that accept it -- Haiku 4.5
-    #: rejects the parameter and the request drops it. See app.llm.
-    model_effort: str = "high"
+    #: rejects the parameter and the request drops it. See app.llm. Thinking tokens are the
+    #: larger half of what a paper costs, so this is the strongest price lever here, and
+    #: the one most worth measuring before moving.
+    model_effort: str = "medium"
+
+    # --- what the classifier is shown, which is what it costs ---------------------------
+    #: How many book passages go into one classification, and how many chapters they are
+    #: drawn from. Both are the price of the call and the quality of the answer at once:
+    #: too few and the rival chapter is never shown, so the reading cannot correct
+    #: retrieval; too many and every question carries passages that were never in
+    #: contention. Settings rather than constants because the right number depends on the
+    #: book, and finding it should not need a code change.
+    classifier_evidence_passages: int = 6
+    classifier_evidence_chapters: int = 3
+    #: Characters kept from each passage. A whole exercise runs to 8500 and the signal is
+    #: at the start; the tail is later questions that pull the reading off.
+    classifier_passage_chars: int = 1200
 
     # --- embeddings ---
     #: Multilingual by requirement, not preference: the papers are bilingual and Tamil is
