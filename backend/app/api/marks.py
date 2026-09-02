@@ -816,7 +816,9 @@ def map_paper_to_book(
     how much of the curriculum has been reviewed, and forcing it into a chapter to keep
     the numbers tidy is exactly the invention this pipeline exists to refuse.
     """
+    from app.api.books import clean_sections
     from app.config import get_settings
+    from app.extraction.paper import context_addresses
     from app.ingest.probe import LexicalIndex, SemanticIndex, locate
 
     assessment = _get_assessment(db, school, assessment_id)
@@ -884,13 +886,11 @@ def map_paper_to_book(
     #: family code -> the sections the run said it draws on, so a family can be chosen by
     #: the section the book put the question in rather than by name similarity
     sections_of = {
-        row.code: set(row.from_sections or [])
+        row.code: set(clean_sections(row.from_sections))
         for row in db.scalars(select(ConceptFamilyProposal).where(
             ConceptFamilyProposal.subject_code == assessment.subject_code
         ))
     }
-
-    from app.extraction.paper import context_addresses
 
     context = context_addresses(staged)
     mapped, blocked, context_kept, with_topic = 0, [], 0, 0
@@ -946,10 +946,32 @@ def map_paper_to_book(
             )
             blocked.append(row.address)
             continue
-        family = next(
-            (f for f in candidates if section and section in sections_of.get(f.code, set())),
-            candidates[0] if len(candidates) == 1 else None,
-        )
+        # Every family of this chapter that claims the section the book put the question
+        # in. A run proposes many families per chapter and several legitimately draw on one
+        # section, so more than one claimant is normal rather than an error.
+        claimants = [
+            f for f in candidates
+            if section and section in sections_of.get(f.code, set())
+        ]
+        ambiguous = None
+        if len(claimants) == 1:
+            family = claimants[0]
+        elif claimants:
+            # Deterministic, and stated as unsettled. The family claiming the fewest
+            # sections is the closest fit for a question in one of them; the code breaks
+            # ties so that mapping the same paper twice gives the same answer. Picking
+            # whichever happened to come first was neither.
+            family = min(
+                claimants, key=lambda f: (len(sections_of.get(f.code, ())), f.code)
+            )
+            ambiguous = (
+                f"{len(claimants)} families of {chapter.label} draw on section {section}; "
+                f"the narrowest was taken and a person should settle it"
+            )
+        elif len(candidates) == 1:
+            family = candidates[0]
+        else:
+            family = None
         if family is None:
             row.blocked_reason = (
                 f"{len(candidates)} families exist for {chapter.label} and none claims "
@@ -982,8 +1004,11 @@ def map_paper_to_book(
             curriculum_section=section, confidence=verdict.score,
             # A question whose family could not be settled is one for a person to look at,
             # which is what this flag is for. It is not a reason to refuse the placement.
-            source="model", needs_review=not verdict.agreed,
-            reasoning=f"{mode} retrieval, margin {verdict.margin:.3f}",
+            source="model", needs_review=not verdict.agreed or ambiguous is not None,
+            reasoning=(
+                f"{mode} retrieval, margin {verdict.margin:.3f}"
+                + (f". {ambiguous}" if ambiguous else "")
+            ),
             # The chunk references, not the Candidate objects: JSON has to hold what a
             # reviewer reads, and the objects are not serialisable anyway.
             evidence=[c.reference for c in verdict.evidence if c.reference][:6],

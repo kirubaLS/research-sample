@@ -441,7 +441,11 @@ export interface FamilyProposal {
   label: string;
   chapter_code: string;
   chapter_label: string;
-  from_section: string;
+  /** The sections of the chapter this family draws on. Empty means it cannot be chosen
+   *  by section afterwards, so it is worth knowing before creating it. */
+  from_sections: string[];
+  source: string;
+  rationale: string | null;
   chunks: number;
   already_exists: boolean;
 }
@@ -450,6 +454,7 @@ export interface FamilyProposals {
   subject: string;
   existing: number;
   proposed: number;
+  without_a_section: number;
   families: FamilyProposal[];
   note: string;
 }

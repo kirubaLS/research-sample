@@ -709,3 +709,135 @@ def test_a_tier_that_is_not_a_tier_is_refused(client, school, book):
     )
     assert out.status_code == 422
     assert "is not a tier" in out.json()["detail"]
+
+
+# ----------------------------------------------------------------------------------------
+# Choosing between the families a chapter has
+# ----------------------------------------------------------------------------------------
+def test_the_narrowest_family_claiming_the_section_is_taken_and_flagged(
+    client, school, book
+):
+    """A run proposes many families per chapter and several draw on one section.
+
+    Taking whichever came first was arbitrary and unstable: the same paper could map two
+    ways. The family claiming fewest sections is the closest fit for a question in one of
+    them, ties break on the code so a second run agrees with the first, and the placement
+    says a person should settle it rather than presenting the pick as decided.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal, QuestionPlacement, TaxonomyNode
+
+    db = SessionLocal()
+    stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+    # A second family for Statistics that also draws on 13.2, plus two others.
+    for code, label, sections in [
+        ("X.MATH.CF.CENTRAL_TENDENCY", "Measures of central tendency", ["13.2", "13.3"]),
+        ("X.MATH.CF.MEAN_DIRECT", "Mean by the direct method", ["13.2"]),
+    ]:
+        db.add(TaxonomyNode(
+            kind="concept_family", code=code, label=label, parent_id=stats.id,
+            path=code, curriculum_version=stats.curriculum_version,
+        ))
+        db.add(ConceptFamilyProposal(
+            curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+            run_id="t", source="llm", model="t", code=code, label=label,
+            chapter_id=stats.id, evidence=[], from_sections=sections,
+        ))
+    db.commit()
+    db.close()
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Ambiguous", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    out = client.post(f"/assessments/{aid}/map", headers=h)
+    assert out.status_code == 200, out.text
+    assert out.json()["mapped"] == 1
+
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+
+    db = SessionLocal()
+    try:
+        # Whatever else this shared database holds, the family taken has to be one that
+        # actually claims the section the question was placed in.
+        claimants = {
+            db.scalar(
+                select(TaxonomyNode).where(TaxonomyNode.code == row.code)
+            ).label
+            for row in db.scalars(select(ConceptFamilyProposal))
+            if "13.2" in (row.from_sections or [])
+        }
+        assert placed["mapped_to"]["curriculum_section"] == "13.2"
+        assert placed["mapped_to"]["concept_family"] in claimants
+
+        placement = db.scalar(
+            select(QuestionPlacement)
+            .order_by(QuestionPlacement.created_at.desc())
+        )
+        assert placement.needs_review is True
+        assert "draw on section 13.2" in placement.reasoning
+        assert "a person should settle it" in placement.reasoning
+    finally:
+        db.close()
+
+
+def test_applying_a_proposal_marks_it_applied_rather_than_copying_it(client, school):
+    """A run can propose hundreds and nothing said which had been acted on."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal, TaxonomyNode
+
+    db = SessionLocal()
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.PROB"))
+    db.add(ConceptFamilyProposal(
+        curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+        run_id="r", source="llm", model="m", code="X.MATH.CF.CLASSICAL_PROBABILITY",
+        label="Classical probability formula", chapter_id=chapter.id,
+        evidence=[], from_sections=["14.2"],
+    ))
+    db.commit()
+    db.close()
+
+    settings = get_settings()
+    before = settings.platform_admin_key
+    settings.platform_admin_key = "families-test-key"
+    out = client.post(
+        "/platform/books/X.MATH/concept-families",
+        headers={"X-Platform-Key": "families-test-key"},
+        json={"families": [{
+            "code": "X.MATH.CF.CLASSICAL_PROBABILITY",
+            "label": "Classical probability formula",
+            "chapter_code": "X.MATH.PROB",
+            "from_sections": ["14.2"],
+        }]},
+    )
+    settings.platform_admin_key = before
+    assert out.status_code == 201, out.text
+    assert out.json()["created"] == 1
+
+    db = SessionLocal()
+    try:
+        rows = list(db.scalars(select(ConceptFamilyProposal).where(
+            ConceptFamilyProposal.code == "X.MATH.CF.CLASSICAL_PROBABILITY"
+        )))
+        # One row, stamped -- not a second copy of what a run already worked out.
+        assert len(rows) == 1
+        assert rows[0].applied_at
+        assert rows[0].source == "llm"
+    finally:
+        db.close()
+
+
+def test_a_section_that_is_a_sentence_is_not_stored_as_a_section():
+    """One run answered "Section on spherical mirror introduction". Kept, it would sit in
+    the list forever matching nothing; guessed at, it would match the wrong thing."""
+    from app.api.books import clean_sections
+
+    assert clean_sections(["13.2", "Section on spherical mirror introduction"]) == ["13.2"]
+    assert clean_sections(["4.3.1", "4.3.1", None, ""]) == ["4.3.1"]
+    assert clean_sections([]) == []

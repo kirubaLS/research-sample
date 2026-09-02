@@ -11,6 +11,7 @@ checked against, and a chapter accepted without it would be accepted on trust.
 
 from __future__ import annotations
 
+import re
 import uuid
 from datetime import UTC, datetime
 
@@ -482,6 +483,22 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
     }
 
 
+#: '13.2', '4.3.1'. What a section number looks like, so a proposal that answered with a
+#: sentence -- one run returned "Section on spherical mirror introduction" -- is dropped
+#: rather than stored as a section nothing will ever match.
+SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){1,2}$")
+
+
+def clean_sections(values) -> list[str]:
+    """Only the entries that are section numbers, in the order given, without repeats."""
+    out: list[str] = []
+    for value in values or []:
+        text = str(value or "").strip()
+        if SECTION_NUMBER.match(text) and text not in out:
+            out.append(text)
+    return out
+
+
 class FamiliesIn(BaseModel):
     """The families to create. Reviewed, not accepted wholesale."""
 
@@ -526,19 +543,53 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
     rows.sort(key=lambda r: (r[0], r[2]))
 
     existing = {n.code for n in nodes.values() if n.kind == "concept_family"}
-    proposals = [
+
+    # What a proposal run has already worked out, which is better than a bare heading: it
+    # names the learning area rather than the section it sits in, and it says which
+    # sections it draws on. These were being ignored entirely -- a run could propose
+    # hundreds and this route would still suggest the headings, so the work sat unused.
+    stored = [
+        {
+            "code": row.code,
+            "label": row.label,
+            "chapter_code": chapters[row.chapter_id].code if row.chapter_id in chapters else "",
+            "chapter_label": chapters[row.chapter_id].label if row.chapter_id in chapters else "",
+            "from_sections": clean_sections(row.from_sections),
+            "source": row.source,
+            "rationale": row.rationale,
+            "chunks": counts.get(row.chapter_id, 0),
+            "already_exists": row.code in existing,
+        }
+        for row in db.scalars(
+            select(ConceptFamilyProposal)
+            .where(ConceptFamilyProposal.subject_code == subject)
+            .order_by(ConceptFamilyProposal.label)
+        )
+        if row.chapter_id in chapters
+    ]
+    #: a chapter a run has already covered does not need its headings suggesting as well
+    covered = {row["chapter_code"] for row in stored}
+    proposals = stored + [
         {
             "code": p.code, "label": p.label,
             "chapter_code": p.chapter_code, "chapter_label": p.chapter_label,
-            "from_section": p.from_section, "chunks": p.chunks,
+            "from_sections": clean_sections([p.from_section]),
+            "source": "headings",
+            "rationale": "the chapter's own section heading",
+            "chunks": p.chunks,
             "already_exists": p.code in existing,
         }
         for p in propose(rows, subject)
+        if p.chapter_code not in covered
     ]
+    proposals.sort(key=lambda r: (r["chapter_label"], r["label"]))
     return {
         "subject": subject,
         "existing": len(existing),
         "proposed": len(proposals),
+        #: proposals that name no section a question could be matched against. They can
+        #: still be created; they just cannot be chosen by section afterwards.
+        "without_a_section": sum(1 for p in proposals if not p["from_sections"]),
         "families": proposals,
         "note": (
             "A family is the axis a report compares against itself over time. Chapter is "
@@ -553,10 +604,24 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
 def create_families(
     subject: str, body: FamiliesIn, db: Session = Depends(get_session)
 ) -> dict:
-    """Create the reviewed families. Additive only: an existing one is never renamed."""
+    """Create the reviewed families. Additive only: an existing one is never renamed.
+
+    A proposal that already exists is stamped as applied rather than copied. A run can
+    propose hundreds of families and nothing marked which of them had been acted on, so
+    there was no way to tell a reviewed proposal from an untouched one.
+    """
     nodes = {n.code: n for n in db.scalars(select(TaxonomyNode))}
+    proposals = {
+        row.code: row
+        for row in db.scalars(
+            select(ConceptFamilyProposal).where(
+                ConceptFamilyProposal.subject_code == subject
+            )
+        )
+    }
     created, skipped, unknown = 0, 0, []
     run_id = uuid.uuid4().hex
+    now = datetime.now(UTC).isoformat()
 
     for entry in body.families:
         code = str(entry.get("code", "")).strip()
@@ -578,18 +643,23 @@ def create_families(
             parent_id=chapter.id, path=code,
             curriculum_version=chapter.curriculum_version,
         ))
-        # Which section of the chapter this family covers, kept alongside it. Without this
+        # Which sections of the chapter this family covers, kept alongside it. Without this
         # a chapter with two families had no way to say which of them a question in
         # section 13.2 belongs to, so every question in that chapter was refused for want
         # of a choice nothing had the information to make.
-        section = str(entry.get("from_section", "")).strip()
-        if section:
+        existing = proposals.get(code)
+        if existing is not None:
+            existing.applied_at = now
+        else:
+            sections = clean_sections(
+                entry.get("from_sections") or [entry.get("from_section")]
+            )
             db.add(ConceptFamilyProposal(
                 curriculum_version=chapter.curriculum_version, subject_code=subject,
                 run_id=run_id, source="headings", model=None,
                 code=code, label=label, chapter_id=chapter.id,
                 rationale="proposed from the chapter's own section heading",
-                evidence=[section], from_sections=[section],
+                evidence=sections, from_sections=sections, applied_at=now,
             ))
         created += 1
     db.commit()

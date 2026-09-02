@@ -343,7 +343,9 @@ export default function BooksPage() {
           is too coarse to act on and section numbers move when the book is reprinted, so
           neither can carry a trend. Loading a book does not create these: a question can
           only be placed in a chapter that has them, so a chapter with none blocks every
-          question that belongs to it.
+          question that belongs to it. What a proposal run has already worked out comes
+          first here; the book&rsquo;s own section headings fill in the chapters no run has
+          covered.
         </p>
 
         {families === null ? (
@@ -353,10 +355,18 @@ export default function BooksPage() {
         ) : (
           <>
             <p className="small" style={{ marginBottom: 12 }}>
-              {families.proposed} suggested from the book&rsquo;s own section headings,{" "}
+              {families.proposed} suggested,{" "}
               {families.families.filter((f) => f.already_exists).length} of them already
               created. {families.existing} exist for this subject in total.
             </p>
+            {families.without_a_section > 0 && (
+              <div className="notice warn" style={{ marginBottom: 14 }}>
+                {families.without_a_section} of these name no section of the chapter. They
+                can be created, but a question can only be matched to a family by the
+                section it came from, so a chapter whose families all lack one still has
+                to be settled by a person question by question.
+              </div>
+            )}
             <ul className="famlist">
               {families.families.map((f) => (
                 <li key={f.code} className={f.already_exists ? "have" : undefined}>
@@ -377,9 +387,12 @@ export default function BooksPage() {
                     <span className="fam-l">{f.label}</span>
                   </label>
                   <span className="fam-m">
-                    {f.chapter_label} &middot; section {f.from_section}
+                    {f.chapter_label}
                     {/* Plain text, not an entity: this is a JS expression, and an entity
                         written here reaches the page as its own characters. */}
+                    {f.from_sections.length > 0
+                      ? ` \u00b7 section${f.from_sections.length > 1 ? "s" : ""} ${f.from_sections.join(", ")}`
+                      : " \u00b7 no section named"}
                     {f.already_exists ? " \u00b7 created" : ""}
                   </span>
                 </li>
