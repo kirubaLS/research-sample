@@ -121,6 +121,7 @@ export interface AnswerRow {
   address: string;
   section: string | null;
   question_no: string;
+  sub_part: string | null;
   choice_alt: string | null;
   max_marks: number;
   stem_text: string | null;
@@ -503,11 +504,17 @@ export interface ScanResult {
   route: "text" | "vision";
   pages: number;
   questions: number;
+  sub_parts: number;
   choice_alternatives: number;
+  context_stems: number;
   total_marks: number;
   staged: number;
   already_promoted: number;
-  declared: { questions: number | null; sections: Record<string, number> | null };
+  declared: {
+    questions: number | null;
+    sections: Record<string, number> | null;
+    total_marks: number | null;
+  };
   problems: string[];
 }
 
@@ -523,8 +530,11 @@ export interface StagedQuestion {
   edited_by?: string | null;
   section: string | null;
   question_no: string;
+  sub_part: string | null;
   choice_alt: string | null;
   max_marks: number | null;
+  /** The shared stem of a question whose sub-parts carry the marks. Worth nothing itself. */
+  is_context: boolean;
   stem_text: string | null;
   page: number | null;
   mapped_to: MappedTo | null;
@@ -540,6 +550,8 @@ export interface ScanReview {
   edited: number;
   mapped: number;
   marks_missing: number;
+  /** What was read, against what the paper says it is worth. */
+  marks: { read: number; declared: number | null; short_by: number | null };
   questions: StagedQuestion[];
 }
 

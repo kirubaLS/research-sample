@@ -31,15 +31,38 @@ import pymupdf
 
 from app.extraction.mark_grammar import MARK_BAND, parse_label
 
+#: a mark label in its bare form, for the span-level split below
+_BARE_NUMBER = re.compile(r"^\d{1,2}$")
+
 #: 'SECTION A', 'SECTION-B', 'Section C'. The middot is not decorative: a dash whose glyph
 #: is missing from the embedded font extracts as one.
 SECTION = re.compile(r"^\s*SECTION\s*[-–—·]?\s*([A-E])\b", re.IGNORECASE)
 #: '1.', '21 .', '39.' at the start of a line -- the question number as the paper prints it
 QUESTION = re.compile(r"^\s*(\d{1,2})\s*\.\s*(.*)$", re.DOTALL)
-#: '(i)', '(a)' -- a sub-part carrying its own marks
-SUB_PART = re.compile(r"^\s*\(([ivx]{1,4}|[a-d])\)\s*(.*)$", re.IGNORECASE | re.DOTALL)
-#: the internal-choice marker, in the languages this pilot sees
-OR_MARKER = re.compile(r"^\s*(OR|अथवा|அல்லது)\s*$", re.IGNORECASE)
+#: '(i)', '(ii)', '(iii)' at the start of a line -- a sub-part. Roman only: CBSE numbers
+#: sub-parts in roman and internal choices in latin, and conflating the two made every
+#: '(a)' in a paper look like a part of a question.
+SUB_PART = re.compile(r"^\(\s*(i{1,3}|iv|vi{0,3}|ix|x)\s*\)\s*(.*)$")
+#: '(a)', '(b)' -- one half of an internal choice. Lower case only, because an MCQ prints
+#: its options as '(A) (B) (C) (D)' and those are not choices between questions.
+CHOICE = re.compile(r"^\(\s*([ab])\s*\)\s*(.*)$")
+#: the internal-choice marker, in the languages this pilot sees. Whitespace is stripped
+#: before matching: the word is often letter-spaced for emphasis and extracts as 'O R',
+#: which the plain word never matched, so every choice in the paper was read as more of
+#: the question before it.
+OR_MARKER = re.compile(r"^(OR|अथवा|அல்லது)$", re.IGNORECASE)
+#: 'Maximum Marks: 80' on the cover. The total the paper claims for itself, and the one
+#: figure that catches a mark this reader failed to see anywhere on any page.
+DECLARED_TOTAL = re.compile(
+    r"(?:maximum|max\.?|total)\s*marks\s*[:\-–—]?\s*(\d{1,3})\b", re.IGNORECASE
+)
+#: 'This section comprises 20 questions of 1 mark each.' -- printed under every section
+#: heading, and the same self-check one section at a time.
+SECTION_COMPRISES = re.compile(
+    r"comprises\s+(\d{1,3})\s+[a-z\- ]{0,40}?questions?\s+of\s+"
+    r"(\d{1,2}(?:\.\d)?)\s*marks?\s+each",
+    re.IGNORECASE,
+)
 #: 'Section A : Biology (30 marks)' in the instructions block
 DECLARED_SECTION = re.compile(
     r"Section\s+([A-E])\s*[:\-]?\s*([A-Za-z ]{0,30}?)\s*\((\d{1,3})\s*marks?\)",
@@ -52,6 +75,16 @@ DECLARED_COUNT = re.compile(r"contains?\s+(\d{1,3})\s+questions?", re.IGNORECASE
 SCAN_CHARS_PER_PAGE = 25
 #: A stem shorter than this is a fragment, not a question.
 MIN_STEM_CHARS = 12
+
+
+def is_or_marker(text: str) -> bool:
+    """Is this line the word OR standing alone?
+
+    Whitespace is removed first. Papers letter-space the word to set it apart, and
+    'O R' is what that extracts as.
+    """
+    squeezed = "".join(text.split())
+    return bool(squeezed) and len(squeezed) <= 8 and bool(OR_MARKER.match(squeezed))
 
 
 @dataclass
@@ -75,6 +108,14 @@ class ExtractedQuestion:
     max_marks: float | None
     stem_text: str
     logical_page: int
+    #: This row is the shared stem of its sub-parts, not a question worth marks of its
+    #: own. A case study prints a paragraph of context and then (i), (ii), (iii); the
+    #: paragraph is worth nothing on its own and counting it as a question made the paper
+    #: read as three 1-mark questions where it has three worth four.
+    is_context: bool = False
+    #: set while parsing, cleared by the demotion passes -- see _demote_* below
+    provisional_sub_part: bool = False
+    provisional_choice: bool = False
 
     @property
     def identity(self) -> tuple[str, str | None, str | None]:
@@ -109,9 +150,20 @@ class PaperExtract:
     def ok(self) -> bool:
         return not self.problems
 
+    declared_total: float | None = None
+
     @property
     def total_marks(self) -> float:
-        return sum(q.max_marks or 0.0 for q in self.questions if q.choice_alt in (None, "a"))
+        """What the paper is worth, counting each mark exactly once.
+
+        One half of an internal choice, because a student answers one of the two. Never a
+        context stem, whose marks live on its sub-parts.
+        """
+        return sum(
+            q.max_marks or 0.0
+            for q in self.questions
+            if q.choice_alt in (None, "a") and not q.is_context
+        )
 
 
 def readable_letters(text: str) -> int:
@@ -124,6 +176,35 @@ def readable_letters(text: str) -> int:
     fooled that way: four letters is four letters, and the English stem has ninety.
     """
     return sum(1 for c in text if c.isalpha() and "LATIN" in unicodedata.name(c, ""))
+
+
+def _split_trailing_mark(spans: list[dict], width: float) -> tuple[list[dict], list[dict]]:
+    """Separate a mark label that shares its row with the stem it belongs to.
+
+    A paper usually prints the mark on its own row. Sometimes the stem is short enough
+    that the typesetter puts the label at the right margin of the same row, and then the
+    two arrive as one visual line: question 23 of the pilot paper read as "... the missing
+    frequency f. 2" and was recorded as carrying no marks at all.
+
+    Three conditions together, because any one alone is a sentence that happens to end in
+    a number: the trailing span is nothing but a small whole number, it ends inside the
+    right-aligned mark band, and it is set in a different font from the text before it.
+    A number that is part of the sentence is set in the sentence's own font and stays
+    where it is -- the totals check will then report the shortfall rather than this
+    guessing at one.
+    """
+    body = [s for s in spans if s["text"].strip()]
+    if len(body) < 2:
+        return spans, []
+    last, previous = body[-1], body[-2]
+    if not _BARE_NUMBER.match(last["text"].strip()):
+        return spans, []
+    if not (MARK_BAND[0] <= last["bbox"][2] / (width or 1.0) <= MARK_BAND[1]):
+        return spans, []
+    if last.get("font") == previous.get("font"):
+        return spans, []
+    cut = spans.index(last)
+    return spans[:cut], spans[cut:]
 
 
 def read_lines(path: str | Path) -> tuple[list[Line], int, int, int]:
@@ -142,18 +223,65 @@ def read_lines(path: str | Path) -> tuple[list[Line], int, int, int]:
                     spans = line.get("spans", [])
                     if not spans:
                         continue
-                    text = "".join(s["text"] for s in spans)
-                    characters += len(text.strip())
-                    if not text.strip():
-                        continue
-                    x0 = min(s["bbox"][0] for s in spans)
-                    x1 = max(s["bbox"][2] for s in spans)
-                    top = min(s["bbox"][1] for s in spans)
-                    lines.append(
-                        Line(text, number, top, x0, x1 / width, width)
-                    )
+                    stem, mark = _split_trailing_mark(spans, width)
+                    for group in (stem, mark):
+                        text = "".join(s["text"] for s in group)
+                        characters += len(text.strip())
+                        if not text.strip():
+                            continue
+                        x0 = min(s["bbox"][0] for s in group)
+                        x1 = max(s["bbox"][2] for s in group)
+                        top = min(s["bbox"][1] for s in group)
+                        lines.append(Line(text, number, top, x0, x1 / width, width))
     lines.sort(key=lambda line: (line.page, round(line.top, 1), line.left))
     return lines, pages, characters, images
+
+
+#: A line shorter than this cannot be told apart from a mark label or a table cell, and
+#: those legitimately repeat on every page.
+FURNITURE_MIN_CHARS = 12
+#: Repeating on this many pages is what makes a line furniture rather than a coincidence.
+FURNITURE_PAGES = 3
+
+
+def _drop_furniture(lines: list[Line], pages: int) -> list[Line]:
+    """Remove the running header and footer printed on every page.
+
+    An internal choice that falls at a page break puts the footer, the next page's header
+    and the school's name between the word OR and the alternative it introduces. The
+    alternative to question 27 was recorded as "Bharat International Senior Secondary
+    School x Yaadhum" -- a stem no student ever answered.
+
+    Furniture is what repeats: the same line, with its page number blanked, on three or
+    more pages. Short lines are exempt because a mark label is a short line and "2"
+    repeats on every page of every paper.
+    """
+    if pages < FURNITURE_PAGES:
+        return lines
+    seen: dict[str, set[int]] = {}
+    for line in lines:
+        shape = _furniture_shape(line)
+        if shape:
+            seen.setdefault(shape, set()).add(line.page)
+    repeating = {
+        shape for shape, on in seen.items() if len(on) >= FURNITURE_PAGES
+    }
+    return [
+        line for line in lines
+        if not (
+            (shape := _furniture_shape(line))
+            and shape in repeating
+            and _marks_on(line) is None
+        )
+    ]
+
+
+def _furniture_shape(line: Line) -> str | None:
+    """The line with its page number blanked, or None if it is too short to judge."""
+    text = " ".join(line.text.split())
+    if len(text) < FURNITURE_MIN_CHARS:
+        return None
+    return re.sub(r"\d+", "#", text)
 
 
 def _marks_on(line: Line) -> float | None:
@@ -170,14 +298,33 @@ def _marks_on(line: Line) -> float | None:
     return label.value
 
 
-def _declared(lines: list[Line]) -> tuple[dict[str, float], int | None]:
+def _declared(lines: list[Line]) -> tuple[dict[str, float], int | None, float | None]:
+    """What the paper says about itself, which is what the extraction is held to."""
     blob = "\n".join(line.text for line in lines[:220])
     sections = {
         letter.upper(): float(marks)
         for letter, _subject, marks in DECLARED_SECTION.findall(blob)
     }
+
+    # 'This section comprises 6 questions of 3 marks each', printed under each heading.
+    # Walked in order because the sentence names no section: it means the one above it.
+    section: str | None = None
+    for line in lines:
+        heading = SECTION.match(line.text.strip())
+        if heading:
+            section = heading.group(1).upper()
+            continue
+        comprises = SECTION_COMPRISES.search(line.text)
+        if comprises and section and section not in sections:
+            sections[section] = float(comprises.group(1)) * float(comprises.group(2))
+
     count = DECLARED_COUNT.search(blob)
-    return sections, int(count.group(1)) if count else None
+    total = DECLARED_TOTAL.search(blob)
+    return (
+        sections,
+        int(count.group(1)) if count else None,
+        float(total.group(1)) if total else None,
+    )
 
 
 def extract_paper(path: str | Path) -> PaperExtract:
@@ -196,27 +343,43 @@ def extract_paper(path: str | Path) -> PaperExtract:
         )
         return out
 
-    declared_sections, declared_count = _declared(lines)
+    lines = _drop_furniture(lines, pages)
+    declared_sections, declared_count, declared_total = _declared(lines)
     out = PaperExtract(
         route="text", page_count=pages,
         declared_sections=declared_sections, declared_count=declared_count,
+        declared_total=declared_total,
     )
 
     section: str | None = None
     current: ExtractedQuestion | None = None
-    #: the number of the question an OR belongs to. In CBSE an internal choice prints the
-    #: alternative UNNUMBERED after the word OR, so it inherits the number just closed --
-    #: treating the next numbered question as the alternative made every following
-    #: question the choice-half of the one before it.
-    alternative_to: str | None = None
+    #: the question a sub-part or an alternative belongs to. In CBSE an internal choice
+    #: prints the alternative UNNUMBERED after the word OR, so it inherits the address of
+    #: the row just closed -- treating the next numbered question as the alternative made
+    #: every following question the choice-half of the one before it.
+    last_closed: ExtractedQuestion | None = None
+    after_or = False
     collected: list[ExtractedQuestion] = []
 
     def close() -> None:
-        nonlocal current
+        nonlocal current, last_closed
         if current is not None:
             current.stem_text = " ".join(current.stem_text.split())[:4000]
             collected.append(current)
+            last_closed = current
             current = None
+
+    def open_row(
+        question_no: str, sub_part: str | None, choice_alt: str | None,
+        stem: str, page: int,
+    ) -> ExtractedQuestion:
+        nonlocal current
+        close()
+        current = ExtractedQuestion(
+            section=section, question_no=question_no, sub_part=sub_part,
+            choice_alt=choice_alt, max_marks=None, stem_text=stem, logical_page=page,
+        )
+        return current
 
     for line in lines:
         text = line.text.strip()
@@ -225,12 +388,13 @@ def extract_paper(path: str | Path) -> PaperExtract:
         if heading:
             close()
             section = heading.group(1).upper()
-            alternative_to = None
+            last_closed = None
+            after_or = False
             continue
 
-        if OR_MARKER.match(text):
-            alternative_to = current.question_no if current else None
+        if is_or_marker(text):
             close()
+            after_or = True
             continue
 
         marks = _marks_on(line)
@@ -241,21 +405,56 @@ def extract_paper(path: str | Path) -> PaperExtract:
 
         start = QUESTION.match(text)
         if start and line.left < line.page_width * 0.22:
-            close()
-            alternative_to = None
-            current = ExtractedQuestion(
-                section=section, question_no=start.group(1), sub_part=None,
-                choice_alt=None, max_marks=None,
-                stem_text=start.group(2), logical_page=line.page,
+            after_or = False
+            rest = start.group(2)
+            # '22. (a) Find the mean ...' -- the first half of an internal choice printed
+            # on the number's own line. Provisional: if no '(b)' ever turns up it is
+            # demoted back to a plain question below, rather than leaving a paper full of
+            # half-choices that nothing answers.
+            opening = CHOICE.match(rest.strip())
+            row = open_row(
+                start.group(1), None,
+                opening.group(1) if opening else None,
+                opening.group(2) if opening else rest,
+                line.page,
             )
+            row.provisional_choice = opening is not None
             continue
 
-        if current is None and alternative_to is not None and len(text) > MIN_STEM_CHARS:
-            # Unnumbered text after an OR: the second alternative of the question before.
-            current = ExtractedQuestion(
-                section=section, question_no=alternative_to, sub_part=None,
-                choice_alt="b", max_marks=None, stem_text=text, logical_page=line.page,
+        anchor = current or last_closed
+        if anchor is not None and line.left < line.page_width * 0.35:
+            sub = SUB_PART.match(text)
+            if sub:
+                # '(iii) (a) Find the total surface area.' -- a sub-part that is itself an
+                # internal choice. Both markers are on the one line.
+                body = sub.group(2).strip()
+                inner = CHOICE.match(body)
+                row = open_row(
+                    anchor.question_no, sub.group(1).lower(),
+                    inner.group(1) if inner else None,
+                    inner.group(2) if inner else body, line.page,
+                )
+                row.provisional_sub_part = True
+                row.provisional_choice = inner is not None
+                after_or = False
+                continue
+
+            alternative = CHOICE.match(text)
+            if alternative and after_or:
+                # The second half of a choice, addressed to whatever the OR interrupted.
+                open_row(
+                    anchor.question_no, anchor.sub_part, alternative.group(1),
+                    alternative.group(2), line.page,
+                )
+                after_or = False
+                continue
+
+        if current is None and after_or and last_closed is not None and len(text) > MIN_STEM_CHARS:
+            # Unnumbered text after an OR: the second alternative, unmarked as such.
+            open_row(
+                last_closed.question_no, last_closed.sub_part, "b", text, line.page,
             )
+            after_or = False
             continue
 
         if current is not None:
@@ -263,9 +462,82 @@ def extract_paper(path: str | Path) -> PaperExtract:
 
     close()
 
-    out.questions = _inherit_choice_marks(_resolve_bilingual(collected))
+    collected = _demote_unmarked_sub_parts(collected)
+    collected = _demote_unpaired_choices(collected)
+    out.questions = _mark_context_rows(
+        _inherit_choice_marks(_resolve_bilingual(collected))
+    )
     _check(out)
     return out
+
+
+def _demote_unmarked_sub_parts(
+    questions: list[ExtractedQuestion],
+) -> list[ExtractedQuestion]:
+    """A sub-part becomes its own row only when it carries its own mark label.
+
+    This is the rule that keeps the split honest. "(iii) (a) Find the total surface area.
+    2" is a question worth two marks and has to be addressed separately or its two marks
+    are lost. "(ii) not black", the tail of a wrapped sentence in question 24, carries no
+    label and is not a question at all -- it is text, and it goes back into the stem it
+    came from, exactly where it was.
+    """
+    out: list[ExtractedQuestion] = []
+    for question in questions:
+        if question.provisional_sub_part and question.max_marks is None:
+            parent = next(
+                (
+                    q for q in reversed(out)
+                    if q.question_no == question.question_no and q.sub_part is None
+                ),
+                None,
+            )
+            if parent is not None:
+                marker = f"({question.sub_part})"
+                if question.choice_alt:
+                    marker += f" ({question.choice_alt})"
+                parent.stem_text = " ".join(
+                    f"{parent.stem_text} {marker} {question.stem_text}".split()
+                )[:4000]
+                continue
+        question.provisional_sub_part = False
+        out.append(question)
+    return out
+
+
+def _demote_unpaired_choices(
+    questions: list[ExtractedQuestion],
+) -> list[ExtractedQuestion]:
+    """An '(a)' with no '(b)' anywhere was never a choice.
+
+    Reading '(a)' as the first half of an internal choice is a guess until the second half
+    turns up. A paper that opens a question with a lettered part and never offers an
+    alternative would otherwise be recorded as a paper full of choices nobody can take.
+    """
+    partners = {
+        (q.question_no, q.sub_part) for q in questions if q.choice_alt == "b"
+    }
+    for question in questions:
+        if question.provisional_choice and question.choice_alt == "a":
+            if (question.question_no, question.sub_part) not in partners:
+                question.stem_text = " ".join(
+                    f"(a) {question.stem_text}".split()
+                )[:4000]
+                question.choice_alt = None
+        question.provisional_choice = False
+    return questions
+
+
+def _mark_context_rows(questions: list[ExtractedQuestion]) -> list[ExtractedQuestion]:
+    """Flag the shared stem of a question whose sub-parts carry the marks."""
+    with_sub_parts = {q.question_no for q in questions if q.sub_part}
+    for question in questions:
+        question.is_context = (
+            question.sub_part is None
+            and question.question_no in with_sub_parts
+            and question.max_marks is None
+        )
+    return questions
 
 
 def _inherit_choice_marks(questions: list[ExtractedQuestion]) -> list[ExtractedQuestion]:
@@ -276,13 +548,13 @@ def _inherit_choice_marks(questions: list[ExtractedQuestion]) -> list[ExtractedQ
     denominator the moment a student answered it.
     """
     primary = {
-        q.question_no: q.max_marks
+        (q.question_no, q.sub_part): q.max_marks
         for q in questions
-        if q.choice_alt is None and q.max_marks is not None
+        if q.choice_alt in (None, "a") and q.max_marks is not None
     }
     for question in questions:
         if question.choice_alt == "b" and question.max_marks is None:
-            question.max_marks = primary.get(question.question_no)
+            question.max_marks = primary.get((question.question_no, question.sub_part))
     return questions
 
 
@@ -324,7 +596,40 @@ def _check(out: PaperExtract) -> None:
         out.problems.append("no questions were found in a paper that does carry text")
         return
 
-    missing = [q.address for q in out.questions if q.max_marks is None]
+    # The total the paper prints for itself, against the total that was read off it. This
+    # is the check that catches a mark the reader never saw: a sub-part whose label was
+    # missed costs marks nothing else notices, because every row that was read looks fine.
+    if out.declared_total is not None:
+        short = out.declared_total - out.total_marks
+        if abs(short) > 0.01:
+            out.problems.append(
+                f"the paper is worth {out.declared_total:g} marks and "
+                f"{out.total_marks:g} were read"
+                + (
+                    f", so {short:g} are unaccounted for. A question with sub-parts worth "
+                    f"different marks is the usual cause: check that each sub-part carries "
+                    f"its own mark."
+                    if short > 0
+                    else ", so more were read than the paper carries. A mark counted twice "
+                    "is the usual cause: check the questions with an internal choice."
+                )
+            )
+
+    both = [
+        q.address for q in out.questions
+        if q.sub_part is None and q.max_marks is not None
+        and any(s.question_no == q.question_no and s.sub_part for s in out.questions)
+    ]
+    if both:
+        out.problems.append(
+            "these questions carry marks of their own and also have sub-parts that carry "
+            f"marks, so one of the two is wrong: {', '.join(both[:8])}"
+        )
+
+    missing = [
+        q.address for q in out.questions
+        if q.max_marks is None and not q.is_context
+    ]
     if missing:
         out.problems.append(
             f"{len(missing)} question(s) carry no mark label: {', '.join(missing[:8])}"
@@ -334,14 +639,19 @@ def _check(out: PaperExtract) -> None:
     # The count a paper declares is of questions. The second half of an internal choice is
     # not another question -- counting it made a correct 39-question extraction report as
     # 46 and look broken.
-    primaries = [q for q in out.questions if q.choice_alt is None]
-    if out.declared_count and len(primaries) != out.declared_count:
+    # A question is a number on the paper. Neither the second half of an internal choice
+    # nor a sub-part is another question: counting the choice halves made a correct
+    # 39-question extraction report as 46, and counting sub-parts hid six questions that
+    # print only as "(a) ... OR ... (b)" and so have no unlettered row at all.
+    numbers = sorted({
+        int(q.question_no) for q in out.questions if q.question_no.isdigit()
+    })
+    if out.declared_count and len(numbers) != out.declared_count:
         out.problems.append(
             f"the paper declares {out.declared_count} questions and "
-            f"{len(primaries)} were found"
+            f"{len(numbers)} were found"
         )
 
-    numbers = sorted({int(q.question_no) for q in primaries if q.question_no.isdigit()})
     gaps = [n for n in range(1, (numbers[-1] if numbers else 0) + 1) if n not in numbers]
     if gaps:
         out.problems.append(f"question numbers missing from the paper: {gaps[:12]}")
@@ -350,9 +660,26 @@ def _check(out: PaperExtract) -> None:
         found = sum(
             q.max_marks or 0.0
             for q in out.questions
-            if q.section == letter and q.choice_alt in (None, "a")
+            if q.section == letter and q.choice_alt in (None, "a") and not q.is_context
         )
         if abs(found - declared) > 0.01:
             out.problems.append(
                 f"section {letter} declares {declared:g} marks, {found:g} were found"
             )
+
+
+def context_addresses(rows) -> set[str]:
+    """The addresses among these rows that are a shared stem rather than a question.
+
+    Takes anything with ``question_no``, ``sub_part``, ``max_marks`` and ``address``, so
+    the same rule serves both the freshly parsed rows and the staged rows read back from
+    the database. It has to be one rule: a stem the reader knows is context and the
+    confirm step does not would block a paper from ever being confirmed.
+    """
+    with_sub_parts = {row.question_no for row in rows if row.sub_part}
+    return {
+        row.address for row in rows
+        if row.sub_part is None
+        and row.question_no in with_sub_parts
+        and row.max_marks is None
+    }

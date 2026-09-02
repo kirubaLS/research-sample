@@ -245,8 +245,8 @@ export default function PaperPage() {
         <section className="card">
           <div className="tiles">
             <Tile n={scan.questions} label="questions read" />
+            <Tile n={scan.sub_parts} label="sub parts" />
             <Tile n={scan.choice_alternatives} label="choice alternatives" />
-            <Tile n={scan.total_marks} label="marks in total" />
             <Tile n={scan.pages} label="pages" />
             {scan.declared.questions != null && (
               <Tile
@@ -256,6 +256,11 @@ export default function PaperPage() {
               />
             )}
           </div>
+
+          {/* The marks total, on its own and in words. A sub part whose label was missed
+              takes its marks with it and leaves nothing behind to notice: every row still
+              on screen looks right, and only this line shows the paper is short. */}
+          <MarksCheck read={scan.total_marks} declared={scan.declared.total_marks} />
 
           {scan.problems.length === 0 ? (
             <p className="verdict good">
@@ -366,6 +371,44 @@ export default function PaperPage() {
   );
 }
 
+function MarksCheck({ read, declared }: { read: number; declared: number | null }) {
+  if (declared == null) {
+    return (
+      <p className="markscheck">
+        <strong>{read} marks</strong> were read. This paper does not print a total of its
+        own, so there is nothing to check the reading against.
+      </p>
+    );
+  }
+  const short = Math.round((declared - read) * 100) / 100;
+  if (short === 0) {
+    return (
+      <p className="markscheck good">
+        <strong>
+          {read} of {declared} marks
+        </strong>{" "}
+        were read. The paper adds up to what it says it is worth.
+      </p>
+    );
+  }
+  return (
+    <div className="markscheck warn">
+      <p>
+        <strong>
+          {read} of {declared} marks
+        </strong>{" "}
+        were read, so {Math.abs(short)}{" "}
+        {short > 0 ? "are missing" : "are counted twice"}.
+      </p>
+      <p className="small">
+        {short > 0
+          ? "A question whose parts are worth different marks is the usual cause. Open the ones with parts (i), (ii) and (iii) and check that each part carries its own marks."
+          : "A question with an internal choice is the usual cause. Only one half of a choice counts towards the total."}
+      </p>
+    </div>
+  );
+}
+
 function Tile({ n, label, tone }: { n: number; label: string; tone?: "good" | "warn" }) {
   return (
     <div className={`tile${tone ? ` tile-${tone}` : ""}`}>
@@ -385,17 +428,28 @@ function QuestionRow({
   onEdit: (address: string, patch: Record<string, unknown>) => void;
 }) {
   const placed = q.mapped_to;
-  const missing = q.max_marks == null;
+  // A case study opens with a paragraph its parts share. It is worth nothing on its own,
+  // and showing it as a question with no marks sends a person hunting for a mark that was
+  // never printed.
+  const missing = q.max_marks == null && !q.is_context;
   return (
-    <li className={`qrow${placed ? "" : " qrow-blocked"}${missing ? " qrow-missing" : ""}`}>
+    <li className={`qrow${placed || q.is_context ? "" : " qrow-blocked"}${missing ? " qrow-missing" : ""}`}>
       <div className="qhead">
         <span className="qno">
           {q.section ? `${q.section} · ` : ""}
           {q.question_no}
-          {q.choice_alt === "b" ? " (or)" : ""}
+          {q.sub_part ? ` (${q.sub_part})` : ""}
+          {q.choice_alt ? ` (${q.choice_alt})` : ""}
+          {/* A choice is answered instead of its other half, never as well as it. Saying
+              so on the row is what stops the pair being read as two questions. */}
+          {q.choice_alt === "b" && <span className="editedby">instead of (a)</span>}
           {q.edited_by && <span className="editedby">corrected by {q.edited_by}</span>}
         </span>
-        {editable ? (
+        {q.is_context ? (
+          <span className="qmarks">
+            <em className="muted">the stem its parts share</em>
+          </span>
+        ) : editable ? (
           <span className="qedit">
             <label>
               <span className="sr">Marks for question {q.question_no}</span>

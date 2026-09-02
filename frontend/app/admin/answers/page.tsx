@@ -161,12 +161,15 @@ export default function AnswersPage() {
   const running = useMemo(() => {
     if (!sheet) return { scored: 0, available: 0, entered: 0 };
     let scored = 0;
-    let available = 0;
     let entered = 0;
+    // An internal choice prints twice and is worth its marks once, so the two halves are
+    // one question here. Adding both doubled the total a student was asked for.
+    const worth = new Map<string, number>();
     for (const q of sheet.questions) {
       const d = drafts[q.address];
       if (!d || d.state === "not_offered") continue;
-      available += q.max_marks;
+      const key = `${q.section ?? ""}/${q.question_no}/${q.sub_part ?? ""}`;
+      worth.set(key, Math.max(worth.get(key) ?? 0, q.max_marks));
       if (d.state === "awarded" && d.marks.trim() !== "") {
         scored += Number(d.marks);
         entered += 1;
@@ -174,6 +177,8 @@ export default function AnswersPage() {
         entered += 1;
       }
     }
+    let available = 0;
+    for (const marks of worth.values()) available += marks;
     return { scored, available, entered };
   }, [sheet, drafts]);
 
@@ -415,7 +420,11 @@ function Row({
         <span className="no">
           {q.section ? `${q.section} · ` : ""}
           {q.question_no}
-          {q.choice_alt === "b" ? " (or)" : ""}
+          {q.sub_part ? ` (${q.sub_part})` : ""}
+          {q.choice_alt ? ` (${q.choice_alt})` : ""}
+          {/* A choice is answered instead of its other half, never as well as it. Saying
+              so on the row is what stops the pair being read as two questions. */}
+          {q.choice_alt === "b" && <span className="editedby">instead of (a)</span>}
         </span>
         <span className="worth">out of {q.max_marks}</span>
       </div>

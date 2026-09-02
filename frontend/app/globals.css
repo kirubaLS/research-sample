@@ -427,6 +427,20 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 .verdict ul { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; }
 .verdict p { margin: 0; }
 
+/* The marks total, set apart from the tile row above it. One ratio, in words, because
+   "69 of 80" is the only thing on the screen that shows a mark was never found. */
+.markscheck {
+  margin: 14px 0 0; padding: 13px 16px; border-radius: var(--radius);
+  border-left: 3px solid var(--rule-2); background: var(--surface-2);
+  font-size: 15.5px;
+}
+.markscheck p { margin: 0; }
+.markscheck p + p { margin-top: 6px; }
+.markscheck strong { font-variant-numeric: tabular-nums; }
+.markscheck.good { background: var(--verify-soft); border-color: var(--verify); }
+.markscheck.warn { background: var(--warn-soft); border-color: var(--warn); }
+.markscheck .small { color: var(--ink-2); font-size: 14px; }
+
 .alert {
   margin: 0;
   padding: 12px 15px;

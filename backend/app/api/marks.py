@@ -400,7 +400,7 @@ async def scan_paper(
     Re-scanning replaces the staged rows for questions that have not been promoted yet, so
     a paper can be re-read after a bad upload without unpicking what mapping already did.
     """
-    from app.extraction.paper import extract_paper
+    from app.extraction.paper import context_addresses, extract_paper
 
     assessment = _get_assessment(db, school, assessment_id)
     if assessment.qmatrix_frozen_at:
@@ -474,6 +474,9 @@ async def scan_paper(
         **(assessment.declared or {}),
         "sections": extract.declared_sections or None,
         "question_count": extract.declared_count,
+        #: what the cover says the paper is worth. Kept so the confirm step can hold the
+        #: reading to it long after this response has scrolled away.
+        "total_marks": extract.declared_total,
     }
 
     # The paper itself, kept exactly as it arrived. Storing only what we read off it left
@@ -484,19 +487,24 @@ async def scan_paper(
     )
     db.commit()
 
-    primaries = [q for q in extract.questions if q.choice_alt is None]
+    context = context_addresses(extract.questions)
     return {
         "assessment_id": assessment.id,
         "route": extract.route,
         "pages": extract.page_count,
-        "questions": len(primaries),
-        "choice_alternatives": len(extract.questions) - len(primaries),
+        #: a question is a number on the paper, counted once however many halves and
+        #: sub-parts it prints as
+        "questions": len({q.question_no for q in extract.questions}),
+        "sub_parts": sum(1 for q in extract.questions if q.sub_part),
+        "choice_alternatives": sum(1 for q in extract.questions if q.choice_alt == "b"),
+        "context_stems": len(context),
         "total_marks": extract.total_marks,
         "staged": written,
         "already_promoted": kept,
         "declared": {
             "questions": extract.declared_count,
             "sections": extract.declared_sections or None,
+            "total_marks": extract.declared_total,
         },
         #: Every disagreement between the extraction and what the paper says about itself.
         #: Empty means the two agree, which is the only evidence the read is right.
@@ -537,6 +545,17 @@ def read_scan(
             "board_unit": unit.label if unit else None,
         }
 
+    from app.extraction.paper import context_addresses
+
+    context = context_addresses(rows)
+    read_total = float(sum(
+        r.max_marks or 0 for r in rows
+        if r.choice_alt in (None, "a") and r.address not in context
+    ))
+    declared_total = (assessment.declared or {}).get("total_marks")
+    if declared_total is None and assessment.total_marks is not None:
+        declared_total = float(assessment.total_marks)
+
     return {
         "assessment_id": assessment.id,
         "route": assessment.route,
@@ -545,12 +564,27 @@ def read_scan(
         "confirmed_by": assessment.scan_confirmed_by,
         "edited": sum(1 for r in rows if r.edited_at),
         "mapped": sum(1 for r in rows if r.question_id),
-        "marks_missing": sum(1 for r in rows if r.max_marks is None),
+        "marks_missing": sum(
+            1 for r in rows if r.max_marks is None and r.address not in context
+        ),
+        #: The reading against what the paper says it is worth. A sub-part whose label was
+        #: missed costs marks that nothing else notices, because every row that was read
+        #: looks perfectly fine on its own.
+        "marks": {
+            "read": read_total,
+            "declared": float(declared_total) if declared_total is not None else None,
+            "short_by": (
+                round(float(declared_total) - read_total, 2)
+                if declared_total is not None else None
+            ),
+        },
         "questions": [
             {
                 "address": r.address, "section": r.section, "question_no": r.question_no,
+                "sub_part": r.sub_part,
                 "choice_alt": r.choice_alt,
                 "max_marks": float(r.max_marks) if r.max_marks is not None else None,
+                "is_context": r.address in context,
                 "stem_text": r.stem_text, "page": r.logical_page,
                 "edited_by": r.edited_by,
                 "mapped_to": mapped(r),
@@ -676,6 +710,11 @@ def confirm_scan(
     Refused while any question still lacks a mark, because a question worth nothing is
     not a question anyone read -- it is a gap, and confirming around it would put a
     signature on something incomplete.
+
+    Refused too while the marks read do not add up to what the paper says it is worth.
+    Every row can look right and the paper still be short: a sub-part whose label was
+    missed takes its marks with it and leaves nothing behind to notice. The total is the
+    only place that shows.
     """
     assessment = _get_assessment(db, school, assessment_id)
     rows = list(db.scalars(
@@ -684,13 +723,43 @@ def confirm_scan(
     if not rows:
         raise HTTPException(422, "nothing has been scanned for this assessment")
 
-    missing = [r.address for r in rows if r.max_marks is None]
+    from app.extraction.paper import context_addresses
+
+    # A case study's opening paragraph is the stem its sub-parts share. It is worth
+    # nothing on its own and is not a gap.
+    context = context_addresses(rows)
+    missing = [
+        r.address for r in rows if r.max_marks is None and r.address not in context
+    ]
     if missing:
         raise HTTPException(
             422,
             f"{len(missing)} question(s) still carry no marks: {', '.join(missing[:8])}"
             + (" ..." if len(missing) > 8 else "")
             + ". Set them, or remove the rows that are not questions.",
+        )
+
+    read_total = float(sum(
+        r.max_marks or 0 for r in rows
+        if r.choice_alt in (None, "a") and r.address not in context
+    ))
+    declared_total = (assessment.declared or {}).get("total_marks")
+    if declared_total is None and assessment.total_marks is not None:
+        declared_total = float(assessment.total_marks)
+    if declared_total is not None and abs(float(declared_total) - read_total) > 0.01:
+        short = float(declared_total) - read_total
+        raise HTTPException(
+            422,
+            f"the paper is worth {float(declared_total):g} marks and the questions here "
+            f"add up to {read_total:g}"
+            + (
+                f", so {short:g} are missing. A question whose sub-parts are worth "
+                "different marks is the usual cause: open the ones with parts (i), (ii), "
+                "(iii) and check that each part carries its own marks."
+                if short > 0 else
+                f", so {-short:g} are counted twice. A question with an internal choice "
+                "is the usual cause: only one half of a choice counts."
+            ),
         )
 
     assessment.scan_confirmed_at = datetime.now(UTC).isoformat()
@@ -702,7 +771,7 @@ def confirm_scan(
         "confirmed_by": assessment.scan_confirmed_by,
         "questions": len(rows),
         "edited": sum(1 for r in rows if r.edited_at),
-        "total_marks": float(sum(r.max_marks or 0 for r in rows if r.choice_alt in (None, "a"))),
+        "total_marks": read_total,
         "next": f"POST /assessments/{assessment.id}/map",
     }
 
@@ -788,8 +857,17 @@ def map_paper_to_book(
         ))
     }
 
-    mapped, blocked = 0, []
+    from app.extraction.paper import context_addresses
+
+    context = context_addresses(staged)
+    mapped, blocked, context_kept = 0, [], 0
     for row in staged:
+        if row.address in context:
+            # The shared stem of a case study. Its sub-parts are the questions and they
+            # map on their own; placing the paragraph too would file the same marks twice.
+            row.blocked_reason = None
+            context_kept += 1
+            continue
         if not (row.stem_text or "").strip():
             row.blocked_reason = "no stem text was extracted, so there is nothing to place"
             blocked.append(row.address)
@@ -873,6 +951,8 @@ def map_paper_to_book(
         "retrieval": mode,
         "mapped": mapped,
         "blocked": len(blocked),
+        #: shared stems that were deliberately left unplaced, not failures
+        "context_stems": context_kept,
         "blocked_addresses": blocked[:20],
         "needs_review": db.scalar(select(func.count(QuestionPlacement.id)).where(
             QuestionPlacement.needs_review.is_(True),
@@ -960,6 +1040,7 @@ def read_answer_sheet(
             "address": question.address,
             "section": question.section,
             "question_no": question.question_no,
+            "sub_part": question.sub_part,
             "choice_alt": question.choice_alt,
             "max_marks": float(question.max_marks),
             "stem_text": question.stem_text,
@@ -982,11 +1063,32 @@ def read_answer_sheet(
         "entered": len(entered),
         "remaining": len(rows) - len(entered),
         "scored": sum(r["marks"] or 0.0 for r in rows if r["state"] != "not_offered"),
-        "available": sum(
-            r["max_marks"] for r in rows
-            if r["state"] != "not_offered" and r["choice_alt"] in (None, "a")
-        ),
+        "available": _available(rows),
     }
+
+
+def _available(rows: list[dict]) -> float:
+    """What this student was asked, counting every question exactly once.
+
+    An internal choice prints twice and is worth its marks once, so the two halves are one
+    question here. Summing both doubled it; counting only the (a) half lost it entirely
+    whenever the student answered the (b) half and (a) was marked as not offered -- which
+    is the normal way round, so the figure was wrong on any sheet with a choice in it.
+    """
+    groups: dict[tuple, list[dict]] = {}
+    for row in rows:
+        key = (row["section"], row["question_no"], row["sub_part"])
+        groups.setdefault(key, []).append(row)
+
+    total = 0.0
+    for members in groups.values():
+        offered = [m for m in members if m["state"] != "not_offered"]
+        if not offered:
+            continue
+        # The halves of a choice are worth the same; max rather than sum so that a sheet
+        # where neither half has been touched yet still counts the question once.
+        total += max(float(m["max_marks"]) for m in offered)
+    return total
 
 
 @router.post("/{assessment_id}/answers/{student_id}/confirm")

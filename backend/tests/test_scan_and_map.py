@@ -143,7 +143,10 @@ def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
 def test_mapping_refuses_when_no_book_is_loaded(client, school):
     r = client.post(
         "/assessments", headers=_auth(school),
-        json={"subject_code": "X.SCI", "title": "No book", "total_marks": 5},
+        # 8, because that is what the fixture paper adds up to: confirming a scan whose
+        # marks disagree with the paper's own total is refused, and this test is about the
+        # book being absent, not about the totals.
+        json={"subject_code": "X.SCI", "title": "No book", "total_marks": 8},
     )
     aid = r.json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(PAPER))
@@ -389,3 +392,150 @@ def test_an_empty_page_is_named_rather_than_silently_skipped(client, school, ass
     ])
     assert r.status_code == 422
     assert "blank.pdf is empty" in r.json()["detail"]
+
+
+# ----------------------------------------------------------------------------------------
+# Sub-part marks, through HTTP
+# ----------------------------------------------------------------------------------------
+#: A case study: a paragraph of context, then parts worth 1, 1 and 2. Read as one question
+#: it is worth 1, and the paper is four marks short with nothing on screen to show it.
+CASE_STUDY = [[
+    (60, 60, "Maximum Marks: 6"),
+    (60, 90, "SECTION A"),
+    (60, 120, "1. Find the mean of the grouped data by the"),
+    (60, 134, "step-deviation method, assumed mean 200."),
+    (MARK_X, 120, "2"),
+    (60, 200, "SECTION E"),
+    (60, 230, "2. A dairy packs milk in sealed vessels shaped like a cylinder"),
+    (60, 244, "with two hemispherical ends of the same radius."),
+    (60, 274, "(i) Find the length of the cylindrical portion."),
+    (MARK_X, 274, "1"),
+    (60, 304, "(ii) Find the curved surface area of the cylinder."),
+    (MARK_X, 304, "1"),
+    (60, 334, "(iii) Find the total surface area of the vessel."),
+    (MARK_X, 334, "2"),
+]]
+
+
+@pytest.fixture
+def case_study_assessment(client, school):
+    r = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Case study", "total_marks": 6},
+    )
+    return r.json()["assessment_id"]
+
+
+def test_each_sub_part_is_staged_with_its_own_marks(client, school, case_study_assessment):
+    out = _upload(client, school, case_study_assessment, _paper_bytes(CASE_STUDY))
+    assert out.status_code == 201, out.text
+    body = out.json()
+
+    assert body["total_marks"] == 6
+    assert body["declared"]["total_marks"] == 6
+    assert body["sub_parts"] == 3
+    assert body["problems"] == []
+
+    read = client.get(
+        f"/assessments/{case_study_assessment}/scan", headers=_auth(school)
+    ).json()
+    marks = {q["address"]: q["max_marks"] for q in read["questions"]}
+    assert marks["E/2/i/"] == 1
+    assert marks["E/2/ii/"] == 1
+    assert marks["E/2/iii/"] == 2
+    assert read["marks"] == {"read": 6.0, "declared": 6.0, "short_by": 0.0}
+
+
+def test_a_shared_stem_does_not_block_the_scan_from_being_confirmed(
+    client, school, case_study_assessment
+):
+    """The paragraph above (i), (ii), (iii) carries no marks and is not a gap."""
+    _upload(client, school, case_study_assessment, _paper_bytes(CASE_STUDY))
+    read = client.get(
+        f"/assessments/{case_study_assessment}/scan", headers=_auth(school)
+    ).json()
+    assert read["marks_missing"] == 0
+    context = [q for q in read["questions"] if q["is_context"]]
+    assert [q["address"] for q in context] == ["E/2//"]
+
+    out = client.post(
+        f"/assessments/{case_study_assessment}/scan/confirm",
+        headers=_auth(school), json={},
+    )
+    assert out.status_code == 200, out.text
+    assert out.json()["total_marks"] == 6
+
+
+def test_confirming_is_refused_while_the_marks_do_not_add_up(client, school):
+    """The guardrail the totals exist for.
+
+    Every row here is readable and looks right. The paper is simply short, because a
+    sub-part's marks were never found -- and a report built on it would understate what
+    the student was asked, silently.
+    """
+    r = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Short", "total_marks": 80},
+    )
+    aid = r.json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(PAPER))
+
+    out = client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
+    assert out.status_code == 422
+    detail = out.json()["detail"]
+    assert "worth 80 marks" in detail and "add up to 8" in detail
+    assert "72 are missing" in detail
+    # And it says where to look, because "the totals disagree" is not actionable.
+    assert "(i), (ii), (iii)" in detail
+
+
+def test_the_marks_a_person_corrects_are_what_the_total_is_held_to(client, school):
+    """Editing a row's marks has to move the total, or the check cannot be satisfied."""
+    r = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Fixable", "total_marks": 10},
+    )
+    aid = r.json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(PAPER))
+    assert client.post(
+        f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={}
+    ).status_code == 422
+
+    # The paper really is worth 10: question 2 is a 7-mark question read as 5.
+    fix = client.patch(
+        f"/assessments/{aid}/scan/A/2//", headers=_auth(school), json={"max_marks": 7},
+    )
+    assert fix.status_code == 200, fix.text
+
+    out = client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
+    assert out.status_code == 200, out.text
+    assert out.json()["total_marks"] == 10
+
+
+def test_the_marks_a_student_was_asked_for_count_a_choice_once(client, school):
+    """A question printed as "(a) ... OR ... (b)" is worth its marks once.
+
+    Adding both halves doubled what the sheet said the student was asked for; counting
+    only the (a) half lost the marks entirely when the student answered (b) and (a) was
+    marked as not offered, which is the normal way round.
+    """
+    from app.api.marks import _available
+
+    rows = [
+        {"section": "B", "question_no": "22", "sub_part": None, "choice_alt": "a",
+         "max_marks": 2.0, "state": "not_offered"},
+        {"section": "B", "question_no": "22", "sub_part": None, "choice_alt": "b",
+         "max_marks": 2.0, "state": "awarded"},
+        {"section": "A", "question_no": "1", "sub_part": None, "choice_alt": None,
+         "max_marks": 1.0, "state": "awarded"},
+    ]
+    assert _available(rows) == 3.0
+
+    # Untouched, both halves still count the question once.
+    for row in rows:
+        row["state"] = None
+    assert _available(rows) == 3.0
+
+    # A question the student was not asked at all counts for nothing.
+    rows[2]["state"] = "not_offered"
+    assert _available(rows) == 2.0

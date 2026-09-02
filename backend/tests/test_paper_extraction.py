@@ -172,3 +172,247 @@ def test_section_headings_are_read_in_the_forms_papers_print_them(tmp_path, head
     ]])
     out = extract_paper(path)
     assert out.questions[0].section == heading.strip()[-1].upper()
+
+
+# ----------------------------------------------------------------------------------------
+# Sub-parts that carry their own marks
+#
+# Every case below is from the Class X unit test paper this pilot reads. That paper is
+# worth 80 marks and was read as 69: the eleven that went missing were sub-part marks the
+# reader never looked for.
+# ----------------------------------------------------------------------------------------
+def test_sub_parts_with_their_own_marks_become_their_own_questions(tmp_path):
+    """A case study is worth 4 marks as 1 + 1 + 2, not 1.
+
+    The reader took the first label it saw, 1, as the mark for the whole question and
+    dropped the rest on the floor. Three case studies cost the paper nine marks.
+    """
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION E"),
+        (60, 130, "36. A dairy packs milk in sealed vessels shaped like a cylinder."),
+        (60, 160, "(i) Find the length of the cylindrical portion."),
+        (MARK_X, 160, "1"),
+        (60, 190, "(ii) Find the curved surface area of the cylinder."),
+        (MARK_X, 190, "1"),
+        (60, 220, "(iii) Find the total surface area of the vessel."),
+        (MARK_X, 220, "2"),
+    ]])
+
+    out = extract_paper(path)
+    by_address = {q.address: q for q in out.questions}
+
+    assert by_address["E/36/i/"].max_marks == 1
+    assert by_address["E/36/ii/"].max_marks == 1
+    assert by_address["E/36/iii/"].max_marks == 2
+    assert out.total_marks == 4
+
+    # The paragraph above the sub-parts is the stem they share, not a fourth question.
+    parent = by_address["E/36//"]
+    assert parent.is_context
+    assert parent.max_marks is None
+    assert "dairy" in parent.stem_text
+
+
+def test_a_context_stem_is_not_reported_as_a_question_missing_its_marks(tmp_path):
+    """Flagging it would train the reader to ignore the warning that matters."""
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION E"),
+        (60, 130, "36. A dairy packs milk in sealed vessels shaped like a cylinder."),
+        (60, 160, "(i) Find the length of the cylindrical portion."),
+        (MARK_X, 160, "1"),
+    ]])
+
+    out = extract_paper(path)
+    assert not any("no mark label" in p for p in out.problems)
+
+
+def test_a_sub_part_without_its_own_marks_stays_part_of_its_question(tmp_path):
+    """The rule that keeps the split honest.
+
+    Question 24 asks for the probability that a ball is "(i) red (ii) not black" -- one
+    2-mark question whose parts are a wrapped sentence. Splitting those would invent two
+    questions worth nothing and lose the two marks that are really there.
+    """
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION B"),
+        (60, 130, "24. A bag contains 5 red balls and 7 black balls. Find the"),
+        (MARK_X, 130, "2"),
+        (60, 160, "(i) red"),
+        (60, 190, "(ii) not black"),
+    ]])
+
+    out = extract_paper(path)
+    assert [q.address for q in out.questions] == ["B/24//"]
+    question = out.questions[0]
+    assert question.max_marks == 2
+    assert "(i) red" in question.stem_text and "(ii) not black" in question.stem_text
+    assert out.total_marks == 2
+
+
+def test_a_sub_part_can_itself_offer_an_internal_choice(tmp_path):
+    """'(iii) (a) ... OR (iii) (b) ...' is one 2-mark sub-part, not two."""
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION E"),
+        (60, 130, "36. A dairy packs milk in sealed vessels shaped like a cylinder."),
+        (60, 160, "(iii) (a) Find the total surface area of the vessel."),
+        (MARK_X, 160, "2"),
+        (290, 190, "O R"),
+        (60, 220, "(iii) (b) Find the volume of the vessel."),
+        (MARK_X, 220, "2"),
+    ]])
+
+    out = extract_paper(path)
+    by_address = {q.address: q for q in out.questions}
+    assert by_address["E/36/iii/a"].max_marks == 2
+    assert by_address["E/36/iii/b"].max_marks == 2
+    assert out.total_marks == 2
+
+
+def test_a_letter_spaced_or_is_still_an_or(tmp_path):
+    """Papers letter-space the word to set it apart, and it extracts as 'O R'.
+
+    Matching only the unspaced word meant every internal choice in the pilot paper was
+    read as more of the question before it: six questions, and both halves in one stem.
+    """
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION B"),
+        (60, 130, "22. (a) Find the mean of the following distribution."),
+        (MARK_X, 130, "2"),
+        (290, 160, "O R"),
+        (60, 190, "(b) Find the modal class of the distribution."),
+    ]])
+
+    out = extract_paper(path)
+    by_address = {q.address: q for q in out.questions}
+    assert set(by_address) == {"B/22//a", "B/22//b"}
+    # An alternative is worth what the question it replaces is worth.
+    assert by_address["B/22//b"].max_marks == 2
+    # And a student answers one of the two.
+    assert out.total_marks == 2
+
+
+def test_an_a_with_no_b_is_not_a_choice(tmp_path):
+    """Reading '(a)' as half a choice is a guess until the other half turns up."""
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION B"),
+        (60, 130, "21. (a) Find the mean of the following distribution."),
+        (MARK_X, 130, "2"),
+        (60, 160, "22. Define the modal class."),
+        (MARK_X, 160, "2"),
+    ]])
+
+    out = extract_paper(path)
+    by_address = {q.address: q for q in out.questions}
+    assert set(by_address) == {"B/21//", "B/22//"}
+    assert by_address["B/21//"].stem_text.startswith("(a)")
+    assert out.total_marks == 4
+
+
+def test_a_mark_printed_on_the_stems_own_line_is_still_read(tmp_path):
+    """Question 23 read as carrying no marks because its label shared the stem's row.
+
+    The label is a separate span in a different font at the right margin; the sentence it
+    follows is one span in the body font. That difference is what tells them apart.
+    """
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((60, 100), "SECTION B", fontsize=10)
+    page.insert_text((60, 130), "23. Find the value of the missing frequency f.", fontsize=10)
+    page.insert_text((MARK_X, 130), "2", fontsize=10, fontname="hebo")
+    path = tmp_path / "same-row.pdf"
+    doc.save(path)
+    doc.close()
+
+    out = extract_paper(path)
+    assert [q.address for q in out.questions] == ["B/23//"]
+    assert out.questions[0].max_marks == 2
+    assert not out.questions[0].stem_text.endswith("2")
+
+
+# ----------------------------------------------------------------------------------------
+# What the paper says it is worth
+# ----------------------------------------------------------------------------------------
+def test_the_total_the_paper_declares_is_checked_against_what_was_read(tmp_path):
+    """The check that catches a mark nothing else notices.
+
+    Every row that was read looks fine; the paper is simply short. Without this the
+    extraction reported no problems at all while eleven marks were missing.
+    """
+    path = _pdf(tmp_path, [[
+        (60, 60, "Maximum Marks: 80"),
+        (60, 100, "SECTION A"),
+        (60, 130, "1. What is the mean of grouped data?"),
+        (MARK_X, 130, "1"),
+    ]])
+
+    out = extract_paper(path)
+    assert out.declared_total == 80
+    assert out.total_marks == 1
+    assert any(
+        "worth 80 marks and 1 were read" in p and "79 are unaccounted for" in p
+        for p in out.problems
+    )
+
+
+def test_a_paper_whose_marks_add_up_reports_no_shortfall(tmp_path):
+    path = _pdf(tmp_path, [[
+        (60, 60, "Maximum Marks: 3"),
+        (60, 100, "SECTION A"),
+        (60, 130, "1. What is the mean of grouped data?"),
+        (MARK_X, 130, "1"),
+        (60, 160, "2. Define the modal class of a distribution."),
+        (MARK_X, 160, "2"),
+    ]])
+
+    out = extract_paper(path)
+    assert out.total_marks == 3
+    assert not any("unaccounted for" in p for p in out.problems)
+
+
+def test_a_section_that_declares_its_marks_per_question_is_checked(tmp_path):
+    """'This section comprises 5 questions of 2 marks each' is a self-check worth 10."""
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION B"),
+        (60, 115, "This section comprises 5 questions of 2 marks each."),
+        (60, 145, "21. Find the mean of the following distribution."),
+        (MARK_X, 145, "2"),
+    ]])
+
+    out = extract_paper(path)
+    assert out.declared_sections["B"] == 10
+    assert any("section B declares 10 marks, 2 were found" in p for p in out.problems)
+
+
+def test_a_question_cannot_carry_marks_and_have_sub_parts_that_do(tmp_path):
+    """Either the label belongs to the question or to its parts. Both is a misread, and
+    guessing which would silently double or halve the paper."""
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION E"),
+        (60, 130, "36. A dairy packs milk in sealed vessels shaped like a cylinder."),
+        (MARK_X, 130, "4"),
+        (60, 160, "(i) Find the length of the cylindrical portion."),
+        (MARK_X, 160, "1"),
+    ]])
+
+    out = extract_paper(path)
+    assert any("carry marks of their own and also have sub-parts" in p for p in out.problems)
+
+
+def test_a_running_header_is_not_read_as_the_other_half_of_a_choice(tmp_path):
+    """When OR falls at a page break, the footer and the next page's header come between
+    it and the alternative. Question 27's alternative was recorded as the school's name."""
+    header = (60, 40, "Bharat International Senior Secondary School and Yaadhum")
+    footer = (60, 800, "Page of 6")
+    path = _pdf(tmp_path, [
+        [header, footer, (60, 100, "SECTION C"),
+         (60, 130, "27. (a) Find the capacity of the glass."), (MARK_X, 130, "3"),
+         (290, 160, "O R")],
+        [header, footer, (60, 130, "(b) Find the volume of the iron pole.")],
+        [header, footer, (60, 130, "28. Find the mean of the distribution."),
+         (MARK_X, 130, "3")],
+    ])
+
+    out = extract_paper(path)
+    by_address = {q.address: q for q in out.questions}
+    assert "volume of the iron pole" in by_address["C/27//b"].stem_text
+    assert not any("Bharat" in q.stem_text for q in out.questions)
