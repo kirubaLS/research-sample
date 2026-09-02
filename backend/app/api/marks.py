@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin, require_reader
+from app.api.deps import require_admin, require_reader, require_scanner
 from app.api.documents import content_type_for, store_document
 from app.api.schemas import (
     AssessmentIn,
@@ -56,7 +56,7 @@ def _get_assessment(db: Session, school: School, assessment_id: str) -> Assessme
 
 @router.post("")
 def create_assessment(
-    body: AssessmentIn, school: School = Depends(require_admin), db: Session = Depends(get_session)
+    body: AssessmentIn, school: School = Depends(require_scanner), db: Session = Depends(get_session)
 ) -> dict:
     a = Assessment(
         school_id=school.id, subject_code=body.subject_code, title=body.title,
@@ -388,7 +388,7 @@ def reconcile(
 async def scan_paper(
     assessment_id: str,
     files: list[UploadFile] = File(...),
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """Read a question paper PDF into staged questions.
@@ -604,7 +604,7 @@ def edit_scanned_question(
     assessment_id: str,
     address: str,
     body: ScanEditIn,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """Correct what the extractor read, before it becomes fact.
@@ -668,7 +668,7 @@ class ConfirmIn(BaseModel):
 def confirm_scan(
     assessment_id: str,
     body: ConfirmIn,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person states that these questions are what the paper says.
@@ -710,7 +710,7 @@ def confirm_scan(
 @router.post("/{assessment_id}/map")
 def map_paper_to_book(
     assessment_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """Place every staged question against the book, and promote what can be placed.
@@ -994,7 +994,7 @@ def confirm_answer_sheet(
     assessment_id: str,
     student_id: str,
     body: AnswerSheetIn,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person puts their name to this student's marks.

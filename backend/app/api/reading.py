@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.deps import require_scanner
 from app.api.upload import IMAGE_SUFFIXES, pages_to_pdf
 from app.db import get_session
 from app.extraction.address import Address
@@ -101,7 +101,7 @@ async def read_marks(
     assessment_id: str,
     student_id: str,
     files: list[UploadFile] = File(...),
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """Parse what was uploaded into proposals. Writes nothing to the marks.
@@ -243,7 +243,7 @@ async def read_marks(
 def read_proposals(
     assessment_id: str,
     student_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """Every question on the paper, with what was read for it, if anything.
@@ -311,7 +311,7 @@ def edit_proposal(
     student_id: str,
     address: str,
     body: EditIn,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person corrects one proposal, or supplies one the file did not have."""
@@ -372,7 +372,7 @@ def confirm_reading(
     assessment_id: str,
     student_id: str,
     body: ConfirmIn,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """Turn the confirmed proposals into marks, under the name of whoever confirmed them."""

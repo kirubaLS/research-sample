@@ -50,8 +50,11 @@ def whoami(
         "scope": "all_schools" if staff.is_admin and staff.home is None else "one_school",
         "can": {
             "read_results": True,
-            "scan_papers": staff.is_admin,
-            "enter_marks": staff.is_admin,
+            # Scanning and marks entry are open to any staff. A principal produces marks
+            # as well as reading them: a deliberate choice, not an oversight.
+            "scan_papers": True,
+            "enter_marks": True,
+            # The roster, the Q-matrix and the credentials stay with the admin.
             "manage_roster": staff.is_admin,
             "manage_schools": staff.is_admin,
         },

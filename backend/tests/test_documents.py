@@ -123,7 +123,15 @@ def test_another_schools_page_is_not_readable_with_a_leaked_page_url(
     assert client.get(url, headers={"X-API-Key": "other-school-key"}).status_code == 404
 
 
-def test_a_principal_can_read_a_script_but_not_upload_one(client, school, assessment, student):
+def test_a_principal_can_store_a_script_as_well_as_read_one(
+    client, school, assessment, student
+):
+    """Scanning is open to any staff, principals included.
+
+    This is a deliberate widening: a principal produces marks now, not only reads them,
+    so a signed-in dashboard CAN alter a mark. What stands in its place is that every mark
+    records who confirmed it, which is what a disputed figure is checked against anyway.
+    """
     from app.db import SessionLocal
     from app.models import StaffKey
 
@@ -135,16 +143,15 @@ def test_a_principal_can_read_a_script_but_not_upload_one(client, school, assess
     db.close()
     head = {"X-API-Key": "principal-doc-key"}
 
-    url = _upload(client, school, assessment, student, [PAGE]).json()["pages"][0]["url"]
-    assert client.get(url, headers=head).status_code == 200
-    assert client.get(f"/students/{student}/documents", headers=head).status_code == 200
-    assert _upload(client, school, assessment, student, [PAGE]).status_code == 200
-
-    refused = client.post(
+    stored = client.post(
         f"/assessments/{assessment}/answers/{student}/pages", headers=head,
         files=[("files", ("p.jpg", io.BytesIO(PAGE), "image/jpeg"))],
     )
-    assert refused.status_code == 403
+    assert stored.status_code == 200, stored.text
+
+    url = stored.json()["pages"][0]["url"]
+    assert client.get(url, headers=head).status_code == 200
+    assert client.get(f"/students/{student}/documents", headers=head).status_code == 200
 
 
 def test_an_empty_page_is_refused_rather_than_stored(client, school, assessment, student):

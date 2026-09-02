@@ -18,7 +18,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin, require_reader
+from app.api.deps import require_reader, require_scanner
 from app.db import get_session
 from app.models import Assessment, ScanDocument, ScanPage, School, StudentProfile
 
@@ -124,7 +124,7 @@ async def upload_answer_sheet(
     assessment_id: str,
     student_id: str,
     files: list[UploadFile] = File(...),
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """One student's answer script, in the order the pages are sent.
@@ -167,7 +167,7 @@ async def upload_answer_sheet(
 def confirm_document(
     document_id: str,
     body: dict | None = None,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person says these are the right pages, in the right order.

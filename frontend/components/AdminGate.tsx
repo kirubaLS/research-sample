@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import { api, ApiError, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
-import { usePathname } from "next/navigation";
 import Link from "next/link";
 import {
   clearActiveSchool,
@@ -15,16 +14,6 @@ import {
   signOut,
   type StaffRole,
 } from "@/lib/session";
-
-/**
- * Routes an admin key opens and a principal key does not. A principal signs in to read
- * results and progress; producing them -- scanning a paper, entering marks -- is the
- * admin's job and a separate credential.
- *
- * This list only decides what is *offered*. Every one of these screens calls an endpoint
- * the API refuses to a principal anyway, so a stale browser cannot become a way in.
- */
-const ADMIN_ONLY = ["/admin/paper", "/admin/answers", "/admin/scan"];
 
 /** Used only while an admin has not yet named a school; /admin/me replaces it after. */
 const ADMIN_CAN = {
@@ -42,7 +31,6 @@ const ADMIN_CAN = {
  * this — they arrive on a class link and have no account at all.
  */
 export function AdminGate({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname() ?? "";
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [staff, setStaff] = useState<StaffRole | null>(null);
@@ -120,7 +108,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         err instanceof ApiUnreachable
           ? "Could not reach the server. It may be starting up, or this site may be pointed at the wrong address. Try again in a minute, and tell whoever set up this deployment if it keeps happening."
           : err instanceof ApiError && err.status === 404
-            ? "That key was not recognised. This box takes a school's own key. The platform key is a different credential and opens the operator console, which has its own sign-in below."
+            ? "That key was not recognised. This box takes a school's own key, which is not the same as the key that runs the deployment."
             : "Something went wrong signing in.",
       );
     } finally {
@@ -169,9 +157,8 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
             />
             <p className="hint">
               A <strong>school&rsquo;s</strong> key, one per school, held by the principal.
-              It is not the platform key: that one opens the operator console, which
-              creates schools and issues these. If a school&rsquo;s key has been lost, the
-              console can issue a new one, and the old one stops working.
+              If it has been lost, a new one can be issued, and the old one stops working
+              the moment it is.
             </p>
           </div>
           {error && <p className="error">{error}</p>}
@@ -180,18 +167,9 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           </button>
         </form>
 
-        {/* The commonest wrong turn is arriving here holding the platform key. Naming the
-            other door, and linking it, costs one line and saves the hunt. */}
-        <p className="small muted" style={{ marginTop: 16 }}>
-          Holding the platform key instead?{" "}
-          <Link href="/platform">Open the operator console</Link>.
-        </p>
       </main>
     );
   }
-
-  const blocked =
-    staff !== null && staff.role !== "admin" && ADMIN_ONLY.some((p) => pathname.startsWith(p));
 
   return (
     <>
@@ -252,25 +230,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
             setActiveSchool(id);
             // A full reload, not a state flip: every screen already mounted has data for
             // no school or the previous one, and a half-switched dashboard is how someone
-            // reads Bharath's numbers under another school's name.
+            // reads one school's numbers under another school's name.
             window.location.reload();
           }}
         />
-      ) : blocked ? (
-        <main className="narrow">
-          <div className="hero">
-            <p className="eyebrow">Principal</p>
-            <h1>That screen needs an admin key</h1>
-            <p className="lede">
-              Your key reads every student&rsquo;s results and progress across the school.
-              Producing them, by scanning a question paper or entering marks, needs a
-              separate key, so that a computer left signed in cannot change a mark.
-            </p>
-          </div>
-          <p style={{ marginTop: 18 }}>
-            <Link href="/admin">Back to the dashboard</Link>
-          </p>
-        </main>
       ) : (
         children
       )}

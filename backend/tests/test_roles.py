@@ -49,7 +49,7 @@ def test_a_principal_is_told_what_their_key_may_do(client, school, principal):
     body = client.get("/admin/me", headers=principal).json()
     assert body["role"] == "principal"
     assert body["can"] == {
-        "read_results": True, "scan_papers": False, "enter_marks": False,
+        "read_results": True, "scan_papers": True, "enter_marks": True,
         "manage_roster": False, "manage_schools": False,
     }
     assert body["scope"] == "one_school"
@@ -59,13 +59,44 @@ def test_a_principal_is_told_what_their_key_may_do(client, school, principal):
     assert all(admin["can"].values())
 
 
-def test_a_principal_cannot_create_a_paper_or_enter_a_mark(client, school, principal):
+def test_a_principal_scans_and_enters_marks_like_an_admin(client, school, principal):
+    """The widening, stated as a test so it cannot drift back by accident."""
     created = client.post(
         "/assessments", headers=principal,
-        json={"subject_code": "X.MATH", "title": "Not theirs", "total_marks": 5},
+        json={"subject_code": "X.MATH", "title": "Read by the principal", "total_marks": 5},
     )
-    assert created.status_code == 403
-    assert "admin key" in created.json()["detail"]
+    assert created.status_code == 200, created.text
+
+    me = client.get("/admin/me", headers=principal).json()
+    assert me["can"]["scan_papers"] is True
+    assert me["can"]["enter_marks"] is True
+
+
+def test_a_principal_still_cannot_touch_the_q_matrix_or_the_credentials(
+    client, school, principal
+):
+    """What did NOT widen. A principal reads a paper and marks it; they do not import a
+    Q-matrix, freeze it, or issue a key -- and the refusal says which."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Assessment
+
+    db = SessionLocal()
+    assessment = db.scalar(select(Assessment).where(Assessment.school_id == school["school_id"]))
+    aid = assessment.id if assessment else None
+    db.close()
+    assert aid, "the suite has created at least one assessment by now"
+
+    refused = client.post(f"/assessments/{aid}/freeze", headers=principal, json={})
+    assert refused.status_code == 403
+    assert "admin key" in refused.json()["detail"]
+
+    # and the console still does not acknowledge itself to them
+    assert client.post(
+        "/platform/schools", headers=principal,
+        json={"name": "Theirs", "sections": [{"grade": 10, "name": "A"}]},
+    ).status_code == 404
 
 
 def test_a_principal_can_still_list_the_papers_they_cannot_change(client, school, principal):

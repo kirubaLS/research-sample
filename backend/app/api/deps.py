@@ -43,6 +43,17 @@ def current_staff(
     if school is not None:
         return Staff(role="admin", home=school)
 
+    # The operator key opens the school side too, as an admin belonging to no school, so a
+    # request has to name the one it is about. Not an escalation: this key already creates
+    # schools and issues their credentials, so anything it could reach this way it could
+    # reach by minting a key for itself. What it buys is that whoever runs the deployment
+    # can scan a paper for a school without first issuing themselves a second credential.
+    from app.config import get_settings  # noqa: PLC0415 - avoids a cycle at import time
+
+    operator = get_settings().platform_admin_key
+    if operator and secrets.compare_digest(x_api_key, operator):
+        return Staff(role="admin", home=None)
+
     staff = db.scalar(select(StaffKey).where(StaffKey.api_key == x_api_key))
     # A revoked key is treated exactly like one that never existed: answering differently
     # would tell whoever kept it that it was once real.
@@ -87,6 +98,25 @@ def require_staff(
     return staff
 
 
+def require_scanner(
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Reading a paper, storing a script, entering marks: any signed-in member of staff.
+
+    A principal does this as well as an admin. It is a deliberate widening of what a
+    principal may do -- they can now produce marks, not only read them -- so the earlier
+    property that a signed-in dashboard could not alter a mark no longer holds. Every mark
+    still records who confirmed it, which is what a disputed figure is actually checked
+    against.
+
+    What stays admin-only is the roster and the school itself: who the students are, and
+    which credentials exist.
+    """
+    return school_in_scope(staff, x_school_id, db)
+
+
 def require_admin_staff(staff: Staff = Depends(current_staff)) -> Staff:
     """Anything that changes a school's data, and the whole marks engine.
 
@@ -97,8 +127,9 @@ def require_admin_staff(staff: Staff = Depends(current_staff)) -> Staff:
     if not staff.is_admin:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "this needs an admin key. A principal key reads results and progress for "
-            "their own school, but does not scan papers, enter marks or change the roster.",
+            "this needs an admin key. A principal key reads results, scans papers and "
+            "enters marks for their own school, but does not change the roster or issue "
+            "credentials.",
         )
     return staff
 
