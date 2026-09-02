@@ -109,8 +109,23 @@ services:
       - key: YAADHUM_STORAGE_BACKEND
         value: local
       # Secrets: set these in the Render dashboard, never in the repo.
-      - key: ANTHROPIC_API_KEY
+      # The prefix is not decoration -- every setting this service reads carries it, and an
+      # unprefixed ANTHROPIC_API_KEY is read by nothing. Set here without it, the key would
+      # sit in the dashboard looking present while classification refused for want of one.
+      - key: YAADHUM_ANTHROPIC_API_KEY
         sync: false
+      # What the classifier costs, turnable from the dashboard without a code deploy: the
+      # model, how hard it is asked to work, and how much of the book it is shown. Left
+      # unset, the values in app/config.py apply. Raise the model for a paper that matters,
+      # lower the passages for one that does not, and read the spend the run reports back.
+      - key: YAADHUM_MODEL_CLASSIFIER
+        value: claude-sonnet-5
+      - key: YAADHUM_MODEL_EFFORT
+        value: medium
+      - key: YAADHUM_CLASSIFIER_EVIDENCE_PASSAGES
+        value: "6"
+      - key: YAADHUM_CLASSIFIER_EVIDENCE_CHAPTERS
+        value: "3"
       # Neon's free tier auto-suspends after a few minutes idle. pool_pre_ping absorbs the
       # wake-up, and a small pool keeps well inside the connection ceiling.
       - key: YAADHUM_DB_POOL_SIZE

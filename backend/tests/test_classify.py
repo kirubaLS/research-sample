@@ -708,3 +708,35 @@ def test_how_much_of_a_passage_the_reader_sees_is_a_setting_not_a_constant():
     ev = [Evidence(chapter="Statistics", section="13.2", reference="Section 13.2",
                    text=long_passage)]
     assert len(build_prompt("q", ev, 400)) < len(build_prompt("q", ev, 1200))
+
+
+def test_every_setting_the_deployment_declares_is_one_the_app_reads():
+    """A name without the prefix is read by nothing.
+
+    The blueprint declared ANTHROPIC_API_KEY. Settings read YAADHUM_ANTHROPIC_API_KEY, so
+    the key would have sat in the dashboard looking present while classification refused
+    for want of one -- a failure with no symptom except the refusal it causes.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    from app.config import Settings
+
+    blueprint = Path(__file__).resolve().parents[2] / "render.yaml"
+    if not blueprint.exists():                      # not every checkout ships it
+        return
+
+    prefix = Settings.model_config["env_prefix"]
+    known = {f"{prefix}{name}".upper() for name in Settings.model_fields}
+
+    declared = [
+        entry["key"]
+        for service in yaml.safe_load(blueprint.read_text())["services"]
+        for entry in service.get("envVars", [])
+        if entry["key"].upper().startswith(prefix)
+        or "ANTHROPIC" in entry["key"].upper()
+        or "JINA" in entry["key"].upper()
+    ]
+    unread = [key for key in declared if key.upper() not in known]
+    assert not unread, f"declared to the deployment and read by nothing: {unread}"
