@@ -719,6 +719,78 @@ def create_families(
     }
 
 
+def _merge_duplicate_families(candidates: list[dict]) -> list[dict]:
+    """Collapse a proposal run's near-duplicates: same code twice, or the same idea
+    named twice under a chapter with different codes. `from_sections` is unioned so
+    neither copy's section evidence is lost.
+    """
+    by_code: dict[str, dict] = {}
+    order: list[str] = []
+    for fam in candidates:
+        code = fam["code"]
+        if code not in by_code:
+            by_code[code] = dict(fam)
+            order.append(code)
+        else:
+            existing = by_code[code]
+            existing["from_sections"] = sorted(
+                set(existing.get("from_sections") or []) | set(fam.get("from_sections") or [])
+            )
+
+    by_key: dict[tuple[str, str], str] = {}
+    merged: dict[str, dict] = {}
+    for code in order:
+        fam = by_code[code]
+        key = (fam["chapter_code"], fam["label"].strip().lower())
+        canonical = by_key.get(key)
+        if canonical is None:
+            by_key[key] = code
+            merged[code] = fam
+        else:
+            target = merged[canonical]
+            target["from_sections"] = sorted(
+                set(target.get("from_sections") or []) | set(fam.get("from_sections") or [])
+            )
+    return list(merged.values())
+
+
+@router.post("/{subject}/concept-families/auto-apply")
+def auto_apply_families(
+    subject: str, dry_run: bool = True, db: Session = Depends(get_session)
+) -> dict:
+    """Propose, dedupe, and create concept families in one call -- for a deployment with
+    no shell to run `scripts.apply_concept_families` from.
+
+    `dry_run` defaults true on purpose: this still creates dozens to hundreds of families
+    in one call, and a family is never renamed afterwards (see `create_families`), so the
+    default is to show what would be created, not create it. Pass `?dry_run=false` once
+    the list has been read.
+    """
+    proposed = propose_families(subject, db)
+    candidates = [f for f in proposed["families"] if not f["already_exists"]]
+    merged = _merge_duplicate_families(candidates)
+
+    report = {
+        "subject": subject,
+        "existing": proposed["existing"],
+        "proposed": proposed["proposed"],
+        "candidates": len(candidates),
+        "after_merge": len(merged),
+        "duplicates_merged": len(candidates) - len(merged),
+        "without_a_section": sum(1 for f in merged if not f["from_sections"]),
+    }
+    if dry_run:
+        report["dry_run"] = True
+        report["would_create"] = [
+            {"chapter_label": f["chapter_label"], "label": f["label"], "code": f["code"]}
+            for f in merged
+        ]
+        return report
+
+    result = create_families(subject, FamiliesIn(families=merged), db)
+    return {**report, "dry_run": False, **result}
+
+
 @router.post("/{subject}/embed")
 def embed_batch(
     subject: str,
