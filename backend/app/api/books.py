@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
+from sqlalchemy.orm import aliased
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_platform_admin
@@ -114,6 +115,37 @@ def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
         )
     )
     subject_ready = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == subject)) is not None
+
+    # Coverage chapter by chapter. A whole-book total hides the thing that matters: a
+    # chapter with no passages behind it can never be matched, so every question from it
+    # comes back "no chapter in the book matched" however healthy the total looks.
+    parent = aliased(TaxonomyNode)
+    coverage = [
+        {
+            "chapter_code": code,
+            "chapter": label,
+            "chunks": n or 0,
+            "embedded": embedded_n or 0,
+            "with_a_section": sectioned or 0,
+        }
+        for code, label, n, embedded_n, sectioned in db.execute(
+            select(
+                TaxonomyNode.code,
+                TaxonomyNode.label,
+                func.count(BookChunk.id),
+                func.count(BookChunk.embedding),
+                func.count(BookChunk.section_number),
+            )
+            .select_from(TaxonomyNode)
+            .join(BookChunk, BookChunk.node_id == TaxonomyNode.id, isouter=True)
+            .join(parent, parent.id == TaxonomyNode.parent_id)
+            .where(TaxonomyNode.kind == "chapter", parent.code == subject)
+            .group_by(TaxonomyNode.code, TaxonomyNode.label)
+            .order_by(func.count(BookChunk.id), TaxonomyNode.code)
+        ).all()
+    ]
+    empty_chapters = [c["chapter"] for c in coverage if not c["chunks"]]
+
     if source is None:
         return {
             "subject": subject,
@@ -122,6 +154,8 @@ def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
             "expected_chapters": 0, "loaded_chapters": 0,
             "chunks": chunks or 0, "embedded": embedded or 0,
             "embeddings_configured": bool(settings.jina_api_key),
+            "coverage": coverage,
+            "chapters_with_nothing_behind_them": empty_chapters,
             "next": (
                 "Set up the curriculum first -- board units and their weightage come from "
                 "the syllabus, not the book." if not subject_ready else
@@ -144,6 +178,9 @@ def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
         "chunks": chunks or 0,
         "embedded": embedded or 0,
         "embeddings_configured": bool(settings.jina_api_key),
+        #: per chapter, because a healthy total hides an empty chapter
+        "coverage": coverage,
+        "chapters_with_nothing_behind_them": empty_chapters,
         "files": source.files,
         "next": (
             f"Upload chapters {missing}" if missing

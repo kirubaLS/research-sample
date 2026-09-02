@@ -490,3 +490,37 @@ def test_a_chapter_that_fails_does_not_throw_away_the_chapters_already_paid_for(
     ).all()
     db.close()
     assert len(stored) == body["proposed"]
+
+
+def test_the_book_status_says_which_chapters_have_nothing_behind_them(client):
+    """A whole-book total hides the one thing that decides whether a paper can be read.
+
+    A chapter with no passages can never be matched, so every question from it comes back
+    "no chapter in the book matched" -- and the screen said 213 chunks loaded.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import BookChunk, TaxonomyNode
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+
+    db = SessionLocal()
+    stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+    db.add(BookChunk(
+        curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+        node_id=stats.id, bucket="T", reference="Section 13.2", section_number="13.2",
+        text="the mean of grouped data", normalised="the mean of grouped data",
+        stem_hash="cover-1",
+    ))
+    db.commit()
+    db.close()
+
+    body = client.get("/platform/books/X.MATH", headers=HEAD).json()
+    by_chapter = {c["chapter"]: c for c in body["coverage"]}
+    assert by_chapter["Statistics"]["chunks"] == 1
+    assert by_chapter["Statistics"]["with_a_section"] == 1
+    assert by_chapter["Probability"]["chunks"] == 0
+    # Named, not just counted: the point is knowing which paper cannot be read yet.
+    assert "Probability" in body["chapters_with_nothing_behind_them"]
+    assert "Statistics" not in body["chapters_with_nothing_behind_them"]

@@ -459,6 +459,14 @@ export interface FamilyProposals {
   note: string;
 }
 
+export interface ChapterCoverage {
+  chapter_code: string;
+  chapter: string;
+  chunks: number;
+  embedded: number;
+  with_a_section: number;
+}
+
 export interface BookStatus {
   subject: string;
   curriculum_ready: boolean;
@@ -470,6 +478,9 @@ export interface BookStatus {
   chunks: number;
   embedded: number;
   embeddings_configured: boolean;
+  /** Per chapter. A healthy whole-book total hides a chapter with nothing behind it. */
+  coverage: ChapterCoverage[];
+  chapters_with_nothing_behind_them: string[];
   next: string;
 }
 

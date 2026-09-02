@@ -334,6 +334,41 @@ export default function BooksPage() {
         </button>
       </div>
 
+      {status && status.coverage?.length > 0 && (
+        <>
+          <div className="section-head">
+            <h2>Chapter by chapter</h2>
+          </div>
+          <div className="card">
+            <p className="cardnote" style={{ marginBottom: 14 }}>
+              A whole-book total hides the thing that matters. A chapter with no passages
+              behind it can never be matched, so every question from it comes back saying
+              no chapter matched, however healthy the total looks.
+            </p>
+            {status.chapters_with_nothing_behind_them.length > 0 && (
+              <div className="notice warn" style={{ marginBottom: 14 }}>
+                {status.chapters_with_nothing_behind_them.length} of{" "}
+                {status.coverage.length} chapters have nothing behind them:{" "}
+                {status.chapters_with_nothing_behind_them.join(", ")}. Upload those
+                chapters before reading a paper that covers them.
+              </div>
+            )}
+            <ul className="famlist">
+              {status.coverage.map((c) => (
+                <li key={c.chapter_code} className={c.chunks ? undefined : "have"}>
+                  <span className="fam-l">{c.chapter}</span>
+                  <span className="fam-m" style={{ marginLeft: 0 }}>
+                    {c.chunks === 0
+                      ? "nothing loaded"
+                      : `${c.chunks} passages \u00b7 ${c.embedded} embedded \u00b7 ${c.with_a_section} carry a section`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
+
       <div className="section-head">
         <h2>5 &middot; Concept families</h2>
       </div>
