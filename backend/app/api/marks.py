@@ -547,6 +547,21 @@ def read_scan(
         if row_tier.tier:
             tiers[row_tier.question_id] = row_tier.tier
 
+    # QuestionPlacement is append-only, so the newest row per question is the current
+    # verdict and its reasoning -- including a family the judge could not settle, which
+    # was recorded and then invisible everywhere except a count on the /place response.
+    review: dict[str, tuple[bool, str | None]] = {}
+    for row_placement in db.scalars(
+        select(QuestionPlacement)
+        .where(QuestionPlacement.question_id.in_(
+            [r.question_id for r in rows if r.question_id] or [""]
+        ))
+        .order_by(QuestionPlacement.created_at)
+    ):
+        review[row_placement.question_id] = (
+            row_placement.needs_review, row_placement.reasoning or None
+        )
+
     def mapped(row: ScannedQuestion) -> dict | None:
         question = questions.get(row.question_id or "")
         if question is None:
@@ -566,6 +581,11 @@ def read_scan(
             #: marks, and a tier nobody worked out must not read as one that was.
             "tier": tiers.get(question.id),
             "tier_label": TIER_ALIASES.get(tiers.get(question.id) or ""),
+            #: the latest placement's own verdict on itself -- a family the reading could
+            #: not settle, or one it moved the question to a chapter that cannot place it,
+            #: was recorded on every run and readable nowhere except a bare count.
+            "needs_review": (review.get(question.id) or (False, None))[0],
+            "review_reason": (review.get(question.id) or (False, None))[1],
         }
 
     from app.extraction.paper import context_addresses
