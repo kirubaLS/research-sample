@@ -787,8 +787,28 @@ def auto_apply_families(
         ]
         return report
 
-    result = create_families(subject, FamiliesIn(families=merged), db)
-    return {**report, "dry_run": False, **result}
+    # FamiliesIn caps a single call at 200 -- the same limit `create_families` enforces
+    # on a human posting from the review screen. A proposal run routinely clears that
+    # (229 raw, well over 200 even after merging), so this has to go in batches or the
+    # very first real subject trips a validation error the caller never gets to see as
+    # anything but a bare 500.
+    created = already_existed = 0
+    unknown: list[str] = []
+    batch_size = 200
+    for i in range(0, len(merged), batch_size):
+        batch = merged[i : i + batch_size]
+        result = create_families(subject, FamiliesIn(families=batch), db)
+        created += result["created"]
+        already_existed += result["already_existed"]
+        unknown.extend(result["unknown_chapters"])
+
+    return {
+        **report,
+        "dry_run": False,
+        "created": created,
+        "already_existed": already_existed,
+        "unknown_chapters": sorted(set(unknown)),
+    }
 
 
 @router.post("/{subject}/embed")
