@@ -13,10 +13,10 @@ EFFORT_LEVELS = ("low", "medium", "high", "xhigh", "max")
 #: to something that rejects it and fail the request.
 #:
 #: Haiku 4.5 is deliberately absent -- it does NOT accept effort and returns 400 if it is
-#: sent. That matters here because Haiku is the default for both the classifier and the
-#: family proposer, being the cheapest model available. There is nothing to fix: a Haiku
-#: request with no thinking configured is already cheaper than any effort level of a
-#: larger model, so "low effort" is satisfied by the model choice itself.
+#: sent. It is still the default for the family proposer, and stays selectable for the
+#: classifier, so the keyword has to disappear from the request rather than be sent empty.
+#: There is nothing to fix on those requests: a Haiku call with no thinking configured is
+#: already cheaper than any effort level of a larger model.
 EFFORT_CAPABLE = (
     "claude-fable-5",
     "claude-mythos-5",

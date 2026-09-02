@@ -609,3 +609,36 @@ def test_a_proposed_family_records_the_section_number_not_its_heading():
     )
     assert p.from_section == "13.2"
     assert p.label == "Mean of Grouped Data"
+
+
+def test_the_classifier_request_is_one_its_configured_model_accepts():
+    """The settings and the call have to agree, or the paper fails on a paid request.
+
+    Two ways they can disagree, both silent until the money is spent: an effort level sent
+    to a model that rejects it, and a token ceiling sized for the answer alone on a model
+    that thinks before answering -- thinking counts against the same ceiling, so the reply
+    is truncated mid-thought.
+    """
+    import inspect
+
+    from app.classify.anthropic_judge import AnthropicJudge
+    from app.config import get_settings
+    from app.llm import output_config
+
+    settings = get_settings()
+    judge = AnthropicJudge.__new__(AnthropicJudge)
+    judge.output_config = output_config(settings.model_classifier, settings.model_effort)
+
+    # Either the model takes effort and gets it, or it does not and the keyword is dropped
+    # entirely -- never sent empty.
+    assert judge.output_config in (None, {"effort": settings.model_effort})
+
+    source = inspect.getsource(AnthropicJudge.classify)
+    ceiling = int(
+        source.split("max_tokens=")[1].split(",")[0].replace("_", "")
+    )
+    assert ceiling >= 8000, "leaves no room for the reasoning the model does first"
+    # Sampling parameters and a fixed thinking budget are rejected outright by the current
+    # models. Neither has any business in a structured-output call anyway.
+    for rejected in ("temperature", "top_p", "top_k", "budget_tokens"):
+        assert rejected not in source

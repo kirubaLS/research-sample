@@ -252,7 +252,8 @@ class AnthropicFamilyProposer:
         extra = {"output_config": self.output_config} if self.output_config else {}
         response = self.client.messages.parse(
             model=self.model,
-            max_tokens=4000,
+            #: sized for the reasoning as well as the answer -- see AnthropicJudge
+            max_tokens=16000,
             system=SYSTEM,
             messages=[{"role": "user", "content": build_prompt(chapter_label, passages)}],
             output_format=ChapterFamilies,

@@ -84,12 +84,15 @@ class Settings(BaseSettings):
     #: the classifier's judge. Without it, placement falls back to nearest-neighbour
     #: retrieval, which cannot tell a question about a theorem from the theorem.
     anthropic_api_key: str | None = None
-    #: one call per question, ~38 per paper, so the high-volume model is the right default
-    model_classifier: str = "claude-haiku-4-5"
-    #: How hard the model is asked to work. Sent only to models that accept it -- Haiku
-    #: 4.5, the default everywhere here, rejects the parameter, and is already the cheapest
-    #: configuration available. See app.llm.
-    model_effort: str = "low"
+    #: One call per question, around forty per paper. The cheaper model was the default on
+    #: volume alone, which weighed the wrong thing: this call decides the chapter, the
+    #: topic and the cognitive tier that a school reads about a child, and it is the one
+    #: place in the pipeline where a wrong answer is confident rather than blank. A paper
+    #: costs cents either way.
+    model_classifier: str = "claude-opus-5"
+    #: How hard the model is asked to work, sent only to models that accept it -- Haiku 4.5
+    #: rejects the parameter and the request drops it. See app.llm.
+    model_effort: str = "high"
 
     # --- embeddings ---
     #: Multilingual by requirement, not preference: the papers are bilingual and Tamil is

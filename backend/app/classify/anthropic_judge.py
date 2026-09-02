@@ -24,7 +24,7 @@ class AnthropicJudge:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-haiku-4-5",
+        model: str = "claude-opus-5",
         *,
         known_sections: dict[str, set[str]] | None = None,
         effort: str | None = None,
@@ -51,7 +51,11 @@ class AnthropicJudge:
         extra = {"output_config": self.output_config} if self.output_config else {}
         response = self.client.messages.parse(
             model=self.model,
-            max_tokens=2000,
+            # Room for the reasoning as well as the answer. Thinking is on by default on
+            # the current models and its tokens count against this ceiling, so a limit
+            # sized for the answer alone truncates the reply mid-thought -- on a paid
+            # request, in production, which is exactly what app.llm exists to prevent.
+            max_tokens=16000,
             system=SYSTEM,
             messages=[{"role": "user", "content": build_prompt(question, evidence)}],
             output_format=Classification,
