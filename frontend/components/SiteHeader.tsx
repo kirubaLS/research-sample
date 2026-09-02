@@ -12,6 +12,10 @@ import { getActiveSchool, getApiKey, getPlatformKey, getRole } from "@/lib/sessi
 export function SiteHeader() {
   const pathname = usePathname() ?? "";
   const isStudentFlow = pathname.startsWith("/t/");
+  // On the staff screens the standing side navigation already carries these, and a second
+  // copy of the same four links in the bar above it is noise, doubly so on a phone where
+  // both rows scroll sideways.
+  const hasSideNav = pathname.startsWith("/admin") || pathname.startsWith("/platform");
 
   // The console is for whoever runs the deployment, not for a school, so the link only
   // appears once an operator has signed in here. Read after mount: localStorage does not
@@ -51,7 +55,7 @@ export function SiteHeader() {
           </span>
         </Link>
 
-        {!isStudentFlow && (
+        {!isStudentFlow && !hasSideNav && (
           <nav className="navlinks">
             {signedIn && (
               <Link href="/admin" aria-current={pathname === "/admin" ? "page" : undefined}>

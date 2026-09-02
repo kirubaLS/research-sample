@@ -16,9 +16,12 @@ from app.models import (
     Assessment,
     MarkEvent,
     ProfileResult,
+    Question,
+    ScanDocument,
     School,
     Section,
     StudentProfile,
+    StudentReport,
     TestSession,
 )
 
@@ -131,6 +134,137 @@ def overview(
                 "frozen": a.qmatrix_frozen_at is not None,
             }
             for a in assessments
+        ],
+    }
+
+
+@router.get("/dashboard")
+def dashboard(
+    school: School = Depends(require_reader), db: Session = Depends(get_session)
+) -> dict:
+    """Everything the landing screen shows, in one request.
+
+    Every figure here is a count of rows that exist. There is no target, no projection and
+    no "progress" that is not simply marks entered over questions on the paper -- a
+    dashboard that estimates is a dashboard somebody eventually acts on.
+    """
+    assessments = list(db.scalars(
+        select(Assessment).where(Assessment.school_id == school.id)
+        .order_by(Assessment.created_at.desc())
+    ))
+    ids = [a.id for a in assessments]
+
+    def counted(query) -> dict[str, int]:
+        return dict(db.execute(query).all()) if ids else {}
+
+    questions = counted(
+        select(Question.assessment_id, func.count())
+        .where(Question.assessment_id.in_(ids)).group_by(Question.assessment_id)
+    )
+    mapped = counted(
+        select(Question.assessment_id, func.count())
+        .where(Question.assessment_id.in_(ids), Question.chapter_id.is_not(None))
+        .group_by(Question.assessment_id)
+    )
+    marked_students = counted(
+        select(MarkEvent.assessment_id, func.count(func.distinct(MarkEvent.student_id)))
+        .where(MarkEvent.assessment_id.in_(ids)).group_by(MarkEvent.assessment_id)
+    )
+    papers_scanned = counted(
+        select(ScanDocument.assessment_id, func.count())
+        .where(ScanDocument.assessment_id.in_(ids), ScanDocument.kind == "question_paper")
+        .group_by(ScanDocument.assessment_id)
+    )
+
+    students = list(db.scalars(
+        select(StudentProfile).where(StudentProfile.school_id == school.id)
+    ))
+    student_ids = [s.id for s in students]
+
+    scripts = list(db.scalars(
+        select(ScanDocument)
+        .where(ScanDocument.school_id == school.id, ScanDocument.kind == "answer_sheet")
+        .order_by(ScanDocument.created_at.desc())
+    ))
+    scripts_by_student: dict[str, int] = {}
+    for d in scripts:
+        if d.student_id:
+            scripts_by_student[d.student_id] = scripts_by_student.get(d.student_id, 0) + 1
+
+    marks_by_student = dict(db.execute(
+        select(MarkEvent.student_id, func.count(func.distinct(MarkEvent.assessment_id)))
+        .where(MarkEvent.student_id.in_(student_ids)).group_by(MarkEvent.student_id)
+    ).all()) if student_ids else {}
+
+    reports_by_student = dict(db.execute(
+        select(StudentReport.student_id, func.count())
+        .where(StudentReport.school_id == school.id).group_by(StudentReport.student_id)
+    ).all())
+
+    titles = {a.id: a.title for a in assessments}
+    names = {s.id: (s.name, s.roll_no) for s in students}
+
+    #: One ratio, and it is the one that decides whether a report can be written at all:
+    #: a question with no chapter contributes to no finding.
+    questions_total = sum(questions.values())
+    questions_mapped = sum(mapped.values())
+
+    return {
+        "school": {"id": school.id, "name": school.name, "state": school.state},
+        "counts": {
+            "students": len(students),
+            "classes": db.scalar(
+                select(func.count()).select_from(Section).where(Section.school_id == school.id)
+            ),
+            "papers": len(assessments),
+            "papers_read": sum(1 for a in assessments if questions.get(a.id, 0) > 0),
+            "question_papers_stored": sum(papers_scanned.values()),
+            "scripts_stored": len(scripts),
+            "reports_issued": sum(reports_by_student.values()),
+            "questions_total": questions_total,
+            "questions_mapped": questions_mapped,
+        },
+        "papers": [
+            {
+                "id": a.id,
+                "title": a.title,
+                "subject_code": a.subject_code,
+                "created_at": a.created_at.isoformat() if a.created_at else None,
+                "questions": questions.get(a.id, 0),
+                "mapped": mapped.get(a.id, 0),
+                "students_marked": marked_students.get(a.id, 0),
+                "paper_stored": papers_scanned.get(a.id, 0) > 0,
+                "stage": (
+                    "mapped" if mapped.get(a.id) else
+                    "read" if questions.get(a.id) else
+                    "scanned" if papers_scanned.get(a.id) else "empty"
+                ),
+            }
+            for a in assessments[:6]
+        ],
+        "students": [
+            {
+                "student_id": s.id,
+                "name": s.name,
+                "roll_no": s.roll_no,
+                "papers_marked": marks_by_student.get(s.id, 0),
+                "scripts": scripts_by_student.get(s.id, 0),
+                "reports": reports_by_student.get(s.id, 0),
+            }
+            for s in sorted(students, key=lambda s: (-marks_by_student.get(s.id, 0), s.roll_no))[:6]
+        ],
+        "recent_scripts": [
+            {
+                "document_id": d.id,
+                "student_id": d.student_id,
+                "student": names.get(d.student_id or "", ("unknown", ""))[0],
+                "roll_no": names.get(d.student_id or "", ("", ""))[1],
+                "assessment_title": titles.get(d.assessment_id),
+                "page_count": d.page_count,
+                "stored_at": d.created_at.isoformat() if d.created_at else None,
+                "first_page": f"/documents/{d.id}/pages/0" if d.page_count else None,
+            }
+            for d in scripts[:5]
         ],
     }
 

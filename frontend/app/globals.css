@@ -227,12 +227,15 @@ td.strong { color: var(--ink); font-weight: 600; }
 td.num { font-variant-numeric: tabular-nums; }
 
 /* --- copy field (the student link) ---------------------------------------------------- */
-.copyfield { display: flex; gap: 0; align-items: stretch; }
+.copyfield { display: flex; gap: 0; align-items: stretch; min-width: 0; max-width: 100%; }
 .copyfield code {
   flex: 1; font-family: var(--font-mono), monospace; font-size: 13px;
   padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--rule-2);
   border-right: none; border-radius: var(--radius) 0 0 var(--radius);
   overflow-x: auto; white-space: nowrap; color: var(--ink-2); display: block;
+  /* A flex child's min-width is its content by default, so a long key refused to shrink
+     and carried the whole page sideways on a phone instead of scrolling inside its box. */
+  min-width: 0;
 }
 .copyfield button { border-radius: 0 var(--radius) var(--radius) 0; padding: 10px 15px; font-size: 14px; }
 
@@ -569,4 +572,70 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   .qstem { font-size: 14px; }
   .qmap { gap: 5px; }
   .chip { font-size: 12px; }
+}
+
+
+/* --- the dashboard shell ----------------------------------------------------------- */
+/* Sidebar beside content. Its own class name: .shell already belongs to the page frame in
+   the root layout, and a second meaning for one name turned the header and the footer into
+   grid columns. min-width:0 on the panel is load-bearing: without it a wide table inside a
+   grid column refuses to shrink and pushes the whole page sideways. */
+.deskshell { display: grid; grid-template-columns: auto 1fr; width: 100%; }
+.deskshell .panel { min-width: 0; padding: 0 22px 56px; }
+
+@media (max-width: 900px) {
+  .deskshell { grid-template-columns: 1fr; }
+  .deskshell .panel { padding: 0 14px 40px; }
+}
+
+
+/* --- the standing side navigation ---------------------------------------------------- */
+/* Global rather than scoped: the entries are Link components, and a styled-jsx block in
+   the nav's own file cannot reach them. */
+.sidenav {
+  background: var(--surface);
+  border-right: 1px solid var(--rule);
+  padding: 18px 12px;
+  min-width: 224px;
+  align-self: stretch;
+}
+.sidenav .group { margin-bottom: 22px; }
+.sidenav .grouplabel {
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 8px 10px;
+}
+.sidenav .item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--ink-2);
+  font-size: 14.5px;
+}
+.sidenav .item:hover { background: var(--surface-2); color: var(--ink); }
+.sidenav .item.on { background: var(--surface-2); color: var(--ink); font-weight: 600; }
+.sidenav .glyph { color: var(--mark); font-size: 13px; }
+
+@media (max-width: 900px) {
+  .sidenav {
+    min-width: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 8px 12px;
+    scrollbar-width: none;
+  }
+  .sidenav::-webkit-scrollbar { display: none; }
+  .sidenav .group { display: flex; gap: 6px; margin: 0; }
+  .sidenav .grouplabel { display: none; }
+  .sidenav .item { white-space: nowrap; padding: 7px 11px; }
 }

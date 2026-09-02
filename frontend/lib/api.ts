@@ -304,6 +304,56 @@ export interface SatPaper {
   questions_marked: number;
 }
 
+export interface DashboardPaper {
+  id: string;
+  title: string;
+  subject_code: string;
+  created_at: string | null;
+  questions: number;
+  mapped: number;
+  students_marked: number;
+  paper_stored: boolean;
+  stage: "empty" | "scanned" | "read" | "mapped";
+}
+
+export interface DashboardStudent {
+  student_id: string;
+  name: string;
+  roll_no: string;
+  papers_marked: number;
+  scripts: number;
+  reports: number;
+}
+
+export interface DashboardScript {
+  document_id: string;
+  student_id: string | null;
+  student: string;
+  roll_no: string;
+  assessment_title: string | null;
+  page_count: number;
+  stored_at: string | null;
+  first_page: string | null;
+}
+
+export interface Dashboard {
+  school: { id: string; name: string; state: string | null };
+  counts: {
+    students: number;
+    classes: number;
+    papers: number;
+    papers_read: number;
+    question_papers_stored: number;
+    scripts_stored: number;
+    reports_issued: number;
+    questions_total: number;
+    questions_mapped: number;
+  };
+  papers: DashboardPaper[];
+  students: DashboardStudent[];
+  recent_scripts: DashboardScript[];
+}
+
 export interface RosterRow {
   student_id: string;
   name: string;
@@ -576,6 +626,8 @@ export const api = {
     }>("/admin/me", key),
 
   overview: (key: string) => authed<Overview>("/admin/overview", key),
+
+  dashboard: (key: string) => authed<Dashboard>("/admin/dashboard", key),
 
   roster: (key: string, sectionId: string) =>
     authed<{ section: { id: string; label: string; student_path: string }; students: RosterRow[] }>(

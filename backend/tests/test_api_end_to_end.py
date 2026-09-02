@@ -424,3 +424,30 @@ def test_the_api_blocks_a_paper_that_reuses_a_variant(client, school):
     _, repeat = make_paper("Cycle 3", "cone  +  hemisphere,  r = 3.5 cm")
     assert repeat.status_code == 409
     assert "Cycle 1" in repeat.json()["detail"]
+
+
+def test_the_dashboard_counts_only_rows_that_exist(client, school):
+    """Every figure on the landing screen is a count of something stored.
+
+    No target, no projection, and no progress that is not marks entered over questions on
+    the paper. A dashboard that estimates is a dashboard somebody eventually acts on.
+    """
+    body = client.get("/admin/dashboard", headers={"X-API-Key": school["api_key"]}).json()
+
+    counts = body["counts"]
+    assert counts["questions_mapped"] <= counts["questions_total"], (
+        "a question cannot be mapped more than once"
+    )
+    assert counts["papers_read"] <= counts["papers"]
+
+    # the parts add up to the whole they are drawn from
+    assert sum(p["questions"] for p in body["papers"]) <= counts["questions_total"]
+    for paper in body["papers"]:
+        assert paper["mapped"] <= paper["questions"]
+        assert paper["stage"] in ("empty", "scanned", "read", "mapped")
+
+    for row in body["students"]:
+        assert row["papers_marked"] >= 0 and row["scripts"] >= 0
+    for script in body["recent_scripts"]:
+        assert script["page_count"] >= 0
+        assert script["first_page"] or script["page_count"] == 0
