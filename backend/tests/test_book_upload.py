@@ -518,8 +518,10 @@ def test_the_book_status_says_which_chapters_have_nothing_behind_them(client):
 
     body = client.get("/platform/books/X.MATH", headers=HEAD).json()
     by_chapter = {c["chapter"]: c for c in body["coverage"]}
-    assert by_chapter["Statistics"]["chunks"] == 1
-    assert by_chapter["Statistics"]["with_a_section"] == 1
+    # Counts are relative, not exact: this suite shares one database, so another test's
+    # chunks land in Statistics too. What has to hold is the distinction the screen draws.
+    assert by_chapter["Statistics"]["chunks"] >= 1
+    assert by_chapter["Statistics"]["with_a_section"] >= 1
     assert by_chapter["Probability"]["chunks"] == 0
     # Named, not just counted: the point is knowing which paper cannot be read yet.
     assert "Probability" in body["chapters_with_nothing_behind_them"]
