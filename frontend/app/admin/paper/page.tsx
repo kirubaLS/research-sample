@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   api,
   ApiError,
@@ -10,6 +10,7 @@ import {
   ScanResult,
   ScanReview,
   StagedQuestion,
+  type Subject,
 } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 
@@ -28,13 +29,11 @@ import { getApiKey } from "@/lib/session";
 
 type Stage = "start" | "scanned" | "confirmed" | "mapped";
 
-const SUBJECTS = [
-  ["X.MATH", "Class X Mathematics"],
-  ["X.SCI", "Class X Science"],
-] as const;
-
 export default function PaperPage() {
-  const [subject, setSubject] = useState<string>("X.MATH");
+  // The subjects come from the deployment, not from a list written here. A school that
+  // loads a third book must see it offered without anybody editing this screen.
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subject, setSubject] = useState<string>("");
   const [title, setTitle] = useState("Cycle Test I");
   const [assessmentId, setAssessmentId] = useState<string | null>(null);
   const [scan, setScan] = useState<ScanResult | null>(null);
@@ -46,6 +45,24 @@ export default function PaperPage() {
   const [confirmedBy, setConfirmedBy] = useState("");
   const [confirmation, setConfirmation] = useState<ConfirmResult | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key) return;
+    api
+      .subjects(key)
+      .then(({ subjects: found }) => {
+        setSubjects(found);
+        // A subject with no book loaded cannot map a question, so it is not the one to
+        // land on. If none is loaded the first is still offered, and the map step says why
+        // it cannot run rather than this screen pretending there is nothing to choose.
+        setSubject((current) =>
+          current || found.find((s) => s.book_loaded)?.subject_code
+            || found[0]?.subject_code || "",
+        );
+      })
+      .catch(() => setSubjects([]));
+  }, []);
 
   const confirmed = !!(confirmation || review?.confirmed_at);
   const stage: Stage = mapped ? "mapped" : confirmed ? "confirmed" : scan ? "scanned" : "start";
@@ -76,6 +93,10 @@ export default function PaperPage() {
       return;
     }
     setError(null);
+    if (!subject) {
+      setError("Choose a subject before reading the paper.");
+      return;
+    }
     setBusy("Reading the paper…");
     try {
       let id = assessmentId;
@@ -186,7 +207,7 @@ export default function PaperPage() {
             <label className="field">
               <span>Subject</span>
               <select value={subject} onChange={(e) => setSubject(e.target.value)}>
-                {SUBJECTS.map(([code, name]) => (
+                {subjects.map(({ subject_code: code, label: name }) => (
                   <option key={code} value={code}>
                     {name}
                   </option>

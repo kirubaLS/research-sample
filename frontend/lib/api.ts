@@ -500,6 +500,17 @@ async function uploadMany<T>(
   return (await res.json()) as T;
 }
 
+export interface Subject {
+  subject_code: string;
+  label: string;
+  grade: number;
+  chapters: number;
+  board_units: number;
+  book_loaded: boolean;
+  chunks: number;
+  chunks_embedded: number;
+}
+
 export interface ScanResult {
   route: "text" | "vision";
   pages: number;
@@ -640,6 +651,9 @@ export const api = {
   overview: (key: string) => authed<Overview>("/admin/overview", key),
 
   dashboard: (key: string) => authed<Dashboard>("/admin/dashboard", key),
+
+  /** The subjects this deployment carries. Never a list written into a screen. */
+  subjects: (key: string) => authed<{ subjects: Subject[] }>("/admin/subjects", key),
 
   roster: (key: string, sectionId: string) =>
     authed<{ section: { id: string; label: string; student_path: string }; students: RosterRow[] }>(

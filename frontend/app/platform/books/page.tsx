@@ -1,13 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, BookStatus } from "@/lib/api";
+import { api, ApiError, BookStatus, type Subject } from "@/lib/api";
 import { getPlatformKey } from "@/lib/session";
-
-const SUBJECTS = [
-  ["X.MATH", "Class X Mathematics"],
-  ["X.SCI", "Class X Science"],
-] as const;
 
 type Line = { text: string; bad?: boolean };
 
@@ -18,7 +13,10 @@ type Line = { text: string; bad?: boolean };
  * against, and the server refuses a chapter until it has one.
  */
 export default function BooksPage() {
-  const [subject, setSubject] = useState<string>("X.MATH");
+  // From the deployment, never a list written into this screen: this is the page that
+  // loads a book, so it is the last place that should be told in advance which books exist.
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subject, setSubject] = useState<string>("");
   const [edition, setEdition] = useState("Reprint 2026-27");
   const [status, setStatus] = useState<BookStatus | null>(null);
   const [log, setLog] = useState<Line[]>([]);
@@ -28,13 +26,26 @@ export default function BooksPage() {
 
   const refresh = useCallback(async () => {
     const key = getPlatformKey();
-    if (!key) return;
+    // Nothing to ask about until the subject list has arrived.
+    if (!key || !subject) return;
     try {
       setStatus(await api.bookStatus(key, subject));
     } catch {
       setStatus(null);
     }
   }, [subject]);
+
+  useEffect(() => {
+    const key = getPlatformKey();
+    if (!key) return;
+    api
+      .subjects(key)
+      .then(({ subjects: found }) => {
+        setSubjects(found);
+        setSubject((current) => current || found[0]?.subject_code || "");
+      })
+      .catch(() => setSubjects([]));
+  }, []);
 
   useEffect(() => {
     refresh();
@@ -163,7 +174,7 @@ export default function BooksPage() {
           <div className="field">
             <label htmlFor="subject">Subject</label>
             <select id="subject" value={subject} onChange={(e) => setSubject(e.target.value)}>
-              {SUBJECTS.map(([code, label]) => (
+              {subjects.map(({ subject_code: code, label }) => (
                 <option key={code} value={code}>
                   {label}
                 </option>

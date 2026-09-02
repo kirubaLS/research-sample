@@ -416,3 +416,107 @@ def test_a_running_header_is_not_read_as_the_other_half_of_a_choice(tmp_path):
     by_address = {q.address: q for q in out.questions}
     assert "volume of the iron pole" in by_address["C/27//b"].stem_text
     assert not any("Bharat" in q.stem_text for q in out.questions)
+
+
+# ----------------------------------------------------------------------------------------
+# Nothing about a paper's shape is assumed
+#
+# Marks, section letters, how many sections there are and how a question divides all differ
+# by subject and by board. None of them is written into this reader: every one is read off
+# the page, and these tests exist to keep it that way.
+# ----------------------------------------------------------------------------------------
+def test_a_different_subjects_marks_and_sections_are_read_not_assumed(tmp_path):
+    """Three sections worth 2, 6 and 8 marks, sub-parts split 3 and 5.
+
+    Nothing here matches the paper the pilot was built on, which has five sections worth
+    1, 2, 3, 5 and 4 with sub-parts split 1, 1 and 2.
+    """
+    path = _pdf(tmp_path, [[
+        (60, 60, "Maximum Marks: 18"),
+        (60, 100, "SECTION A"),
+        (60, 115, "This section comprises 2 questions of 2 marks each."),
+        (60, 145, "1. Define electric current and state its SI unit."),
+        (MARK_X, 145, "2"),
+        (60, 175, "2. Why does the sky appear blue in colour?"),
+        (MARK_X, 175, "2"),
+        (60, 215, "SECTION B"),
+        (60, 230, "This section comprises 1 question of 6 marks each."),
+        (60, 260, "3. Draw a ray diagram for an object beyond the centre."),
+        (MARK_X, 260, "6"),
+        (60, 300, "SECTION C"),
+        (60, 315, "This section comprises 1 case study question of 8 marks each."),
+        (60, 345, "4. A student sets up a circuit with three resistors in series."),
+        (60, 375, "(i) State Ohm's law in words."),
+        (MARK_X, 375, "3"),
+        (60, 405, "(ii) Calculate the equivalent resistance of the circuit."),
+        (MARK_X, 405, "5"),
+    ]])
+
+    out = extract_paper(path)
+    assert out.declared_total == 18
+    assert out.total_marks == 18
+    assert out.declared_sections == {"A": 4.0, "B": 6.0, "C": 8.0}
+    marks = {q.address: q.max_marks for q in out.questions}
+    assert marks["C/4/i/"] == 3 and marks["C/4/ii/"] == 5
+    assert out.problems == []
+
+
+def test_a_section_after_e_is_still_a_section(tmp_path):
+    """How many sections a paper has is the paper's business.
+
+    Stopping at E filed every question under a Section F as belonging to no section, so
+    the section totals could not be checked and the report could not group by section.
+    """
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION F"),
+        (60, 130, "1. Write a note on the water cycle."),
+        (MARK_X, 130, "4"),
+    ]])
+
+    out = extract_paper(path)
+    assert [q.address for q in out.questions] == ["F/1//"]
+
+
+def test_lettered_parts_are_sub_parts_unless_an_or_separates_them(tmp_path):
+    """The letters look identical either way; only the OR tells them apart.
+
+    A question asking 1(a), 1(b) and 1(c) for 1, 2 and 3 marks is worth six. Reading its
+    letters as an internal choice, as CBSE prints one, made it worth one.
+    """
+    path = _pdf(tmp_path, [[
+        (60, 60, "Maximum Marks: 6"),
+        (60, 100, "SECTION A"),
+        (60, 130, "1. Answer the following about the human eye."),
+        (60, 160, "(a) Name the part that controls the size of the pupil."),
+        (MARK_X, 160, "1"),
+        (60, 190, "(b) State the function of the ciliary muscles."),
+        (MARK_X, 190, "2"),
+        (60, 220, "(c) Define the least distance of distinct vision."),
+        (MARK_X, 220, "3"),
+    ]])
+
+    out = extract_paper(path)
+    marks = {q.address: q.max_marks for q in out.questions}
+    assert marks["A/1/a/"] == 1
+    assert marks["A/1/b/"] == 2
+    assert marks["A/1/c/"] == 3
+    assert out.total_marks == 6
+    assert out.problems == []
+
+
+def test_the_same_letters_with_an_or_between_them_are_a_choice(tmp_path):
+    """The other half of the pair, so the discriminator is under test and not the letter."""
+    path = _pdf(tmp_path, [[
+        (60, 60, "Maximum Marks: 3"),
+        (60, 100, "SECTION A"),
+        (60, 130, "1. (a) Explain the process of respiration in human beings."),
+        (MARK_X, 130, "3"),
+        (290, 160, "O R"),
+        (60, 190, "(b) Explain the process of excretion in human beings."),
+    ]])
+
+    out = extract_paper(path)
+    assert {q.address for q in out.questions} == {"A/1//a", "A/1//b"}
+    # Answered once, so worth its marks once.
+    assert out.total_marks == 3
+    assert out.problems == []

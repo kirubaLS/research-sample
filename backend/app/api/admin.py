@@ -11,9 +11,11 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import Staff, require_reader, require_staff, school_in_scope
+from app.curriculum import CURRICULA
 from app.db import get_session
 from app.models import (
     Assessment,
+    BookChunk,
     MarkEvent,
     ProfileResult,
     Question,
@@ -396,3 +398,41 @@ def cohort(
             streams[top] = streams.get(top, 0) + 1
 
     return {"holland": holland, "streams": streams, "counted": counted, "withheld": withheld}
+
+
+@router.get("/subjects")
+def list_subjects(
+    _staff: Staff = Depends(require_staff), db: Session = Depends(get_session)
+) -> dict:
+    """The subjects this deployment carries, and how far each one is loaded.
+
+    The screens used to name Mathematics and Science in their own code, so a third subject
+    could be added here and stay invisible to everybody using the app. The curriculum is
+    the authority for what exists; this route is how a screen asks it.
+    """
+    out = []
+    for curriculum in CURRICULA.values():
+        chunks = db.scalar(
+            select(func.count(BookChunk.id)).where(
+                BookChunk.subject_code == curriculum.subject_code
+            )
+        ) or 0
+        embedded = db.scalar(
+            select(func.count(BookChunk.id)).where(
+                BookChunk.subject_code == curriculum.subject_code,
+                BookChunk.embedding.isnot(None),
+            )
+        ) or 0
+        out.append({
+            "subject_code": curriculum.subject_code,
+            "label": curriculum.subject_label,
+            "grade": curriculum.grade,
+            "chapters": len(curriculum.chapters),
+            "board_units": len(curriculum.units),
+            #: a subject with no embedded book cannot map a question, and a screen that
+            #: offers it anyway is offering a dead end
+            "book_loaded": embedded > 0,
+            "chunks": chunks,
+            "chunks_embedded": embedded,
+        })
+    return {"subjects": out}

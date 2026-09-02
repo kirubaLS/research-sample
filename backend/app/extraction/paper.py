@@ -35,17 +35,24 @@ from app.extraction.mark_grammar import MARK_BAND, parse_label
 _BARE_NUMBER = re.compile(r"^\d{1,2}$")
 
 #: 'SECTION A', 'SECTION-B', 'Section C'. The middot is not decorative: a dash whose glyph
-#: is missing from the embedded font extracts as one.
-SECTION = re.compile(r"^\s*SECTION\s*[-–—·]?\s*([A-E])\b", re.IGNORECASE)
+#: is missing from the embedded font extracts as one. Any letter, not A to E: how many
+#: sections a paper has is the paper's business, and a Section F went unrecognised, which
+#: filed every question under it as belonging to no section at all.
+SECTION = re.compile(r"^\s*SECTION\s*[-–—·]?\s*([A-Z])\b", re.IGNORECASE)
 #: '1.', '21 .', '39.' at the start of a line -- the question number as the paper prints it
 QUESTION = re.compile(r"^\s*(\d{1,2})\s*\.\s*(.*)$", re.DOTALL)
 #: '(i)', '(ii)', '(iii)' at the start of a line -- a sub-part. Roman only: CBSE numbers
 #: sub-parts in roman and internal choices in latin, and conflating the two made every
 #: '(a)' in a paper look like a part of a question.
 SUB_PART = re.compile(r"^\(\s*(i{1,3}|iv|vi{0,3}|ix|x)\s*\)\s*(.*)$")
-#: '(a)', '(b)' -- one half of an internal choice. Lower case only, because an MCQ prints
-#: its options as '(A) (B) (C) (D)' and those are not choices between questions.
-CHOICE = re.compile(r"^\(\s*([ab])\s*\)\s*(.*)$")
+#: '(a)', '(b)', '(c)' -- a lettered part of a question. Lower case only, because an MCQ
+#: prints its options as '(A) (B) (C) (D)' and those are not parts of anything.
+#:
+#: Whether the lettered parts are an internal choice or sub-parts is NOT decided here,
+#: because it is not a property of the marker: 'OR' between them makes them a choice and
+#: nothing else does. A paper that asks 1(a), 1(b) and 1(c) for 1, 2 and 3 marks is worth
+#: six, and reading its letters as choices made it worth one.
+LETTERED_PART = re.compile(r"^\(\s*([a-h])\s*\)\s*(.*)$")
 #: the internal-choice marker, in the languages this pilot sees. Whitespace is stripped
 #: before matching: the word is often letter-spaced for emphasis and extracts as 'O R',
 #: which the plain word never matched, so every choice in the paper was read as more of
@@ -65,7 +72,7 @@ SECTION_COMPRISES = re.compile(
 )
 #: 'Section A : Biology (30 marks)' in the instructions block
 DECLARED_SECTION = re.compile(
-    r"Section\s+([A-E])\s*[:\-]?\s*([A-Za-z ]{0,30}?)\s*\((\d{1,3})\s*marks?\)",
+    r"Section\s+([A-Z])\s*[:\-]?\s*([A-Za-z ]{0,30}?)\s*\((\d{1,3})\s*marks?\)",
     re.IGNORECASE,
 )
 DECLARED_COUNT = re.compile(r"contains?\s+(\d{1,3})\s+questions?", re.IGNORECASE)
@@ -113,9 +120,13 @@ class ExtractedQuestion:
     #: paragraph is worth nothing on its own and counting it as a question made the paper
     #: read as three 1-mark questions where it has three worth four.
     is_context: bool = False
-    #: set while parsing, cleared by the demotion passes -- see _demote_* below
+    #: set while parsing, cleared by the passes below -- see _classify_lettered_parts
     provisional_sub_part: bool = False
     provisional_choice: bool = False
+    #: '(a)', '(b)', '(c)' as printed, before anything has decided what they mean
+    lettered_part: str | None = None
+    #: whether the word OR stood between this part and the one before it
+    preceded_by_or: bool = False
 
     @property
     def identity(self) -> tuple[str, str | None, str | None]:
@@ -407,18 +418,18 @@ def extract_paper(path: str | Path) -> PaperExtract:
         if start and line.left < line.page_width * 0.22:
             after_or = False
             rest = start.group(2)
-            # '22. (a) Find the mean ...' -- the first half of an internal choice printed
-            # on the number's own line. Provisional: if no '(b)' ever turns up it is
-            # demoted back to a plain question below, rather than leaving a paper full of
-            # half-choices that nothing answers.
-            opening = CHOICE.match(rest.strip())
+            # '22. (a) Find the mean ...' -- a lettered part printed on the number's own
+            # line. Whether it is half a choice or the first of several sub-parts is
+            # settled once the whole question has been read, not here.
+            opening = LETTERED_PART.match(rest.strip())
             row = open_row(
-                start.group(1), None,
-                opening.group(1) if opening else None,
+                start.group(1), None, None,
                 opening.group(2) if opening else rest,
                 line.page,
             )
-            row.provisional_choice = opening is not None
+            if opening:
+                row.lettered_part = opening.group(1)
+                row.provisional_sub_part = True
             continue
 
         anchor = current or last_closed
@@ -428,7 +439,7 @@ def extract_paper(path: str | Path) -> PaperExtract:
                 # '(iii) (a) Find the total surface area.' -- a sub-part that is itself an
                 # internal choice. Both markers are on the one line.
                 body = sub.group(2).strip()
-                inner = CHOICE.match(body)
+                inner = LETTERED_PART.match(body)
                 row = open_row(
                     anchor.question_no, sub.group(1).lower(),
                     inner.group(1) if inner else None,
@@ -439,13 +450,18 @@ def extract_paper(path: str | Path) -> PaperExtract:
                 after_or = False
                 continue
 
-            alternative = CHOICE.match(text)
-            if alternative and after_or:
-                # The second half of a choice, addressed to whatever the OR interrupted.
-                open_row(
-                    anchor.question_no, anchor.sub_part, alternative.group(1),
-                    alternative.group(2), line.page,
+            lettered = LETTERED_PART.match(text)
+            if lettered:
+                # '(b) The following table shows ...' -- another lettered part of the
+                # question above. Whether the OR came first is recorded and decides, once
+                # the question is complete, whether these letters are a choice.
+                row = open_row(
+                    anchor.question_no, anchor.sub_part, None,
+                    lettered.group(2), line.page,
                 )
+                row.lettered_part = lettered.group(1)
+                row.provisional_sub_part = True
+                row.preceded_by_or = after_or
                 after_or = False
                 continue
 
@@ -462,7 +478,10 @@ def extract_paper(path: str | Path) -> PaperExtract:
 
     close()
 
+    # Order matters. A part with no mark of its own is text and folds back into the stem
+    # first, so that only the parts a paper really marks separately are then classified.
     collected = _demote_unmarked_sub_parts(collected)
+    collected = _classify_lettered_parts(collected)
     collected = _demote_unpaired_choices(collected)
     out.questions = _mark_context_rows(
         _inherit_choice_marks(_resolve_bilingual(collected))
@@ -488,12 +507,13 @@ def _demote_unmarked_sub_parts(
             parent = next(
                 (
                     q for q in reversed(out)
-                    if q.question_no == question.question_no and q.sub_part is None
+                    if q.question_no == question.question_no
+                    and q.sub_part is None and q.lettered_part is None
                 ),
                 None,
             )
             if parent is not None:
-                marker = f"({question.sub_part})"
+                marker = f"({question.sub_part or question.lettered_part})"
                 if question.choice_alt:
                     marker += f" ({question.choice_alt})"
                 parent.stem_text = " ".join(
@@ -503,6 +523,48 @@ def _demote_unmarked_sub_parts(
         question.provisional_sub_part = False
         out.append(question)
     return out
+
+
+def _classify_lettered_parts(
+    questions: list[ExtractedQuestion],
+) -> list[ExtractedQuestion]:
+    """Decide what a question's (a), (b), (c) mean, from the paper rather than the letter.
+
+    The word OR between them is the whole of the evidence, and it is the only thing that
+    can be evidence: the letters look identical either way.
+
+      21. (a) ...  OR  (b) ...        one question, answered once, worth its marks once
+      21. (a) 1    (b) 2    (c) 3     one question worth six, in three separately marked
+                                      parts a student answers all of
+
+    Reading the second shape as the first is how a six-mark question came out worth one.
+    A single lettered part is neither: nothing is being chosen between and nothing is
+    being divided, so the letter goes back into the stem where it was printed.
+    """
+    groups: dict[tuple[str, str | None], list[ExtractedQuestion]] = {}
+    for question in questions:
+        if question.lettered_part:
+            groups.setdefault(
+                (question.question_no, question.sub_part), []
+            ).append(question)
+
+    for members in groups.values():
+        if len(members) == 1:
+            only = members[0]
+            only.stem_text = " ".join(
+                f"({only.lettered_part}) {only.stem_text}".split()
+            )[:4000]
+            only.provisional_sub_part = False
+        elif any(m.preceded_by_or for m in members):
+            for member in members:
+                member.choice_alt = member.lettered_part
+                member.provisional_sub_part = False
+        else:
+            for member in members:
+                member.sub_part = member.lettered_part
+        for member in members:
+            member.lettered_part = None
+    return questions
 
 
 def _demote_unpaired_choices(
