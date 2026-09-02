@@ -371,14 +371,15 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
                 parent_id=chapter.id, path=code, curriculum_version=version,
             ))
 
-    written = {"chunks": 0, "procedures": 0}
+    written = {"chunks": 0, "procedures": 0, "sections_filled": 0}
     for chunk in extract.chunks:
-        if db.scalar(
+        existing = db.scalar(
             select(BookChunk).where(
                 BookChunk.stem_hash == chunk.stem_hash,
                 BookChunk.curriculum_version == version,
             )
-        ) is None:
+        )
+        if existing is None:
             db.add(BookChunk(
                 curriculum_version=version, subject_code=subject, node_id=chapter.id,
                 bucket=chunk.bucket, reference=chunk.reference,
@@ -388,6 +389,15 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
                 text=chunk.text, normalised=chunk.text, stem_hash=chunk.stem_hash,
             ))
             written["chunks"] += 1
+        elif chunk.section and not existing.section_number:
+            # A passage loaded before the section was recorded. Re-uploading the file was
+            # the obvious way to fix that and did nothing at all: a chunk is written only
+            # when its hash is absent, and the same file hashes the same, so every chunk
+            # already existed and the run reported nothing written. Filling the gap in
+            # place touches neither the text nor the vector, so the book does not have to
+            # be embedded again to gain the topics it always had.
+            existing.section_number = chunk.section
+            written["sections_filled"] += 1
         if chunk.kind in ("theorem", "activity", "example") and db.scalar(
             select(CanonicalProcedure).where(
                 CanonicalProcedure.stem_hash == chunk.stem_hash,

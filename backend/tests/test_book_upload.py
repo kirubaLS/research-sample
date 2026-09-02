@@ -526,3 +526,83 @@ def test_the_book_status_says_which_chapters_have_nothing_behind_them(client):
     # Named, not just counted: the point is knowing which paper cannot be read yet.
     assert "Probability" in body["chapters_with_nothing_behind_them"]
     assert "Statistics" not in body["chapters_with_nothing_behind_them"]
+
+
+def _one_page(lines: list[str]) -> bytes:
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    y = 60
+    for line in lines:
+        page.insert_text((60, y), line, fontsize=10)
+        y += 14
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def test_uploading_a_chapter_again_fills_in_the_sections_it_was_missing(client):
+    """Re-uploading was the obvious fix for a book with no sections, and did nothing.
+
+    A chunk is written only when its hash is absent, and the same file hashes the same, so
+    every chunk already existed and the run reported nothing written -- while the sections
+    it had just worked out were thrown away. Filling the gap in place touches neither the
+    text nor the vector, so a book does not have to be embedded again to gain the topics it
+    always had.
+    """
+    from sqlalchemy import select, update
+
+    from app.db import SessionLocal
+    from app.models import BookChunk
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.MATH/contents", headers=HEAD,
+        files={"file": ("00-contents.pdf", _one_page([
+            "Contents", "13. Statistics", "13.1 Introduction",
+            "13.2 Mean of Grouped Data",
+        ]), "application/pdf")},
+    )
+    chapter = _one_page(
+        ["13 Statistics", "13.1 Introduction"]
+        + ["Statistics is the collection of data. " * 3] * 4
+        + ["13.2 Mean of Grouped Data"]
+        + ["The mean uses class marks. " * 3] * 4
+        # A chapter with no worked example is refused as a bad extraction, and rightly.
+        + ["Example 1 : Find the mean of the distribution."]
+        + ["Working shown here. " * 3] * 4
+    )
+
+    first = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh113.pdf", chapter, "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["chunks"] > 0
+    assert first.json()["sections_filled"] == 0
+
+    # A book loaded before the section was recorded.
+    db = SessionLocal()
+    db.execute(update(BookChunk).values(section_number=None))
+    db.commit()
+    db.close()
+
+    again = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh113.pdf", chapter, "application/pdf")},
+    )
+    assert again.status_code == 201, again.text
+    body = again.json()
+    # Nothing new written -- which is exactly why re-uploading used to be a no-op.
+    assert body["chunks"] == 0
+    assert body["sections_filled"] > 0
+
+    db = SessionLocal()
+    try:
+        filled = db.scalars(
+            select(BookChunk).where(BookChunk.section_number.isnot(None))
+        ).all()
+        assert filled, "the second read worked the sections out and stored none of them"
+    finally:
+        db.close()
