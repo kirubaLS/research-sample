@@ -841,3 +841,141 @@ def test_a_section_that_is_a_sentence_is_not_stored_as_a_section():
     assert clean_sections(["13.2", "Section on spherical mirror introduction"]) == ["13.2"]
     assert clean_sections(["4.3.1", "4.3.1", None, ""]) == ["4.3.1"]
     assert clean_sections([]) == []
+
+
+# ----------------------------------------------------------------------------------------
+# The judge's verdict settling the question
+#
+# The judge exists because retrieval cannot tell a question ABOUT a theorem from the
+# theorem. Its answer was written only as a placement, and every report prefers what the
+# question itself carries -- so the correction was recorded and then ignored.
+# ----------------------------------------------------------------------------------------
+def _place_with(monkeypatch, chapter: str, section: str | None, tier: str | None):
+    """Run the classify step with a stub judge, so no request is made and no money spent."""
+    from app.classify.judge import Classification
+
+    class StubJudge:
+        violations: list = []
+
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def classify(self, question, evidence):
+            return Classification(
+                chapter=chapter, curriculum_section=section, tier=tier,
+                skill_required="reading a grouped frequency table",
+                reasoning="the passage defines the modal class", confidence=0.9,
+            )
+
+    monkeypatch.setattr("app.classify.anthropic_judge.AnthropicJudge", StubJudge)
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+    return settings, before
+
+
+def test_the_judge_settles_the_chapter_topic_and_sub_topic_on_the_question(
+    client, school, book, monkeypatch
+):
+    """All three land where the report reads them, not only in the placement history."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Question, TaxonomyNode
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Judged", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    client.post(f"/assessments/{aid}/map", headers=h)
+
+    # The judge disagrees with retrieval: it says the mode section, not the mean section.
+    settings, before = _place_with(monkeypatch, "Statistics", "13.3", "Applying")
+    try:
+        out = client.post(f"/assessments/{aid}/place", headers=h)
+    finally:
+        settings.anthropic_api_key = before
+    assert out.status_code == 200, out.text
+    body = out.json()
+    assert body["labelled"] == 1
+    assert body["tiers"] == 1
+
+    db = SessionLocal()
+    try:
+        question = db.scalar(select(Question).where(Question.assessment_id == aid))
+        # The question itself carries the judge's answer, which is what a report reads.
+        assert question.curriculum_section == "13.3"
+        assert db.get(TaxonomyNode, question.chapter_id).label == "Statistics"
+        # And the sub-topic was re-chosen for the section the judge landed on, rather
+        # than left pointing at the one retrieval had picked.
+        family = db.get(TaxonomyNode, question.concept_family_id)
+        assert "13.3" in _sections_for(db, family.code)
+        assert question.skill_required == "reading a grouped frequency table"
+    finally:
+        db.close()
+
+    # And the category reaches the screen.
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert placed["mapped_to"]["tier"] == "AP"
+    assert placed["mapped_to"]["tier_label"] == "Applying"
+
+
+def _sections_for(db, code: str) -> set[str]:
+    from sqlalchemy import select
+
+    from app.models import ConceptFamilyProposal
+
+    row = db.scalar(
+        select(ConceptFamilyProposal).where(ConceptFamilyProposal.code == code)
+    )
+    return set(row.from_sections or []) if row else set()
+
+
+def test_a_judge_that_abstains_on_the_tier_leaves_it_unset(
+    client, school, book, monkeypatch
+):
+    """Abstaining is a legitimate answer and the only honest one when the evidence does
+    not settle which tier a question belongs to. It must not read as a decided tier."""
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Abstained", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    client.post(f"/assessments/{aid}/map", headers=h)
+
+    settings, before = _place_with(monkeypatch, "Statistics", "13.2", None)
+    try:
+        out = client.post(f"/assessments/{aid}/place", headers=h)
+    finally:
+        settings.anthropic_api_key = before
+    assert out.status_code == 200, out.text
+    assert out.json()["tiers"] == 0
+
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert placed["mapped_to"]["tier"] is None
+
+
+def test_classifying_is_refused_without_a_key_rather_than_guessing(client, school, book):
+    """Retrieval places a question in the book; it does not judge what the question asks a
+    student to do. Without the classifier there is no category, and saying so is the whole
+    of the honest answer."""
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "No key", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    client.post(f"/assessments/{aid}/map", headers=h)
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = None
+    try:
+        out = client.post(f"/assessments/{aid}/place", headers=h)
+    finally:
+        settings.anthropic_api_key = before
+    assert out.status_code == 409
+    assert "no classifier key configured" in out.json()["detail"]

@@ -325,7 +325,9 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   margin: 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  /* Narrow enough that all five fit one row on a laptop. At 210px the fifth wrapped
+     and left a dead block of colour beside it wider than the step itself. */
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
   gap: 1px;
   background: var(--rule);
   border: 1px solid var(--rule);

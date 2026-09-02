@@ -608,6 +608,21 @@ export interface MapResult {
   blocked: number;
   blocked_addresses: string[];
   needs_review: number;
+  with_topic: number;
+  context_stems: number;
+}
+
+export interface PlaceResult {
+  placed: number;
+  /** Questions whose chapter, topic and sub-topic the judge settled on the question. */
+  labelled: number;
+  unsettled_family: number;
+  family_refused: number;
+  /** How many came back with a category. The rest abstained. */
+  tiers: number;
+  needs_review: number;
+  note: string | null;
+  grounding_violations: { question: string; problems: string[] }[];
 }
 
 export interface ProbeRow {
@@ -807,6 +822,11 @@ export const api = {
 
   mapPaper: (key: string, assessmentId: string) =>
     authed<MapResult>(`/assessments/${assessmentId}/map`, key, { method: "POST" }),
+
+  /** The judge reads the passages retrieval found and settles chapter, topic, sub-topic
+   *  and the cognitive category. Needs the classifier key on the API service. */
+  placePaper: (key: string, assessmentId: string) =>
+    authed<PlaceResult>(`/assessments/${assessmentId}/place`, key, { method: "POST" }),
 
   uploadContents: (key: string, subject: string, file: File, edition: string) =>
     upload<{ chapters_expected: number; sections_expected: number; next: string }>(

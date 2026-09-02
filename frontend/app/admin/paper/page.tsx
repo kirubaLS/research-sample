@@ -7,6 +7,7 @@ import {
   ApiUnreachable,
   ConfirmResult,
   MapResult,
+  PlaceResult,
   ScanResult,
   ScanReview,
   StagedQuestion,
@@ -27,7 +28,7 @@ import { getApiKey } from "@/lib/session";
  * screen that quietly showed 34 of 39 rows would be lying by omission.
  */
 
-type Stage = "start" | "scanned" | "confirmed" | "mapped";
+type Stage = "start" | "scanned" | "confirmed" | "mapped" | "classified";
 
 export default function PaperPage() {
   // The subjects come from the deployment, not from a list written here. A school that
@@ -39,6 +40,7 @@ export default function PaperPage() {
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [review, setReview] = useState<ScanReview | null>(null);
   const [mapped, setMapped] = useState<MapResult | null>(null);
+  const [placed, setPlaced] = useState<PlaceResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "mapped" | "blocked">("all");
@@ -65,7 +67,15 @@ export default function PaperPage() {
   }, []);
 
   const confirmed = !!(confirmation || review?.confirmed_at);
-  const stage: Stage = mapped ? "mapped" : confirmed ? "confirmed" : scan ? "scanned" : "start";
+  const stage: Stage = placed
+    ? "classified"
+    : mapped
+      ? "mapped"
+      : confirmed
+        ? "confirmed"
+        : scan
+          ? "scanned"
+          : "start";
 
   function explain(err: unknown): string {
     if (err instanceof ApiUnreachable) return "Could not reach the API.";
@@ -151,6 +161,22 @@ export default function PaperPage() {
     setBusy("Matching every question against the book…");
     try {
       setMapped(await api.mapPaper(key, assessmentId));
+      setPlaced(null);
+      await refresh(assessmentId);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onClassify() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    setError(null);
+    setBusy("Reading each question against the passages it matched…");
+    try {
+      setPlaced(await api.placePaper(key, assessmentId));
       await refresh(assessmentId);
     } catch (err) {
       setError(explain(err));
@@ -185,9 +211,10 @@ export default function PaperPage() {
             ["Check", "correct anything the reader got wrong"],
             ["Confirm", "put your name to these questions"],
             ["Map", "each question onto the book"],
+            ["Classify", "chapter, topic, sub topic and category"],
           ] as const
         ).map(([label, hint], i) => {
-          const reached = ["start", "scanned", "confirmed", "mapped"].indexOf(stage);
+          const reached = ["start", "scanned", "confirmed", "mapped", "classified"].indexOf(stage);
           const state = i < reached ? "done" : i === reached ? "now" : "todo";
           return (
             <li key={label} className={`step step-${state}`}>
@@ -341,6 +368,76 @@ export default function PaperPage() {
           <p className="muted">
             Matched by {mapped.retrieval === "hybrid" ? "keyword and meaning search together" : "keyword search alone"}.
           </p>
+
+          {/* Retrieval finds the passages; it does not judge what a question asks a
+              student to do. That is a separate reading, and it is the only thing that
+              produces a category. */}
+          {!placed && mapped.mapped > 0 && (
+            <>
+              <p className="note">
+                Every question now sits in a chapter. Reading each one against the passages
+                it matched settles its topic and sub topic, and gives it a category. A
+                question the reading cannot settle keeps what it has and says so.
+              </p>
+              <button type="button" className="primary" onClick={onClassify} disabled={!!busy}>
+                {busy ?? "Read and classify these questions"}
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
+      {placed && (
+        <section className="card">
+          <div className="tiles">
+            <Tile n={placed.labelled} label="chapter, topic and sub topic settled" tone="good" />
+            <Tile
+              n={placed.tiers}
+              label="given a category"
+              tone={placed.tiers === placed.placed ? "good" : "warn"}
+            />
+            <Tile
+              n={placed.unsettled_family}
+              label="sub topic wants a second look"
+              tone={placed.unsettled_family ? "warn" : undefined}
+            />
+            <Tile
+              n={placed.family_refused}
+              label="left as they were"
+              tone={placed.family_refused ? "warn" : undefined}
+            />
+          </div>
+
+          {placed.tiers < placed.placed && (
+            <p className="note">
+              {placed.placed - placed.tiers} question
+              {placed.placed - placed.tiers === 1 ? "" : "s"} came back without a category.
+              That is an answer, not a gap: where the passages do not settle which kind of
+              thinking a question asks for, nothing is recorded rather than a letter
+              nobody can stand behind.
+            </p>
+          )}
+
+          {placed.grounding_violations.length > 0 && (
+            <div className="verdict warn">
+              <p>
+                <strong>
+                  The book had to correct the reading on{" "}
+                  {placed.grounding_violations.length} question
+                  {placed.grounding_violations.length === 1 ? "" : "s"}.
+                </strong>{" "}
+                Every corrected field was dropped rather than stored. How often this
+                happens is the measure of whether the next paper can be left to it.
+              </p>
+              <ul>
+                {placed.grounding_violations.slice(0, 6).map((v) => (
+                  <li key={v.question}>
+                    {v.question} &middot; {v.problems.join("; ")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </section>
       )}
 
