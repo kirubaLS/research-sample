@@ -125,9 +125,100 @@ X_SCIENCE = Curriculum(
     concept_families=[],
 )
 
+#: CBSE Class X Social Science is four separate NCERT books, not one: each book's own
+#: chapter numbering restarts at 1, and `chapter_number()` reads that number off the
+#: filename alone (jess101.pdf -> chapter 1). One subject code per book, the same way
+#: X.MATH and X.SCI are each exactly one book, so two different books' "chapter 1" can
+#: never collide under a shared code.
+#:
+#: Board-unit weightage is a placeholder (0.0) pending the official CBSE blueprint --
+#: `apply()` only ever creates a BoardUnitWeight once, so setting a guessed number now
+#: would need a second write path to correct later, not just a re-run. The chapter list
+#: itself is real: read off each book's own contents page (Reprint 2026-27), not recalled.
+X_HISTORY = Curriculum(
+    subject_code="X.HIST",
+    subject_label="Class X History (India and the Contemporary World – II)",
+    grade=10,
+    units=[
+        BoardUnit("X.HIST.U.WHOLE", "India and the Contemporary World – II", 0.0),
+    ],
+    # jess3ps.pdf, page xi. Three named sections in the book; kept as one board unit
+    # until the blueprint says otherwise.
+    chapters=[
+        Chapter("X.HIST.NATIONALISM_EUROPE", "The Rise of Nationalism in Europe", "X.HIST.U.WHOLE"),
+        Chapter("X.HIST.NATIONALISM_INDIA", "Nationalism in India", "X.HIST.U.WHOLE"),
+        Chapter("X.HIST.GLOBALWORLD", "The Making of a Global World", "X.HIST.U.WHOLE"),
+        Chapter("X.HIST.INDUSTRIALISATION", "The Age of Industrialisation", "X.HIST.U.WHOLE"),
+        Chapter("X.HIST.PRINTCULTURE", "Print Culture and the Modern World", "X.HIST.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
+X_GEOGRAPHY = Curriculum(
+    subject_code="X.GEO",
+    subject_label="Class X Geography (Contemporary India – II)",
+    grade=10,
+    units=[
+        BoardUnit("X.GEO.U.WHOLE", "Contemporary India – II", 0.0),
+    ],
+    # jess1ps.pdf, Contents page.
+    chapters=[
+        Chapter("X.GEO.RESOURCES", "Resources and Development", "X.GEO.U.WHOLE"),
+        Chapter("X.GEO.FORESTWILDLIFE", "Forest and Wildlife Resources", "X.GEO.U.WHOLE"),
+        Chapter("X.GEO.WATER", "Water Resources", "X.GEO.U.WHOLE"),
+        Chapter("X.GEO.AGRICULTURE", "Agriculture", "X.GEO.U.WHOLE"),
+        Chapter("X.GEO.MINERALSENERGY", "Minerals and Energy Resources", "X.GEO.U.WHOLE"),
+        Chapter("X.GEO.MANUFACTURING", "Manufacturing Industries", "X.GEO.U.WHOLE"),
+        Chapter("X.GEO.LIFELINES", "Lifelines of National Economy", "X.GEO.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
+X_POLITICAL_SCIENCE = Curriculum(
+    subject_code="X.POL",
+    subject_label="Class X Political Science (Democratic Politics – II)",
+    grade=10,
+    units=[
+        BoardUnit("X.POL.U.WHOLE", "Democratic Politics – II", 0.0),
+    ],
+    # jess4ps.pdf, Contents page. The book itself labels these Unit I-IV; kept as one
+    # board unit here for the same reason as History's sections, until the blueprint
+    # says whether the board scores them separately.
+    chapters=[
+        Chapter("X.POL.POWERSHARING", "Power-sharing", "X.POL.U.WHOLE"),
+        Chapter("X.POL.FEDERALISM", "Federalism", "X.POL.U.WHOLE"),
+        Chapter("X.POL.GENDERRELIGIONCASTE", "Gender, Religion and Caste", "X.POL.U.WHOLE"),
+        Chapter("X.POL.PARTIES", "Political Parties", "X.POL.U.WHOLE"),
+        Chapter("X.POL.OUTCOMES", "Outcomes of Democracy", "X.POL.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
+X_ECONOMICS = Curriculum(
+    subject_code="X.ECO",
+    subject_label="Class X Economics (Understanding Economic Development)",
+    grade=10,
+    units=[
+        BoardUnit("X.ECO.U.WHOLE", "Understanding Economic Development", 0.0),
+    ],
+    # jess2ps.pdf, Contents page.
+    chapters=[
+        Chapter("X.ECO.DEVELOPMENT", "Development", "X.ECO.U.WHOLE"),
+        Chapter("X.ECO.SECTORS", "Sectors of the Indian Economy", "X.ECO.U.WHOLE"),
+        Chapter("X.ECO.MONEYCREDIT", "Money and Credit", "X.ECO.U.WHOLE"),
+        Chapter("X.ECO.GLOBALISATION", "Globalisation and the Indian Economy", "X.ECO.U.WHOLE"),
+        Chapter("X.ECO.CONSUMERRIGHTS", "Consumer Rights", "X.ECO.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
 CURRICULA: dict[str, Curriculum] = {
     X_MATH.subject_code: X_MATH,
     X_SCIENCE.subject_code: X_SCIENCE,
+    X_HISTORY.subject_code: X_HISTORY,
+    X_GEOGRAPHY.subject_code: X_GEOGRAPHY,
+    X_POLITICAL_SCIENCE.subject_code: X_POLITICAL_SCIENCE,
+    X_ECONOMICS.subject_code: X_ECONOMICS,
 }
 
 
