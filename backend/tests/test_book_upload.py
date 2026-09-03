@@ -528,6 +528,29 @@ def test_the_book_status_says_which_chapters_have_nothing_behind_them(client):
     assert "Statistics" not in body["chapters_with_nothing_behind_them"]
 
 
+def test_status_counts_expected_chapters_for_a_book_with_no_section_list(client):
+    """Every subject but Maths publishes chapter titles only (expected_chapters), not a
+    chapter.section list (expected_sections) -- upload_contents' own "N chapters expected"
+    already falls back to it, but this endpoint's `expected` set read only
+    expected_sections, so every subject but Maths showed "0 chapters expected" here. The
+    frontend treats 0 as falsy and renders it as "5/?" instead of the real total."""
+    from app.db import SessionLocal
+    from app.models import BookSource
+
+    client.post("/platform/books/X.HIST/curriculum", headers=HEAD)
+
+    db = SessionLocal()
+    db.add(BookSource(
+        curriculum_version="CBSE-2026-27", subject_code="X.HIST",
+        expected_sections={}, expected_chapters={"1": "x", "2": "y", "3": "z"}, files={},
+    ))
+    db.commit()
+    db.close()
+
+    body = client.get("/platform/books/X.HIST", headers=HEAD).json()
+    assert body["expected_chapters"] == 3
+
+
 def _one_page(lines: list[str]) -> bytes:
     import pymupdf
 

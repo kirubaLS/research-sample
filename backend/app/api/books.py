@@ -164,7 +164,14 @@ def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
             ),
         }
 
-    expected = {int(k) for k in source.expected_sections}
+    # expected_sections is the chapter.section list -- only Maths publishes one.
+    # Every other subject's contents page stops at chapter titles (expected_chapters),
+    # which upload_contents already falls back to for its own "N chapters expected"
+    # count; this endpoint hadn't, so every subject but Maths showed "0 expected" here
+    # -- read by the frontend as falsy and displayed as "?" instead of the real total.
+    expected = {int(k) for k in source.expected_sections} or {
+        int(k) for k in (source.expected_chapters or {})
+    }
     loaded = {int(v["chapter"]) for v in source.files.values() if "chapter" in v}
     missing = sorted(expected - loaded)
     return {
