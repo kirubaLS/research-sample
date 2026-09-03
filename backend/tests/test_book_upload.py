@@ -532,7 +532,14 @@ def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(clien
     """Kritika's real text layer decodes as mojibake (a pre-Unicode font, no ToUnicode
     CMap -- see app.ingest.hindi_ocr). Stubs gemini_read_text rather than calling the real
     API: what this test checks is that the upload path calls it and threads its answer all
-    the way to a written chapter, not the quality of Gemini's own Hindi transcription."""
+    the way to a written chapter, not the quality of Gemini's own Hindi transcription.
+
+    A Hindi upload is backgrounded (see IngestJob) rather than answered directly -- a
+    real Gemini call cannot finish inside Render's own request timeout. TestClient runs a
+    BackgroundTasks task to completion before client.post() returns, so the job is already
+    resolved by the time this polls its status; a real deployment's browser would poll for
+    longer, but the same two calls -- POST then GET .../jobs/{id} -- are what it does.
+    """
     from app.config import get_settings
 
     settings = get_settings()
@@ -555,16 +562,24 @@ def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(clien
         "/platform/books/X.HIN.KR/contents", headers=HEAD,
         files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
     )
-    assert contents.status_code == 201, contents.json()
-    assert contents.json()["chapters_expected"] == 1
+    assert contents.status_code == 202, contents.json()
+    contents_job = client.get(
+        f"/platform/books/X.HIN.KR/jobs/{contents.json()['job_id']}", headers=HEAD,
+    ).json()
+    assert contents_job["status"] == "succeeded", contents_job
+    assert contents_job["chapters_expected"] == 1
 
     chapter = client.post(
         "/platform/books/X.HIN.KR/chapters", headers=HEAD,
         files={"file": ("jhkr101.pdf", io.BytesIO(b"x" * 5000), "application/pdf")},
     )
-    assert chapter.status_code == 201, chapter.json()
-    assert chapter.json()["chapter"] == 1
-    assert chapter.json()["sections"] == 1
+    assert chapter.status_code == 202, chapter.json()
+    chapter_job = client.get(
+        f"/platform/books/X.HIN.KR/jobs/{chapter.json()['job_id']}", headers=HEAD,
+    ).json()
+    assert chapter_job["status"] == "succeeded", chapter_job
+    assert chapter_job["chapter"] == 1
+    assert chapter_job["sections"] == 1
 
     settings.gemini_api_key = before
 
@@ -572,8 +587,10 @@ def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(clien
 def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypatch):
     """'Could not reach the API' on a request that reached the backend was an unretried
     transport failure (a dropped connection, a read timeout) bubbling up as an unhandled
-    exception. gemini_read_text now retries that itself; this checks what happens once
-    retries are exhausted -- a 502 naming the real reason, not a bare 500."""
+    exception inside the (then-synchronous) upload handler. gemini_read_text now retries
+    that itself, and the call runs in a background job -- this checks what a job's own
+    status shows once retries are exhausted: the same 502 a synchronous upload would have
+    raised, not a job stuck at 'pending' with no visible cause."""
     import httpx as httpx_module
 
     from app.config import get_settings
@@ -593,8 +610,10 @@ def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypa
         "/platform/books/X.HIN.KR/contents", headers=HEAD,
         files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
     )
-    assert r.status_code == 502
-    assert "Gemini could not be reached" in r.json()["detail"]
+    assert r.status_code == 202, r.json()
+    job = client.get(f"/platform/books/X.HIN.KR/jobs/{r.json()['job_id']}", headers=HEAD)
+    assert job.status_code == 502
+    assert "Gemini could not be reached" in job.json()["detail"]
 
     settings.gemini_api_key = before
 
@@ -608,7 +627,7 @@ def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypa
         )
 
 
-def test_a_hindi_upload_without_a_gemini_key_is_refused_by_name(client):
+def test_a_hindi_upload_without_a_gemini_key_fails_the_job_by_name(client):
     from app.config import get_settings
 
     settings = get_settings()
@@ -620,10 +639,17 @@ def test_a_hindi_upload_without_a_gemini_key_is_refused_by_name(client):
         "/platform/books/X.HIN.KR/contents", headers=HEAD,
         files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
     )
-    assert r.status_code == 409
-    assert "Gemini API key" in r.json()["detail"]
+    assert r.status_code == 202, r.json()
+    job = client.get(f"/platform/books/X.HIN.KR/jobs/{r.json()['job_id']}", headers=HEAD)
+    assert job.status_code == 409
+    assert "Gemini API key" in job.json()["detail"]
 
     settings.gemini_api_key = before
+
+
+def test_a_job_for_another_subject_is_not_found(client):
+    r = client.get("/platform/books/X.HIN.KR/jobs/not-a-real-id", headers=HEAD)
+    assert r.status_code == 404
 
 
 def test_status_counts_expected_chapters_for_a_book_with_no_section_list(client):

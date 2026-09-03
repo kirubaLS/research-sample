@@ -16,7 +16,8 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import aliased
@@ -48,6 +49,7 @@ from app.models import (
     CanonicalProcedure,
     ChapterBoardUnit,
     ConceptFamilyProposal,
+    IngestJob,
     TaxonomyNode,
 )
 
@@ -69,7 +71,7 @@ _to_tempfile = to_tempfile
 HINDI_SUBJECT_PREFIX = "X.HIN"
 
 
-def _hindi_text(path) -> str:
+def _hindi_text(pdf_bytes: bytes) -> str:
     """The book's real Unicode text, for a subject whose own PDF text layer decodes as
     mojibake (see app.ingest.hindi_ocr for why). Raised as a 409, not a 500: a missing key
     is an operator setup step, not a broken upload.
@@ -83,7 +85,7 @@ def _hindi_text(path) -> str:
         )
     try:
         return gemini_read_text(
-            path.read_bytes(), api_key=settings.gemini_api_key, model=settings.gemini_model,
+            pdf_bytes, api_key=settings.gemini_api_key, model=settings.gemini_model,
         )
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
@@ -95,6 +97,50 @@ def _hindi_text(path) -> str:
         # before giving up -- this is what "Could not reach the API" was, surfaced with
         # the real reason instead of a bare unhandled-exception 500.
         raise HTTPException(502, f"Gemini could not be reached: {exc}") from exc
+
+
+def _run_ingest_job(job_id: str) -> None:
+    """The slow part of a Hindi upload, run after the request that queued it has already
+    returned. Opens its own session -- BackgroundTasks runs after the request-scoped one
+    passed to the endpoint has been closed, not before, so reusing it would operate on a
+    dead connection.
+
+    Never raises: every failure, including one this function's own bugs would otherwise
+    let escape as an unhandled exception in a background task (which FastAPI logs and
+    then silently drops -- the job would sit at 'pending' forever with no visible cause),
+    is caught and written to the job row, because that row is the only place left a
+    failure can be seen once the request that would have shown it has already returned.
+    """
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        job = db.get(IngestJob, job_id)
+        if job is None:
+            return
+        try:
+            if job.kind == "contents":
+                result = _process_contents(
+                    db, job.subject_code, job.curriculum_version, job.pdf_bytes, job.edition,
+                )
+            else:
+                result = _process_chapter(
+                    db, job.subject_code, job.curriculum_version, job.filename, job.pdf_bytes,
+                )
+            job.status = "succeeded"
+            job.result = result
+        except HTTPException as exc:
+            job.status = "failed"
+            job.error_status = exc.status_code
+            job.error_detail = str(exc.detail)
+        except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
+            job.status = "failed"
+            job.error_status = 500
+            job.error_detail = f"{type(exc).__name__}: {exc}"
+        job.finished_at = datetime.now(UTC)
+        db.commit()
+    finally:
+        db.close()
 
 
 def _source(db: Session, subject: str, version: str) -> BookSource | None:
@@ -232,15 +278,15 @@ def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
     }
 
 
-@router.post("/{subject}/contents", status_code=status.HTTP_201_CREATED)
-async def upload_contents(
-    subject: str,
-    file: UploadFile = File(...),
-    edition: str | None = None,
-    db: Session = Depends(get_session),
+def _process_contents(
+    db: Session, subject: str, version: str, pdf_bytes: bytes, edition: str | None,
 ) -> dict:
-    """The prelims file. Parsed for its table of contents, which becomes the oracle."""
-    version = "CBSE-2026-27"
+    """Everything upload_contents does once it has the bytes -- shared by the synchronous
+    endpoint (every subject but Hindi) and _run_ingest_job (Hindi, backgrounded because a
+    Gemini call cannot finish inside Render's request timeout). Raises HTTPException on a
+    real problem with the upload; both callers let that propagate to where it belongs --
+    the response for a synchronous upload, the job row for a backgrounded one.
+    """
     if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == subject)) is None:
         raise HTTPException(
             422,
@@ -249,9 +295,10 @@ async def upload_contents(
             f"not from the book.",
         )
 
-    path = await _to_tempfile(file)
+    is_hindi = subject.startswith(HINDI_SUBJECT_PREFIX)
+    text = _hindi_text(pdf_bytes) if is_hindi else None
+    path = _bytes_to_tempfile(pdf_bytes)
     try:
-        text = _hindi_text(path) if subject.startswith(HINDI_SUBJECT_PREFIX) else None
         toc = parse_toc(path, text=text)
         chapters = parse_toc_chapters(path, text=text)
     finally:
@@ -305,14 +352,12 @@ async def upload_contents(
     }
 
 
-@router.post("/{subject}/chapters", status_code=status.HTTP_201_CREATED)
-async def upload_chapter(
-    subject: str,
-    file: UploadFile = File(...),
-    db: Session = Depends(get_session),
+def _process_chapter(
+    db: Session, subject: str, version: str, name: str, pdf_bytes: bytes,
 ) -> dict:
-    """One chapter PDF, verified against the contents page before anything is written."""
-    version = "CBSE-2026-27"
+    """Everything upload_chapter does once it has the bytes -- see _process_contents for
+    why this is split out from the route handler.
+    """
     source = _source(db, subject, version)
     if source is None:
         raise HTTPException(
@@ -321,7 +366,6 @@ async def upload_chapter(
             "than merely plausible",
         )
 
-    name = file.filename or ""
     number = chapter_number(name)
     if number is None or number == 0:
         raise HTTPException(
@@ -333,7 +377,9 @@ async def upload_chapter(
             f"key as practice content.",
         )
 
-    path = await _to_tempfile(file)
+    is_hindi = subject.startswith(HINDI_SUBJECT_PREFIX)
+    text_override = _hindi_text(pdf_bytes) if is_hindi else None
+    path = _bytes_to_tempfile(pdf_bytes)
     try:
         # An NCERT-coded filename carries no title, so take it from the curriculum, which
         # is the authority for chapter identity anyway -- it holds the board-unit mapping.
@@ -345,13 +391,12 @@ async def upload_chapter(
         # rather than the PDF's own (unusable) text layer -- so it gets single_section too.
         # Scoped by subject code, not guessed from what the normal section detection
         # happens to find on a given file.
-        is_hindi = subject.startswith(HINDI_SUBJECT_PREFIX)
         extract = extract_chapter(
             path, number=number, name=name,
             title=chapter_title(subject, number) or "",
             single_section=subject.startswith("X.ENG") or is_hindi,
             body_bucket="E" if subject == "X.ENG.WB" else "T",
-            text_override=_hindi_text(path) if is_hindi else None,
+            text_override=text_override,
         )
         toc = {
             int(k): [Section(s["number"], s["title"]) for s in v]
@@ -397,6 +442,106 @@ async def upload_chapter(
         "verified_against": extract.verified_against,
         **written,
     }
+
+
+def _bytes_to_tempfile(pdf_bytes: bytes):
+    import tempfile
+    from pathlib import Path
+
+    handle = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    handle.write(pdf_bytes)
+    handle.close()
+    return Path(handle.name)
+
+
+@router.post("/{subject}/contents", status_code=status.HTTP_201_CREATED)
+async def upload_contents(
+    subject: str,
+    file: UploadFile = File(...),
+    edition: str | None = None,
+    background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
+    db: Session = Depends(get_session),
+) -> dict:
+    """The prelims file. Parsed for its table of contents, which becomes the oracle.
+
+    A Hindi subject cannot finish this inside one request -- see IngestJob -- so it writes
+    a job and returns 202 instead of doing the work here; poll GET .../jobs/{id} for the
+    result this endpoint returns directly for every other subject.
+    """
+    version = "CBSE-2026-27"
+    path = await _to_tempfile(file)
+    pdf_bytes = path.read_bytes()
+    path.unlink(missing_ok=True)
+
+    if subject.startswith(HINDI_SUBJECT_PREFIX):
+        job = IngestJob(
+            subject_code=subject, curriculum_version=version, kind="contents",
+            filename=file.filename or "contents.pdf", edition=edition, pdf_bytes=pdf_bytes,
+        )
+        db.add(job)
+        db.commit()
+        background_tasks.add_task(_run_ingest_job, job.id)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": job.id, "status": "pending",
+                "next": f"Poll GET /platform/books/{subject}/jobs/{job.id} for the result.",
+            },
+        )
+
+    return _process_contents(db, subject, version, pdf_bytes, edition)
+
+
+@router.post("/{subject}/chapters", status_code=status.HTTP_201_CREATED)
+async def upload_chapter(
+    subject: str,
+    file: UploadFile = File(...),
+    background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
+    db: Session = Depends(get_session),
+) -> dict:
+    """One chapter PDF, verified against the contents page before anything is written.
+
+    See upload_contents: a Hindi subject is backgrounded the same way.
+    """
+    version = "CBSE-2026-27"
+    name = file.filename or ""
+    path = await _to_tempfile(file)
+    pdf_bytes = path.read_bytes()
+    path.unlink(missing_ok=True)
+
+    if subject.startswith(HINDI_SUBJECT_PREFIX):
+        job = IngestJob(
+            subject_code=subject, curriculum_version=version, kind="chapter",
+            filename=name, pdf_bytes=pdf_bytes,
+        )
+        db.add(job)
+        db.commit()
+        background_tasks.add_task(_run_ingest_job, job.id)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": job.id, "status": "pending",
+                "next": f"Poll GET /platform/books/{subject}/jobs/{job.id} for the result.",
+            },
+        )
+
+    return _process_chapter(db, subject, version, name, pdf_bytes)
+
+
+@router.get("/{subject}/jobs/{job_id}")
+def get_ingest_job(subject: str, job_id: str, db: Session = Depends(get_session)) -> dict:
+    """Poll for the result of a backgrounded upload -- see IngestJob and upload_contents/
+    upload_chapter. A failed job carries the same status code and detail a synchronous
+    upload would have raised, not a bare 'failed'.
+    """
+    job = db.get(IngestJob, job_id)
+    if job is None or job.subject_code != subject:
+        raise HTTPException(404, f"no job {job_id!r} for subject {subject!r}")
+    if job.status == "failed":
+        raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
+    if job.status != "succeeded":
+        return {"job_id": job.id, "status": job.status}
+    return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
 
 
 def _load(db: Session, extract, subject: str, version: str) -> dict:

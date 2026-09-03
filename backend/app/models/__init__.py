@@ -43,6 +43,7 @@ from app.models.taxonomy import (
     CanonicalProcedure,
     ChapterBoardUnit,
     ConceptFamilyProposal,
+    IngestJob,
     Prerequisite,
     TaxonomyAlias,
     TaxonomyNode,
@@ -51,7 +52,8 @@ from app.models.taxonomy import (
 __all__ = [
     "Base", "new_id", "utcnow",
     "School", "Section", "StudentProfile",
-    "TaxonomyNode", "TaxonomyAlias", "Prerequisite", "BoardUnitWeight", "BookSource", "ChapterBoardUnit",
+    "TaxonomyNode", "TaxonomyAlias", "Prerequisite", "BoardUnitWeight", "BookSource", "IngestJob",
+    "ChapterBoardUnit",
     "ConceptFamilyProposal",
     "CanonicalProcedure", "BookChunk", "NODE_KINDS",
     "Assessment", "LogicalPage", "Question", "QuestionJudgment", "QuestionPlacement", "QuestionSkill",

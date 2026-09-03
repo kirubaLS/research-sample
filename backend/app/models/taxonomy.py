@@ -6,12 +6,16 @@ adds a node version so historical reports stay reproducible.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import (
     JSON,
     Boolean,
     Date,
+    DateTime,
     Float,
     ForeignKey,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -238,3 +242,39 @@ class BookSource(Base, PkMixin, TimestampMixin):
     expected_chapters: Mapped[dict] = mapped_column(JSON, default=dict)
     #: {"01-real-numbers.pdf": {"sha256": ..., "chunks": 16, "loaded_at": ...}}
     files: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class IngestJob(Base, PkMixin, TimestampMixin):
+    """A book upload that could not finish inside one HTTP request.
+
+    A Hindi book's real text has to come from Gemini (see app.ingest.gemini_ocr) --
+    tens of seconds for one chapter PDF, sent as one blocking call -- and Render's own
+    reverse proxy kills a web request at a fixed timeout regardless of what the app is
+    doing, so the same synchronous handler every other subject uses returns to the
+    browser as a bare connection failure ("Could not reach the API") on a request that
+    reached the backend fine and was still working.
+
+    So for a subject this slow, the upload endpoint does no more than write this row and
+    hand it to a background task, and returns immediately: the browser gets a job id
+    inside Render's timeout, and polls GET .../jobs/{id} for the result the synchronous
+    endpoints used to return directly. `pdf_bytes` is stored here rather than on disk
+    because a Render instance keeps no disk between requests -- the same reason
+    scan_page.content lives in Postgres rather than a local path.
+    """
+
+    __tablename__ = "ingest_job"
+
+    subject_code: Mapped[str] = mapped_column(String(32), index=True)
+    curriculum_version: Mapped[str] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(16))          # 'contents' | 'chapter'
+    filename: Mapped[str] = mapped_column(String(255))
+    edition: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    pdf_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    #: whatever the synchronous endpoint used to return as its response body
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    #: an HTTPException's (status_code, detail), so a failed job surfaces the same 422/502
+    #: a synchronous upload would have, not a bare "failed"
+    error_status: Mapped[int | None] = mapped_column(nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
