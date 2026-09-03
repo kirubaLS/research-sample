@@ -704,6 +704,74 @@ def test_a_job_for_another_subject_is_not_found(client):
     assert r.status_code == 404
 
 
+def test_no_db_session_is_open_while_hindi_ocr_runs(client, monkeypatch):
+    """The real bug: _run_ingest_job used to open one session and hold it for the whole
+    job, including the slow OCR call -- which sat idle-in-transaction long enough that
+    Postgres/PgBouncer killed the connection before the job's own final commit could run,
+    losing a result OCR had already produced (psycopg.errors.IdleInTransactionSessionTimeout
+    on the real deployment). Regression-tested by calling _run_ingest_job directly (not
+    through the HTTP client, whose own request-scoped session is a separate concern) and
+    counting how many of *its* sessions are open at the moment OCR runs -- must be zero."""
+    import io as io_module
+
+    from app.api.books import IngestJob, _run_ingest_job
+    from app.config import get_settings
+    from app.db import SessionLocal as real_session_local
+
+    open_sessions = 0
+    max_open_during_ocr = 0
+
+    def tracked_session_local():
+        nonlocal open_sessions
+        session = real_session_local()
+        open_sessions += 1
+        real_close = session.close
+
+        def tracked_close():
+            nonlocal open_sessions
+            open_sessions -= 1
+            real_close()
+
+        session.close = tracked_close
+        return session
+
+    def fake_hindi_read_text(pdf_bytes, *, gemini_api_key, gemini_model):
+        nonlocal max_open_during_ocr
+        max_open_during_ocr = max(max_open_during_ocr, open_sessions)
+        return "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"
+
+    monkeypatch.setattr("app.api.books.hindi_read_text", fake_hindi_read_text)
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = "test-gemini-key"
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io_module.BytesIO(b"x" * 100), "application/pdf")},
+    )
+
+    db = real_session_local()
+    job = IngestJob(
+        subject_code="X.HIN.KR", curriculum_version="CBSE-2026-27", kind="contents",
+        filename="jhkr1ps.pdf", pdf_bytes=b"y" * 100,
+    )
+    db.add(job)
+    db.commit()
+    job_id = job.id
+    db.close()
+
+    # Patched only for the call under test, not the fixtures/setup above -- so the count
+    # reflects _run_ingest_job's own sessions alone.
+    monkeypatch.setattr("app.db.SessionLocal", tracked_session_local)
+    _run_ingest_job(job_id)
+
+    assert max_open_during_ocr == 0
+
+    settings.gemini_api_key = before
+
+
 def test_status_counts_expected_chapters_for_a_book_with_no_section_list(client):
     """Every subject but Maths publishes chapter titles only (expected_chapters), not a
     chapter.section list (expected_sections) -- upload_contents' own "N chapters expected"

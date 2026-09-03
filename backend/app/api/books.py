@@ -106,11 +106,47 @@ def _hindi_text(pdf_bytes: bytes) -> str:
         raise HTTPException(502, f"Hindi OCR failed: {exc}") from exc
 
 
+def _finish_ingest_job(
+    job_id: str, *, status_value: str, result: dict | None = None,
+    error_status: int | None = None, error_detail: str | None = None,
+) -> None:
+    """Write a job's outcome in its own short-lived session, opened only for this update.
+
+    A separate function, not inlined at each call site, because there are two places a
+    job can finish (OCR itself failing, or _process_contents/_process_chapter failing
+    after OCR succeeded) and both need the identical brief-session treatment -- see
+    _run_ingest_job's docstring for why a long-lived one is the actual bug being avoided.
+    """
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        job = db.get(IngestJob, job_id)
+        if job is None:
+            return
+        job.status = status_value
+        job.result = result
+        job.error_status = error_status
+        job.error_detail = error_detail
+        job.finished_at = datetime.now(UTC)
+        db.commit()
+    finally:
+        db.close()
+
+
 def _run_ingest_job(job_id: str) -> None:
     """The slow part of a Hindi upload, run after the request that queued it has already
-    returned. Opens its own session -- BackgroundTasks runs after the request-scoped one
-    passed to the endpoint has been closed, not before, so reusing it would operate on a
-    dead connection.
+    returned.
+
+    Three short-lived sessions, never one held open across the OCR call: a session kept
+    open while OCR runs sits idle-in-transaction for however long that takes (minutes, on
+    the real files -- confirmed on the deployed service by
+    ``psycopg.errors.IdleInTransactionSessionTimeout`` killing the connection before the
+    job's own final commit could run, losing the result OCR had already produced).
+    Postgres enforces its own idle-in-transaction timeout regardless of what this process
+    is doing, the same lesson `_hindi_text`'s retries and IngestJob's own 202 exist for
+    with Render's *request* timeout -- do not hold a resource open across slow, unrelated
+    work, whichever layer enforces the limit.
 
     Never raises: every failure, including one this function's own bugs would otherwise
     let escape as an unhandled exception in a background task (which FastAPI logs and
@@ -125,29 +161,50 @@ def _run_ingest_job(job_id: str) -> None:
         job = db.get(IngestJob, job_id)
         if job is None:
             return
-        try:
-            if job.kind == "contents":
-                result = _process_contents(
-                    db, job.subject_code, job.curriculum_version, job.pdf_bytes, job.edition,
-                )
-            else:
-                result = _process_chapter(
-                    db, job.subject_code, job.curriculum_version, job.filename, job.pdf_bytes,
-                )
-            job.status = "succeeded"
-            job.result = result
-        except HTTPException as exc:
-            job.status = "failed"
-            job.error_status = exc.status_code
-            job.error_detail = str(exc.detail)
-        except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
-            job.status = "failed"
-            job.error_status = 500
-            job.error_detail = f"{type(exc).__name__}: {exc}"
-        job.finished_at = datetime.now(UTC)
-        db.commit()
+        kind, subject_code, curriculum_version = job.kind, job.subject_code, job.curriculum_version
+        filename, edition, pdf_bytes = job.filename, job.edition, job.pdf_bytes
+    finally:
+        db.close()  # released BEFORE the slow OCR call below, not held across it
+
+    is_hindi = subject_code.startswith(HINDI_SUBJECT_PREFIX)
+    try:
+        hindi_text = _hindi_text(pdf_bytes) if is_hindi else None
+    except HTTPException as exc:
+        _finish_ingest_job(
+            job_id, status_value="failed", error_status=exc.status_code, error_detail=str(exc.detail),
+        )
+        return
+    except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
+        _finish_ingest_job(
+            job_id, status_value="failed", error_status=500,
+            error_detail=f"{type(exc).__name__}: {exc}",
+        )
+        return
+
+    db = SessionLocal()
+    try:
+        if kind == "contents":
+            result = _process_contents(
+                db, subject_code, curriculum_version, pdf_bytes, edition, hindi_text=hindi_text,
+            )
+        else:
+            result = _process_chapter(
+                db, subject_code, curriculum_version, filename, pdf_bytes, hindi_text=hindi_text,
+            )
+        status_value, error_status, error_detail = "succeeded", None, None
+    except HTTPException as exc:
+        result, status_value, error_status, error_detail = None, "failed", exc.status_code, str(exc.detail)
+    except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
+        result = None
+        status_value, error_status = "failed", 500
+        error_detail = f"{type(exc).__name__}: {exc}"
     finally:
         db.close()
+
+    _finish_ingest_job(
+        job_id, status_value=status_value, result=result,
+        error_status=error_status, error_detail=error_detail,
+    )
 
 
 def _source(db: Session, subject: str, version: str) -> BookSource | None:
@@ -287,12 +344,19 @@ def status_for(subject: str, db: Session = Depends(get_session)) -> dict:
 
 def _process_contents(
     db: Session, subject: str, version: str, pdf_bytes: bytes, edition: str | None,
+    *, hindi_text: str | None = None,
 ) -> dict:
     """Everything upload_contents does once it has the bytes -- shared by the synchronous
-    endpoint (every subject but Hindi) and _run_ingest_job (Hindi, backgrounded because a
-    Gemini call cannot finish inside Render's request timeout). Raises HTTPException on a
-    real problem with the upload; both callers let that propagate to where it belongs --
-    the response for a synchronous upload, the job row for a backgrounded one.
+    endpoint (every subject but Hindi) and _run_ingest_job (Hindi, backgrounded because
+    OCR cannot finish inside Render's request timeout). Raises HTTPException on a real
+    problem with the upload; both callers let that propagate to where it belongs -- the
+    response for a synchronous upload, the job row for a backgrounded one.
+
+    ``hindi_text`` lets _run_ingest_job hand in text it already OCR'd *before* opening
+    this function's ``db`` session -- see that function's own docstring for why holding a
+    session open across a multi-minute OCR call is itself a bug, not just slow. Computing
+    it here instead, as a fallback, keeps this function usable on its own (a direct call,
+    a future synchronous Hindi path) without forcing every caller to pre-OCR.
     """
     if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == subject)) is None:
         raise HTTPException(
@@ -303,7 +367,7 @@ def _process_contents(
         )
 
     is_hindi = subject.startswith(HINDI_SUBJECT_PREFIX)
-    text = _hindi_text(pdf_bytes) if is_hindi else None
+    text = hindi_text if hindi_text is not None else (_hindi_text(pdf_bytes) if is_hindi else None)
     path = _bytes_to_tempfile(pdf_bytes)
     try:
         toc = parse_toc(path, text=text)
@@ -361,9 +425,10 @@ def _process_contents(
 
 def _process_chapter(
     db: Session, subject: str, version: str, name: str, pdf_bytes: bytes,
+    *, hindi_text: str | None = None,
 ) -> dict:
     """Everything upload_chapter does once it has the bytes -- see _process_contents for
-    why this is split out from the route handler.
+    why this is split out from the route handler, and for what ``hindi_text`` is for.
     """
     source = _source(db, subject, version)
     if source is None:
@@ -385,7 +450,7 @@ def _process_chapter(
         )
 
     is_hindi = subject.startswith(HINDI_SUBJECT_PREFIX)
-    text_override = _hindi_text(pdf_bytes) if is_hindi else None
+    text_override = hindi_text if hindi_text is not None else (_hindi_text(pdf_bytes) if is_hindi else None)
     path = _bytes_to_tempfile(pdf_bytes)
     try:
         # An NCERT-coded filename carries no title, so take it from the curriculum, which
