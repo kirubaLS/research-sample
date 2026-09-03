@@ -77,6 +77,16 @@ BARE_DRILL_LABEL = re.compile(
     re.M | re.I,
 )
 
+#: 'अभ्यास' ("Abhyas") is the standard NCERT Hindi word for an end-of-chapter exercise
+#: block, the same way 'EXERCISES' is standard across the English books -- not specific to
+#: any one of Kshitij/Kritika/Sparsh/Sanchayan. PROVISIONAL regardless: unlike
+#: 'EXERCISES', it has not yet been confirmed against a real Hindi chapter file the way
+#: every other marker in this module was before being trusted -- these books have so far
+#: only had their contents pages read, not a chapter. Confirm (or extend, the way English's
+#: 'Oral Comprehension Check' etc. had to be added one real file at a time) once one
+#: arrives.
+HINDI_DRILL_LABEL = re.compile(r"^\s*अभ्यास\s*$", re.M)
+
 #: Some First Flight chapters (Two Stories about Flying, The Sermon at Benares, The
 #: Proposal -- jeff103/108/109) close a story, poem or play with a plain numbered
 #: question list and NO fixed label at all in front of it: the play's own last line
@@ -367,7 +377,7 @@ def chapter_files(directory: str | Path) -> list[Path]:
     )
 
 
-def parse_toc(contents_pdf: str | Path) -> dict[int, list[Section]]:
+def parse_toc(contents_pdf: str | Path, *, text: str | None = None) -> dict[int, list[Section]]:
     """The expected section tree, from the prelims file, where the book publishes one.
 
     Maths lists every section of every chapter here, which is what makes a Maths
@@ -375,8 +385,12 @@ def parse_toc(contents_pdf: str | Path) -> dict[int, list[Section]]:
     so this returns empty for Science and the caller must fall back to
     ``verify_structure``. Returning empty is the honest answer; inventing an expectation
     would make an unchecked load look checked.
+
+    ``text``, when given, is used in place of reading ``contents_pdf``'s own text layer --
+    a Hindi book's caller has already had that read by app.ingest.gemini_ocr, since the
+    PDF's own layer decodes as mojibake.
     """
-    text = read_text(contents_pdf)
+    text = text if text is not None else read_text(contents_pdf)
     out: dict[int, list[Section]] = {}
     # '[ \t]+', not '\s+': the Workbook's copyright page prints a price as ' 120.00' on
     # its own line, immediately followed by 'Printed on 80 GSM paper with NCERT' on the
@@ -504,7 +518,21 @@ def _toc_chapters_by_position(contents_pdf: str | Path) -> dict[int, str]:
     return out
 
 
-def parse_toc_chapters(contents_pdf: str | Path) -> dict[int, str]:
+#: '2. साना-साना हाथ जोडि... 40' -- number, dot, Devanagari title, then the page number on
+#: the SAME line (unlike TOC_CHAPTER_NUMBERED's English books, which put it on the next).
+#: '[ऀ-ॿ]' rather than '[A-Z]', which every other TOC_CHAPTER* pattern anchors
+#: on and which cannot match Devanagari at all. Derived from the real Kritika prelims
+#: (OCR'd, since the PDF's own text layer is unusable -- see app.ingest.hindi_ocr) --
+#: PROVISIONAL until confirmed against Gemini's actual transcription of a real contents
+#: page: page-number digits in particular were ambiguous between Latin and Devanagari
+#: numerals under Tesseract, which this has not been re-verified against.
+TOC_CHAPTER_DEVANAGARI = re.compile(
+    r"^\s*(\d{1,2})\.\s*([ऀ-ॿ][^\n]{1,120}?)\s*[.\-–—\s]*(?:\d{1,4})\s*$",
+    re.M,
+)
+
+
+def parse_toc_chapters(contents_pdf: str | Path, *, text: str | None = None) -> dict[int, str]:
     """Chapter numbers and titles from the contents page.
 
     Present in most books, and the only thing the Science contents page offers. It still
@@ -515,13 +543,17 @@ def parse_toc_chapters(contents_pdf: str | Path) -> dict[int, str]:
     in order (Economics). Each is tried only once the one before it finds nothing, so a
     book that genuinely mixes conventions never has an earlier one swallow a later one's
     numbering.
+
+    ``text``, when given, is used in place of reading ``contents_pdf``'s own text layer --
+    a Hindi book's caller has already had that read by app.ingest.gemini_ocr.
     """
-    text = read_text(contents_pdf)
+    text = text if text is not None else read_text(contents_pdf)
     for pattern, to_number in (
         (TOC_CHAPTER, int),
         (TOC_CHAPTER_DOTTED, int),
         (TOC_CHAPTER_NUMBERED, int),
         (TOC_CHAPTER_UNIT, int),
+        (TOC_CHAPTER_DEVANAGARI, int),
         (TOC_CHAPTER_ROMAN, _roman_to_int),
     ):
         found = {to_number(n): title.strip() for n, title in pattern.findall(text)}
@@ -918,6 +950,11 @@ def extract_chunks(
     for n, m in enumerate(BARE_DRILL_LABEL.finditer(text), start=1):
         label = m.group(1).title()
         markers.append((m.start(), "exercise", "E", f"{label} {chapter}.{n}"))
+    # HINDI_DRILL_LABEL is Devanagari-only text, so it can never match another book's
+    # English/numbered markers -- run unconditionally rather than gating it behind a flag
+    # only Hindi's caller would ever set.
+    for n, m in enumerate(HINDI_DRILL_LABEL.finditer(text), start=1):
+        markers.append((m.start(), "exercise", "E", f"अभ्यास {chapter}.{n}"))
     if bare_numbered_questions:
         for n, m in enumerate(ENGLISH_NUMBERED_QUESTION.finditer(text), start=1):
             lookback = text[max(0, m.start() - 40):m.start()].rstrip()
@@ -957,7 +994,7 @@ def extract_chunks(
 
 def extract_chapter(
     path: str | Path, *, number: int | None = None, name: str = "", title: str = "",
-    single_section: bool = False, body_bucket: str = "T",
+    single_section: bool = False, body_bucket: str = "T", text_override: str | None = None,
 ) -> ChapterExtract:
     """``title`` should come from the contents page where available: matching an existing
     chapter node depends on using the book's own words, not a slug turned back into prose.
@@ -979,6 +1016,12 @@ def extract_chapter(
     is taught and later drilled on -- the unit's entire body IS the exercise (fill-in-the-
     blank, rearrange-the-jumbled-sentences), so treating it as bucket T would mark the
     subject's only content as un-practised.
+
+    ``text_override`` is for a Hindi book: its own text layer decodes as mojibake (see
+    app.ingest.hindi_ocr), so the caller has already had the real text read by OCR or
+    Gemini and hands it in here rather than letting this call read_text(path) and get the
+    PDF's own broken layer back. ``path`` is still the real file -- used for its sha256 and
+    as the ChapterExtract's provenance -- just not for its text.
     """
     display = name or Path(path).name
     number = number if number is not None else chapter_number(display)
@@ -990,7 +1033,7 @@ def extract_chapter(
     derived = stem.split("-", 1)[1].replace("-", " ").title() if "-" in stem else stem
     resolved_title = title or derived
 
-    text = read_text(path)
+    text = text_override if text_override is not None else read_text(path)
     if single_section:
         sections = [Section("1", resolved_title, 0, len(text))]
     else:

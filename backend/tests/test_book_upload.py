@@ -528,6 +528,65 @@ def test_the_book_status_says_which_chapters_have_nothing_behind_them(client):
     assert "Statistics" not in body["chapters_with_nothing_behind_them"]
 
 
+def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(client, monkeypatch):
+    """Kritika's real text layer decodes as mojibake (a pre-Unicode font, no ToUnicode
+    CMap -- see app.ingest.hindi_ocr). Stubs gemini_read_text rather than calling the real
+    API: what this test checks is that the upload path calls it and threads its answer all
+    the way to a written chapter, not the quality of Gemini's own Hindi transcription."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = "test-gemini-key"
+
+    def fake_gemini_read_text(pdf_bytes, *, api_key, model):
+        assert api_key == "test-gemini-key"
+        # distinguishing by size is enough here: a real 1-page prelims vs. a real chapter
+        return (
+            "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"
+            if len(pdf_bytes) < 2000
+            else "माता का अँचल\nयह एक कहानी है।\nअभ्यास\n1. प्रश्न।\n"
+        )
+
+    monkeypatch.setattr("app.api.books.gemini_read_text", fake_gemini_read_text)
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    contents = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    assert contents.status_code == 201, contents.json()
+    assert contents.json()["chapters_expected"] == 1
+
+    chapter = client.post(
+        "/platform/books/X.HIN.KR/chapters", headers=HEAD,
+        files={"file": ("jhkr101.pdf", io.BytesIO(b"x" * 5000), "application/pdf")},
+    )
+    assert chapter.status_code == 201, chapter.json()
+    assert chapter.json()["chapter"] == 1
+    assert chapter.json()["sections"] == 1
+
+    settings.gemini_api_key = before
+
+
+def test_a_hindi_upload_without_a_gemini_key_is_refused_by_name(client):
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = None
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    r = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    assert r.status_code == 409
+    assert "Gemini API key" in r.json()["detail"]
+
+    settings.gemini_api_key = before
+
+
 def test_status_counts_expected_chapters_for_a_book_with_no_section_list(client):
     """Every subject but Maths publishes chapter titles only (expected_chapters), not a
     chapter.section list (expected_sections) -- upload_contents' own "N chapters expected"

@@ -15,6 +15,7 @@ import re
 import uuid
 from datetime import UTC, datetime
 
+import httpx
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -38,6 +39,7 @@ from app.ingest.book import (
     verify_against_toc,
     verify_structure,
 )
+from app.ingest.gemini_ocr import gemini_read_text
 from app.ingest.embed import classify_familiarity
 from app.ingest.probe import LexicalIndex, SemanticIndex, locate
 from app.models import (
@@ -61,6 +63,33 @@ MIN_MARGIN = 0.002
 
 
 _to_tempfile = to_tempfile
+
+#: One subject code per physical Hindi book -- Kshitij, Kritika, Sparsh, Sanchayan -- same
+#: reasoning as Social Science and English's X.ENG.* prefix.
+HINDI_SUBJECT_PREFIX = "X.HIN"
+
+
+def _hindi_text(path) -> str:
+    """The book's real Unicode text, for a subject whose own PDF text layer decodes as
+    mojibake (see app.ingest.hindi_ocr for why). Raised as a 409, not a 500: a missing key
+    is an operator setup step, not a broken upload.
+    """
+    settings = get_settings()
+    if not settings.gemini_api_key:
+        raise HTTPException(
+            409,
+            "no Gemini API key configured (YAADHUM_GEMINI_API_KEY) -- a Hindi book's text "
+            "layer decodes as mojibake and cannot be read without it.",
+        )
+    try:
+        return gemini_read_text(
+            path.read_bytes(), api_key=settings.gemini_api_key, model=settings.gemini_model,
+        )
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(
+            502, f"Gemini could not read this file: {exc.response.status_code} "
+                 f"{exc.response.text[:300]}",
+        ) from exc
 
 
 def _source(db: Session, subject: str, version: str) -> BookSource | None:
@@ -217,8 +246,9 @@ async def upload_contents(
 
     path = await _to_tempfile(file)
     try:
-        toc = parse_toc(path)
-        chapters = parse_toc_chapters(path)
+        text = _hindi_text(path) if subject.startswith(HINDI_SUBJECT_PREFIX) else None
+        toc = parse_toc(path, text=text)
+        chapters = parse_toc_chapters(path, text=text)
     finally:
         path.unlink(missing_ok=True)
 
@@ -305,13 +335,18 @@ async def upload_chapter(
         # English has no chapter-scoped subsections at all -- a story or poem is one
         # continuous piece, broken only by fixed-name checkpoints, never a heading. The
         # Workbook's units are not taught-then-drilled content either: the unit body IS
-        # the exercise. Scoped to these three subject codes, not guessed from what the
-        # normal section detection happens to find on a given file.
+        # the exercise. Hindi is the same shape as English -- a story or poem, no
+        # font/boldness metadata available at all once the text has come from OCR/Gemini
+        # rather than the PDF's own (unusable) text layer -- so it gets single_section too.
+        # Scoped by subject code, not guessed from what the normal section detection
+        # happens to find on a given file.
+        is_hindi = subject.startswith(HINDI_SUBJECT_PREFIX)
         extract = extract_chapter(
             path, number=number, name=name,
             title=chapter_title(subject, number) or "",
-            single_section=subject.startswith("X.ENG"),
+            single_section=subject.startswith("X.ENG") or is_hindi,
             body_bucket="E" if subject == "X.ENG.WB" else "T",
+            text_override=_hindi_text(path) if is_hindi else None,
         )
         toc = {
             int(k): [Section(s["number"], s["title"]) for s in v]

@@ -290,6 +290,32 @@ X_ENGLISH_WORKBOOK = Curriculum(
     concept_families=[],
 )
 
+#: Class X Hindi is four separate NCERT books too (Kshitij and Kritika for Course A,
+#: Sparsh and Sanchayan for Course B), same one-subject-code-per-physical-book reasoning
+#: as Social Science and English. Only Kritika (कृतिका) is registered so far -- its
+#: contents page has actually been read (via OCR, since its text layer decodes as
+#: mojibake -- see app.ingest.hindi_ocr / app.ingest.gemini_ocr) and verified against the
+#: real jhkr1ps.pdf. Kshitij, Sparsh and Sanchayan are not registered yet: their contents
+#: have not been read in full, and a chapter list typed from memory here is exactly the
+#: mistake this file's own History/Geography/Political Science/Economics comments warn
+#: against -- add them once their real contents pages have been uploaded through the
+#: Hindi endpoints and confirmed.
+X_HINDI_KRITIKA = Curriculum(
+    subject_code="X.HIN.KR",
+    subject_label="Class X Hindi (कृतिका)",
+    grade=10,
+    units=[
+        BoardUnit("X.HIN.KR.U.WHOLE", "कृतिका", 0.0),
+    ],
+    # jhkr1ps.pdf, विषय सूची (contents page), read via OCR.
+    chapters=[
+        Chapter("X.HIN.KR.MATA_KA_ANCHAL", "माता का अँचल", "X.HIN.KR.U.WHOLE"),
+        Chapter("X.HIN.KR.SANA_SANA_HATH", "साना-साना हाथ जोड़ि...", "X.HIN.KR.U.WHOLE"),
+        Chapter("X.HIN.KR.MAIN_KYON_LIKHTA", "मैं क्यों लिखता हूँ?", "X.HIN.KR.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
 CURRICULA: dict[str, Curriculum] = {
     X_MATH.subject_code: X_MATH,
     X_SCIENCE.subject_code: X_SCIENCE,
@@ -300,6 +326,7 @@ CURRICULA: dict[str, Curriculum] = {
     X_ENGLISH_FIRST_FLIGHT.subject_code: X_ENGLISH_FIRST_FLIGHT,
     X_ENGLISH_FOOTPRINTS.subject_code: X_ENGLISH_FOOTPRINTS,
     X_ENGLISH_WORKBOOK.subject_code: X_ENGLISH_WORKBOOK,
+    X_HINDI_KRITIKA.subject_code: X_HINDI_KRITIKA,
 }
 
 

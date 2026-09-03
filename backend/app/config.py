@@ -115,6 +115,17 @@ class Settings(BaseSettings):
     #: in scope. Unset means the knowledge base answers exact matches only.
     jina_api_key: str | None = None
     embedding_model: str = "jina-embeddings-v4"
+    #: The Hindi NCERT books (Kshitij, Kritika, Sparsh, Sanchayan) embed a pre-Unicode
+    #: font with no ToUnicode CMap, so their own text layer decodes as mojibake regardless
+    #: of extraction method -- see app.ingest.gemini_ocr. Tesseract would read the
+    #: rendered page correctly too, but needs a system binary the free-tier Render Python
+    #: runtime cannot install; Gemini reads the PDF directly over the API, no system
+    #: dependency. Unset means Hindi contents/chapter uploads are refused by name rather
+    #: than silently falling through to the broken text layer.
+    gemini_api_key: str | None = None
+    #: A model name shifts under a deployment in a way jina_api_key's model does not --
+    #: verify this is still current before relying on it rather than trusting this default.
+    gemini_model: str = "gemini-2.5-flash"
     #: Matryoshka truncation. Vectors from different models or dimensions are not
     #: comparable, so changing either requires re-embedding the whole corpus.
     embedding_dimensions: int = 512
