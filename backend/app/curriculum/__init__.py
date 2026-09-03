@@ -216,19 +216,13 @@ X_ECONOMICS = Curriculum(
 #: four -- one subject code per physical book, since each book's own chapter numbering
 #: restarts at 1.
 #:
-#: First Flight is the *current, rationalised* edition (Reprint 2026-27): the post-COVID
-#: content rationalisation cut it down to four chapters, not the eleven an older edition or
-#: a general search would suggest -- read off the book's own contents page (jeff1ps.pdf),
-#: not recalled. Each chapter file bundles its accompanying poem(s) in the same PDF (e.g.
-#: jeff101.pdf is "A Letter to God" together with "Dust of Snow" and "Fire and Ice"), so
-#: the poems are not separate chapters here.
-#:
-#: The Workbook (jewe2ps.pdf) still lists nine units, matching the *pre-rationalisation*
-#: First Flight's nine prose chapters -- five of them (Glimpses of India, Mijbil the Otter,
-#: Madam Rides the Bus, The Sermon at Benaras, The Proposal) are not in the current
-#: four-chapter First Flight at all. That mismatch is real, in the books as uploaded, not
-#: a mistake in this list -- flagged for the school to confirm which Workbook units are
-#: actually in use this year, rather than silently dropping or renaming any of them.
+#: First Flight is the *current, rationalised* edition (Reprint 2026-27), read off the
+#: book's own contents page (jeff1ps.pdf) -- a first, incomplete upload of that prelims
+#: file cut off after chapter 4, and an earlier version of this comment wrongly took that
+#: as the whole book; the fuller upload lists nine chapters, matching the Workbook
+#: exactly, so there is no book-to-book mismatch after all. Each chapter file bundles its
+#: accompanying poem(s) in the same PDF (e.g. jeff101.pdf is "A Letter to God" together
+#: with "Dust of Snow" and "Fire and Ice"), so the poems are not separate chapters here.
 X_ENGLISH_FIRST_FLIGHT = Curriculum(
     subject_code="X.ENG.FF",
     subject_label="Class X English (First Flight)",
@@ -242,6 +236,11 @@ X_ENGLISH_FIRST_FLIGHT = Curriculum(
         Chapter("X.ENG.FF.MANDELA", "Nelson Mandela: Long Walk to Freedom", "X.ENG.FF.U.WHOLE"),
         Chapter("X.ENG.FF.FLYING", "Two Stories about Flying", "X.ENG.FF.U.WHOLE"),
         Chapter("X.ENG.FF.ANNEFRANK", "From the Diary of Anne Frank", "X.ENG.FF.U.WHOLE"),
+        Chapter("X.ENG.FF.GLIMPSESINDIA", "Glimpses of India", "X.ENG.FF.U.WHOLE"),
+        Chapter("X.ENG.FF.MIJBIL", "Mijbil the Otter", "X.ENG.FF.U.WHOLE"),
+        Chapter("X.ENG.FF.MADAMBUS", "Madam Rides the Bus", "X.ENG.FF.U.WHOLE"),
+        Chapter("X.ENG.FF.SERMON", "The Sermon at Benares", "X.ENG.FF.U.WHOLE"),
+        Chapter("X.ENG.FF.PROPOSAL", "The Proposal", "X.ENG.FF.U.WHOLE"),
     ],
     concept_families=[],
 )
@@ -275,8 +274,8 @@ X_ENGLISH_WORKBOOK = Curriculum(
     units=[
         BoardUnit("X.ENG.WB.U.WHOLE", "Words and Expressions", 0.0),
     ],
-    # jewe2ps.pdf, Contents page. See the mismatch note above the block this belongs to --
-    # five of these nine units are not in the current First Flight chapter list.
+    # jewe2ps.pdf, Contents page. Its nine units match First Flight's nine chapters
+    # one-to-one, same order.
     chapters=[
         Chapter("X.ENG.WB.LETTERTOGOD", "A Letter to God", "X.ENG.WB.U.WHOLE"),
         Chapter("X.ENG.WB.MANDELA", "Nelson Mandela: Long Walk to Freedom", "X.ENG.WB.U.WHOLE"),

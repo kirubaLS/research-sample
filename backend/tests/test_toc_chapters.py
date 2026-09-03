@@ -1,9 +1,11 @@
 """parse_toc_chapters against every NCERT contents-page convention seen so far.
 
-Four conventions, one function: Science says 'Chapter N' with the title on the next
-line; Geography gives just 'N.' on its own line; History numbers in Roman numerals and
-never says 'Chapter' at all; Economics lays chapter numbers and titles out as a table
-whose columns linear text reads as two unrelated blocks.
+Six conventions, one function: Science says 'Chapter N' with the title on the next line;
+Geography gives just 'N.' on its own line; First Flight and Footprints without Feet put
+the number, dot AND title on the one line ('1. A Letter to God'); the Workbook says
+'Unit N' with the title on the next line; History numbers in Roman numerals and never
+says 'Chapter' at all; Economics lays chapter numbers and titles out as a table whose
+columns linear text reads as two unrelated blocks.
 """
 
 from __future__ import annotations
@@ -54,6 +56,53 @@ def test_dotted_number_convention(tmp_path):
     assert parse_toc_chapters(path) == {
         1: "Resources and Development",
         2: "Forest and Wildlife Resources",
+    }
+
+
+def test_numbered_title_on_the_same_line_convention(tmp_path):
+    """First Flight/Footprints without Feet: unlike Geography's bare '1.' on its own
+    line, the title shares the number's line. A poem or story title following a chapter
+    with no leading number of its own ('Dust of Snow') must never be read as chapter 2."""
+    doc = pymupdf.open()
+    _page(doc, [
+        (60, 60, "Contents"),
+        (60, 90, "1. A Letter to God"),
+        (60, 105, "1"),
+        (60, 118, "G.L.FUENTES"),
+        (60, 140, "Dust of Snow"),
+        (60, 155, "14"),
+        (60, 168, "ROBERT FROST"),
+        (60, 190, "2. Nelson Mandela: Long Walk to Freedom"),
+        (60, 205, "16"),
+    ])
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {
+        1: "A Letter to God",
+        2: "Nelson Mandela: Long Walk to Freedom",
+    }
+
+
+def test_unit_word_convention(tmp_path):
+    """The Workbook's own word for a chapter is 'Unit', not 'Chapter' -- same shape as
+    the Science convention otherwise, number-then-title on separate lines."""
+    doc = pymupdf.open()
+    _page(doc, [
+        (60, 60, "Contents"),
+        (60, 90, "Unit 1"),
+        (60, 105, "A Letter to God"),
+        (60, 118, "1"),
+        (60, 140, "Unit 2"),
+        (60, 155, "Nelson Mandela: Long Walk to Freedom"),
+        (60, 168, "17"),
+    ])
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {
+        1: "A Letter to God",
+        2: "Nelson Mandela: Long Walk to Freedom",
     }
 
 

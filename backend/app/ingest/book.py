@@ -392,6 +392,23 @@ TOC_CHAPTER_DOTTED = re.compile(
     r"^\s*(\d{1,2})\.\s*\n\s*([A-Z][^\n]{2,120})\n\s*\d{1,4}\s*$", re.M
 )
 
+#: '1. A Letter to God' -- number, dot AND title all on the one line -- then the page
+#: number on the next, as English's First Flight and Footprints without Feet set their
+#: contents. Differs from TOC_CHAPTER_DOTTED only in whether the title shares the
+#: number's line; tried after it so a book using the bare-number convention is never
+#: mis-read by the looser one. A chapter is followed by its own poem/story titles with no
+#: leading number of their own ('Dust of Snow\n14\n...'), which this pattern does not
+#: match -- exactly the exclusion that keeps them from being read as further chapters.
+TOC_CHAPTER_NUMBERED = re.compile(
+    r"^\s*(\d{1,2})\.\s+([A-Z][^\n]{2,120})\n\s*\d{1,4}\s*$", re.M
+)
+
+#: 'Unit 1' then the title on the following line, then the page number, as the Workbook
+#: prelims sets its contents -- its own word for a chapter is 'Unit', not 'Chapter'.
+TOC_CHAPTER_UNIT = re.compile(
+    r"^\s*Unit\s+(\d{1,2})\s*\n\s*([A-Z][^\n]{2,120})\n\s*\d{1,4}\s*$", re.M
+)
+
 
 def _toc_chapters_by_position(contents_pdf: str | Path) -> dict[int, str]:
     """Chapter numbers and titles, read by where the words sit on the page.
@@ -472,6 +489,8 @@ def parse_toc_chapters(contents_pdf: str | Path) -> dict[int, str]:
     for pattern, to_number in (
         (TOC_CHAPTER, int),
         (TOC_CHAPTER_DOTTED, int),
+        (TOC_CHAPTER_NUMBERED, int),
+        (TOC_CHAPTER_UNIT, int),
         (TOC_CHAPTER_ROMAN, _roman_to_int),
     ):
         found = {to_number(n): title.strip() for n, title in pattern.findall(text)}
