@@ -569,12 +569,15 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
 MIN_BODY_CHARS = 200
 
 
-#: labels that are bold and often the chapter's largest bold text, but are never a
-#: heading: an end-of-chapter drill word, or a bare numbered-list marker like '2.'.
-_NOT_A_HEADING = {
-    "EXERCISES", "QUESTIONS", "PROJECT", "ACTIVITY", "PROJECT/ACTIVITY", "DISCUSS",
-    "MAP SKILLS", "MAP WORK", "WRITE IN BRIEF",
-}
+#: labels that are bold, and often the LARGEST bold text in the chapter -- bigger than
+#: every real heading, not smaller -- but are never themselves a heading: an
+#: end-of-chapter drill word, or a bare numbered-list marker like '2.'. Matched as a
+#: whole line, allowing the word to repeat (EXERCISES is drawn sideways and reads back as
+#: 'EXERCISES  EXERCISES  EXERCISES...', the same quirk BARE_DRILL_LABEL absorbs).
+_NOT_A_HEADING = re.compile(
+    r"^(EXERCISES|QUESTIONS|PROJECT|ACTIVITY|PROJECT/ACTIVITY|PROJECT WORK|DISCUSS|"
+    r"MAP SKILLS|MAP WORK|WRITE IN BRIEF)(\s+\1)*$"
+)
 
 
 def _sections_by_boldness(path: str | Path, text: str) -> list[Section]:
@@ -603,17 +606,31 @@ def _sections_by_boldness(path: str | Path, text: str) -> list[Section]:
                     line_text = "".join(s["text"] for s in spans).strip()
                     if not line_text or not all(s["flags"] & 16 for s in spans):
                         continue
-                    lines.append((page_index, line["bbox"][1], spans[0]["size"], line_text))
+                    # Rounded: two headings set at the same visual 10.5pt size can carry
+                    # different exact floats (10.5 vs 10.500472068786621) depending on how
+                    # the PDF's font matrix scaled them, and comparing those unrounded left
+                    # only the one exact bit-pattern that happened to be the chapter's max.
+                    lines.append(
+                        (page_index, line["bbox"][1], round(spans[0]["size"], 1), line_text)
+                    )
 
-    if not lines:
+    # Noise is filtered out FIRST, before the heading size is even decided: an end-of-
+    # chapter drill word is often drawn bigger than every real heading, not smaller, and
+    # picking "the largest bold text" before excluding it left either nothing (every
+    # 12pt line was 'ACTIVITY') or the drill word itself ('PROJECT WORK') standing in for
+    # every real heading in the chapter.
+    candidates = [
+        (page_index, y, size, line_text)
+        for page_index, y, size, line_text in lines
+        if not re.fullmatch(r"\d{1,3}\.?", line_text) and not _NOT_A_HEADING.match(line_text)
+    ]
+    if not candidates:
         return []
-    heading_size = max(size for _p, _y, size, _t in lines)
+    heading_size = max(size for _p, _y, size, _t in candidates)
     headings = [
         (page_index, y, line_text)
-        for page_index, y, size, line_text in lines
+        for page_index, y, size, line_text in candidates
         if size == heading_size
-        and not re.fullmatch(r"\d{1,3}\.?", line_text)
-        and line_text.upper() not in _NOT_A_HEADING
     ]
 
     # A title that wraps to a second line is still one heading: merge it into the line

@@ -74,3 +74,53 @@ def test_exercises_drawn_sideways_is_still_found_as_one_drilled_marker(tmp_path)
     verify_structure(extract)
     assert extract.problems == []
     assert any(c.bucket == "E" for c in extract.chunks)
+
+
+def test_headings_are_found_even_when_the_largest_bold_text_is_all_noise(tmp_path):
+    """The real bug on jess105/106: every 12pt bold line in the chapter was 'ACTIVITY' or
+    'PROJECT WORK', and picking the chapter's largest bold size BEFORE excluding those
+    left either nothing, or the drill word standing in for every real heading. Real
+    headings here sit one size down, at 10.5 -- noise must be filtered out first, so the
+    heading size is decided from what is actually left over."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    _bold(page, 60, 60, "Study of Minerals by Geographers and Geologists", size=10.5)
+    _plain(page, 60, 80, "A very general account of how minerals are studied " * 6)
+    _bold(page, 60, 300, "Hazards of Mining", size=10.5)
+    _plain(page, 60, 320, "Mining is a hazardous occupation for workers " * 6)
+    _bold(page, 60, 500, "ACTIVITY", size=12.0)   # bigger than every real heading here
+    _plain(page, 60, 520, "Find out about mining hazards in your region.")
+    _bold(page, 60, 600, "EXERCISES  EXERCISES  EXERCISES  EXERCISES  EXERCISES", size=8.0)
+    _plain(page, 60, 620, "1. Name any two states rich in minerals.")
+    path = tmp_path / "jess105.pdf"
+    doc.save(path)
+    doc.close()
+
+    extract = extract_chapter(path, number=5, title="x")
+    verify_structure(extract)
+    assert extract.problems == []
+    titles = [s.title for s in extract.sections]
+    assert titles == ["Study of Minerals by Geographers and Geologists", "Hazards of Mining"]
+    assert "ACTIVITY" not in titles
+
+
+def test_headings_at_the_same_visual_size_are_grouped_despite_float_precision(tmp_path):
+    """The real bug: two headings both set at "10.5pt" can carry different exact floats
+    (10.5 vs 10.500472068786621) depending on how the PDF's font matrix scaled them.
+    Comparing those unrounded kept only whichever single float happened to be the max,
+    dropping every other real heading at the same size a person would call identical."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    _bold(page, 60, 60, "Tidal Energy", size=10.5)
+    _plain(page, 60, 80, "Tidal energy is generated using the rise and fall " * 5)
+    # A tiny scale nudge on the font matrix is what actually produces a non-round float
+    # in a real PDF; inserting through a slightly different transform reproduces it here.
+    page.insert_text((60, 300), "Geo Thermal Energy", fontsize=10.5 + 1e-6, fontname="hebo")
+    _plain(page, 60, 320, "Geothermal energy is heat energy from within the earth " * 5)
+    path = tmp_path / "jess105.pdf"
+    doc.save(path)
+    doc.close()
+
+    extract = extract_chapter(path, number=5, title="x")
+    titles = [s.title for s in extract.sections]
+    assert titles == ["Tidal Energy", "Geo Thermal Energy"]
