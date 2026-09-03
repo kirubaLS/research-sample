@@ -56,8 +56,12 @@ EXERCISE = re.compile(r"^\s*EXERCISE\s+(\d+\.\d+)\s*(\(Optional\)\*?)?\s*$", re.
 #: EXERCISES  EXERCISES  EXERCISES') rather than Science's one-character-per-line split.
 #: A second rendering quirk for the same underlying problem, absorbed here rather than
 #: added to _collapse_vertical, which is built for the other one.
+#: case-insensitive: Science sets EXERCISES/QUESTIONS in caps, History sets Discuss and
+#: Write in brief in title case, and Political Science sets Exercises in title case too
+#: -- one word, three books, three castings of it.
 BARE_DRILL_LABEL = re.compile(
-    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project)(?:\s+\1)*\s*$", re.M
+    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project)(?:\s+\1)*\s*$",
+    re.M | re.I,
 )
 
 
@@ -523,16 +527,15 @@ def verify_structure(extract: ChapterExtract) -> ChapterExtract:
 #: subsection under it ('2.1 The Aristocracy...', one space) -- '2' there is the second
 #: heading IN THIS CHAPTER, not chapter 2. Title may start with a digit ('3.3 1848: The
 #: Revolution of the Liberals'), which is why this is not anchored to [A-Z] the way the
-#: chapter-numbered pattern is. Tried only when that pattern finds nothing: a book that
-#: numbers chapter.section the normal way must never have its real sections re-read this
-#: loosely, and a bare 'N.' followed by a newline -- an end-of-chapter question, not a
-#: heading -- never matches, because nothing here allows the title to start on the next
-#: line.
-#: [ \t], never \s, between the number and the title: \s matches a newline too, which let
-#: a bare page number on its own line "capture" the running header on the line below it
-#: as a section title -- '3\nNationalism in Europe' is a page break, not a heading.
+#: chapter-numbered pattern is.
+#:
+#: Matched only against a line already known to be bold (see _sections_by_boldness), not
+#: against the plain text of the whole chapter: Political Science's real headings use no
+#: number at all, and a *plain* numbered list in its body prose ('1  Power is shared
+#: among different organs of government...') matches this exact shape without being a
+#: heading. Boldness is the only thing that told the two apart in the real files.
 BOOK_NUMBERED_SECTION = re.compile(
-    r"^[ \t]*(\d{1,2}(?:\.\d{1,2})?)[ \t]{1,2}([A-Z0-9][^\n]{2,120})$", re.M
+    r"^(\d{1,2}(?:\.\d{1,2})?)[ \t]{1,2}([A-Z0-9][^\n]{2,120})$"
 )
 
 
@@ -551,12 +554,15 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
         seen.add(m.group(1))
         found.append((m.group(1), m.group(2).strip(), m.start(), m.end()))
 
-    if not found:
-        for m in BOOK_NUMBERED_SECTION.finditer(text):
-            if m.group(1) in seen:
-                continue
-            seen.add(m.group(1))
-            found.append((m.group(1), m.group(2).strip(), m.start(), m.end()))
+    # A real book's first subsection index is 1, 2, or 3 -- never a book with genuine
+    # chapter.section numbering opens at .74. A table cell (a percentage in a language
+    # table, in the book that first showed this) coincidentally starting with this
+    # chapter's own digit, followed by the next row's capitalised entry, matches the
+    # pattern above exactly as well as a real heading does. Discarded rather than kept
+    # and reported as a gap: this book does not use chapter.section numbering at all, so
+    # falling through to try the conventions that do not assume it is the honest answer.
+    if found and min(int(n.split(".")[1]) for n, *_ in found) > 3:
+        found = []
 
     sections: list[Section] = []
     for i, (number, title, _start, heading_end) in enumerate(found):
@@ -574,13 +580,25 @@ MIN_BODY_CHARS = 200
 #: end-of-chapter drill word, or a bare numbered-list marker like '2.'. Matched as a
 #: whole line, allowing the word to repeat (EXERCISES is drawn sideways and reads back as
 #: 'EXERCISES  EXERCISES  EXERCISES...', the same quirk BARE_DRILL_LABEL absorbs).
+#: case-insensitive for the same reason BARE_DRILL_LABEL is: Political Science sets
+#: 'Exercises' in title case, at a bold size (100pt in the real file) bigger than any of
+#: its real headings -- an exact-caps-only match let it through as a candidate, and being
+#: the only line at that size, it became the chapter's entire heading list.
 _NOT_A_HEADING = re.compile(
     r"^(EXERCISES|QUESTIONS|PROJECT|ACTIVITY|PROJECT/ACTIVITY|PROJECT WORK|DISCUSS|"
-    r"MAP SKILLS|MAP WORK|WRITE IN BRIEF)(\s+\1)*$"
+    r"MAP SKILLS|MAP WORK|WRITE IN BRIEF)(\s+\1)*$",
+    re.I,
 )
 
 
-def _sections_by_boldness(path: str | Path, text: str) -> list[Section]:
+#: A cover page prints 'Chapter N' or 'Chapter I' in large type, and the chapter's own
+#: title is often set even bigger than that -- Political Science draws 'Power-sharing' at
+#: 65pt against 20pt real headings. Both would otherwise win "the chapter's largest bold
+#: text" outright and become the entire heading list on their own.
+_CHAPTER_COVER = re.compile(r"^Chapter\s+[\dIVXLCDM]+$", re.I)
+
+
+def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") -> list[Section]:
     """Headings for a book that numbers nothing at all -- Geography publishes no section
     list on its contents page and its subheadings carry no number of their own, bare or
     decimal. What marks a real heading is typography: bold, and at the largest bold size
@@ -619,13 +637,55 @@ def _sections_by_boldness(path: str | Path, text: str) -> list[Section]:
     # picking "the largest bold text" before excluding it left either nothing (every
     # 12pt line was 'ACTIVITY') or the drill word itself ('PROJECT WORK') standing in for
     # every real heading in the chapter.
+    # Substring, not equality: a title set across several bold lines on the cover ('Gender,'
+    # / 'Religion and' / 'Caste' for a chapter titled 'Gender, Religion and Caste') has no
+    # single line that equals the whole title, but every one of its fragments is a
+    # substring of it -- a real heading essentially never is.
+    title_key_ = title_key(chapter_title) if chapter_title else None
     candidates = [
         (page_index, y, size, line_text)
         for page_index, y, size, line_text in lines
-        if not re.fullmatch(r"\d{1,3}\.?", line_text) and not _NOT_A_HEADING.match(line_text)
+        if not re.fullmatch(r"\d{1,3}\.?", line_text)
+        and re.search(r"[A-Za-z]", line_text)   # a decorative glyph ('+') has no letters
+        and not _NOT_A_HEADING.match(line_text)
+        and not _CHAPTER_COVER.match(line_text)
+        and (title_key_ is None or title_key(line_text) not in title_key_)
     ]
     if not candidates:
         return []
+
+    # A book like History numbers its own headings ('1  The Rise of...', '2.1 The
+    # Aristocracy...'); a book like Geography or Political Science numbers none of them.
+    # Tried first, against bold lines only -- a *plain* numbered list in body prose
+    # matches the same shape without being a heading, which is exactly what happened
+    # before boldness was required here. Two or more real matches is treated as "this
+    # book numbers its headings"; one is treated as coincidence (a single numbered
+    # exhibit or footnote happening to be bold), so the largest-bold-size convention
+    # gets a chance instead of taking a lone false positive as the whole answer.
+    numbered = [
+        (page_index, y, m.group(1), m.group(2).strip())
+        for page_index, y, _size, line_text in candidates
+        if (m := BOOK_NUMBERED_SECTION.match(line_text))
+    ]
+    if len(numbered) >= 2:
+        seen_numbers: set[str] = set()
+        found: list[tuple[str, str, int]] = []
+        cursor = 0
+        for _page_index, _y, number, title in numbered:
+            if number in seen_numbers:
+                continue
+            seen_numbers.add(number)
+            pos = text.find(title, cursor)
+            if pos == -1:
+                continue
+            found.append((number, title, pos))
+            cursor = pos + len(title)
+        sections = []
+        for i, (number, title, start) in enumerate(found):
+            end = found[i + 1][2] if i + 1 < len(found) else len(text)
+            sections.append(Section(number, title, start, end))
+        return sections
+
     heading_size = max(size for _p, _y, size, _t in candidates)
     headings = [
         (page_index, y, line_text)
@@ -753,7 +813,7 @@ def extract_chapter(
         # Neither convention that reads a number off the page found one -- Geography
         # publishes no section numbers at all, bare or decimal. What is left is
         # typography: the chapter's own largest bold text.
-        sections = _sections_by_boldness(path, text)
+        sections = _sections_by_boldness(path, text, title or derived)
     return ChapterExtract(
         number=number,
         title=title or derived,
