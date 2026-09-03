@@ -50,8 +50,14 @@ EXERCISE = re.compile(r"^\s*EXERCISE\s+(\d+\.\d+)\s*(\(Optional\)\*?)?\s*$", re.
 #: margin prompt beside a figure, not the graded end-of-chapter drill. Matched only after
 #: the vertical-heading collapse in read_text -- Science sets its labels one character
 #: per line.
+#:
+#: '(?:\s+\1)*' -- Geography draws its EXERCISES heading sideways, and the text layer
+#: reads that back as the same word several times across one line ('EXERCISES  EXERCISES
+#: EXERCISES  EXERCISES  EXERCISES') rather than Science's one-character-per-line split.
+#: A second rendering quirk for the same underlying problem, absorbed here rather than
+#: added to _collapse_vertical, which is built for the other one.
 BARE_DRILL_LABEL = re.compile(
-    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project)\s*$", re.M
+    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project)(?:\s+\1)*\s*$", re.M
 )
 
 
@@ -563,7 +569,87 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
 MIN_BODY_CHARS = 200
 
 
-def extract_chunks(text: str, chapter: int) -> list[Chunk]:
+#: labels that are bold and often the chapter's largest bold text, but are never a
+#: heading: an end-of-chapter drill word, or a bare numbered-list marker like '2.'.
+_NOT_A_HEADING = {
+    "EXERCISES", "QUESTIONS", "PROJECT", "ACTIVITY", "PROJECT/ACTIVITY", "DISCUSS",
+    "MAP SKILLS", "MAP WORK", "WRITE IN BRIEF",
+}
+
+
+def _sections_by_boldness(path: str | Path, text: str) -> list[Section]:
+    """Headings for a book that numbers nothing at all -- Geography publishes no section
+    list on its contents page and its subheadings carry no number of their own, bare or
+    decimal. What marks a real heading is typography: bold, and at the largest bold size
+    used anywhere in the chapter. A margin glossary term and a figure caption are bold
+    too, but smaller -- Geography sets those at 9-10.5pt against an 11.5-12pt heading, a
+    ratio a Google check against the real files held for every chapter tried.
+
+    Section 'numbers' are just 1, 2, 3... in reading order: the book gives none, so
+    inventing a false one there would be worse than admitting there isn't one. Found by
+    font, but *located* by searching the plain text for it, so the character offsets this
+    returns line up with the same ``text`` extract_chunks slices -- a PDF-native offset
+    would not.
+    """
+    with pymupdf.open(path) as doc:
+        # (page_index, y0, size, text), bold lines only, in document order
+        lines: list[tuple[int, float, float, str]] = []
+        for page_index, page in enumerate(doc):
+            for block in page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    spans = line.get("spans") or []
+                    if not spans:
+                        continue
+                    line_text = "".join(s["text"] for s in spans).strip()
+                    if not line_text or not all(s["flags"] & 16 for s in spans):
+                        continue
+                    lines.append((page_index, line["bbox"][1], spans[0]["size"], line_text))
+
+    if not lines:
+        return []
+    heading_size = max(size for _p, _y, size, _t in lines)
+    headings = [
+        (page_index, y, line_text)
+        for page_index, y, size, line_text in lines
+        if size == heading_size
+        and not re.fullmatch(r"\d{1,3}\.?", line_text)
+        and line_text.upper() not in _NOT_A_HEADING
+    ]
+
+    # A title that wraps to a second line is still one heading: merge it into the line
+    # above when the two are close together on the same page, but keep the FIRST line's
+    # own text for locating the heading in `text` -- the join here is cosmetic only, and
+    # searching for a two-line title as one string would depend on exactly how read_text
+    # rejoins lines, which this function has no reason to assume.
+    merged: list[tuple[str, str]] = []   # (locate_by, display_title)
+    previous: tuple[int, float] | None = None
+    for page_index, y, line_text in headings:
+        if previous is not None and previous[0] == page_index and 0 < y - previous[1] < 20:
+            locate_by, title = merged[-1]
+            merged[-1] = (locate_by, f"{title} {line_text}")
+        else:
+            merged.append((line_text, line_text))
+        previous = (page_index, y)
+
+    sections: list[Section] = []
+    cursor = 0
+    found: list[tuple[str, str, int]] = []
+    for locate_by, title in merged:
+        pos = text.find(locate_by, cursor)
+        if pos == -1:      # read_text folded whitespace this function did not predict
+            continue
+        found.append((str(len(found) + 1), title, pos))
+        cursor = pos + len(locate_by)
+
+    for i, (number, title, start) in enumerate(found):
+        end = found[i + 1][2] if i + 1 < len(found) else len(text)
+        sections.append(Section(number, title, start, end))
+    return sections
+
+
+def extract_chunks(
+    text: str, chapter: int, sections: list[Section] | None = None
+) -> list[Chunk]:
     """Split a chapter into familiarity chunks, section by section.
 
     Marker-only chunking captured 72% of the book. The missing 28% was the expository
@@ -603,7 +689,7 @@ def extract_chunks(text: str, chapter: int) -> list[Chunk]:
     markers = [m for m in markers if not (m[3] in seen or seen.add(m[3]))]
 
     chunks: list[Chunk] = []
-    for section in extract_sections(text, chapter):
+    for section in sections if sections is not None else extract_sections(text, chapter):
         inside = [m for m in markers if section.start <= m[0] < section.end]
         boundaries = [m[0] for m in inside] + [section.end]
 
@@ -645,13 +731,19 @@ def extract_chapter(
     derived = stem.split("-", 1)[1].replace("-", " ").title() if "-" in stem else stem
 
     text = read_text(path)
+    sections = extract_sections(text, number)
+    if not sections:
+        # Neither convention that reads a number off the page found one -- Geography
+        # publishes no section numbers at all, bare or decimal. What is left is
+        # typography: the chapter's own largest bold text.
+        sections = _sections_by_boldness(path, text)
     return ChapterExtract(
         number=number,
         title=title or derived,
         source_path=str(path),
         sha256=file_sha256(path),
-        sections=extract_sections(text, number),
-        chunks=extract_chunks(text, number),
+        sections=sections,
+        chunks=extract_chunks(text, number, sections=sections),
     )
 
 
