@@ -77,6 +77,23 @@ BARE_DRILL_LABEL = re.compile(
     re.M | re.I,
 )
 
+#: Some First Flight chapters (Two Stories about Flying, The Sermon at Benares, The
+#: Proposal -- jeff103/108/109) close a story, poem or play with a plain numbered
+#: question list and NO fixed label at all in front of it: the play's own last line
+#: ('CURTAIN') is followed directly by '1.\nWhat does Chubukov at first suspect...',
+#: nothing named 'Exercises' or 'Think about it' anywhere. '\d{1,2}\.' with the text on
+#: the FOLLOWING line -- as opposed to BOOK_NUMBERED_SECTION's same-line shape -- is what
+#: a real end-of-chapter question looks like everywhere in this book, so it is trusted
+#: here despite carrying no label, unlike a numbered *heading* in a book that does number
+#: its headings (History), which would be far too easy to fake this way.
+ENGLISH_NUMBERED_QUESTION = re.compile(r"^[ \t]*(\d{1,2})\.[ \t]*\n(?=[A-Z(\"'‘’])", re.M)
+#: The one place a bare numbered list is NOT a student exercise: 'WHAT YOU CAN DO', a
+#: teacher-facing box of classroom instructions ('1.\nRead and discuss the following
+#: extract... with the students'), sitting right beside real exercises the same shape.
+#: Its own numbered list starts within a few characters of the label, so a short lookback
+#: is enough to tell the two apart without having to delimit the whole box.
+_TEACHER_INSTRUCTION_LABEL = "WHAT YOU CAN DO"
+
 
 @dataclass(frozen=True)
 class Section:
@@ -854,6 +871,7 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
 
 def extract_chunks(
     text: str, chapter: int, sections: list[Section] | None = None, body_bucket: str = "T",
+    bare_numbered_questions: bool = False,
 ) -> list[Chunk]:
     """Split a chapter into familiarity chunks, section by section.
 
@@ -886,6 +904,12 @@ def extract_chunks(
     for n, m in enumerate(BARE_DRILL_LABEL.finditer(text), start=1):
         label = m.group(1).title()
         markers.append((m.start(), "exercise", "E", f"{label} {chapter}.{n}"))
+    if bare_numbered_questions:
+        for n, m in enumerate(ENGLISH_NUMBERED_QUESTION.finditer(text), start=1):
+            lookback = text[max(0, m.start() - 40):m.start()].rstrip()
+            if lookback.endswith(_TEACHER_INSTRUCTION_LABEL):
+                continue
+            markers.append((m.start(), "exercise", "E", f"Question {chapter}.{n}"))
 
     markers.sort()
     # A reference appearing twice is a back-reference in body text, not a restatement:
@@ -968,7 +992,10 @@ def extract_chapter(
         source_path=str(path),
         sha256=file_sha256(path),
         sections=sections,
-        chunks=extract_chunks(text, number, sections=sections, body_bucket=body_bucket),
+        chunks=extract_chunks(
+            text, number, sections=sections, body_bucket=body_bucket,
+            bare_numbered_questions=single_section,
+        ),
     )
 
 

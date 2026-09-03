@@ -74,6 +74,51 @@ def test_without_single_section_a_storys_prose_finds_no_sections_at_all(tmp_path
     assert extract.sections == []
 
 
+def test_an_unlabelled_numbered_question_list_is_still_read_as_drilled_content(tmp_path):
+    """Two Stories about Flying, The Sermon at Benares and The Proposal (jeff103/108/109)
+    close with a plain numbered question list and no fixed label in front of it at all --
+    the play's last line is followed directly by '1.\\nWhat does Chubukov at first
+    suspect...'. Unlike a book that numbers its own headings (History), a real heading
+    here is never faked this way -- single_section means there is no heading detection
+    running at all -- so the numbered list is trusted as a question block on its own."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    _plain(page, 60, 60, "CHUBUKOV: Champagne! Champagne!")
+    _plain(page, 60, 80, "CURTAIN")
+    _plain(page, 60, 120, "1.")
+    _plain(page, 60, 135, "What does Chubukov at first suspect that Lomov has come for?")
+    _plain(page, 60, 160, "2.")
+    _plain(page, 60, 175, "Chubukov says of Natalya that she is in love.")
+    path = tmp_path / "jeff109.pdf"
+    doc.save(path)
+    doc.close()
+
+    extract = extract_chapter(path, number=9, title="The Proposal", single_section=True)
+    verify_structure(extract)
+    assert extract.problems == []
+    refs = [c.reference for c in extract.chunks if c.bucket == "E"]
+    assert len(refs) == 2
+
+
+def test_what_you_can_do_s_own_numbered_teacher_instructions_are_never_a_question(tmp_path):
+    """The one place a bare numbered list is not a student exercise: 'WHAT YOU CAN DO', a
+    teacher-facing box of classroom instructions, sitting right next to real exercises the
+    same shape ('1.\\nRead and discuss the following extract... with the students')."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    _plain(page, 60, 60, "Some closing narration for the story.")
+    _plain(page, 60, 100, "WHAT YOU CAN DO")
+    _plain(page, 60, 120, "1.")
+    _plain(page, 60, 135, "Read and discuss the following extract with the students.")
+    path = tmp_path / "jeff108.pdf"
+    doc.save(path)
+    doc.close()
+
+    extract = extract_chapter(path, number=8, title="x", single_section=True)
+    refs = [c.reference for c in extract.chunks if c.bucket == "E"]
+    assert refs == []
+
+
 def test_a_workbook_unit_is_entirely_exercise_content_not_taught_body(tmp_path):
     doc = pymupdf.open()
     page = doc.new_page(width=595, height=842)
