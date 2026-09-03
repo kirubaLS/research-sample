@@ -378,7 +378,13 @@ def parse_toc(contents_pdf: str | Path) -> dict[int, list[Section]]:
     """
     text = read_text(contents_pdf)
     out: dict[int, list[Section]] = {}
-    for number, title in re.findall(r"^\s*(\d+\.\d+)\s+([A-Z][^\n]{2,120})$", text, re.M):
+    # '[ \t]+', not '\s+': the Workbook's copyright page prints a price as ' 120.00' on
+    # its own line, immediately followed by 'Printed on 80 GSM paper with NCERT' on the
+    # next -- '\s+' matches straight across that newline and reads the two as one
+    # 'chapter.section' heading. A real heading never has its title on the following
+    # line; only same-line survives, the same fix BOOK_NUMBERED_SECTION needed for a bare
+    # page number swallowing the running header below it.
+    for number, title in re.findall(r"^\s*(\d+\.\d+)[ \t]+([A-Z][^\n]{2,120})$", text, re.M):
         chapter = int(number.split(".")[0])
         out.setdefault(chapter, []).append(Section(number, title.strip()))
     return out

@@ -11,6 +11,8 @@ from pathlib import Path
 
 import pytest
 
+import pymupdf
+
 from app.ingest.book import (
     ChapterExtract,
     Section,
@@ -18,6 +20,7 @@ from app.ingest.book import (
     chapter_number,
     extract_chunks,
     extract_sections,
+    parse_toc,
     stem_hash,
     verify_against_toc,
 )
@@ -512,3 +515,24 @@ def test_a_curly_apostrophe_does_not_reject_a_correct_chapter():
     from app.ingest.book import title_key
 
     assert title_key("The Thief’s Story") == title_key("The Thief's Story")
+
+
+def test_a_price_on_the_copyright_page_is_never_read_as_a_chapter_section(tmp_path):
+    """jewe2ps.pdf's copyright page prints a price, ' 120.00', alone on its own line,
+    immediately followed on the next line by 'Printed on 80 GSM paper with NCERT'.
+    '\\s+' between the number and the title in parse_toc's own pattern matches straight
+    across that newline, so the price and the line below it were read as chapter 120,
+    section 120.00 -- a single spurious entry that made `expected_sections` non-empty and
+    every real chapter fail with 'chapter N does not appear in the contents page', since
+    none of them is chapter 120. The Workbook publishes no chapter.section list at all,
+    so the honest answer is empty, not this one invented entry."""
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    page.insert_text((60, 60), "Contents")
+    page.insert_text((60, 90), " 120.00")
+    page.insert_text((60, 105), "Printed on 80 GSM paper with NCERT")
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+
+    assert parse_toc(path) == {}
