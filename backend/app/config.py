@@ -123,9 +123,12 @@ class Settings(BaseSettings):
     #: dependency. Unset means Hindi contents/chapter uploads are refused by name rather
     #: than silently falling through to the broken text layer.
     gemini_api_key: str | None = None
-    #: A model name shifts under a deployment in a way jina_api_key's model does not --
-    #: verify this is still current before relying on it rather than trusting this default.
-    gemini_model: str = "gemini-2.5-flash"
+    #: A model name shifts under a deployment in a way jina_api_key's model does not.
+    #: gemini-2.5-flash (this module's first default) started 404ing with "no longer
+    #: available to new users" -- Google's own error named the replacement, gemini-3.6-
+    #: flash, which is what this is now. Verify this is still current before relying on it
+    #: rather than trusting this default blind a second time.
+    gemini_model: str = "gemini-3.6-flash"
     #: Matryoshka truncation. Vectors from different models or dimensions are not
     #: comparable, so changing either requires re-embedding the whole corpus.
     embedding_dimensions: int = 512
