@@ -292,14 +292,11 @@ X_ENGLISH_WORKBOOK = Curriculum(
 
 #: Class X Hindi is four separate NCERT books too (Kshitij and Kritika for Course A,
 #: Sparsh and Sanchayan for Course B), same one-subject-code-per-physical-book reasoning
-#: as Social Science and English. Only Kritika (कृतिका) is registered so far -- its
-#: contents page has actually been read (via OCR, since its text layer decodes as
-#: mojibake -- see app.ingest.hindi_ocr / app.ingest.gemini_ocr) and verified against the
-#: real jhkr1ps.pdf. Kshitij, Sparsh and Sanchayan are not registered yet: their contents
-#: have not been read in full, and a chapter list typed from memory here is exactly the
-#: mistake this file's own History/Geography/Political Science/Economics comments warn
-#: against -- add them once their real contents pages have been uploaded through the
-#: Hindi endpoints and confirmed.
+#: as Social Science and English. All four now registered -- every contents page below was
+#: actually read (via OCR, since the text layer decodes as mojibake -- see
+#: app.ingest.hindi_ocr / app.ingest.gemini_ocr / app.ingest.hindi_text) and verified
+#: against the real prelims file, Kshitij's काव्य खंड page confirmed by direct visual read
+#: of the rendered page after Tesseract OCR'd it as unreadable decorative-background noise.
 X_HINDI_KRITIKA = Curriculum(
     subject_code="X.HIN.KR",
     subject_label="Class X Hindi (कृतिका)",
@@ -316,6 +313,89 @@ X_HINDI_KRITIKA = Curriculum(
     concept_families=[],
 )
 
+X_HINDI_KSHITIJ = Curriculum(
+    subject_code="X.HIN.KS",
+    subject_label="Class X Hindi (क्षितिज, भाग 2)",
+    grade=10,
+    units=[
+        BoardUnit("X.HIN.KS.U.WHOLE", "क्षितिज", 0.0),
+    ],
+    # jhks1ps.pdf, विषय-क्रम (contents page). Twelve chapters -- काव्य खंड (poetry, 1-6)
+    # then गद्य खंड (prose, 7-12) -- read by directly viewing the rendered contents pages
+    # after Tesseract's own OCR came back as decorative-background noise on the poetry
+    # page specifically (page images, not the prose page, which OCR'd cleanly).
+    chapters=[
+        Chapter("X.HIN.KS.SURDAS", "सूरदास (पद)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.TULSIDAS", "तुलसीदास (राम-लक्ष्मण-परशुराम संवाद)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.JAISHANKAR_PRASAD", "जयशंकर प्रसाद (आत्मकथ्य)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.NIRALA", "सूर्यकांत त्रिपाठी 'निराला' (उत्साह, अट नहीं रही है)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.NAGARJUN", "नागार्जुन (यह दंतुरित मुसकान, फसल)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.MANGLESH_DABRAL", "मंगलेश डबराल (संगतकार)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.NETAJI_KA_CHASHMA", "नेताजी का चश्मा", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.BALGOBIN_BHAGAT", "बालगोबिन भगत", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.LAKHNAVI_ANDAZ", "लखनवी अंदाज़", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.EK_KAHANI_YEH_BHI", "एक कहानी यह भी", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.NAUBATKHANE", "नौबतखाने में इबादत", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.SANSKRITI", "संस्कृति", "X.HIN.KS.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
+X_HINDI_SPARSH = Curriculum(
+    subject_code="X.HIN.SP",
+    subject_label="Class X Hindi (स्पर्श)",
+    grade=10,
+    units=[
+        BoardUnit("X.HIN.SP.U.WHOLE", "स्पर्श", 0.0),
+    ],
+    # jhsp1ps.pdf, पाठ सूची (contents page), read via OCR. Fourteen chapters -- पद्य खंड
+    # (poetry, 1-7) then गद्य खंड (prose, 8-14, the last of which -- कारतूस -- is a
+    # one-act play rather than prose proper, but the book's own contents page places it
+    # under गद्य खंड, not as a separate section).
+    chapters=[
+        Chapter("X.HIN.SP.KABIR", "कबीर (साखी)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.MEERA", "मीरा (पद)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.MAITHILISHARAN_GUPT", "मैथिलीशरण गुप्त (मनुष्यता)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.SUMITRANANDAN_PANT", "सुमित्रानंदन पंत (पर्वत प्रदेश में पावस)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.VEEREN_DANGWAL", "वीरेन डंगवाल (तोप)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.KAIFI_AZMI", "कैफ़ी आज़मी (कर चले हम फ़िदा)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.TAGORE", "रवींद्रनाथ ठाकुर (आत्मत्राण)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.PREMCHAND", "प्रेमचंद (बड़े भाई साहब)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.SITARAM_SEKSARIA", "सीताराम सेकसरिया (डायरी का एक पन्ना)", "X.HIN.SP.U.WHOLE"),
+        Chapter("X.HIN.SP.LEELADHAR_MANDLOI", "लीलाधर मंडलोई (तताँरा-वामीरो कथा)", "X.HIN.SP.U.WHOLE"),
+        Chapter(
+            "X.HIN.SP.PRAHLAD_AGRAWAL",
+            "प्रहलाद अग्रवाल (तीसरी कसम के शिल्पकार शैलेंद्र)", "X.HIN.SP.U.WHOLE",
+        ),
+        Chapter(
+            "X.HIN.SP.NIDA_FAZLI",
+            "निदा फ़ाज़ली (अब कहाँ दूसरे के दुख से दुखी होने वाले)", "X.HIN.SP.U.WHOLE",
+        ),
+        Chapter(
+            "X.HIN.SP.RAVINDRA_KELEKAR",
+            "रवींद्र केलेकर (पतझर में टूटी पत्तियाँ)", "X.HIN.SP.U.WHOLE",
+        ),
+        Chapter("X.HIN.SP.HABIB_TANVIR", "हबीब तनवीर (कारतूस, एकांकी)", "X.HIN.SP.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
+X_HINDI_SANCHAYAN = Curriculum(
+    subject_code="X.HIN.SY",
+    subject_label="Class X Hindi (संचयन, भाग 2)",
+    grade=10,
+    units=[
+        BoardUnit("X.HIN.SY.U.WHOLE", "संचयन", 0.0),
+    ],
+    # jhsy1ps.pdf, contents page, read via OCR.
+    chapters=[
+        Chapter("X.HIN.SY.HARIHAR_KAKA", "हरिहर काका (मिथिलेश्वर)", "X.HIN.SY.U.WHOLE"),
+        Chapter("X.HIN.SY.SAPNON_KE_SE_DIN", "सपनों के-से दिन (गुरदयाल सिंह)", "X.HIN.SY.U.WHOLE"),
+        Chapter("X.HIN.SY.TOPI_SHUKLA", "टोपी शुक्ला (राही मासूम रज़ा)", "X.HIN.SY.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
 CURRICULA: dict[str, Curriculum] = {
     X_MATH.subject_code: X_MATH,
     X_SCIENCE.subject_code: X_SCIENCE,
@@ -327,6 +407,9 @@ CURRICULA: dict[str, Curriculum] = {
     X_ENGLISH_FOOTPRINTS.subject_code: X_ENGLISH_FOOTPRINTS,
     X_ENGLISH_WORKBOOK.subject_code: X_ENGLISH_WORKBOOK,
     X_HINDI_KRITIKA.subject_code: X_HINDI_KRITIKA,
+    X_HINDI_KSHITIJ.subject_code: X_HINDI_KSHITIJ,
+    X_HINDI_SPARSH.subject_code: X_HINDI_SPARSH,
+    X_HINDI_SANCHAYAN.subject_code: X_HINDI_SANCHAYAN,
 }
 
 
