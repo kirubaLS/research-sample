@@ -1,0 +1,79 @@
+"""Read a Hindi NCERT book by OCR, because its text layer cannot be trusted at all.
+
+The real files (Kshitij, Kritika, Sparsh, Sanchayan) embed a pre-Unicode font --
+Walkman-Chanakya -- with no ``ToUnicode`` CMap. Every glyph is drawn from a WinAnsi code
+point chosen to *look like* Devanagari in that one font; nothing in the PDF says what
+Unicode character it actually is. ``page.get_text()`` (what ``book.read_text`` uses for
+every other subject) returns that raw code point back as if it were real text, which
+decodes as mojibake regardless of which PyMuPDF call reads it -- this is not the layout
+problem every other subject's fix addressed, it is a font-encoding problem no amount of
+regex on the existing text layer can solve.
+
+Reading the *rendered page image* sidesteps the encoding entirely: OCR reads the ink, not
+the font's internal numbering, so it comes back as real Unicode Devanagari. Tried two
+ways before settling on the CLI: PyMuPDF's own ``get_textpage_ocr()`` also shells out to
+Tesseract, but its default page segmentation broke words apart mid-conjunct on these
+files ("पाठ्यसामग्रीकापुनर्सयोजन" with no spaces at all) where invoking the ``tesseract``
+binary directly on a rendered pixmap did not.
+"""
+
+from __future__ import annotations
+
+import shutil
+import subprocess
+import tempfile
+from pathlib import Path
+
+import pymupdf
+
+#: 300, not marksheet.py's 200: a mark sheet's OCR target is a few handwritten digits:
+#: this one is dense book type set in Devanagari conjuncts, which needs the extra
+#: resolution to come back legible at all.
+OCR_DPI = 300
+OCR_LANG = "hin"
+
+
+def ocr_available() -> bool:
+    """Whether Hindi text recognition can run here.
+
+    A capability, not an assumption -- same reasoning as app.extraction.marksheet's own
+    ocr_available(): Tesseract, and specifically its Hindi language data, is a system
+    package that a deployment either has or does not, and the difference has to reach the
+    person uploading rather than surfacing as silently empty text.
+    """
+    if shutil.which("tesseract") is None:
+        return False
+    try:
+        langs = subprocess.run(
+            ["tesseract", "--list-langs"], capture_output=True, text=True, timeout=10,
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return OCR_LANG in langs.splitlines()
+
+
+def ocr_read_text(path: str | Path, *, dpi: int = OCR_DPI, lang: str = OCR_LANG) -> str:
+    """Every page's text, recognised from its rendered image.
+
+    Pages are joined by a blank line, the same separator plain ``read_text`` uses, so a
+    pattern written against one page's contents does not have to know it came from OCR.
+    """
+    pages: list[str] = []
+    with pymupdf.open(path) as doc:
+        for page in doc:
+            pixmap = page.get_pixmap(dpi=dpi)
+            with tempfile.TemporaryDirectory() as tmp:
+                image_path = Path(tmp) / "page.png"
+                pixmap.save(image_path)
+                out_prefix = Path(tmp) / "out"
+                result = subprocess.run(
+                    ["tesseract", str(image_path), str(out_prefix), "-l", lang],
+                    capture_output=True, text=True, timeout=120,
+                )
+                if result.returncode != 0:
+                    raise RuntimeError(
+                        f"tesseract failed on page {page.number + 1} of {path}: "
+                        f"{result.stderr.strip()}"
+                    )
+                pages.append((out_prefix.with_suffix(".txt")).read_text(encoding="utf-8"))
+    return "\n\n".join(pages)
