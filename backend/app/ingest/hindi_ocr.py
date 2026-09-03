@@ -73,10 +73,17 @@ def ocr_read_text(source: str | Path | bytes, *, dpi: int = OCR_DPI, lang: str =
     opened = pymupdf.open(stream=source, filetype="pdf") if isinstance(source, bytes) else pymupdf.open(source)
     with opened as doc:
         for page in doc:
-            pixmap = page.get_pixmap(dpi=dpi)
+            # Grayscale, not the default RGB: a third of the pixel memory for exactly the
+            # same resolution and the same text -- Tesseract reads ink, not colour, and a
+            # Render free-tier instance ("exceeds memory limit", the whole process killed
+            # mid-job) does not have RGB's headroom to spare rendering one dense page at
+            # 300 DPI. One page at a time and each pixmap freed before the next page's
+            # is even created, so peak memory is one page's worth, not the whole book's.
+            pixmap = page.get_pixmap(dpi=dpi, colorspace=pymupdf.csGRAY)
             with tempfile.TemporaryDirectory() as tmp:
                 image_path = Path(tmp) / "page.png"
                 pixmap.save(image_path)
+                pixmap = None
                 out_prefix = Path(tmp) / "out"
                 result = subprocess.run(
                     ["tesseract", str(image_path), str(out_prefix), "-l", lang],
