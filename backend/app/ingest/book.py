@@ -59,8 +59,13 @@ EXERCISE = re.compile(r"^\s*EXERCISE\s+(\d+\.\d+)\s*(\(Optional\)\*?)?\s*$", re.
 #: case-insensitive: Science sets EXERCISES/QUESTIONS in caps, History sets Discuss and
 #: Write in brief in title case, and Political Science sets Exercises in title case too
 #: -- one word, three books, three castings of it.
+#: "Let's work these/this out" -- Economics' own recurring in-chapter drill prompt,
+#: repeated several times through a chapter the same way Discuss is for History. '.'
+#: rather than a literal apostrophe: NCERT sets a curly one ('’'), and a PDF's own
+#: text layer is not guaranteed to agree with this file's encoding of it.
 BARE_DRILL_LABEL = re.compile(
-    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project)(?:\s+\1)*\s*$",
+    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project|Let.s work (?:these|this) out)"
+    r"(?:\s+\1)*\s*$",
     re.M | re.I,
 )
 
@@ -586,7 +591,10 @@ MIN_BODY_CHARS = 200
 #: the only line at that size, it became the chapter's entire heading list.
 _NOT_A_HEADING = re.compile(
     r"^(EXERCISES|QUESTIONS|PROJECT|ACTIVITY|PROJECT/ACTIVITY|PROJECT WORK|DISCUSS|"
-    r"MAP SKILLS|MAP WORK|WRITE IN BRIEF)(\s+\1)*$",
+    r"MAP SKILLS|MAP WORK|WRITE IN BRIEF|SUGGESTED READINGS|ADDITIONAL PROJECTS\s*/\s*"
+    r"ACTIVITIES|BIBLIOGRAPHY|FURTHER READING|GLOSSARY|LET.S WORK (?:THESE|THIS) OUT|"
+    r"NOTES? FOR THE TEACHERS?)"
+    r"(\s+\1)*$",
     re.I,
 )
 
@@ -595,60 +603,118 @@ _NOT_A_HEADING = re.compile(
 #: title is often set even bigger than that -- Political Science draws 'Power-sharing' at
 #: 65pt against 20pt real headings. Both would otherwise win "the chapter's largest bold
 #: text" outright and become the entire heading list on their own.
-_CHAPTER_COVER = re.compile(r"^Chapter\s+[\dIVXLCDM]+$", re.I)
+#: 'Chapter 5' alone, or 'Chapter 5 : Consumer Rights' -- the cover repeating its own
+#: title after a colon, on the same bold line as the chapter word.
+_CHAPTER_COVER = re.compile(r"^Chapter\s+[\dIVXLCDM]+(\s*:.*)?$", re.I)
 
 
-def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") -> list[Section]:
-    """Headings for a book that numbers nothing at all -- Geography publishes no section
-    list on its contents page and its subheadings carry no number of their own, bare or
-    decimal. What marks a real heading is typography: bold, and at the largest bold size
-    used anywhere in the chapter. A margin glossary term and a figure caption are bold
-    too, but smaller -- Geography sets those at 9-10.5pt against an 11.5-12pt heading, a
-    ratio a Google check against the real files held for every chapter tried.
+def _heading_styled_lines(
+    doc: pymupdf.Document, require_bold: bool, body_size: float = 0.0
+) -> list[tuple[int, float, float, str, int | None]]:
+    """(page_index, y0, size, text, colour) for every line styled as a heading might be.
 
-    Section 'numbers' are just 1, 2, 3... in reading order: the book gives none, so
-    inventing a false one there would be worse than admitting there isn't one. Found by
-    font, but *located* by searching the plain text for it, so the character offsets this
-    returns line up with the same ``text`` extract_chunks slices -- a PDF-native offset
-    would not.
+    ``require_bold`` is the normal case: bold, at whatever size, is what a real heading
+    uses in every book tried except one. That one book (Economics) sets its real headings
+    in a custom embedded subset font that carries no bold flag at all -- only a size
+    visibly larger than the body -- so the looser test is a second attempt, tried only
+    when the bold one below finds nothing usable, never blended into it: a book whose
+    real headings genuinely are bold must never have this looser, noisier signal
+    reconsidering them.
     """
-    with pymupdf.open(path) as doc:
-        # (page_index, y0, size, text), bold lines only, in document order
-        lines: list[tuple[int, float, float, str]] = []
-        for page_index, page in enumerate(doc):
-            for block in page.get_text("dict")["blocks"]:
-                for line in block.get("lines", []):
-                    spans = line.get("spans") or []
-                    if not spans:
+    lines: list[tuple[int, float, float, str, int | None]] = []
+    for page_index, page in enumerate(doc):
+        for block in page.get_text("dict")["blocks"]:
+            for line in block.get("lines", []):
+                spans = line.get("spans") or []
+                if not spans:
+                    continue
+                line_text = "".join(s["text"] for s in spans).strip()
+                if not line_text:
+                    continue
+                if require_bold:
+                    if not all(s["flags"] & 16 for s in spans):
                         continue
-                    line_text = "".join(s["text"] for s in spans).strip()
-                    if not line_text or not all(s["flags"] & 16 for s in spans):
-                        continue
-                    # Rounded: two headings set at the same visual 10.5pt size can carry
-                    # different exact floats (10.5 vs 10.500472068786621) depending on how
-                    # the PDF's font matrix scaled them, and comparing those unrounded left
-                    # only the one exact bit-pattern that happened to be the chapter's max.
-                    lines.append(
-                        (page_index, line["bbox"][1], round(spans[0]["size"], 1), line_text)
-                    )
+                elif not all(round(s["size"], 1) > body_size + 1.0 for s in spans):
+                    continue
+                # Rounded: two headings set at the same visual 10.5pt size can carry
+                # different exact floats (10.5 vs 10.500472068786621) depending on how
+                # the PDF's font matrix scaled them, and comparing those unrounded left
+                # only the one exact bit-pattern that happened to be the chapter's max.
+                colour = spans[0].get("color") if len({s.get("color") for s in spans}) == 1 else None
+                lines.append(
+                    (page_index, line["bbox"][1], round(spans[0]["size"], 1), line_text, colour)
+                )
+    return lines
+
+
+def _pick_sections(
+    lines: list[tuple[int, float, float, str, int | None]],
+    text: str,
+    chapter_title: str,
+    *,
+    filter_by_cover_colour: bool,
+) -> list[Section]:
+    """The shared second half of both heading-detection attempts: dedupe, exclude noise,
+    prefer the book's own numbering if it has one, and otherwise take the largest
+    remaining size.
+    """
+    if not lines:
+        return []
 
     # Noise is filtered out FIRST, before the heading size is even decided: an end-of-
     # chapter drill word is often drawn bigger than every real heading, not smaller, and
     # picking "the largest bold text" before excluding it left either nothing (every
     # 12pt line was 'ACTIVITY') or the drill word itself ('PROJECT WORK') standing in for
     # every real heading in the chapter.
-    # Substring, not equality: a title set across several bold lines on the cover ('Gender,'
-    # / 'Religion and' / 'Caste' for a chapter titled 'Gender, Religion and Caste') has no
-    # single line that equals the whole title, but every one of its fragments is a
-    # substring of it -- a real heading essentially never is.
+    # Two exact-repeat draws in a row, at the same spot, are one line read twice -- Economics
+    # sets several things (page numbers, running headers, story captions) as five identical
+    # overlapping draws, the same fake-bold trick Science uses on single headings, which
+    # read_text's own collapsing (_collapse_bold) was built for but never runs on this
+    # per-span view. Collapsed here to the same effect: keep the first, drop the repeats.
+    deduped: list[tuple[int, float, float, str, int | None]] = []
+    for entry in lines:
+        page_index, y, _size, line_text, _colour = entry
+        if (
+            deduped and deduped[-1][3] == line_text and deduped[-1][0] == page_index
+            and abs(y - deduped[-1][1]) < 3
+        ):
+            continue
+        deduped.append(entry)
+    lines = deduped
+
+    # Only used on the size-based attempt: the cover repeats the chapter's own title in
+    # the same ink used for its real headings, and that attempt's own noise (an oversized
+    # story caption, a drill label) is not excludable by keyword the way EXERCISES or
+    # PROJECT is. The bold attempt never reaches here with this on -- it doesn't need it,
+    # and a book whose cover happens to share a colour with something else entirely
+    # would otherwise lose real headings to a filter it never asked for.
+    heading_colour = (
+        next(
+            (c for _p, _y, _s, t, c in lines if c is not None and _CHAPTER_COVER.match(t)),
+            None,
+        )
+        if filter_by_cover_colour
+        else None
+    )
+
+    # Substring, not equality, and one-directional: a title set across several bold lines
+    # on the cover ('Gender,' / 'Religion and' / 'Caste' for a chapter titled 'Gender,
+    # Religion and Caste') has no single line that equals the whole title, but every one of
+    # its fragments IS a substring of it -- a real heading essentially never is. The other
+    # direction ('does the line contain the title') is not checked: a real subheading
+    # legitimately contains the chapter's own title word ('How is federalism practised?'
+    # in a chapter called 'Federalism'), and a cover repeating the title after the chapter
+    # number ('Chapter 5 : Consumer Rights') is caught by _CHAPTER_COVER already, not by
+    # this.
     title_key_ = title_key(chapter_title) if chapter_title else None
     candidates = [
         (page_index, y, size, line_text)
-        for page_index, y, size, line_text in lines
+        for page_index, y, size, line_text, colour in lines
         if not re.fullmatch(r"\d{1,3}\.?", line_text)
         and re.search(r"[A-Za-z]", line_text)   # a decorative glyph ('+') has no letters
         and not _NOT_A_HEADING.match(line_text)
         and not _CHAPTER_COVER.match(line_text)
+        and (heading_colour is None or colour == heading_colour)
         and (title_key_ is None or title_key(line_text) not in title_key_)
     ]
     if not candidates:
@@ -656,12 +722,13 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
 
     # A book like History numbers its own headings ('1  The Rise of...', '2.1 The
     # Aristocracy...'); a book like Geography or Political Science numbers none of them.
-    # Tried first, against bold lines only -- a *plain* numbered list in body prose
-    # matches the same shape without being a heading, which is exactly what happened
-    # before boldness was required here. Two or more real matches is treated as "this
-    # book numbers its headings"; one is treated as coincidence (a single numbered
-    # exhibit or footnote happening to be bold), so the largest-bold-size convention
-    # gets a chance instead of taking a lone false positive as the whole answer.
+    # Tried first -- a *plain* numbered list in body prose matches the same shape without
+    # being a heading, which is exactly what happened before boldness (or the size test
+    # above) was required to even become a candidate. Two or more real matches is treated
+    # as "this book numbers its headings"; one is treated as coincidence (a single
+    # numbered exhibit or footnote happening to be styled the same way), so the
+    # largest-size convention gets a chance instead of taking a lone false positive as
+    # the whole answer.
     numbered = [
         (page_index, y, m.group(1), m.group(2).strip())
         for page_index, y, _size, line_text in candidates
@@ -722,6 +789,40 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
         end = found[i + 1][2] if i + 1 < len(found) else len(text)
         sections.append(Section(number, title, start, end))
     return sections
+
+
+def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") -> list[Section]:
+    """Headings for a book that numbers nothing at all -- Geography publishes no section
+    list on its contents page and its subheadings carry no number of their own, bare or
+    decimal. What marks a real heading is typography: bold, and at the largest bold size
+    used anywhere in the chapter, tried first since it is what every book but one uses.
+    Economics sets its real headings in a custom embedded subset font that carries no
+    bold flag at all -- only a size visibly larger than the body -- so a second attempt
+    on that looser signal runs only when the bold one finds nothing usable at all, never
+    blended into it.
+
+    Section 'numbers' are just 1, 2, 3... in reading order: the book gives none, so
+    inventing a false one there would be worse than admitting there isn't one. Found by
+    font, but *located* by searching the plain text for it, so the character offsets this
+    returns line up with the same ``text`` extract_chunks slices -- a PDF-native offset
+    would not.
+    """
+    with pymupdf.open(path) as doc:
+        bold_lines = _heading_styled_lines(doc, require_bold=True)
+        by_bold = _pick_sections(bold_lines, text, chapter_title, filter_by_cover_colour=False)
+        if by_bold:
+            return by_bold
+
+        body_chars: dict[float, int] = {}
+        for page in doc:
+            for block in page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    for s in line.get("spans") or []:
+                        size = round(s["size"], 1)
+                        body_chars[size] = body_chars.get(size, 0) + len(s["text"])
+        body_size = max(body_chars, key=lambda s: body_chars[s]) if body_chars else 0.0
+        sized_lines = _heading_styled_lines(doc, require_bold=False, body_size=body_size)
+        return _pick_sections(sized_lines, text, chapter_title, filter_by_cover_colour=True)
 
 
 def extract_chunks(
