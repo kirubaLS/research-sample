@@ -155,16 +155,24 @@ def normalise(text: str) -> str:
 #: reprint may switch either way.
 _DASHES = re.compile(r"\s*(?:--+|[\u2010-\u2015])\s*")
 
+#: A curly apostrophe in the book's own text ("The Thief's Story") against a straight one
+#: typed into the curriculum -- the same presentation-only difference the dash folding
+#: above exists for. Real mismatch, caught on jefp102.pdf: the contents page reads
+#: "The Thief\u2019s Story", typed here with a plain "'".
+_APOSTROPHES = re.compile(r"[\u2018\u2019\u02bc]")
+
 
 def title_key(text: str) -> str:
     """Compare two spellings of the same chapter title.
 
     Kept apart from ``normalise`` deliberately: normalise feeds stem_hash, and folding
     characters there would change every hash already stored. This only ever compares
-    titles, where the difference between an en dash and two hyphens is presentation and
-    rejecting a correct chapter over it would be absurd.
+    titles, where the difference between an en dash and two hyphens, or a curly
+    apostrophe and a straight one, is presentation and rejecting a correct chapter over
+    it would be absurd.
     """
-    return _DASHES.sub(" - ", normalise(text)).casefold()
+    folded = _APOSTROPHES.sub("'", normalise(text))
+    return _DASHES.sub(" - ", folded).casefold()
 
 
 def stem_hash(text: str) -> str:

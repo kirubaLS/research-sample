@@ -503,3 +503,12 @@ def test_a_dash_spelling_does_not_reject_a_correct_chapter():
     )
     # Not a blanket fold: different chapters stay different.
     assert title_key("Heredity") != title_key("Electricity")
+
+
+def test_a_curly_apostrophe_does_not_reject_a_correct_chapter():
+    """jefp102.pdf's contents page reads 'The Thief’s Story' with a curly apostrophe; the
+    curriculum was typed with a plain one and the two were rejected as different chapters
+    even though they name the same story."""
+    from app.ingest.book import title_key
+
+    assert title_key("The Thief’s Story") == title_key("The Thief's Story")
