@@ -31,6 +31,13 @@ import pymupdf
 #: resolution to come back legible at all.
 OCR_DPI = 300
 OCR_LANG = "hin"
+#: Render's shared/free-tier CPU took over 120s on a single dense page -- real, not a
+#: hang, confirmed by the same page finishing on a second try. This runs inside a
+#: background job (see IngestJob), not a blocking HTTP request, so there is no reason to
+#: keep this tight: correctness matters more than speed for an admin-only, occasional
+#: upload. 10 minutes is generous even for a slow instance; a page that still has not
+#: finished by then really has hung.
+OCR_PAGE_TIMEOUT_SECONDS = 600
 
 
 def ocr_available() -> bool:
@@ -73,7 +80,7 @@ def ocr_read_text(source: str | Path | bytes, *, dpi: int = OCR_DPI, lang: str =
                 out_prefix = Path(tmp) / "out"
                 result = subprocess.run(
                     ["tesseract", str(image_path), str(out_prefix), "-l", lang],
-                    capture_output=True, text=True, timeout=120,
+                    capture_output=True, text=True, timeout=OCR_PAGE_TIMEOUT_SECONDS,
                 )
                 if result.returncode != 0:
                     raise RuntimeError(
