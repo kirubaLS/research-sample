@@ -42,11 +42,17 @@ EXAMPLE = re.compile(r"^\s*Example\s+(\d+)\s*(\*?)\s*(?:\([^)]*\))?\s*:\s*(.*)$"
 #: straight to end-of-line silently dropped it. An optional exercise is also outside the
 #: examinable set, so it is worth knowing rather than merely worth matching.
 EXERCISE = re.compile(r"^\s*EXERCISE\s+(\d+\.\d+)\s*(\(Optional\)\*?)?\s*$", re.M)
-#: bucket E for Science, which numbers nothing. Questions appear mid-chapter after each
-#: teaching block and EXERCISES closes the chapter; both are drilled, so a question
-#: resembling one is PRACTISED. Matched only after the vertical-heading collapse in
-#: read_text -- the book sets these one character per line.
-SCIENCE_DRILL = re.compile(r"^\s*(QUESTIONS|EXERCISES)\s*$", re.M)
+#: bucket E for a book that numbers nothing. Science's QUESTIONS/EXERCISES close a
+#: teaching block; History has no single word for it, and end-of-chapter questions sit
+#: under 'Discuss', 'Write in brief' or 'Project' instead, each followed by a numbered
+#: list a student actually answers. 'Activity' and 'Source' are left out on purpose: a
+#: Source is reading material, not a question, and an Activity here is an unnumbered
+#: margin prompt beside a figure, not the graded end-of-chapter drill. Matched only after
+#: the vertical-heading collapse in read_text -- Science sets its labels one character
+#: per line.
+BARE_DRILL_LABEL = re.compile(
+    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project)\s*$", re.M
+)
 
 
 @dataclass(frozen=True)
@@ -475,18 +481,28 @@ def verify_structure(extract: ChapterExtract) -> ChapterExtract:
         )
         return extract
 
-    indexes = sorted(int(n.split(".")[1]) for n in numbers)
-    if indexes[0] != 1:
-        extract.problems.append(
-            f"chapter {extract.number}: sections start at {extract.number}.{indexes[0]}, "
-            f"so {extract.number}.1 was missed"
-        )
-    for lower, upper in zip(indexes, indexes[1:], strict=False):
-        if upper != lower + 1:
-            missing = ", ".join(
-                f"{extract.number}.{n}" for n in range(lower + 1, upper)
+    # The gap check below assumes 'chapter.section' numbering, tied to this chapter's own
+    # number -- true for Maths and Science, and false for a book like History that numbers
+    # its own headings independent of the chapter (BOOK_NUMBERED_SECTION in extract_sections
+    # picked those up, not chapter.section). Forcing that shape onto a numbering it was
+    # never in would report gaps that are not real gaps, so the check is skipped rather
+    # than guessed at -- 'at least one section' and 'at least one exercise', both below,
+    # still run regardless of which convention produced the sections.
+    if all(n.split(".", 1)[0] == str(extract.number) for n in numbers):
+        indexes = sorted(int(n.split(".")[1]) for n in numbers if "." in n)
+        if indexes and indexes[0] != 1:
+            extract.problems.append(
+                f"chapter {extract.number}: sections start at "
+                f"{extract.number}.{indexes[0]}, so {extract.number}.1 was missed"
             )
-            extract.problems.append(f"chapter {extract.number}: missing section {missing}")
+        for lower, upper in zip(indexes, indexes[1:], strict=False):
+            if upper != lower + 1:
+                missing = ", ".join(
+                    f"{extract.number}.{n}" for n in range(lower + 1, upper)
+                )
+                extract.problems.append(
+                    f"chapter {extract.number}: missing section {missing}"
+                )
 
     if not any(c.bucket == "E" for c in extract.chunks):
         extract.problems.append(
@@ -494,6 +510,24 @@ def verify_structure(extract: ChapterExtract) -> ChapterExtract:
             f"question from it could ever be judged PRACTISED"
         )
     return extract
+
+
+#: History numbers its own headings independent of the chapter: a bare major number with
+#: no decimal ('1  The Rise of Nationalism in Europe', two spaces, no dot) or a decimal
+#: subsection under it ('2.1 The Aristocracy...', one space) -- '2' there is the second
+#: heading IN THIS CHAPTER, not chapter 2. Title may start with a digit ('3.3 1848: The
+#: Revolution of the Liberals'), which is why this is not anchored to [A-Z] the way the
+#: chapter-numbered pattern is. Tried only when that pattern finds nothing: a book that
+#: numbers chapter.section the normal way must never have its real sections re-read this
+#: loosely, and a bare 'N.' followed by a newline -- an end-of-chapter question, not a
+#: heading -- never matches, because nothing here allows the title to start on the next
+#: line.
+#: [ \t], never \s, between the number and the title: \s matches a newline too, which let
+#: a bare page number on its own line "capture" the running header on the line below it
+#: as a section title -- '3\nNationalism in Europe' is a page break, not a heading.
+BOOK_NUMBERED_SECTION = re.compile(
+    r"^[ \t]*(\d{1,2}(?:\.\d{1,2})?)[ \t]{1,2}([A-Z0-9][^\n]{2,120})$", re.M
+)
 
 
 def extract_sections(text: str, chapter: int) -> list[Section]:
@@ -510,6 +544,13 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
             continue
         seen.add(m.group(1))
         found.append((m.group(1), m.group(2).strip(), m.start(), m.end()))
+
+    if not found:
+        for m in BOOK_NUMBERED_SECTION.finditer(text):
+            if m.group(1) in seen:
+                continue
+            seen.add(m.group(1))
+            found.append((m.group(1), m.group(2).strip(), m.start(), m.end()))
 
     sections: list[Section] = []
     for i, (number, title, _start, heading_end) in enumerate(found):
@@ -547,11 +588,11 @@ def extract_chunks(text: str, chapter: int) -> list[Chunk]:
     for m in EXERCISE.finditer(text):
         markers.append((m.start(), "exercise", "E", f"EXERCISE {m.group(1)}"))
         optional[m.start()] = bool(m.group(2))
-    # Science repeats the bare word QUESTIONS several times in a chapter, so the
+    # A bare label like QUESTIONS or Discuss repeats several times in a chapter, so the
     # occurrence is numbered to keep the reference unique -- an identical reference is
     # dropped below as a back-reference, which would have thrown away every block but the
     # first and emptied the drilled bucket for the subject.
-    for n, m in enumerate(SCIENCE_DRILL.finditer(text), start=1):
+    for n, m in enumerate(BARE_DRILL_LABEL.finditer(text), start=1):
         label = m.group(1).title()
         markers.append((m.start(), "exercise", "E", f"{label} {chapter}.{n}"))
 
