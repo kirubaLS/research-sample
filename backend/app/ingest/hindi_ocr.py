@@ -52,14 +52,19 @@ def ocr_available() -> bool:
     return OCR_LANG in langs.splitlines()
 
 
-def ocr_read_text(path: str | Path, *, dpi: int = OCR_DPI, lang: str = OCR_LANG) -> str:
+def ocr_read_text(source: str | Path | bytes, *, dpi: int = OCR_DPI, lang: str = OCR_LANG) -> str:
     """Every page's text, recognised from its rendered image.
 
     Pages are joined by a blank line, the same separator plain ``read_text`` uses, so a
     pattern written against one page's contents does not have to know it came from OCR.
+
+    ``source`` is a path or the file's bytes directly -- the bytes form is what
+    app.ingest.hindi_text uses, matching app.ingest.gemini_ocr.gemini_read_text's own
+    bytes-in signature so the two OCR backends are interchangeable behind one call.
     """
     pages: list[str] = []
-    with pymupdf.open(path) as doc:
+    opened = pymupdf.open(stream=source, filetype="pdf") if isinstance(source, bytes) else pymupdf.open(source)
+    with opened as doc:
         for page in doc:
             pixmap = page.get_pixmap(dpi=dpi)
             with tempfile.TemporaryDirectory() as tmp:
@@ -72,7 +77,7 @@ def ocr_read_text(path: str | Path, *, dpi: int = OCR_DPI, lang: str = OCR_LANG)
                 )
                 if result.returncode != 0:
                     raise RuntimeError(
-                        f"tesseract failed on page {page.number + 1} of {path}: "
+                        f"tesseract failed on page {page.number + 1} of {source}: "
                         f"{result.stderr.strip()}"
                     )
                 pages.append((out_prefix.with_suffix(".txt")).read_text(encoding="utf-8"))

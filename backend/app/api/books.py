@@ -40,7 +40,7 @@ from app.ingest.book import (
     verify_against_toc,
     verify_structure,
 )
-from app.ingest.gemini_ocr import gemini_read_text
+from app.ingest.hindi_text import hindi_read_text
 from app.ingest.embed import classify_familiarity
 from app.ingest.probe import LexicalIndex, SemanticIndex, locate
 from app.models import (
@@ -73,30 +73,37 @@ HINDI_SUBJECT_PREFIX = "X.HIN"
 
 def _hindi_text(pdf_bytes: bytes) -> str:
     """The book's real Unicode text, for a subject whose own PDF text layer decodes as
-    mojibake (see app.ingest.hindi_ocr for why). Raised as a 409, not a 500: a missing key
-    is an operator setup step, not a broken upload.
+    mojibake (see app.ingest.hindi_ocr for why).
+
+    Prefers Tesseract when this deployment can run it (see app.ingest.hindi_text) --
+    local, no network round trip, and the accuracy this project needs. Falls back to
+    Gemini otherwise. Either failure is raised as a 409 or 502, never a bare 500: a
+    missing key/binary is an operator setup step, not a broken upload, and a network
+    failure already survived its own retries before reaching here.
     """
     settings = get_settings()
-    if not settings.gemini_api_key:
-        raise HTTPException(
-            409,
-            "no Gemini API key configured (YAADHUM_GEMINI_API_KEY) -- a Hindi book's text "
-            "layer decodes as mojibake and cannot be read without it.",
-        )
     try:
-        return gemini_read_text(
-            pdf_bytes, api_key=settings.gemini_api_key, model=settings.gemini_model,
+        return hindi_read_text(
+            pdf_bytes, gemini_api_key=settings.gemini_api_key, gemini_model=settings.gemini_model,
         )
+    except ValueError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             502, f"Gemini could not read this file: {exc.response.status_code} "
                  f"{exc.response.text[:300]}",
         ) from exc
-    except (httpx.TransportError, RuntimeError) as exc:
+    except httpx.TransportError as exc:
         # gemini_read_text already retried a transport failure and a 429/5xx three times
         # before giving up -- this is what "Could not reach the API" was, surfaced with
         # the real reason instead of a bare unhandled-exception 500.
         raise HTTPException(502, f"Gemini could not be reached: {exc}") from exc
+    except RuntimeError as exc:
+        # either gemini_read_text's own retry-exhausted RuntimeError, or Tesseract
+        # actually running and failing on a page (ocr_read_text) -- both real failures in
+        # the chosen backend, not a network-reachability problem, so a different message
+        # from the TransportError case above.
+        raise HTTPException(502, f"Hindi OCR failed: {exc}") from exc
 
 
 def _run_ingest_job(job_id: str) -> None:

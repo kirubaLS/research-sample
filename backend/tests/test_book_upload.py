@@ -530,15 +530,19 @@ def test_the_book_status_says_which_chapters_have_nothing_behind_them(client):
 
 def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(client, monkeypatch):
     """Kritika's real text layer decodes as mojibake (a pre-Unicode font, no ToUnicode
-    CMap -- see app.ingest.hindi_ocr). Stubs gemini_read_text rather than calling the real
-    API: what this test checks is that the upload path calls it and threads its answer all
-    the way to a written chapter, not the quality of Gemini's own Hindi transcription.
+    CMap -- see app.ingest.hindi_ocr). Stubs hindi_read_text (app.ingest.hindi_text's
+    dispatcher, which books.py now calls) rather than calling a real backend: what this
+    test checks is that the upload path calls it and threads its answer all the way to a
+    written chapter, not the quality or choice of any one backend's transcription -- and
+    stubbing here rather than one level down (gemini_read_text) means the test does not
+    care whether Tesseract happens to be installed in whatever environment runs it.
 
     A Hindi upload is backgrounded (see IngestJob) rather than answered directly -- a
-    real Gemini call cannot finish inside Render's own request timeout. TestClient runs a
-    BackgroundTasks task to completion before client.post() returns, so the job is already
-    resolved by the time this polls its status; a real deployment's browser would poll for
-    longer, but the same two calls -- POST then GET .../jobs/{id} -- are what it does.
+    real OCR call cannot be relied on to finish inside Render's own request timeout.
+    TestClient runs a BackgroundTasks task to completion before client.post() returns, so
+    the job is already resolved by the time this polls its status; a real deployment's
+    browser would poll for longer, but the same two calls -- POST then GET .../jobs/{id}
+    -- are what it does.
     """
     from app.config import get_settings
 
@@ -546,8 +550,8 @@ def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(clien
     before = settings.gemini_api_key
     settings.gemini_api_key = "test-gemini-key"
 
-    def fake_gemini_read_text(pdf_bytes, *, api_key, model):
-        assert api_key == "test-gemini-key"
+    def fake_hindi_read_text(pdf_bytes, *, gemini_api_key, gemini_model):
+        assert gemini_api_key == "test-gemini-key"
         # distinguishing by size is enough here: a real 1-page prelims vs. a real chapter
         return (
             "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"
@@ -555,7 +559,7 @@ def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(clien
             else "माता का अँचल\nयह एक कहानी है।\nअभ्यास\n1. प्रश्न।\n"
         )
 
-    monkeypatch.setattr("app.api.books.gemini_read_text", fake_gemini_read_text)
+    monkeypatch.setattr("app.api.books.hindi_read_text", fake_hindi_read_text)
 
     client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
     contents = client.post(
@@ -600,10 +604,10 @@ def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypa
     before = settings.gemini_api_key
     settings.gemini_api_key = "test-gemini-key"
 
-    def always_fails(pdf_bytes, *, api_key, model):
-        raise httpx_module.ConnectError("[Errno -2] Name or service not known")
+    def always_fails(pdf_bytes, *, gemini_api_key, gemini_model):
+        raise httpx_module.TransportError("[Errno -2] Name or service not known")
 
-    monkeypatch.setattr("app.api.books.gemini_read_text", always_fails)
+    monkeypatch.setattr("app.api.books.hindi_read_text", always_fails)
 
     client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
     r = client.post(
@@ -637,8 +641,17 @@ def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypa
         )
 
 
-def test_a_hindi_upload_without_a_gemini_key_fails_the_job_by_name(client):
+def test_a_hindi_upload_with_neither_backend_available_fails_the_job_by_name(
+    client, monkeypatch,
+):
+    """app.ingest.hindi_text prefers Tesseract when it is actually installed (see that
+    module's docstring), so 'no Gemini key configured' alone is no longer a failure --
+    only the case where neither backend can run is. ocr_available is forced False here so
+    the test is deterministic regardless of whether the machine running it happens to have
+    tesseract-ocr-hin installed."""
     from app.config import get_settings
+
+    monkeypatch.setattr("app.ingest.hindi_text.ocr_available", lambda: False)
 
     settings = get_settings()
     before = settings.gemini_api_key
@@ -653,6 +666,35 @@ def test_a_hindi_upload_without_a_gemini_key_fails_the_job_by_name(client):
     job = client.get(f"/platform/books/X.HIN.KR/jobs/{r.json()['job_id']}", headers=HEAD)
     assert job.status_code == 409
     assert "Gemini API key" in job.json()["detail"]
+
+    settings.gemini_api_key = before
+
+
+def test_a_hindi_upload_prefers_tesseract_when_it_is_available(client, monkeypatch):
+    """The point of app.ingest.hindi_text: given a choice, use the local, free, more
+    reliable backend rather than the network one, with no Gemini key needed at all."""
+    from app.config import get_settings
+
+    monkeypatch.setattr("app.ingest.hindi_text.ocr_available", lambda: True)
+
+    def fake_ocr_read_text(pdf_bytes):
+        return "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"
+
+    monkeypatch.setattr("app.ingest.hindi_text.ocr_read_text", fake_ocr_read_text)
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = None  # no key at all -- must not be needed
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    r = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    assert r.status_code == 202, r.json()
+    job = client.get(f"/platform/books/X.HIN.KR/jobs/{r.json()['job_id']}", headers=HEAD).json()
+    assert job["status"] == "succeeded", job
+    assert job["chapters_expected"] == 1
 
     settings.gemini_api_key = before
 
