@@ -491,6 +491,45 @@ export interface BookStatus {
  *  boundary the server needs to parse the body. The header name is a parameter because
  *  the operator surface and the school surface authenticate differently, and hard-coding
  *  one of them here would silently 404 every call from the other. */
+/**
+ * A book upload the backend could not finish inside the request -- a Hindi subject's
+ * text has to come from Gemini, tens of seconds for one call, and Render's own reverse
+ * proxy enforces a request timeout no amount of backend-side retrying can get around. The
+ * upload endpoint answers 202 with a job id instead of blocking, and this is what used to
+ * be a bare fetch becomes: poll GET .../jobs/{id} until it resolves, then hand back
+ * exactly what the synchronous endpoint (every other subject) returns directly, so
+ * uploadContents/uploadChapter's own callers never have to know which happened.
+ *
+ * 2s between polls, 10 minutes before giving up -- long enough for a real chapter PDF, not
+ * so long a genuinely stuck job hangs the page forever with no feedback.
+ */
+async function pollJob<T>(
+  jobsBase: string, key: string, jobId: string,
+  header: "X-Platform-Key" | "X-API-Key",
+): Promise<T> {
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (true) {
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}${jobsBase}/jobs/${jobId}`, {
+        headers: { [header]: key, ...(header === "X-API-Key" ? scopeHeader() : {}) },
+      });
+    } catch {
+      throw new ApiUnreachable(BASE);
+    }
+    if (!res.ok) {
+      // the job failed -- the same status/detail a synchronous upload would have thrown
+      throw new ApiError(res.status, await res.text());
+    }
+    const body = (await res.json()) as { status: string };
+    if (body.status === "succeeded") return body as T;
+    if (Date.now() > deadline) {
+      throw new ApiError(504, `job ${jobId} did not finish within 10 minutes`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+}
+
 async function upload<T>(
   path: string,
   key: string,
@@ -510,7 +549,12 @@ async function upload<T>(
     throw new ApiUnreachable(BASE);
   }
   if (!res.ok) throw new ApiError(res.status, await res.text());
-  return (await res.json()) as T;
+  const data = (await res.json()) as Record<string, unknown>;
+  if (data.status === "pending" && typeof data.job_id === "string") {
+    const jobsBase = path.split("?")[0].replace(/\/(contents|chapters)$/, "");
+    return pollJob<T>(jobsBase, key, data.job_id, header);
+  }
+  return data as T;
 }
 
 async function uploadMany<T>(
