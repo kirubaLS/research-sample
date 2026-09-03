@@ -569,6 +569,45 @@ def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(clien
     settings.gemini_api_key = before
 
 
+def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypatch):
+    """'Could not reach the API' on a request that reached the backend was an unretried
+    transport failure (a dropped connection, a read timeout) bubbling up as an unhandled
+    exception. gemini_read_text now retries that itself; this checks what happens once
+    retries are exhausted -- a 502 naming the real reason, not a bare 500."""
+    import httpx as httpx_module
+
+    from app.config import get_settings
+    from app.ingest.gemini_ocr import gemini_read_text
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = "test-gemini-key"
+
+    def always_fails(pdf_bytes, *, api_key, model):
+        raise httpx_module.ConnectError("[Errno -2] Name or service not known")
+
+    monkeypatch.setattr("app.api.books.gemini_read_text", always_fails)
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    r = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    assert r.status_code == 502
+    assert "Gemini could not be reached" in r.json()["detail"]
+
+    settings.gemini_api_key = before
+
+    # not mocked here: a real retry loop that actually retries a transport failure
+    # against an address that will never resolve, confirming it gives up rather than
+    # hanging or raising something this test's own mock could have papered over
+    with pytest.raises(RuntimeError, match="failed after"):
+        gemini_read_text(
+            b"x", api_key="k", model="m",
+            timeout=1.0, max_retries=2,
+        )
+
+
 def test_a_hindi_upload_without_a_gemini_key_is_refused_by_name(client):
     from app.config import get_settings
 

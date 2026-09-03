@@ -90,6 +90,11 @@ def _hindi_text(path) -> str:
             502, f"Gemini could not read this file: {exc.response.status_code} "
                  f"{exc.response.text[:300]}",
         ) from exc
+    except (httpx.TransportError, RuntimeError) as exc:
+        # gemini_read_text already retried a transport failure and a 429/5xx three times
+        # before giving up -- this is what "Could not reach the API" was, surfaced with
+        # the real reason instead of a bare unhandled-exception 500.
+        raise HTTPException(502, f"Gemini could not be reached: {exc}") from exc
 
 
 def _source(db: Session, subject: str, version: str) -> BookSource | None:
