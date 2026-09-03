@@ -619,10 +619,20 @@ def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypa
 
     # not mocked here: a real retry loop that actually retries a transport failure
     # against an address that will never resolve, confirming it gives up rather than
-    # hanging or raising something this test's own mock could have papered over
+    # hanging or raising something this test's own mock could have papered over. A real
+    # one-page PDF, not arbitrary bytes: gemini_read_text renders each page itself now
+    # (one call per page, not per file -- see the module docstring), so it has to open
+    # successfully before the network call it is this test's job to fail.
+    import pymupdf
+
+    doc = pymupdf.open()
+    doc.new_page(width=100, height=100)
+    one_page_pdf = doc.tobytes()
+    doc.close()
+
     with pytest.raises(RuntimeError, match="failed after"):
         gemini_read_text(
-            b"x", api_key="k", model="m",
+            one_page_pdf, api_key="k", model="m",
             timeout=1.0, max_retries=2,
         )
 
