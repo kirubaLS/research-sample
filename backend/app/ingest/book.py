@@ -330,19 +330,131 @@ def parse_toc(contents_pdf: str | Path) -> dict[int, list[Section]]:
     return out
 
 
-#: 'Chapter 9' then the title on the following line, as the Science prelims sets it
-TOC_CHAPTER = re.compile(r"^\s*Chapter\s+(\d{1,2})\s*$\n^\s*(\S[^\n]{2,80})$", re.M)
+#: 'Chapter 9' then the title on the following line, as the Science prelims sets it. The
+#: title must not itself start with 'Chapter': a table whose 'Chapter N' labels and titles
+#: sit in separate blocks reads, in linear order, as one label followed by the next label,
+#: and without this exclusion that reads as a real match instead of the garbage it is.
+TOC_CHAPTER = re.compile(r"^\s*Chapter\s+(\d{1,2})\s*$\n^\s*((?!Chapter\b)\S[^\n]{2,80})$", re.M)
+
+#: 'I. The Rise of Nationalism in Europe' then the page number on the following line, as
+#: the History prelims numbers its chapters -- it never says 'Chapter'. Titled with an
+#: initial capital, like a real title and unlike a stray Roman-numeral bullet elsewhere in
+#: the prelims, and anchored to a page number on the next line so a numeral in running
+#: text cannot match.
+TOC_CHAPTER_ROMAN = re.compile(
+    r"^\s*([IVXLCDM]{1,6})\.\s+([A-Z][^\n]{2,120})\n\s*\d{1,4}\s*$", re.M
+)
+
+_ROMAN_VALUES = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100, "D": 500, "M": 1000}
+
+
+def _roman_to_int(numeral: str) -> int:
+    total, previous = 0, 0
+    for letter in reversed(numeral.upper()):
+        value = _ROMAN_VALUES[letter]
+        total += -value if value < previous else value
+        previous = max(previous, value)
+    return total
+
+
+#: '1.' alone on a line, then the title, then the page number, as the Geography prelims
+#: lays its contents out -- neither 'Chapter' nor a Roman numeral, just the plain number.
+TOC_CHAPTER_DOTTED = re.compile(
+    r"^\s*(\d{1,2})\.\s*\n\s*([A-Z][^\n]{2,120})\n\s*\d{1,4}\s*$", re.M
+)
+
+
+def _toc_chapters_by_position(contents_pdf: str | Path) -> dict[int, str]:
+    """Chapter numbers and titles, read by where the words sit on the page.
+
+    The Economics prelims sets its 'Chapter N' labels and their titles as two separate
+    blocks of a table -- reading order gives 'Chapter 1', 'Chapter 4', 'Chapter 2' ... in
+    one run and every title in another, so line-by-line text matches a label to the wrong
+    title, or to none. Word coordinates are what the table actually is, so a label is
+    paired with whichever title sits in the row directly below it -- there is no title
+    close enough that isn't its own -- rather than with whatever line the linear text
+    happened to place next to it.
+    """
+    with pymupdf.open(contents_pdf) as doc:
+        words: list[tuple[int, float, float, str]] = [
+            (page_index, y0, x0, text)
+            for page_index, page in enumerate(doc)
+            for x0, y0, _x1, _y1, text, *_ in page.get_text("words")
+        ]
+    words.sort(key=lambda w: (w[0], w[1], w[2]))
+
+    # Clustered by nearness to the row's own first word, not by rounding y to a fixed
+    # grid: two words 1-2pt apart that straddle a rounded boundary are still one printed
+    # line, and rounding split them into two, each too short to look like a title. y
+    # jitters within a row too, so which word came first by y is not reading order --
+    # each row's words are kept with their x and re-sorted left to right once it is done.
+    clusters: list[tuple[int, float, list[tuple[float, str]]]] = []
+    for page_index, y0, x0, text in words:
+        if (
+            clusters and clusters[-1][0] == page_index
+            and abs(y0 - clusters[-1][1]) <= 3.5
+        ):
+            clusters[-1][2].append((x0, text))
+        else:
+            clusters.append((page_index, y0, [(x0, text)]))
+    lines = [
+        (page_index, y, [text for _x, text in sorted(row, key=lambda w: w[0])])
+        for page_index, y, row in clusters
+    ]
+
+    labels = [
+        (page_index, y, int(words[1]))
+        for page_index, y, words in lines
+        if len(words) == 2 and words[0] == "Chapter" and words[1].isdigit()
+    ]
+    titles = [
+        (page_index, y, " ".join(words[:-1]))
+        for page_index, y, words in lines
+        if len(words) >= 2 and words[-1].isdigit() and words[0] != "Chapter"
+    ]
+
+    out: dict[int, str] = {}
+    for page_index, y_label, number in labels:
+        below = [t for t in titles if t[0] == page_index and t[1] > y_label]
+        if not below:
+            continue
+        nearest = min(below, key=lambda t: t[1] - y_label)
+        # A title more than two rows below its label is somebody else's -- Appendix and
+        # Suggested Readings both end in a page number too, and sit far past the last
+        # chapter label rather than one row under it.
+        if nearest[1] - y_label < 40:
+            out[number] = nearest[2].title()
+    return out
 
 
 def parse_toc_chapters(contents_pdf: str | Path) -> dict[int, str]:
     """Chapter numbers and titles from the contents page.
 
-    Present in both books, and the only thing the Science contents page offers. It still
+    Present in most books, and the only thing the Science contents page offers. It still
     verifies something worth verifying: that the file uploaded as chapter 9 is the chapter
-    the book calls 9.
+    the book calls 9. Tried in the order a book is most likely to use: the word 'Chapter',
+    then a bare number before the title (Geography), then a Roman numeral (History, which
+    never says 'Chapter'), then position on the page for a table linear text cannot read
+    in order (Economics). Each is tried only once the one before it finds nothing, so a
+    book that genuinely mixes conventions never has an earlier one swallow a later one's
+    numbering.
     """
     text = read_text(contents_pdf)
-    return {int(n): title.strip() for n, title in TOC_CHAPTER.findall(text)}
+    for pattern, to_number in (
+        (TOC_CHAPTER, int),
+        (TOC_CHAPTER_DOTTED, int),
+        (TOC_CHAPTER_ROMAN, _roman_to_int),
+    ):
+        found = {to_number(n): title.strip() for n, title in pattern.findall(text)}
+        # A real contents page numbers its chapters 1..N with no gaps. A pattern that
+        # matched something -- a stray 'Chapter 5' paired with the word 'Appendix' two
+        # lines below it in a table it cannot otherwise read -- but not a complete,
+        # contiguous run is a false positive, not a partial answer: better to fall
+        # through to the next convention than to record one right chapter and silence
+        # the rest.
+        if found and set(found) == set(range(1, len(found) + 1)):
+            return found
+    return _toc_chapters_by_position(contents_pdf)
 
 
 def verify_structure(extract: ChapterExtract) -> ChapterExtract:
