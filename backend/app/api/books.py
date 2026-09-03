@@ -11,6 +11,7 @@ checked against, and a chapter accepted without it would be accepted on trust.
 
 from __future__ import annotations
 
+import difflib
 import re
 import uuid
 from datetime import UTC, datetime
@@ -482,7 +483,26 @@ def _process_chapter(
             # No section list published for this subject. Check what the contents page
             # does say -- that this is the chapter the book calls `number` -- then check
             # the chapter's own numbering for gaps, and leave it marked unverified.
-            if expected_title and title_key(expected_title) != title_key(extract.title):
+            #
+            # Hindi's expected_title came from OCR (see app.ingest.hindi_ocr/hindi_text),
+            # which is not reliable down to the exact character -- the real Kritika
+            # contents page OCR'd chapter 1's title as 'माता का अआँचल ।' (an inserted extra
+            # vowel sign in the middle of the word, a trailing danda where the page number
+            # should be) against the clean 'माता का अँचल' this file's own curriculum entry
+            # carries. Neither an exact match nor a substring one survives an insertion
+            # mid-string, so this falls back to a similarity ratio (difflib, stdlib, no
+            # new dependency) rather than rejecting a chapter that is correctly identified
+            # by number over nothing but OCR noise. 0.6 is loose enough to absorb a few
+            # inserted/dropped characters but still catches a genuinely wrong chapter,
+            # which shares almost no character runs with what OCR read at all.
+            titles_disagree = (
+                title_key(expected_title) != title_key(extract.title)
+                if not is_hindi
+                else difflib.SequenceMatcher(
+                    None, title_key(expected_title), title_key(extract.title),
+                ).ratio() < 0.6
+            )
+            if expected_title and titles_disagree:
                 extract.problems.append(
                     f"the contents page calls chapter {number} "
                     f"{expected_title!r}, not {extract.title!r}"

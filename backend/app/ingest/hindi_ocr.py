@@ -31,6 +31,15 @@ import pymupdf
 #: resolution to come back legible at all.
 OCR_DPI = 300
 OCR_LANG = "hin"
+#: Tesseract's default page segmentation (PSM 3, "fully automatic") reads the running
+#: prose of a chapter fine but dropped the leading serial number on a contents-page entry
+#: in the real Kritika file half the time -- '1.' in front of the first chapter's title
+#: rendered as a bare '.' with the digit missing entirely, while every later entry ('2.',
+#: '3.') kept its number. PSM 6 ("assume a single uniform block of text") recovered two
+#: of the three numbers that PSM 3 dropped on the same page; the remaining one -- always
+#: the first entry, never a later one -- is recovered separately, see
+#: app.ingest.book._recover_hindi_first_chapter_number.
+OCR_PSM = "6"
 #: Render's shared/free-tier CPU took over 120s on a single dense page -- real, not a
 #: hang, confirmed by the same page finishing on a second try. This runs inside a
 #: background job (see IngestJob), not a blocking HTTP request, so there is no reason to
@@ -86,7 +95,7 @@ def ocr_read_text(source: str | Path | bytes, *, dpi: int = OCR_DPI, lang: str =
                 pixmap = None
                 out_prefix = Path(tmp) / "out"
                 result = subprocess.run(
-                    ["tesseract", str(image_path), str(out_prefix), "-l", lang],
+                    ["tesseract", str(image_path), str(out_prefix), "-l", lang, "--psm", OCR_PSM],
                     capture_output=True, text=True, timeout=OCR_PAGE_TIMEOUT_SECONDS,
                 )
                 if result.returncode != 0:

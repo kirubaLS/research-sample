@@ -699,6 +699,52 @@ def test_a_hindi_upload_prefers_tesseract_when_it_is_available(client, monkeypat
     settings.gemini_api_key = before
 
 
+def test_a_noisy_ocr_title_does_not_reject_a_correctly_numbered_hindi_chapter(
+    client, monkeypatch,
+):
+    """The real bug: Kritika's contents page OCR'd chapter 1's title as 'माता का अआँचल ।'
+    (an inserted vowel sign, a stray danda where the page number should be) against the
+    clean 'माता का अँचल' the curriculum entry (X_HINDI_KRITIKA) carries. An exact
+    title_key comparison rejected the chapter over nothing but that OCR noise, even
+    though it is correctly identified by number. Fixed with a difflib similarity ratio,
+    Hindi-only -- this checks the chapter upload succeeds despite the mismatch."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = "test-gemini-key"
+
+    def fake_hindi_read_text(pdf_bytes, *, gemini_api_key, gemini_model):
+        if len(pdf_bytes) < 2000:
+            # the noisy real OCR shape for the contents page
+            return "विषय सूची\n. माता का अआँचल ।\n८ शिवपूजन सहाय\n2. साना-साना हाथ जोडि 0\n"
+        return "माता का अँचल\nयह एक कहानी है।\nअभ्यास\n1. प्रश्न।\n"
+
+    monkeypatch.setattr("app.api.books.hindi_read_text", fake_hindi_read_text)
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    contents = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    contents_job = client.get(
+        f"/platform/books/X.HIN.KR/jobs/{contents.json()['job_id']}", headers=HEAD,
+    ).json()
+    assert contents_job["status"] == "succeeded", contents_job
+
+    chapter = client.post(
+        "/platform/books/X.HIN.KR/chapters", headers=HEAD,
+        files={"file": ("jhkr101.pdf", io.BytesIO(b"x" * 5000), "application/pdf")},
+    )
+    chapter_job = client.get(
+        f"/platform/books/X.HIN.KR/jobs/{chapter.json()['job_id']}", headers=HEAD,
+    ).json()
+    assert chapter_job["status"] == "succeeded", chapter_job
+    assert chapter_job["chapter"] == 1
+
+    settings.gemini_api_key = before
+
+
 def test_a_job_for_another_subject_is_not_found(client):
     r = client.get("/platform/books/X.HIN.KR/jobs/not-a-real-id", headers=HEAD)
     assert r.status_code == 404

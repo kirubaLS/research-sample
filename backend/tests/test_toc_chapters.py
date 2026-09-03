@@ -106,6 +106,43 @@ def test_unit_word_convention(tmp_path):
     }
 
 
+def test_devanagari_convention_recovers_a_missing_first_chapter_number():
+    """Built from the real Kritika contents page, OCR'd with Tesseract at PSM 6 (see
+    app.ingest.hindi_ocr): '2.' and '3.' both came back with their number intact, but
+    chapter 1's own leading digit was dropped entirely -- its line OCR'd as a bare '.'
+    with no number, its trailing page number as a stray '।' rather than a digit. Text is
+    passed directly (the `text=` override every parse_toc_chapters caller can use, not a
+    rendered PDF) since this is testing the OCR-recovery logic itself, not PDF rendering."""
+    from app.ingest.book import parse_toc_chapters
+
+    text = (
+        "आमुख गा\n"
+        "पाठ्यपुस्तकों में पाठ्य सामग्री का पुनर्सयोजन ४\n"
+        "भूमिका हर ।\n"
+        ". माता का अआँचल ।\n"
+        "८ शिवपूजन सहाय\n"
+        "2. साना-साना हाथ जोडि 0\n"
+        "मधु काकरिया\n"
+        "3. मैं क्यों लिखता हँ? 24\n"
+        "अज्ञेय\n"
+        "लेखक-परिचय 29\n"
+    )
+    chapters = parse_toc_chapters("x", text=text)
+    assert chapters[1] == "माता का अआँचल ।"
+    assert chapters[2] == "साना-साना हाथ जोडि"
+    assert "यों लिखता" in chapters[3]
+
+
+def test_a_bare_dot_line_with_no_following_chapter_2_is_left_alone():
+    """The recovery only fires when it can confirm the shape it exists for -- a bare '.'
+    line elsewhere on a page, with no '2.' anywhere after it, is not chapter 1's missing
+    number and must not be rewritten into one."""
+    from app.ingest.book import _recover_hindi_first_chapter_number
+
+    text = "भूमिका\n. एक असंबंधित पंक्ति\nऔर कुछ नहीं\n"
+    assert _recover_hindi_first_chapter_number(text) == text
+
+
 def test_roman_numeral_convention(tmp_path):
     doc = pymupdf.open()
     _page(doc, [

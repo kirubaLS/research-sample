@@ -520,16 +520,34 @@ def _toc_chapters_by_position(contents_pdf: str | Path) -> dict[int, str]:
 
 #: '2. साना-साना हाथ जोडि... 40' -- number, dot, Devanagari title, then the page number on
 #: the SAME line (unlike TOC_CHAPTER_NUMBERED's English books, which put it on the next).
-#: '[ऀ-ॿ]' rather than '[A-Z]', which every other TOC_CHAPTER* pattern anchors
-#: on and which cannot match Devanagari at all. Derived from the real Kritika prelims
-#: (OCR'd, since the PDF's own text layer is unusable -- see app.ingest.hindi_ocr) --
-#: PROVISIONAL until confirmed against Gemini's actual transcription of a real contents
-#: page: page-number digits in particular were ambiguous between Latin and Devanagari
-#: numerals under Tesseract, which this has not been re-verified against.
+#: '[ऀ-ॿ]' rather than '[A-Z]', which every other TOC_CHAPTER* pattern anchors on and which
+#: cannot match Devanagari at all. Confirmed against the real Kritika prelims, OCR'd with
+#: Tesseract at PSM 6 (see app.ingest.hindi_ocr) -- the trailing page number is optional
+#: (not just '\d{1,4}') because Tesseract's own reading of it is not reliable enough to
+#: require: the real chapter 1 entry OCR'd its page number as a stray '।' (a Devanagari
+#: danda, not a digit) even once its own leading '1.' was recovered (see
+#: _recover_hindi_first_chapter_number below).
 TOC_CHAPTER_DEVANAGARI = re.compile(
-    r"^\s*(\d{1,2})\.\s*([ऀ-ॿ][^\n]{1,120}?)\s*[.\-–—\s]*(?:\d{1,4})\s*$",
+    r"^\s*(\d{1,2})\.\s*([ऀ-ॿ][^\n]{1,120}?)\s*[.\-–—\s]*(?:\d{1,4})?\s*$",
     re.M,
 )
+
+#: Tesseract, even at PSM 6, dropped the leading digit of a contents page's FIRST chapter
+#: entry specifically -- its own '.' survived, the '1' in front of it did not -- while
+#: every later entry kept its number intact. Confirmed on the real Kritika prelims: '2.'
+#: and '3.' both OCR'd correctly, only '1.' came back as a bare '.'. Recovered here, not
+#: guessed: fires only when a bare '.' line is followed somewhere after it by a line that
+#: does start '2.' -- specific enough that an unrelated bare-dot bullet elsewhere on the
+#: page, with no numbered list around it at all, is never touched. `count=1` because only
+#: the FIRST such line is ever the missing chapter 1 -- a book that happens to have a
+#: second bare-dot line later is not this bug repeating.
+_HINDI_MISSING_FIRST_CHAPTER_NUMBER = re.compile(r"^\.([ \t])", re.M)
+
+
+def _recover_hindi_first_chapter_number(text: str) -> str:
+    if not re.search(r"^2\.[ \t]", text, re.M):
+        return text
+    return _HINDI_MISSING_FIRST_CHAPTER_NUMBER.sub(r"1.\1", text, count=1)
 
 
 def parse_toc_chapters(contents_pdf: str | Path, *, text: str | None = None) -> dict[int, str]:
@@ -556,7 +574,10 @@ def parse_toc_chapters(contents_pdf: str | Path, *, text: str | None = None) -> 
         (TOC_CHAPTER_DEVANAGARI, int),
         (TOC_CHAPTER_ROMAN, _roman_to_int),
     ):
-        found = {to_number(n): title.strip() for n, title in pattern.findall(text)}
+        haystack = (
+            _recover_hindi_first_chapter_number(text) if pattern is TOC_CHAPTER_DEVANAGARI else text
+        )
+        found = {to_number(n): title.strip() for n, title in pattern.findall(haystack)}
         # A real contents page numbers its chapters 1..N with no gaps. A pattern that
         # matched something -- a stray 'Chapter 5' paired with the word 'Appendix' two
         # lines below it in a table it cannot otherwise read -- but not a complete,
