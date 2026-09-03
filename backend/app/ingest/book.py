@@ -63,8 +63,16 @@ EXERCISE = re.compile(r"^\s*EXERCISE\s+(\d+\.\d+)\s*(\(Optional\)\*?)?\s*$", re.
 #: repeated several times through a chapter the same way Discuss is for History. '.'
 #: rather than a literal apostrophe: NCERT sets a curly one ('’'), and a PDF's own
 #: text layer is not guaranteed to agree with this file's encoding of it.
+#: English (First Flight, Footprints without Feet) numbers nothing and has no
+#: chapter-scoped sections at all -- see `single_section` in extract_chapter -- but still
+#: closes a teaching block with a fixed-name checkpoint rather than a numbered exercise:
+#: 'Oral Comprehension Check' repeats through a story at each reading break, 'Think about
+#: it' and 'Talk about it' close it. Real names, read off the actual jeff1xx/jefp1xx
+#: files, not the wider "Thinking about the Text"/"Working with Words" naming the older
+#: (pre-rationalisation) edition used, which is not what these files contain.
 BARE_DRILL_LABEL = re.compile(
-    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project|Let.s work (?:these|this) out)"
+    r"^\s*(QUESTIONS|EXERCISES|Discuss|Write in brief|Project|Let.s work (?:these|this) out|"
+    r"Oral Comprehension Check|Think about it|Talk about it)"
     r"(?:\s+\1)*\s*$",
     re.M | re.I,
 )
@@ -826,7 +834,7 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
 
 
 def extract_chunks(
-    text: str, chapter: int, sections: list[Section] | None = None
+    text: str, chapter: int, sections: list[Section] | None = None, body_bucket: str = "T",
 ) -> list[Chunk]:
     """Split a chapter into familiarity chunks, section by section.
 
@@ -874,7 +882,8 @@ def extract_chunks(
         body = text[section.start:boundaries[0]].strip()
         if len(body) >= MIN_BODY_CHARS:
             chunks.append(
-                Chunk("T", "body", f"Section {section.number}", body, stem_hash(body),
+                Chunk(body_bucket, "body" if body_bucket == "T" else "exercise",
+                      f"Section {section.number}", body, stem_hash(body),
                       section=section.number)
             )
 
@@ -890,7 +899,8 @@ def extract_chunks(
 
 
 def extract_chapter(
-    path: str | Path, *, number: int | None = None, name: str = "", title: str = ""
+    path: str | Path, *, number: int | None = None, name: str = "", title: str = "",
+    single_section: bool = False, body_bucket: str = "T",
 ) -> ChapterExtract:
     """``title`` should come from the contents page where available: matching an existing
     chapter node depends on using the book's own words, not a slug turned back into prose.
@@ -898,6 +908,20 @@ def extract_chapter(
     ``number`` and ``name`` exist for callers whose file is not on disk under its real
     name -- an upload written to a temp file, for instance. Deriving them from the path
     would then read a random string and reject a perfectly good chapter.
+
+    ``single_section`` is for a book that genuinely has no subsections at all -- English's
+    First Flight and Footprints without Feet are a continuous story or poem, broken only
+    by fixed-name checkpoints (BARE_DRILL_LABEL), never by a heading of any kind, numbered
+    or bold. Every other book tried has real subheadings somewhere, so the two detection
+    passes above stay the default; forcing this on for one of them would hide a real
+    extraction failure behind "one section," which is exactly the silent-hole failure mode
+    `verify_structure` exists to catch. Scoped by the caller from the subject, not guessed
+    here from what the passes happen to find.
+
+    ``body_bucket`` is "E" for the Workbook: a unit there is not expository text a student
+    is taught and later drilled on -- the unit's entire body IS the exercise (fill-in-the-
+    blank, rearrange-the-jumbled-sentences), so treating it as bucket T would mark the
+    subject's only content as un-practised.
     """
     display = name or Path(path).name
     number = number if number is not None else chapter_number(display)
@@ -907,21 +931,25 @@ def extract_chapter(
     stem = Path(display).stem
     # an NCERT code (jemh101) has no slug to read a title from; the caller supplies one
     derived = stem.split("-", 1)[1].replace("-", " ").title() if "-" in stem else stem
+    resolved_title = title or derived
 
     text = read_text(path)
-    sections = extract_sections(text, number)
-    if not sections:
-        # Neither convention that reads a number off the page found one -- Geography
-        # publishes no section numbers at all, bare or decimal. What is left is
-        # typography: the chapter's own largest bold text.
-        sections = _sections_by_boldness(path, text, title or derived)
+    if single_section:
+        sections = [Section("1", resolved_title, 0, len(text))]
+    else:
+        sections = extract_sections(text, number)
+        if not sections:
+            # Neither convention that reads a number off the page found one -- Geography
+            # publishes no section numbers at all, bare or decimal. What is left is
+            # typography: the chapter's own largest bold text.
+            sections = _sections_by_boldness(path, text, resolved_title)
     return ChapterExtract(
         number=number,
-        title=title or derived,
+        title=resolved_title,
         source_path=str(path),
         sha256=file_sha256(path),
         sections=sections,
-        chunks=extract_chunks(text, number, sections=sections),
+        chunks=extract_chunks(text, number, sections=sections, body_bucket=body_bucket),
     )
 
 

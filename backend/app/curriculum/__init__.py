@@ -212,6 +212,85 @@ X_ECONOMICS = Curriculum(
     concept_families=[],
 )
 
+#: CBSE Class X English is three separate NCERT books, same reasoning as Social Science's
+#: four -- one subject code per physical book, since each book's own chapter numbering
+#: restarts at 1.
+#:
+#: First Flight is the *current, rationalised* edition (Reprint 2026-27): the post-COVID
+#: content rationalisation cut it down to four chapters, not the eleven an older edition or
+#: a general search would suggest -- read off the book's own contents page (jeff1ps.pdf),
+#: not recalled. Each chapter file bundles its accompanying poem(s) in the same PDF (e.g.
+#: jeff101.pdf is "A Letter to God" together with "Dust of Snow" and "Fire and Ice"), so
+#: the poems are not separate chapters here.
+#:
+#: The Workbook (jewe2ps.pdf) still lists nine units, matching the *pre-rationalisation*
+#: First Flight's nine prose chapters -- five of them (Glimpses of India, Mijbil the Otter,
+#: Madam Rides the Bus, The Sermon at Benaras, The Proposal) are not in the current
+#: four-chapter First Flight at all. That mismatch is real, in the books as uploaded, not
+#: a mistake in this list -- flagged for the school to confirm which Workbook units are
+#: actually in use this year, rather than silently dropping or renaming any of them.
+X_ENGLISH_FIRST_FLIGHT = Curriculum(
+    subject_code="X.ENG.FF",
+    subject_label="Class X English (First Flight)",
+    grade=10,
+    units=[
+        BoardUnit("X.ENG.FF.U.WHOLE", "First Flight", 0.0),
+    ],
+    # jeff1ps.pdf, Contents page (rationalised edition, Reprint 2026-27).
+    chapters=[
+        Chapter("X.ENG.FF.LETTERTOGOD", "A Letter to God", "X.ENG.FF.U.WHOLE"),
+        Chapter("X.ENG.FF.MANDELA", "Nelson Mandela: Long Walk to Freedom", "X.ENG.FF.U.WHOLE"),
+        Chapter("X.ENG.FF.FLYING", "Two Stories about Flying", "X.ENG.FF.U.WHOLE"),
+        Chapter("X.ENG.FF.ANNEFRANK", "From the Diary of Anne Frank", "X.ENG.FF.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
+X_ENGLISH_FOOTPRINTS = Curriculum(
+    subject_code="X.ENG.FWF",
+    subject_label="Class X English (Footprints without Feet)",
+    grade=10,
+    units=[
+        BoardUnit("X.ENG.FWF.U.WHOLE", "Footprints without Feet", 0.0),
+    ],
+    # jefp1ps.pdf, Contents page.
+    chapters=[
+        Chapter("X.ENG.FWF.SURGERY", "A Triumph of Surgery", "X.ENG.FWF.U.WHOLE"),
+        Chapter("X.ENG.FWF.THIEF", "The Thief's Story", "X.ENG.FWF.U.WHOLE"),
+        Chapter("X.ENG.FWF.MIDNIGHTVISITOR", "The Midnight Visitor", "X.ENG.FWF.U.WHOLE"),
+        Chapter("X.ENG.FWF.TRUST", "A Question of Trust", "X.ENG.FWF.U.WHOLE"),
+        Chapter("X.ENG.FWF.FOOTPRINTS", "Footprints without Feet", "X.ENG.FWF.U.WHOLE"),
+        Chapter("X.ENG.FWF.SCIENTIST", "The Making of a Scientist", "X.ENG.FWF.U.WHOLE"),
+        Chapter("X.ENG.FWF.NECKLACE", "The Necklace", "X.ENG.FWF.U.WHOLE"),
+        Chapter("X.ENG.FWF.BHOLI", "Bholi", "X.ENG.FWF.U.WHOLE"),
+        Chapter("X.ENG.FWF.SAVEDTHEEARTH", "The Book That Saved the Earth", "X.ENG.FWF.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
+X_ENGLISH_WORKBOOK = Curriculum(
+    subject_code="X.ENG.WB",
+    subject_label="Class X English (Words and Expressions -- Workbook)",
+    grade=10,
+    units=[
+        BoardUnit("X.ENG.WB.U.WHOLE", "Words and Expressions", 0.0),
+    ],
+    # jewe2ps.pdf, Contents page. See the mismatch note above the block this belongs to --
+    # five of these nine units are not in the current First Flight chapter list.
+    chapters=[
+        Chapter("X.ENG.WB.LETTERTOGOD", "A Letter to God", "X.ENG.WB.U.WHOLE"),
+        Chapter("X.ENG.WB.MANDELA", "Nelson Mandela: Long Walk to Freedom", "X.ENG.WB.U.WHOLE"),
+        Chapter("X.ENG.WB.FLYING", "Two Stories about Flying", "X.ENG.WB.U.WHOLE"),
+        Chapter("X.ENG.WB.ANNEFRANK", "From the Diary of Anne Frank", "X.ENG.WB.U.WHOLE"),
+        Chapter("X.ENG.WB.GLIMPSESINDIA", "Glimpses of India", "X.ENG.WB.U.WHOLE"),
+        Chapter("X.ENG.WB.MIJBIL", "Mijbil the Otter", "X.ENG.WB.U.WHOLE"),
+        Chapter("X.ENG.WB.MADAMBUS", "Madam Rides the Bus", "X.ENG.WB.U.WHOLE"),
+        Chapter("X.ENG.WB.SERMON", "The Sermon at Benaras", "X.ENG.WB.U.WHOLE"),
+        Chapter("X.ENG.WB.PROPOSAL", "The Proposal", "X.ENG.WB.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
 CURRICULA: dict[str, Curriculum] = {
     X_MATH.subject_code: X_MATH,
     X_SCIENCE.subject_code: X_SCIENCE,
@@ -219,6 +298,9 @@ CURRICULA: dict[str, Curriculum] = {
     X_GEOGRAPHY.subject_code: X_GEOGRAPHY,
     X_POLITICAL_SCIENCE.subject_code: X_POLITICAL_SCIENCE,
     X_ECONOMICS.subject_code: X_ECONOMICS,
+    X_ENGLISH_FIRST_FLIGHT.subject_code: X_ENGLISH_FIRST_FLIGHT,
+    X_ENGLISH_FOOTPRINTS.subject_code: X_ENGLISH_FOOTPRINTS,
+    X_ENGLISH_WORKBOOK.subject_code: X_ENGLISH_WORKBOOK,
 }
 
 

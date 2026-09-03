@@ -295,9 +295,16 @@ async def upload_chapter(
     try:
         # An NCERT-coded filename carries no title, so take it from the curriculum, which
         # is the authority for chapter identity anyway -- it holds the board-unit mapping.
+        # English has no chapter-scoped subsections at all -- a story or poem is one
+        # continuous piece, broken only by fixed-name checkpoints, never a heading. The
+        # Workbook's units are not taught-then-drilled content either: the unit body IS
+        # the exercise. Scoped to these three subject codes, not guessed from what the
+        # normal section detection happens to find on a given file.
         extract = extract_chapter(
             path, number=number, name=name,
             title=chapter_title(subject, number) or "",
+            single_section=subject.startswith("X.ENG"),
+            body_bucket="E" if subject == "X.ENG.WB" else "T",
         )
         toc = {
             int(k): [Section(s["number"], s["title"]) for s in v]
