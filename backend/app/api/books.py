@@ -45,6 +45,7 @@ from app.ingest.hindi_text import hindi_read_text
 from sarvamai.core.api_error import ApiError as SarvamApiError
 from app.ingest.embed import classify_familiarity
 from app.ingest.probe import LexicalIndex, SemanticIndex, locate
+from app.ingest.tamil_text import tamil_read_text
 from app.models import (
     BookChunk,
     BookSource,
@@ -71,6 +72,13 @@ _to_tempfile = to_tempfile
 #: One subject code per physical Hindi book -- Kshitij, Kritika, Sparsh, Sanchayan -- same
 #: reasoning as Social Science and English's X.ENG.* prefix.
 HINDI_SUBJECT_PREFIX = "X.HIN"
+
+#: Tamil (www.cbsetamil.com's own book) is not a second Hindi -- its PDF text layer is
+#: genuine Unicode, just with a font-level glyph-repeat artifact app.ingest.tamil_text
+#: corrects locally (see that module's own docstring). No OCR backend, no network round
+#: trip, no multi-minute call to hold a DB session across -- it stays on the same
+#: synchronous path Math/Science/English use, never IngestJob's 202/background path.
+TAMIL_SUBJECT_PREFIX = "X.TAM"
 
 
 def _hindi_text(pdf_bytes: bytes) -> str:
@@ -375,9 +383,21 @@ def _process_contents(
         )
 
     is_hindi = subject.startswith(HINDI_SUBJECT_PREFIX)
-    text = hindi_text if hindi_text is not None else (_hindi_text(pdf_bytes) if is_hindi else None)
+    is_tamil = subject.startswith(TAMIL_SUBJECT_PREFIX)
+    text = (
+        hindi_text if hindi_text is not None
+        else _hindi_text(pdf_bytes) if is_hindi
+        else tamil_read_text(pdf_bytes) if is_tamil
+        else None
+    )
     path = _bytes_to_tempfile(pdf_bytes)
     try:
+        # Tamil's own contents page has no chapter label at all -- see
+        # _tamil_toc_chapters_by_position -- so parse_toc_chapters needs the real PDF on
+        # disk to read word positions from, not just its text. parse_toc, by contrast,
+        # only ever finds a section-number oracle on a book that numbers its own sections
+        # (Maths, Science), which Tamil's literature chapters do not -- toc stays empty
+        # and every Tamil chapter is checked for identity and gaps only, same as Hindi.
         toc = parse_toc(path, text=text)
         chapters = parse_toc_chapters(path, text=text)
     finally:
@@ -458,7 +478,13 @@ def _process_chapter(
         )
 
     is_hindi = subject.startswith(HINDI_SUBJECT_PREFIX)
-    text_override = hindi_text if hindi_text is not None else (_hindi_text(pdf_bytes) if is_hindi else None)
+    is_tamil = subject.startswith(TAMIL_SUBJECT_PREFIX)
+    text_override = (
+        hindi_text if hindi_text is not None
+        else _hindi_text(pdf_bytes) if is_hindi
+        else tamil_read_text(pdf_bytes) if is_tamil
+        else None
+    )
     path = _bytes_to_tempfile(pdf_bytes)
     try:
         # An NCERT-coded filename carries no title, so take it from the curriculum, which
@@ -469,12 +495,17 @@ def _process_chapter(
         # the exercise. Hindi is the same shape as English -- a story or poem, no
         # font/boldness metadata available at all once the text has come from OCR/Gemini
         # rather than the PDF's own (unusable) text layer -- so it gets single_section too.
+        # Tamil's chapters are poems/prose/grammar sections the same way, with no numbered
+        # subheadings on the page to detect, so it gets single_section too -- what its own
+        # exercise/drilled-content marker looks like is not yet confirmed against a real
+        # chapter file (see extract_chunks), the same open question Hindi's HINDI_DRILL_LABEL
+        # started as before a real upload disagreed with it.
         # Scoped by subject code, not guessed from what the normal section detection
         # happens to find on a given file.
         extract = extract_chapter(
             path, number=number, name=name,
             title=chapter_title(subject, number) or "",
-            single_section=subject.startswith("X.ENG") or is_hindi,
+            single_section=subject.startswith("X.ENG") or is_hindi or is_tamil,
             body_bucket="E" if subject == "X.ENG.WB" else "T",
             text_override=text_override,
         )
@@ -502,9 +533,17 @@ def _process_chapter(
             # by number over nothing but OCR noise. 0.6 is loose enough to absorb a few
             # inserted/dropped characters but still catches a genuinely wrong chapter,
             # which shares almost no character runs with what OCR read at all.
+            #
+            # Tamil's own contents page is not OCR'd, but _tamil_toc_chapters_by_position
+            # reads it by word position rather than by a numbered line, and a font-level
+            # word-boundary quirk splits a single visual word into two PDF word objects
+            # sometimes ('பாய்ச்சல்' back as 'பாய்ச்ச ல்', confirmed against the real
+            # jhtl107-equivalent contents page) -- an exact match would reject a correctly
+            # identified chapter over a stray space, the same shape of harmless noise
+            # Hindi's own fuzzy match already exists to absorb.
             titles_disagree = (
                 title_key(expected_title) != title_key(extract.title)
-                if not is_hindi
+                if not (is_hindi or is_tamil)
                 else difflib.SequenceMatcher(
                     None, title_key(expected_title), title_key(extract.title),
                 ).ratio() < 0.6

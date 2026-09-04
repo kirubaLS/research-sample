@@ -21,6 +21,8 @@ from pathlib import Path
 
 import pymupdf
 
+from app.ingest.tamil_text import clean_tamil_text
+
 #: the prelims file: the verification oracle, never content
 CONTENTS = "00-contents.pdf"
 
@@ -529,6 +531,87 @@ def _toc_chapters_by_position(contents_pdf: str | Path) -> dict[int, str]:
     return out
 
 
+#: The Tamil contents page (www.cbsetamil.com's own book) has no chapter LABEL at all --
+#: no 'Chapter N', no leading number, not even on the வ.எண் (unit number) column, which is
+#: set once per இயல் (unit) rather than once per chapter. All 36 chapters are numbered
+#: purely by their position in a five-column table (unit no. / theme / chapter title /
+#: page no. / month), so Economics' "Chapter" + digit label convention above finds nothing
+#: here at all. Confirmed against the real contents page (two pages, read with
+#: page.get_text("words")): the title and page-number columns sit in narrow, well-separated
+#: x-bands regardless of what the unit-number/theme column to their left or the month
+#: column to their right happen to be doing at that row's height, which is what makes
+#: restricting to those two x-ranges (rather than reading the whole row) work at all -- a
+#: naive per-row read glues the unit number, theme, first chapter title and page number of
+#: an இயல்'s first row all onto one visual line.
+_TAMIL_TITLE_X = (225.0, 440.0)
+_TAMIL_PAGENUM_X = (440.0, 495.0)
+
+#: The month column's left edge sits close enough to the page-number column's right edge
+#: that a short month name is occasionally picked up by the x-range above too -- confirmed
+#: on the real page, 'பாய்ச்சல் 102' with 'அக்டோபர்' glued on, and 'முத்தொள்ளாயிரம்* 129'
+#: preceded by a stray solo 'அக்டோபர்' row. Both drop out once matched against this closed
+#: set: the book covers June through December in whichever two-word split it prints an
+#: english-lettered month name never appears at all, so this can never eat real title text.
+_TAMIL_MONTH_NAMES = {
+    "ஜூன்", "ஜூலை", "ஆகஸ்டு", "ஆகஸ்ட்", "செப்டம்பர்",
+    "அக்டோபர்", "நவம்பர்", "டிசம்பர்",
+}
+
+
+def _tamil_toc_chapters_by_position(contents_pdf: str | Path) -> dict[int, str]:
+    """Chapter titles from the Tamil contents page's own column geometry -- see
+    _TAMIL_TITLE_X above for why nothing regex-shaped can read this table at all.
+
+    Numbered purely by row order (top to bottom, page 1 then page 2): nothing on the page
+    itself labels a chapter '1' through '36', so position is the only oracle there is.
+    """
+    with pymupdf.open(contents_pdf) as doc:
+        words = [
+            (page_index, y0, x0, text)
+            for page_index, page in enumerate(doc)
+            for x0, y0, _x1, _y1, text, *_ in page.get_text("words")
+            if _TAMIL_TITLE_X[0] <= x0 < _TAMIL_TITLE_X[1]
+            or _TAMIL_PAGENUM_X[0] <= x0 < _TAMIL_PAGENUM_X[1]
+        ]
+    words.sort(key=lambda w: (w[0], w[1], w[2]))
+
+    clusters: list[tuple[int, float, list[tuple[float, str]]]] = []
+    for page_index, y0, x0, text in words:
+        if (
+            clusters and clusters[-1][0] == page_index
+            and abs(y0 - clusters[-1][1]) <= 3.5
+        ):
+            clusters[-1][2].append((x0, text))
+        else:
+            clusters.append((page_index, y0, [(x0, text)]))
+
+    out: dict[int, str] = {}
+    number = 0
+    for _page_index, _y, row in clusters:
+        # Each token carries the same font-level glyph-repeat corruption
+        # app.ingest.tamil_text exists for -- cleaned before the month check, not after,
+        # because the raw token ('அக்டோ�ோபர்') does not exact-match the clean name in
+        # _TAMIL_MONTH_NAMES at all. Missing that silently dropped an entire real title
+        # row ('பாய்ச்சல் 102') the first time this was tried: an uncleaned month token
+        # survives as the row's last token, fails the isdigit check below, and the whole
+        # row reads as "not a title" instead of just losing the one stray word.
+        tokens = [
+            clean_tamil_text(t) for _x, t in sorted(row, key=lambda w: w[0])
+            if clean_tamil_text(t) not in _TAMIL_MONTH_NAMES
+        ]
+        # A real title row always ends with its page number -- a header ('பாடத்தலைப்புகள்
+        # ப. எண்'), a page footer (a bare roman numeral), or a stray month row left after
+        # the filter above never does.
+        if not tokens or not tokens[-1].isdigit():
+            continue
+        title = " ".join(tokens[:-1]).strip()
+        if not title:
+            continue
+        number += 1
+        out[number] = title
+    return out
+
+
 #: '2. साना-साना हाथ जोडि... 40' -- number, dot, Devanagari title, then the page number on
 #: the SAME line (unlike TOC_CHAPTER_NUMBERED's English books, which put it on the next).
 #: '[ऀ-ॿ]' rather than '[A-Z]', which every other TOC_CHAPTER* pattern anchors on and which
@@ -597,7 +680,16 @@ def parse_toc_chapters(contents_pdf: str | Path, *, text: str | None = None) -> 
         # the rest.
         if found and set(found) == set(range(1, len(found) + 1)):
             return found
-    return _toc_chapters_by_position(contents_pdf)
+    found = _toc_chapters_by_position(contents_pdf)
+    if found:
+        return found
+    # Tamil's own table has no label at all (see _tamil_toc_chapters_by_position), so it
+    # is tried last and only when the page is actually in Tamil script -- restricting it
+    # this way means a coordinate band tuned to one specific book's page layout can never
+    # silently misfire on an unrelated book that also happens to reach this fallback.
+    if re.search(r"[஀-௿]", text):
+        return _tamil_toc_chapters_by_position(contents_pdf)
+    return found
 
 
 def verify_structure(extract: ChapterExtract) -> ChapterExtract:
