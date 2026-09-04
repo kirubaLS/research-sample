@@ -22,16 +22,18 @@ ENDPOINT = "https://api.jina.ai/v1/embeddings"
 #: where truncation starts to cost recall.
 DEFAULT_DIMENSIONS = 512
 
-#: Real production bug: capping each Chunk's own size (app.ingest.book.MAX_CHUNK_CHARS)
-#: was not enough -- /embed still 400'd with "Input text exceeds the model's maximum of
-#: 32768 tokens" after every individual chunk was already well under that. Jina counts the
-#: WHOLE request's input array against the ceiling, not each text separately, and
-#: embed_batch's caller sends up to 32 chunks in one call. len(text) as the token estimate
-#: overcounts for English (roughly 4 chars/token) and undercounts a little for nothing --
-#: an overcount only means an extra request, never a rejected one, which is the safe
-#: direction to be wrong in. The margin below 32768 leaves room for that overcount to still
-#: be wrong without tipping the request over.
-MAX_REQUEST_TOKENS = 24000
+#: Real production bug, hit twice: capping each Chunk's own size
+#: (app.ingest.book.MAX_CHUNK_CHARS) was not enough -- /embed still 400'd with "Input text
+#: exceeds the model's maximum of 32768 tokens" because Jina counts the WHOLE request's
+#: input array against the ceiling, not each text separately, and embed_batch's caller
+#: sends up to 32 chunks in one call. len(text) as the token estimate is meant to overcount
+#: (roughly 4 chars/token for English), but a book already this session has been dense
+#: Devanagari, whose conjunct clusters can run close to or past 1 token/char on a BPE
+#: tokenizer -- the first, less conservative version of this budget (24,000) still turned
+#: out to be too close to the real ceiling to trust. 12,000 leaves headroom even at a worse
+#: ratio than anything observed so far, at the cost of nothing but an extra request or two
+#: -- correctness, not request count, is what matters at this scale.
+MAX_REQUEST_TOKENS = 12000
 
 
 def _token_budget_batches(texts: list[str], max_tokens: int) -> list[list[int]]:
@@ -85,9 +87,21 @@ class JinaEmbedder:
         if not texts:
             return []
 
+        # A chunk already sitting in book_chunk can predate app.ingest.book.MAX_CHUNK_CHARS
+        # -- that cap only stops an oversized Chunk from being CREATED, it does nothing for
+        # one a still-earlier upload already wrote to the database, and that row is exactly
+        # what /embed reads back. A single one of those is over budget on its own, so no
+        # amount of grouping by _token_budget_batches below helps it -- it still has to
+        # shrink, or every batch containing it keeps 400ing forever. Only what is SENT to
+        # Jina is trimmed; the chunk's own stored text is untouched, so nothing here can
+        # rewrite what a re-ingest of that chapter would produce.
+        sendable = [t if len(t) <= MAX_REQUEST_TOKENS else t[:MAX_REQUEST_TOKENS] for t in texts]
+
         vectors: list[list[float] | None] = [None] * len(texts)
-        for indices in _token_budget_batches(texts, MAX_REQUEST_TOKENS):
-            batch_vectors = self._embed_request([texts[i] for i in indices], is_query=is_query)
+        for indices in _token_budget_batches(sendable, MAX_REQUEST_TOKENS):
+            batch_vectors = self._embed_request(
+                [sendable[i] for i in indices], is_query=is_query
+            )
             for i, vector in zip(indices, batch_vectors, strict=True):
                 vectors[i] = vector
         assert all(v is not None for v in vectors)
