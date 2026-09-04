@@ -106,7 +106,7 @@ def test_a_batch_over_the_token_budget_is_split_into_several_requests(monkeypatc
 
     assert len(request_sizes) > 1, "one request for 192,000 characters should never happen"
     assert len(vectors) == 32
-    assert all(size <= 4 for size in request_sizes)
+    assert all(size <= 2 for size in request_sizes)
 
 
 def test_order_is_preserved_across_multiple_requests(monkeypatch):
@@ -140,3 +140,29 @@ def test_token_budget_batches_never_exceeds_the_estimate(monkeypatch):
     # the 30,000-char text is over budget on its own -- it still gets sent, alone, rather
     # than being silently dropped or merged with something else
     assert [sorted(b) for b in batches] == [[0], [1], [2]]
+
+
+def test_a_chunk_already_in_the_database_from_before_the_size_cap_is_truncated_not_rejected(
+    monkeypatch,
+):
+    """The retroactive case: app.ingest.book.MAX_CHUNK_CHARS only stops a NEW Chunk from
+    being created oversized -- it does nothing for one an earlier upload already wrote to
+    book_chunk, and that row is exactly what /embed reads back and sends here. On its own
+    in a batch of one, grouping by budget can't shrink it; it has to be trimmed to fit."""
+    huge = "अ" * 50_000
+    sent_lengths = []
+
+    def fake_post(url, *, json, headers, timeout):
+        sent_lengths.append(len(json["input"][0]["text"]))
+        request = httpx.Request("POST", url)
+        return httpx.Response(
+            200, request=request, json={"data": [{"index": 0, "embedding": [1.0]}]},
+        )
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    embedder = JinaEmbedder("key")
+
+    vectors = embedder.embed_texts([huge])
+
+    assert vectors == [[1.0]]
+    assert sent_lengths == [12000]
