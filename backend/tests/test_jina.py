@@ -79,6 +79,23 @@ def test_a_server_error_is_retried_and_still_fails_after_max_retries(monkeypatch
     assert len(calls) == 3
 
 
+def test_the_final_failure_message_carries_the_last_attempts_own_reason(monkeypatch):
+    """Real production bug: /embed 502'd with only "jina embedding failed after 3
+    attempts" -- true, but the operator had no way to tell a rate limit from a real
+    outage from a timeout, because embed_batch only ever sees str(exc), and the retry
+    loop's actual last response body never made it into that string."""
+    def fake_post(url, *, json, headers, timeout):
+        request = httpx.Request("POST", url)
+        return httpx.Response(503, request=request, text="upstream is overloaded")
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr("app.ingest.jina.time.sleep", lambda s: None)
+    embedder = JinaEmbedder("key", max_retries=3)
+
+    with pytest.raises(RuntimeError, match="upstream is overloaded"):
+        embedder.embed_texts(["some chunk text"])
+
+
 def test_a_batch_over_the_token_budget_is_split_into_several_requests(monkeypatch):
     """32 chunks of ~6,000 characters each -- exactly what embed_batch's default limit=32
     against MAX_CHUNK_CHARS sends -- is well over MAX_REQUEST_TOKENS in one call, the real
