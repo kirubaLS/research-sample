@@ -22,9 +22,43 @@ ENDPOINT = "https://api.jina.ai/v1/embeddings"
 #: where truncation starts to cost recall.
 DEFAULT_DIMENSIONS = 512
 
+#: Real production bug: capping each Chunk's own size (app.ingest.book.MAX_CHUNK_CHARS)
+#: was not enough -- /embed still 400'd with "Input text exceeds the model's maximum of
+#: 32768 tokens" after every individual chunk was already well under that. Jina counts the
+#: WHOLE request's input array against the ceiling, not each text separately, and
+#: embed_batch's caller sends up to 32 chunks in one call. len(text) as the token estimate
+#: overcounts for English (roughly 4 chars/token) and undercounts a little for nothing --
+#: an overcount only means an extra request, never a rejected one, which is the safe
+#: direction to be wrong in. The margin below 32768 leaves room for that overcount to still
+#: be wrong without tipping the request over.
+MAX_REQUEST_TOKENS = 24000
+
+
+def _token_budget_batches(texts: list[str], max_tokens: int) -> list[list[int]]:
+    """Group text indices so each group's estimated token count stays under budget.
+
+    Indices, not texts: embed_texts needs to reassemble the caller's original order across
+    however many HTTP calls this takes, and indices are what let it do that without
+    re-sorting or re-matching text content.
+    """
+    batches: list[list[int]] = []
+    current: list[int] = []
+    current_tokens = 0
+    for i, text in enumerate(texts):
+        estimate = max(len(text), 1)
+        if current and current_tokens + estimate > max_tokens:
+            batches.append(current)
+            current, current_tokens = [], 0
+        current.append(i)
+        current_tokens += estimate
+    if current:
+        batches.append(current)
+    return batches
+
 
 class JinaEmbedder:
-    """One batch call per request, with retries on the failures worth retrying."""
+    """Retries the failures worth retrying, and never sends a request estimated to be over
+    Jina's own token ceiling in the first place."""
 
     def __init__(
         self,
@@ -51,6 +85,16 @@ class JinaEmbedder:
         if not texts:
             return []
 
+        vectors: list[list[float] | None] = [None] * len(texts)
+        for indices in _token_budget_batches(texts, MAX_REQUEST_TOKENS):
+            batch_vectors = self._embed_request([texts[i] for i in indices], is_query=is_query)
+            for i, vector in zip(indices, batch_vectors, strict=True):
+                vectors[i] = vector
+        assert all(v is not None for v in vectors)
+        return vectors  # type: ignore[return-value]
+
+    def _embed_request(self, texts: list[str], *, is_query: bool) -> list[list[float]]:
+        """One HTTP call, for a batch already known to fit inside the token budget."""
         payload = {
             "model": self.model,
             "dimensions": self.dimensions,
@@ -77,10 +121,11 @@ class JinaEmbedder:
                         request=response.request, response=response,
                     )
                 if 400 <= response.status_code < 500:
-                    # a client error (bad payload, invalid model/dimensions, a chunk over
-                    # the token limit): retrying sends the same broken request three times
-                    # and, worse, used to discard the response body, so the real reason
-                    # never left this function -- fail on the first try and keep the body.
+                    # a client error (bad payload, invalid model/dimensions, a request over
+                    # the token limit despite the estimate above): retrying sends the same
+                    # broken request three times and, worse, used to discard the response
+                    # body, so the real reason never left this function -- fail on the
+                    # first try and keep the body.
                     raise RuntimeError(
                         f"jina rejected the request: {response.status_code} {response.text}"
                     )
