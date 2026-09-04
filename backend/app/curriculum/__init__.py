@@ -344,14 +344,19 @@ X_HINDI_KSHITIJ = Curriculum(
         Chapter("X.HIN.KS.NAGARJUN", "नागार्जुन", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.MANGLESH_DABRAL", "मंगलेश डबराल", "X.HIN.KS.U.WHOLE"),
         # गद्य खंड (7-12): the opposite mismatch from the poetry section above, not the
-        # same one -- confirmed against the real jhks107.pdf, the contents page calls
-        # chapter 7 "स्वयं प्रकाश" (the author's name), not "नेताजी का चश्मा" (the story's
-        # own title, which this session had typed here instead). Only this one chapter has
-        # been checked against its real file so far -- the other five prose titles below
-        # are left as story titles, unconfirmed, rather than assuming the same swap without
-        # evidence the way the poetry titles above earned after two agreeing chapters.
+        # same one -- the contents page gives the AUTHOR's name, not the story's own
+        # title (which this session had typed here instead). Confirmed twice now, the
+        # same way as poetry's two agreeing chapters earned trimming the rest without
+        # waiting for each one individually: chapter 7 (jhks107.pdf) is "स्वयं प्रकाश",
+        # not "नेताजी का चश्मा"; chapter 8 (jhks108.pdf) is "रामवृक्ष बेनीपुरी", not
+        # "बालगोबिन भगत". The remaining three prose titles (Lakhnavi Andaz, Ek Kahani
+        # Yeh Bhi, Naubatkhane, Sanskriti) are STILL left as story titles rather than
+        # guessed authors -- knowing the convention is not the same as knowing which name
+        # each one's own page actually prints, and every other marker in this module was
+        # confirmed against its real file before being trusted, not assumed from a pattern
+        # plus outside knowledge.
         Chapter("X.HIN.KS.NETAJI_KA_CHASHMA", "स्वयं प्रकाश", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.BALGOBIN_BHAGAT", "बालगोबिन भगत", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.BALGOBIN_BHAGAT", "रामवृक्ष बेनीपुरी", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.LAKHNAVI_ANDAZ", "लखनवी अंदाज़", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.EK_KAHANI_YEH_BHI", "एक कहानी यह भी", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.NAUBATKHANE", "नौबतखाने में इबादत", "X.HIN.KS.U.WHOLE"),
