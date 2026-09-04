@@ -129,6 +129,16 @@ class Settings(BaseSettings):
     #: flash, which is what this is now. Verify this is still current before relying on it
     #: rather than trusting this default blind a second time.
     gemini_model: str = "gemini-3.6-flash"
+    #: Sarvam Vision 1.5 (app.ingest.sarvam_ocr), tried ahead of both Tesseract and
+    #: Gemini when set -- an OCR model trained specifically on Indic scripts, offered as
+    #: the accuracy option rather than the free-and-local or the general-purpose-network
+    #: one. Unset falls through to whichever of the other two this deployment can run.
+    sarvam_api_key: str | None = None
+    #: BCP-47, matching what app.ingest.hindi_ocr's OCR_LANG ('hin', Tesseract's own
+    #: three-letter code) means for the Hindi books this was built for -- change this
+    #: alongside the subject if this deployment starts loading a book in another of
+    #: Sarvam's 23 supported Indic languages.
+    sarvam_language: str = "hi-IN"
     #: Matryoshka truncation. Vectors from different models or dimensions are not
     #: comparable, so changing either requires re-embedding the whole corpus.
     embedding_dimensions: int = 512

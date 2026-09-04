@@ -42,6 +42,7 @@ from app.ingest.book import (
     verify_structure,
 )
 from app.ingest.hindi_text import hindi_read_text
+from sarvamai.core.api_error import ApiError as SarvamApiError
 from app.ingest.embed import classify_familiarity
 from app.ingest.probe import LexicalIndex, SemanticIndex, locate
 from app.models import (
@@ -76,19 +77,25 @@ def _hindi_text(pdf_bytes: bytes) -> str:
     """The book's real Unicode text, for a subject whose own PDF text layer decodes as
     mojibake (see app.ingest.hindi_ocr for why).
 
-    Prefers Tesseract when this deployment can run it (see app.ingest.hindi_text) --
-    local, no network round trip, and the accuracy this project needs. Falls back to
-    Gemini otherwise. Either failure is raised as a 409 or 502, never a bare 500: a
-    missing key/binary is an operator setup step, not a broken upload, and a network
-    failure already survived its own retries before reaching here.
+    Prefers Sarvam (Indic-specialised OCR) when a key is configured, then Tesseract when
+    this deployment can run it, then Gemini -- see app.ingest.hindi_text for the full
+    reasoning. Any failure is raised as a 409 or 502, never a bare 500: a missing
+    key/binary is an operator setup step, not a broken upload, and a network failure
+    already survived its own retries (Gemini's; Sarvam's own job API has no request-level
+    retry to survive, so its errors reach here directly) before reaching here.
     """
     settings = get_settings()
     try:
         return hindi_read_text(
             pdf_bytes, gemini_api_key=settings.gemini_api_key, gemini_model=settings.gemini_model,
+            sarvam_api_key=settings.sarvam_api_key, sarvam_language=settings.sarvam_language,
         )
     except ValueError as exc:
         raise HTTPException(409, str(exc)) from exc
+    except SarvamApiError as exc:
+        raise HTTPException(
+            502, f"Sarvam could not read this file: {exc.status_code} {exc.body}",
+        ) from exc
     except httpx.HTTPStatusError as exc:
         raise HTTPException(
             502, f"Gemini could not read this file: {exc.response.status_code} "

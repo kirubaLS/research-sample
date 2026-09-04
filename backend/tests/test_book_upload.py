@@ -550,8 +550,8 @@ def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(clien
     before = settings.gemini_api_key
     settings.gemini_api_key = "test-gemini-key"
 
-    def fake_hindi_read_text(pdf_bytes, *, gemini_api_key, gemini_model):
-        assert gemini_api_key == "test-gemini-key"
+    def fake_hindi_read_text(pdf_bytes, **kwargs):
+        assert kwargs["gemini_api_key"] == "test-gemini-key"
         # distinguishing by size is enough here: a real 1-page prelims vs. a real chapter
         return (
             "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"
@@ -604,7 +604,7 @@ def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypa
     before = settings.gemini_api_key
     settings.gemini_api_key = "test-gemini-key"
 
-    def always_fails(pdf_bytes, *, gemini_api_key, gemini_model):
+    def always_fails(pdf_bytes, **kwargs):
         raise httpx_module.TransportError("[Errno -2] Name or service not known")
 
     monkeypatch.setattr("app.api.books.hindi_read_text", always_fails)
@@ -714,7 +714,7 @@ def test_a_noisy_ocr_title_does_not_reject_a_correctly_numbered_hindi_chapter(
     before = settings.gemini_api_key
     settings.gemini_api_key = "test-gemini-key"
 
-    def fake_hindi_read_text(pdf_bytes, *, gemini_api_key, gemini_model):
+    def fake_hindi_read_text(pdf_bytes, **kwargs):
         if len(pdf_bytes) < 2000:
             # the noisy real OCR shape for the contents page
             return "विषय सूची\n. माता का अआँचल ।\n८ शिवपूजन सहाय\n2. साना-साना हाथ जोडि 0\n"
@@ -781,7 +781,7 @@ def test_no_db_session_is_open_while_hindi_ocr_runs(client, monkeypatch):
         session.close = tracked_close
         return session
 
-    def fake_hindi_read_text(pdf_bytes, *, gemini_api_key, gemini_model):
+    def fake_hindi_read_text(pdf_bytes, **kwargs):
         nonlocal max_open_during_ocr
         max_open_during_ocr = max(max_open_during_ocr, open_sessions)
         return "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"

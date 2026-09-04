@@ -181,10 +181,17 @@ services:
         sync: false
       - key: YAADHUM_TRUSTED_HOSTS
         value: yaadhum-hindi-ingest.onrender.com
-      # Gemini stays configured as the fallback for any subject this service is asked to
-      # load that Tesseract cannot read (a language with no tesseract-ocr-<lang> package
-      # installed yet) -- see app.ingest.hindi_text. Optional: Tesseract handles Hindi on
-      # its own once tesseract-ocr-hin is in the Dockerfile, which it already is.
+      # Sarvam is tried FIRST when set, ahead of this service's own local Tesseract --
+      # it exists specifically to be the accuracy option (Sarvam Vision 1.5, trained on
+      # Indic scripts) and is worth the network dependency for that. Optional: unset,
+      # this service still reads Hindi correctly through Tesseract alone.
+      - key: YAADHUM_SARVAM_API_KEY
+        sync: false
+      # Gemini stays configured as the last-resort fallback for any subject this service
+      # is asked to load that neither Sarvam nor Tesseract can read (a language with no
+      # tesseract-ocr-<lang> package installed and no Sarvam coverage) -- see
+      # app.ingest.hindi_text. Optional: Tesseract handles Hindi on its own once
+      # tesseract-ocr-hin is in the Dockerfile, which it already is.
       - key: YAADHUM_GEMINI_API_KEY
         sync: false
       - key: YAADHUM_DB_POOL_SIZE
