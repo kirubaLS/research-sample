@@ -423,6 +423,80 @@ X_HINDI_SANCHAYAN = Curriculum(
     concept_families=[],
 )
 
+X_TAMIL = Curriculum(
+    subject_code="X.TAM",
+    subject_label="Class X Tamil",
+    grade=10,
+    units=[
+        # Single placeholder unit, same as every other subject here until CBSE's own
+        # weightage document names real per-unit percentages (see the module docstring).
+        # The book's own பொருளடக்கம் (contents page) groups chapters into seven இயல்கள்
+        # (units), each with a theme (பொருண்மை) and its own name -- kept below as a
+        # comment on each chapter, in book order, rather than invented BoardUnits with a
+        # weight nothing has actually published.
+        BoardUnit("X.TAM.U.WHOLE", "Tamil", 0.0),
+    ],
+    # www.cbsetamil.com's own contents page (பொருளடக்கம், 2 pages), read directly off the
+    # rendered page image: pymupdf's linear text extraction scrambles this page's table
+    # layout (unit/theme/chapter-title/page/month columns interleave incorrectly once
+    # flattened to plain text), so this was transcribed by eye rather than parsed, the
+    # same way Kshitij's poetry contents page was when its own OCR came back unusable.
+    # A chapter marked (*) on the real page is a மனப்பாடப் பகுதி (a portion set for
+    # memorisation/recitation), noted per-chapter below; இலக்கணம்/தொடர்கள் entries are
+    # grammar sections, not stories or poems, and are loaded the same as everything else
+    # here since nothing in this module distinguishes them structurally yet.
+    chapters=[
+        # இயல் 1 -- மொழி, மனிதம் (Language, Humanity) / அமுதஊற்று -- ஜூன்
+        Chapter("X.TAM.ANNAI_MOZHIYE", "அன்னை மொழியே", "X.TAM.U.WHOLE"),  # (*)
+        Chapter("X.TAM.PAAVAANAR_PAARVAIYIL", "பாவாணர் பார்வையில் தமிழ்ச்சொல் வளம்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.KAALAKKANITHAM", "காலக்கணிதம்", "X.TAM.U.WHOLE"),  # (*)
+        Chapter("X.TAM.PUYALILE_ORU_THONI", "புயலிலே ஒரு தோணி", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.SOL_1", "சொல்", "X.TAM.U.WHOLE"),
+        # இயல் 2 -- இயற்கை, சுற்றுச்சூழல், அறிவியல் (Nature, Environment, Science) /
+        # உயிரின் ஓசை -- ஜூன்-ஜூலை
+        Chapter("X.TAM.KETKIRATHAA_EN_KURAL", "கேட்கிறதா என் குரல்!", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.PARIPAADAL", "பரிபாடல்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.MEGAM", "மேகம்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.BIRUMMAM", "பிரும்மம்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.THOGAANILAI_THODARGAL", "தொகாநிலைத் தொடர்கள்", "X.TAM.U.WHOLE"),
+        # இயல் 3 -- பண்பாடு (Culture) / கூட்டாஞ்சோறு -- ஆகஸ்டு
+        Chapter("X.TAM.VIRUNTHU_POTRUTHUM", "விருந்து போற்றுதும்!", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.KAASIKKAANDAM", "காசிக்காண்டம்", "X.TAM.U.WHOLE"),  # (*)
+        Chapter("X.TAM.MUTHUKUMARASWAMY_PILLAITHAMIZH", "முத்துக்குமாரசாமி பிள்ளைத்தமிழ்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.KOPALLAPURATHU_MAKKAL", "கோபல்லபுரத்து மக்கள்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.THOGAINILAI_THODARGAL", "தொகைநிலைத் தொடர்கள்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.THIRUKKURAL_1", "திருக்குறள்", "X.TAM.U.WHOLE"),  # (*)
+        # இயல் 4 -- கல்வி (Education) / மணற்கேணி -- ஆகஸ்ட்-செப்டம்பர்
+        Chapter("X.TAM.MOZHIPEYARPPUK_KALVI", "மொழிபெயர்ப்புக் கல்வி", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.THIRUVILAIYAADAR_PURAANAM", "திருவிளையாடற் புராணம்", "X.TAM.U.WHOLE"),  # (*)
+        Chapter("X.TAM.PUTHIYA_NAMBIKKAI", "புதிய நம்பிக்கை", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.ILAKKANAM_PODHU", "இலக்கணம் - பொது", "X.TAM.U.WHOLE"),
+        # இயல் 5 -- கலை, அழகியல், புதுமை (Art, Aesthetics, Novelty) / நிலா முற்றம் --
+        # அக்டோபர்
+        Chapter("X.TAM.PANMUGA_KALAIGNAR", "பன்முகக் கலைஞர்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.KAMBARAMAYANAM", "கம்பராமாயணம்", "X.TAM.U.WHOLE"),  # (*)
+        Chapter("X.TAM.PAAYCHAL", "பாய்ச்சல்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.AGAPPORUL_ILAKKANAM", "அகப்பொருள் இலக்கணம்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.THIRUKKURAL_2", "திருக்குறள்", "X.TAM.U.WHOLE"),  # (*)
+        # இயல் 6 -- நாகரிகம், நாடு, சமூகம் (Civilisation, Nation, Society) / விதை நெல் --
+        # அக்டோபர்-நவம்பர்
+        Chapter("X.TAM.SITRAGAL_OLI", "சிற்றகல் ஒளி", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.SILAPPATHIKAARAM", "சிலப்பதிகாரம்", "X.TAM.U.WHOLE"),  # (*)
+        Chapter("X.TAM.MUTHOLLAAYIRAM", "முத்தொள்ளாயிரம்", "X.TAM.U.WHOLE"),  # (*)
+        Chapter("X.TAM.MANGAIYARAAY_PIRAPPATHARKE", "மங்கையராய்ப் பிறப்பதற்கே...", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.PURAPPORUL_ILAKKANAM", "புறப்பொருள் இலக்கணம்", "X.TAM.U.WHOLE"),
+        # இயல் 7 -- அறம், தத்துவம், சிந்தனை (Ethics, Philosophy, Thought) / பெருவழி --
+        # டிசம்பர்
+        Chapter("X.TAM.SANGA_ILAKKIYATHIL_ARAM", "சங்க இலக்கியத்தில் அறம்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.THEMBAAVANI", "தேம்பாவணி", "X.TAM.U.WHOLE"),  # (*)
+        Chapter("X.TAM.AKKARAI", "அக்கறை", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.RAMANUJAR_NAADAGAM", "இராமானுசர் – நாடகம்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.PAA_VAGAI_ALAGIDUTHAL", "பா வகை, அலகிடுதல்", "X.TAM.U.WHOLE"),
+        Chapter("X.TAM.THIRUKKURAL_3", "திருக்குறள்", "X.TAM.U.WHOLE"),
+    ],
+    concept_families=[],
+)
+
 CURRICULA: dict[str, Curriculum] = {
     X_MATH.subject_code: X_MATH,
     X_SCIENCE.subject_code: X_SCIENCE,
@@ -437,6 +511,7 @@ CURRICULA: dict[str, Curriculum] = {
     X_HINDI_KSHITIJ.subject_code: X_HINDI_KSHITIJ,
     X_HINDI_SPARSH.subject_code: X_HINDI_SPARSH,
     X_HINDI_SANCHAYAN.subject_code: X_HINDI_SANCHAYAN,
+    X_TAMIL.subject_code: X_TAMIL,
 }
 
 
