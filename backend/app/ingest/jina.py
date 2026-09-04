@@ -76,6 +76,14 @@ class JinaEmbedder:
                         f"jina returned {response.status_code}",
                         request=response.request, response=response,
                     )
+                if 400 <= response.status_code < 500:
+                    # a client error (bad payload, invalid model/dimensions, a chunk over
+                    # the token limit): retrying sends the same broken request three times
+                    # and, worse, used to discard the response body, so the real reason
+                    # never left this function -- fail on the first try and keep the body.
+                    raise RuntimeError(
+                        f"jina rejected the request: {response.status_code} {response.text}"
+                    )
                 response.raise_for_status()
                 data = response.json()["data"]
                 # the API does not promise input order, and a silently misaligned index
