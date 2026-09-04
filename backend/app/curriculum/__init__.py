@@ -326,22 +326,23 @@ X_HINDI_KSHITIJ = Curriculum(
     # page specifically (page images, not the prose page, which OCR'd cleanly).
     #
     # The poetry chapters were typed here as "Author (poem title)" -- this session's own
-    # convention for naming a poem, not necessarily the book's. Confirmed wrong for chapter
-    # 2 against the real jhks102.pdf: the contents page lists the poet's name alone,
-    # "तुलसीदास", not "तुलसीदास (राम-लक्ष्मण-परशुराम संवाद)" -- difflib's fuzzy match
-    # (verify_against_toc, ratio >= 0.6) is for OCR noise around the same title, not a
-    # title carrying extra real words the book's own page does not have, so it correctly
-    # rejected this rather than papering over it. The other five poetry titles below follow
-    # the same "Author (poem)" shape and have NOT been confirmed against their own chapter
-    # files yet -- expect the same fix, one real upload at a time, the way every other
-    # marker in this module was confirmed rather than assumed.
+    # convention for naming a poem, not the book's. Confirmed wrong TWICE against real
+    # files, both times the same way: chapter 2 (jhks102.pdf) called "तुलसीदास", not
+    # "तुलसीदास (राम-लक्ष्मण-परशुराम संवाद)"; chapter 5 (jhks105.pdf) called "नागार्जुन",
+    # not "नागार्जुन (यह दंतुरित मुसकान, फसल)". difflib's fuzzy match (verify_against_toc,
+    # ratio >= 0.6) is for OCR noise around the same title, not a title carrying extra real
+    # words the book's own contents page does not have, so it correctly rejected both
+    # rather than papering over them. Two real chapters agreeing is the book's own
+    # contents-page convention (poet name alone), not a coincidence worth re-litigating
+    # chapter by chapter -- the remaining poetry titles are trimmed to match on the same
+    # basis, still to be confirmed individually as each chapter file actually uploads.
     chapters=[
-        Chapter("X.HIN.KS.SURDAS", "सूरदास (पद)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.SURDAS", "सूरदास", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.TULSIDAS", "तुलसीदास", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.JAISHANKAR_PRASAD", "जयशंकर प्रसाद (आत्मकथ्य)", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.NIRALA", "सूर्यकांत त्रिपाठी 'निराला' (उत्साह, अट नहीं रही है)", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.NAGARJUN", "नागार्जुन (यह दंतुरित मुसकान, फसल)", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.MANGLESH_DABRAL", "मंगलेश डबराल (संगतकार)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.JAISHANKAR_PRASAD", "जयशंकर प्रसाद", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.NIRALA", "सूर्यकांत त्रिपाठी 'निराला'", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.NAGARJUN", "नागार्जुन", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.MANGLESH_DABRAL", "मंगलेश डबराल", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.NETAJI_KA_CHASHMA", "नेताजी का चश्मा", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.BALGOBIN_BHAGAT", "बालगोबिन भगत", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.LAKHNAVI_ANDAZ", "लखनवी अंदाज़", "X.HIN.KS.U.WHOLE"),
