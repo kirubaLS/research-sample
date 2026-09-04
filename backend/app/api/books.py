@@ -1144,7 +1144,13 @@ def embed_batch(
         settings.jina_api_key, model=settings.embedding_model,
         dimensions=settings.embedding_dimensions,
     )
-    vectors = embedder.embed_texts([c.text for c in pending])
+    try:
+        vectors = embedder.embed_texts([c.text for c in pending])
+    except RuntimeError as exc:
+        # surfaced as a clean 502 with Jina's own reason, not a raw traceback -- the
+        # request itself already retries what's worth retrying (see JinaEmbedder), so
+        # anything that reaches here is either a real outage or a bad chunk to look at.
+        raise HTTPException(502, str(exc)) from exc
     if len(vectors) != len(pending):
         raise HTTPException(
             502,
