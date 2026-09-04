@@ -343,7 +343,14 @@ X_HINDI_KSHITIJ = Curriculum(
         Chapter("X.HIN.KS.NIRALA", "सूर्यकांत त्रिपाठी 'निराला'", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.NAGARJUN", "नागार्जुन", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.MANGLESH_DABRAL", "मंगलेश डबराल", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.NETAJI_KA_CHASHMA", "नेताजी का चश्मा", "X.HIN.KS.U.WHOLE"),
+        # गद्य खंड (7-12): the opposite mismatch from the poetry section above, not the
+        # same one -- confirmed against the real jhks107.pdf, the contents page calls
+        # chapter 7 "स्वयं प्रकाश" (the author's name), not "नेताजी का चश्मा" (the story's
+        # own title, which this session had typed here instead). Only this one chapter has
+        # been checked against its real file so far -- the other five prose titles below
+        # are left as story titles, unconfirmed, rather than assuming the same swap without
+        # evidence the way the poetry titles above earned after two agreeing chapters.
+        Chapter("X.HIN.KS.NETAJI_KA_CHASHMA", "स्वयं प्रकाश", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.BALGOBIN_BHAGAT", "बालगोबिन भगत", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.LAKHNAVI_ANDAZ", "लखनवी अंदाज़", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.EK_KAHANI_YEH_BHI", "एक कहानी यह भी", "X.HIN.KS.U.WHOLE"),
