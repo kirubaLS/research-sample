@@ -324,9 +324,20 @@ X_HINDI_KSHITIJ = Curriculum(
     # then गद्य खंड (prose, 7-12) -- read by directly viewing the rendered contents pages
     # after Tesseract's own OCR came back as decorative-background noise on the poetry
     # page specifically (page images, not the prose page, which OCR'd cleanly).
+    #
+    # The poetry chapters were typed here as "Author (poem title)" -- this session's own
+    # convention for naming a poem, not necessarily the book's. Confirmed wrong for chapter
+    # 2 against the real jhks102.pdf: the contents page lists the poet's name alone,
+    # "तुलसीदास", not "तुलसीदास (राम-लक्ष्मण-परशुराम संवाद)" -- difflib's fuzzy match
+    # (verify_against_toc, ratio >= 0.6) is for OCR noise around the same title, not a
+    # title carrying extra real words the book's own page does not have, so it correctly
+    # rejected this rather than papering over it. The other five poetry titles below follow
+    # the same "Author (poem)" shape and have NOT been confirmed against their own chapter
+    # files yet -- expect the same fix, one real upload at a time, the way every other
+    # marker in this module was confirmed rather than assumed.
     chapters=[
         Chapter("X.HIN.KS.SURDAS", "सूरदास (पद)", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.TULSIDAS", "तुलसीदास (राम-लक्ष्मण-परशुराम संवाद)", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.TULSIDAS", "तुलसीदास", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.JAISHANKAR_PRASAD", "जयशंकर प्रसाद (आत्मकथ्य)", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.NIRALA", "सूर्यकांत त्रिपाठी 'निराला' (उत्साह, अट नहीं रही है)", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.NAGARJUN", "नागार्जुन (यह दंतुरित मुसकान, फसल)", "X.HIN.KS.U.WHOLE"),
