@@ -701,6 +701,49 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
 #: below this a "body" slice is a page header or a stray caption, not taught content
 MIN_BODY_CHARS = 200
 
+#: Real production bug: X.HIN.KR's /embed 502'd with Jina's own "Input text exceeds the
+#: model's maximum of 32768 tokens" -- a single_section Hindi chapter has no subheadings
+#: to split its body on the way a numbered-section book's does, so the entire chapter
+#: became one Chunk. Devanagari's conjunct clusters tokenize far denser than plain ASCII
+#: (a BPE tokenizer often spends more than one token per visible character on it), so a
+#: char-count budget has to assume the worst case rather than count on ~4 chars/token the
+#: way an English estimate could. 6,000 characters keeps every split comfortably under the
+#: 32,768-token ceiling even at close to 1 token/char, the same conservative-ratio choice
+#: OCR_DPI and MIN_BODY_CHARS elsewhere in this module make for a real Tesseract quirk
+#: rather than a theoretical one.
+MAX_CHUNK_CHARS = 6000
+
+
+def _split_oversized_body(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[str]:
+    """Break one body slice into pieces no bigger than ``max_chars``, without cutting a
+    paragraph in half where that can be avoided -- a paragraph is the only unit this text
+    reliably has once OCR has erased the book's own subheadings."""
+    if len(text) <= max_chars:
+        return [text]
+
+    parts: list[str] = []
+    current = ""
+    for para in re.split(r"\n\s*\n", text):
+        para = para.strip()
+        if not para:
+            continue
+        candidate = f"{current}\n\n{para}" if current else para
+        if len(candidate) <= max_chars:
+            current = candidate
+            continue
+        if current:
+            parts.append(current)
+            current = ""
+        if len(para) <= max_chars:
+            current = para
+        else:
+            # a single paragraph bigger than the budget on its own -- hard-split it
+            for i in range(0, len(para), max_chars):
+                parts.append(para[i:i + max_chars])
+    if current:
+        parts.append(current)
+    return parts
+
 
 #: labels that are bold, and often the LARGEST bold text in the chapter -- bigger than
 #: every real heading, not smaller -- but are never themselves a heading: an
@@ -1002,6 +1045,16 @@ def extract_chunks(
     seen: set[str] = set()
     markers = [m for m in markers if not (m[3] in seen or seen.add(m[3]))]
 
+    def _append(bucket: str, kind: str, reference: str, piece: str, section: str,
+                examinable: bool = True) -> None:
+        parts = _split_oversized_body(piece)
+        for i, part in enumerate(parts, start=1):
+            part_reference = reference if len(parts) == 1 else f"{reference} (part {i})"
+            chunks.append(
+                Chunk(bucket, kind, part_reference, part, stem_hash(part),
+                      section=section, examinable=examinable)
+            )
+
     chunks: list[Chunk] = []
     for section in sections if sections is not None else extract_sections(text, chapter):
         inside = [m for m in markers if section.start <= m[0] < section.end]
@@ -1009,19 +1062,14 @@ def extract_chunks(
 
         body = text[section.start:boundaries[0]].strip()
         if len(body) >= MIN_BODY_CHARS:
-            chunks.append(
-                Chunk(body_bucket, "body" if body_bucket == "T" else "exercise",
-                      f"Section {section.number}", body, stem_hash(body),
-                      section=section.number)
-            )
+            _append(body_bucket, "body" if body_bucket == "T" else "exercise",
+                    f"Section {section.number}", body, section.number)
 
         for i, (start, kind, bucket, reference) in enumerate(inside):
             stop = boundaries[i + 1]
             piece = text[start:stop].strip()
-            chunks.append(
-                Chunk(bucket, kind, reference, piece, stem_hash(piece),
-                      section=section.number, examinable=not optional.get(start, False))
-            )
+            _append(bucket, kind, reference, piece, section.number,
+                    examinable=not optional.get(start, False))
 
     return chunks
 
