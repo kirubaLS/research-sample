@@ -129,9 +129,13 @@ class JinaEmbedder:
                     ENDPOINT, json=payload, headers=headers, timeout=self.timeout
                 )
                 if response.status_code == 429 or response.status_code >= 500:
-                    # rate limit or provider fault: worth another try
+                    # rate limit or provider fault: worth another try, but the body still
+                    # belongs in the message -- the final "failed after 3 attempts" is
+                    # this exception's str(), and a bare status code without it is exactly
+                    # the "true but useless" message this module has already had to fix
+                    # once for the non-retried 4xx case.
                     raise httpx.HTTPStatusError(
-                        f"jina returned {response.status_code}",
+                        f"jina returned {response.status_code}: {response.text}",
                         request=response.request, response=response,
                     )
                 if 400 <= response.status_code < 500:
@@ -154,4 +158,10 @@ class JinaEmbedder:
                 if attempt < self.max_retries - 1:
                     time.sleep(2**attempt)
 
-        raise RuntimeError(f"jina embedding failed after {self.max_retries} attempts") from last
+        # `from last` chains the cause in a traceback, but embed_batch only surfaces
+        # str(exc) to the operator (see app.api.books) -- without the reason folded into
+        # the message itself, "failed after 3 attempts" was all that ever reached them,
+        # true but as useless as the 400 case this same fix already covered once.
+        raise RuntimeError(
+            f"jina embedding failed after {self.max_retries} attempts: {last}"
+        ) from last
