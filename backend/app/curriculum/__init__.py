@@ -345,21 +345,18 @@ X_HINDI_KSHITIJ = Curriculum(
         Chapter("X.HIN.KS.MANGLESH_DABRAL", "मंगलेश डबराल", "X.HIN.KS.U.WHOLE"),
         # गद्य खंड (7-12): the opposite mismatch from the poetry section above, not the
         # same one -- the contents page gives the AUTHOR's name, not the story's own
-        # title (which this session had typed here instead). Confirmed four times now:
-        # chapter 7 (jhks107.pdf) is "स्वयं प्रकाश", not "नेताजी का चश्मा"; chapter 8
-        # (jhks108.pdf) is "रामवृक्ष बेनीपुरी", not "बालगोबिन भगत"; chapter 9 (jhks109.pdf)
-        # is "यशपाल", not "लखनवी अंदाज़"; chapter 10 (jhks110.pdf) is "मन्नू भंडारी", not
-        # "एक कहानी यह भी". The remaining two prose titles (Naubatkhane, Sanskriti) are
-        # STILL left as story titles rather than guessed authors -- knowing the convention
-        # is not the same as knowing which name each one's own page actually prints, and
-        # every other marker in this module was confirmed against its real file before
-        # being trusted, not assumed from a pattern plus outside knowledge.
+        # title (which this session had typed here instead). Confirmed for all six
+        # chapters now: chapter 7 (jhks107.pdf) is "स्वयं प्रकाश", not "नेताजी का चश्मा";
+        # chapter 8 (jhks108.pdf) is "रामवृक्ष बेनीपुरी", not "बालगोबिन भगत"; chapter 9
+        # (jhks109.pdf) is "यशपाल", not "लखनवी अंदाज़"; chapter 10 (jhks110.pdf) is
+        # "मन्नू भंडारी", not "एक कहानी यह भी"; chapter 11 is "यतींद्र मिश्र", not
+        # "नौबतखाने में इबादत"; chapter 12 is "भदंत आनंद कौसल्यायन", not "संस्कृति".
         Chapter("X.HIN.KS.NETAJI_KA_CHASHMA", "स्वयं प्रकाश", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.BALGOBIN_BHAGAT", "रामवृक्ष बेनीपुरी", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.LAKHNAVI_ANDAZ", "यशपाल", "X.HIN.KS.U.WHOLE"),
         Chapter("X.HIN.KS.EK_KAHANI_YEH_BHI", "मन्नू भंडारी", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.NAUBATKHANE", "नौबतखाने में इबादत", "X.HIN.KS.U.WHOLE"),
-        Chapter("X.HIN.KS.SANSKRITI", "संस्कृति", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.NAUBATKHANE", "यतींद्र मिश्र", "X.HIN.KS.U.WHOLE"),
+        Chapter("X.HIN.KS.SANSKRITI", "भदंत आनंद कौसल्यायन", "X.HIN.KS.U.WHOLE"),
     ],
     concept_families=[],
 )
