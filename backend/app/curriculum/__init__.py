@@ -408,10 +408,17 @@ X_HINDI_SANCHAYAN = Curriculum(
         BoardUnit("X.HIN.SY.U.WHOLE", "संचयन", 0.0),
     ],
     # jhsy1ps.pdf, contents page, read via OCR.
+    #
+    # A third naming convention, not either of Kshitij's: the contents page gives
+    # "Author – Title" (an en dash between the two, no parentheses), while this session
+    # had typed "Title (Author)". Confirmed against the real jhsy101.pdf: chapter 1 is
+    # "मिथिलेश्वर – हरिहर काका", not "हरिहर काका (मिथिलेश्वर)". Chapters 2 and 3 are
+    # trimmed to the same "Author – Title" shape on that basis, still to be confirmed
+    # individually as jhsy102.pdf/jhsy103.pdf actually upload.
     chapters=[
-        Chapter("X.HIN.SY.HARIHAR_KAKA", "हरिहर काका (मिथिलेश्वर)", "X.HIN.SY.U.WHOLE"),
-        Chapter("X.HIN.SY.SAPNON_KE_SE_DIN", "सपनों के-से दिन (गुरदयाल सिंह)", "X.HIN.SY.U.WHOLE"),
-        Chapter("X.HIN.SY.TOPI_SHUKLA", "टोपी शुक्ला (राही मासूम रज़ा)", "X.HIN.SY.U.WHOLE"),
+        Chapter("X.HIN.SY.HARIHAR_KAKA", "मिथिलेश्वर – हरिहर काका", "X.HIN.SY.U.WHOLE"),
+        Chapter("X.HIN.SY.SAPNON_KE_SE_DIN", "गुरदयाल सिंह – सपनों के-से दिन", "X.HIN.SY.U.WHOLE"),
+        Chapter("X.HIN.SY.TOPI_SHUKLA", "राही मासूम रज़ा – टोपी शुक्ला", "X.HIN.SY.U.WHOLE"),
     ],
     concept_families=[],
 )
