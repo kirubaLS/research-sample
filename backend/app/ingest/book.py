@@ -79,12 +79,12 @@ BARE_DRILL_LABEL = re.compile(
 
 #: 'अभ्यास' ("Abhyas") is the standard NCERT Hindi word for an end-of-chapter exercise
 #: block, the same way 'EXERCISES' is standard across the English books -- not specific to
-#: any one of Kshitij/Kritika/Sparsh/Sanchayan. PROVISIONAL regardless: unlike
-#: 'EXERCISES', it has not yet been confirmed against a real Hindi chapter file the way
-#: every other marker in this module was before being trusted -- these books have so far
-#: only had their contents pages read, not a chapter. Confirm (or extend, the way English's
-#: 'Oral Comprehension Check' etc. had to be added one real file at a time) once one
-#: arrives.
+#: any one of Kshitij/Kritika/Sparsh/Sanchayan. Kept even though it did not fire on the
+#: first real chapter checked (jhkr101.pdf, Kritika's माता का अँचल): that book sets the
+#: heading as decorative art rather than plain text, and Tesseract renders the artwork as
+#: unrecognisable noise, not the word itself -- HINDI_NUMBERED_QUESTION below is what
+#: actually catches that chapter's exercises. A book that sets the heading as plain text
+#: still needs this.
 HINDI_DRILL_LABEL = re.compile(r"^\s*अभ्यास\s*$", re.M)
 
 #: Some First Flight chapters (Two Stories about Flying, The Sermon at Benares, The
@@ -97,6 +97,17 @@ HINDI_DRILL_LABEL = re.compile(r"^\s*अभ्यास\s*$", re.M)
 #: here despite carrying no label, unlike a numbered *heading* in a book that does number
 #: its headings (History), which would be far too easy to fake this way.
 ENGLISH_NUMBERED_QUESTION = re.compile(r"^[ \t]*(\d{1,2})\.[ \t]*\n(?=[A-Z(\"'‘’])", re.M)
+
+#: Hindi's own shape of the same "no fixed label" case, confirmed against the real
+#: jhkr101.pdf (Kritika, chapter 1, माता का अँचल): its exercises begin directly after the
+#: story's last line with no heading text at all -- HINDI_DRILL_LABEL's 'अभ्यास' is set as
+#: decorative art there and Tesseract renders it as unrecognisable noise, never the word.
+#: Devanagari sets each question on the SAME line as its number (unlike English's Latin
+#: layout, where the number sits alone on its own line), and Tesseract drops question 1's
+#: leading digit the same way it drops chapter 1's on a contents page (see
+#: _recover_hindi_first_chapter_number) -- the digit group is optional so a bare '. <text>'
+#: still counts.
+HINDI_NUMBERED_QUESTION = re.compile(r"^[ \t]*(\d{1,2})?\.[ \t]+(?=[ऀ-ॿ])", re.M)
 #: The one place a bare numbered list is NOT a student exercise: 'WHAT YOU CAN DO', a
 #: teacher-facing box of classroom instructions ('1.\nRead and discuss the following
 #: extract... with the students'), sitting right beside real exercises the same shape.
@@ -982,6 +993,8 @@ def extract_chunks(
             if lookback.endswith(_TEACHER_INSTRUCTION_LABEL):
                 continue
             markers.append((m.start(), "exercise", "E", f"Question {chapter}.{n}"))
+        for n, m in enumerate(HINDI_NUMBERED_QUESTION.finditer(text), start=1):
+            markers.append((m.start(), "exercise", "E", f"प्रश्न {chapter}.{n}"))
 
     markers.sort()
     # A reference appearing twice is a back-reference in body text, not a restatement:
