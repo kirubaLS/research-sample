@@ -429,6 +429,31 @@ export interface IssuedKey {
   api_key_notice: string;
 }
 
+export interface PlatformOverviewRow {
+  id: string;
+  name: string;
+  board: string;
+  state: string | null;
+  students: number;
+  papers: number;
+  answer_scripts: number;
+  reports_issued: number;
+  admin_keys: number;
+  principal_keys: number;
+}
+
+export interface PlatformOverview {
+  schools: PlatformOverviewRow[];
+  totals: {
+    schools: number;
+    students: number;
+    papers: number;
+    answer_scripts: number;
+    reports_issued: number;
+  };
+  cross_school_admin_keys: number;
+}
+
 export interface StaffKeySummary {
   id: string;
   /** null for an admin key: it belongs to no school, which is what lets it span them. */
@@ -810,6 +835,10 @@ export const api = {
   platformWhoami: (key: string) => operator<{ role: string }>("/platform/me", key),
 
   listSchools: (key: string) => operator<PlatformSchool[]>("/platform/schools", key),
+
+  /** Every school's counts on one screen -- students, papers, answer scripts, issued
+   * reports and active staff keys, summed and broken down per school. */
+  platformOverview: (key: string) => operator<PlatformOverview>("/platform/overview", key),
 
   createSchool: (
     key: string,
