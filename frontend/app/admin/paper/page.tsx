@@ -7,6 +7,7 @@ import {
   ApiUnreachable,
   ConfirmResult,
   MapResult,
+  PaperSummary,
   PlaceResult,
   ScanResult,
   ScanReview,
@@ -48,7 +49,30 @@ export default function PaperPage() {
   const [confirmation, setConfirmation] = useState<ConfirmResult | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [deleted, setDeleted] = useState(false);
+  // Every paper already created for this school, so an existing one can be opened rather
+  // than this screen only ever being able to start a new one. Without this, assessmentId
+  // never became non-null except right after creating a paper in this same browser
+  // session -- Rename and Delete (gated on assessmentId, below) were unreachable for any
+  // paper opened later, from the dashboard or a fresh page load.
+  const [papers, setPapers] = useState<PaperSummary[]>([]);
+  // Seeded from an opened paper's own already-known stage (PaperSummary.stage), so the
+  // wizard resumes near the right step instead of dropping back to "start" and offering
+  // to upload a duplicate scan. Real actions taken in this session (scan/mapped/placed
+  // below) still take priority once they happen.
+  const [openedStage, setOpenedStage] = useState<Stage | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+
+  const loadPapers = useCallback(async () => {
+    const key = getApiKey();
+    if (!key) return;
+    try {
+      const { assessments } = await api.listPapers(key);
+      setPapers(assessments);
+    } catch {
+      /* the rest of the screen still works; an existing-papers list that failed to load
+         just means starting a new one is the only option shown */
+    }
+  }, []);
 
   useEffect(() => {
     const key = getApiKey();
@@ -66,7 +90,28 @@ export default function PaperPage() {
         );
       })
       .catch(() => setSubjects([]));
-  }, []);
+    void loadPapers();
+  }, [loadPapers]);
+
+  async function openPaper(p: PaperSummary) {
+    const key = getApiKey();
+    if (!key) return;
+    setError(null);
+    setDeleted(false);
+    setScan(null);
+    setMapped(null);
+    setPlaced(null);
+    setConfirmation(null);
+    setAssessmentId(p.id);
+    setSubject(p.subject_code);
+    setTitle(p.title);
+    setOpenedStage(p.stage === "empty" ? "start" : p.stage);
+    try {
+      await refresh(p.id);
+    } catch (err) {
+      setError(explain(err));
+    }
+  }
 
   const confirmed = !!(confirmation || review?.confirmed_at);
   const stage: Stage = placed
@@ -77,7 +122,7 @@ export default function PaperPage() {
         ? "confirmed"
         : scan
           ? "scanned"
-          : "start";
+          : openedStage ?? "start";
 
   function explain(err: unknown): string {
     if (err instanceof ApiUnreachable) return "Could not reach the API.";
@@ -263,6 +308,27 @@ export default function PaperPage() {
         <p className="notice" style={{ marginBottom: 18 }}>
           The paper was deleted. Start a new one below.
         </p>
+      )}
+
+      {papers.length > 0 && (
+        <section className="card" style={{ marginBottom: 18 }}>
+          <h2>Existing papers</h2>
+          <p className="lede">Open one to check it, map it, rename it, or delete it.</p>
+          <ul className="paper-list">
+            {papers.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className={p.id === assessmentId ? "paper-row active" : "paper-row"}
+                  onClick={() => void openPaper(p)}
+                >
+                  <span className="name">{p.title}</span>
+                  <span className="meta">{p.subject_code} · {p.stage}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <ol className="steps" aria-label="Progress">
