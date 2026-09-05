@@ -105,6 +105,15 @@ export interface Overview {
   }[];
 }
 
+/** GET /admin/staff -- who holds a key for this school. Never carries the secret. */
+export interface SchoolStaffRow {
+  id: string;
+  role: "principal" | "admin";
+  label: string;
+  created_at: string | null;
+  revoked_at: string | null;
+}
+
 export interface PaperSummary {
   id: string;
   title: string;
@@ -798,6 +807,9 @@ export const api = {
       `/admin/sections/${sectionId}/students`,
       key,
     ),
+
+  /** Who else can act on this school -- read-only, never the key secret itself. */
+  listStaff: (key: string) => authed<SchoolStaffRow[]>("/admin/staff", key),
 
   cohort: (key: string, sectionId: string) =>
     authed<{ holland: Record<string, number>; streams: Record<string, number>; counted: number; withheld: number }>(

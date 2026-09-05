@@ -17,7 +17,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { CopyLink } from "@/components/CopyLink";
-import { api, type Dashboard, type Overview } from "@/lib/api";
+import { api, type Dashboard, type Overview, type SchoolStaffRow } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 
 const STAGE: Record<string, { label: string; tone: string }> = {
@@ -30,6 +30,7 @@ const STAGE: Record<string, { label: string; tone: string }> = {
 export default function DashboardPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [overview, setOverview] = useState<Overview | null>(null);
+  const [staff, setStaff] = useState<SchoolStaffRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -37,6 +38,7 @@ export default function DashboardPage() {
     if (!key) return;
     api.dashboard(key).then(setData).catch(() => setError("Could not load the dashboard."));
     api.overview(key).then(setOverview).catch(() => undefined);
+    api.listStaff(key).then(setStaff).catch(() => undefined);
   }, []);
 
   if (error) return <main className="wrap"><p className="error">{error}</p></main>;
@@ -46,6 +48,12 @@ export default function DashboardPage() {
   const mappedPct = c.questions_total
     ? Math.round((c.questions_mapped / c.questions_total) * 100)
     : 0;
+  // Both already computed for other parts of this same screen -- a paper's stage drives
+  // its pill in the Papers card, and a student's script/mark counts drive their row in
+  // Students. Filtering rather than a new endpoint: this is the same data, just the slice
+  // that actually needs a person to do something about it.
+  const needsMapping = data.papers.filter((p) => p.stage !== "mapped" && p.stage !== "empty");
+  const needsMarks = data.students.filter((s) => s.scripts > 0 && s.papers_marked === 0);
 
   return (
     <main className="wrap">
@@ -214,9 +222,14 @@ export default function DashboardPage() {
                     <Link className="name" href={`/admin/sections/${s.section_id}`}>
                       {s.label}
                     </Link>
-                    <span className="muted small">{s.students} students</span>
+                    <span className="muted small">
+                      {s.students} student{s.students === 1 ? "" : "s"}
+                    </span>
                   </div>
-                  <p className="sub">The link to give this class:</p>
+                  <p className="sub">
+                    {s.completed} of {s.students} finished the interest test
+                    {s.flagged > 0 && ` · ${s.flagged} flagged`}
+                  </p>
                   <CopyLink path={s.student_path} />
                 </li>
               ))}
@@ -224,6 +237,67 @@ export default function DashboardPage() {
           )}
         </section>
       </div>
+
+      {(needsMapping.length > 0 || needsMarks.length > 0) && (
+        <section className="card">
+          <div className="cardhead">
+            <h2>Needs attention</h2>
+          </div>
+          <ul className="rows">
+            {needsMapping.map((p) => (
+              <li key={p.id} className="row">
+                <div className="rowtop">
+                  <Link className="name" href="/admin/paper">{p.title}</Link>
+                  <span className="pill warn">{STAGE[p.stage].label}</span>
+                </div>
+                <p className="sub">
+                  {p.mapped} of {p.questions} question{p.questions === 1 ? "" : "s"} mapped to
+                  the book so far.
+                </p>
+              </li>
+            ))}
+            {needsMarks.map((s) => (
+              <li key={s.student_id} className="row">
+                <div className="rowtop">
+                  <Link className="name" href={`/admin/students/${s.student_id}`}>{s.name}</Link>
+                  <span className="pill warn">Script stored, no marks yet</span>
+                </div>
+                <p className="sub">
+                  {s.scripts} script{s.scripts === 1 ? "" : "s"} stored, roll {s.roll_no}.
+                </p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <section className="card">
+        <div className="cardhead">
+          <h2>Who has access</h2>
+        </div>
+        {!staff ? (
+          <p className="muted">Loading…</p>
+        ) : staff.length === 0 ? (
+          <p className="muted">No keys issued for this school yet.</p>
+        ) : (
+          <ul className="rows">
+            {staff.map((s) => (
+              <li key={s.id} className="row">
+                <div className="rowtop">
+                  <span className="name">{s.label || <span className="muted">unnamed</span>}</span>
+                  <span className="muted small">
+                    {s.role === "admin" ? "Admin" : "Principal"}
+                    {s.revoked_at && " · revoked"}
+                  </span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+        <p className="small muted" style={{ marginTop: 10 }}>
+          Issuing or revoking a key happens in the operator console, not here.
+        </p>
+      </section>
 
       <style jsx>{`
         .wrap { max-width: 1180px; margin: 0 auto; padding-top: 22px; }
