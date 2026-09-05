@@ -12,8 +12,16 @@ import {
   setApiKey,
   setRole,
   signOut,
+  signOutPlatform,
   type StaffRole,
 } from "@/lib/session";
+
+/** A principal's key never opens the operator console, no matter what this same browser
+ * signed into earlier -- a stale platform key from a prior operator session must not
+ * carry forward onto a principal's own sign-in. */
+function forgetPlatformAccessUnlessAdmin(role: string): void {
+  if (role !== "admin") signOutPlatform();
+}
 
 /** Used only while an admin has not yet named a school; /admin/me replaces it after. */
 const ADMIN_CAN = {
@@ -52,6 +60,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         setSchool(me.name);
         setStaff({ role: me.role, can: me.can, scope: me.scope });
         setRole({ role: me.role, can: me.can, scope: me.scope });
+        forgetPlatformAccessUnlessAdmin(me.role);
         setSignedIn(true);
       })
       .catch((err) => {
@@ -90,6 +99,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
       setApiKey(key, me.name);
       setRole({ role: me.role, can: me.can, scope: me.scope });
       setStaff({ role: me.role, can: me.can, scope: me.scope });
+      forgetPlatformAccessUnlessAdmin(me.role);
       setSchool(me.name);
       setSignedIn(true);
     } catch (err) {
