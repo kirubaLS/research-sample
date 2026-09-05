@@ -3,8 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { CopyLink } from "@/components/CopyLink";
 import { CopySecret } from "@/components/CopySecret";
-import { api, ApiError, PlatformSchool, StaffKeySummary } from "@/lib/api";
-import { getPlatformKey } from "@/lib/session";
+import { api, ApiError, PlatformOverview, PlatformSchool, StaffKeySummary } from "@/lib/api";
+import { getPlatformKey, setActiveSchool, setApiKey } from "@/lib/session";
 
 /** The stored values are for the database. These are what a person reads. */
 const CONSENT_LABEL: Record<string, string> = {
@@ -24,6 +24,7 @@ type Issued = { name: string; api_key: string; notice: string };
 
 export default function PlatformConsole() {
   const [schools, setSchools] = useState<PlatformSchool[] | null>(null);
+  const [overview, setOverview] = useState<PlatformOverview | null>(null);
   const [issued, setIssued] = useState<Issued | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -37,6 +38,32 @@ export default function PlatformConsole() {
       setError("Could not load schools.");
     }
   }, []);
+
+  const loadOverview = useCallback(async () => {
+    const key = getPlatformKey();
+    if (!key) return;
+    try {
+      setOverview(await api.platformOverview(key));
+    } catch {
+      /* the school cards below still load their own counts; a failed summary row is not
+         a reason to hide the rest of the console */
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadOverview();
+  }, [loadOverview]);
+
+  /** Jump into a school's own admin dashboard as its acting admin -- the platform key
+   * already resolves to one there (see app.api.deps.current_staff), so this is the same
+   * sign-in AdminGate's own box would do with the same key typed in by hand. */
+  function openAsAdmin(school: { id: string; name: string }) {
+    const key = getPlatformKey();
+    if (!key) return;
+    setApiKey(key, school.name);
+    setActiveSchool(school.id);
+    window.location.href = "/admin";
+  }
 
   const [staffKeys, setStaffKeys] = useState<Record<string, StaffKeySummary[]>>({});
   const [adminKeys, setAdminKeys] = useState<StaffKeySummary[]>([]);
@@ -236,6 +263,79 @@ export default function PlatformConsole() {
           No student data is visible here. That stays inside each school&apos;s own dashboard.
         </p>
       </div>
+
+      {overview && (
+        <>
+          <div className="section-head">
+            <h2>Every school, at a glance</h2>
+          </div>
+          <div className="grid three" style={{ marginBottom: 18 }}>
+            <div className="stat">
+              <span className="label">Schools</span>
+              <span className="value">{overview.totals.schools}</span>
+            </div>
+            <div className="stat">
+              <span className="label">Students</span>
+              <span className="value">{overview.totals.students}</span>
+            </div>
+            <div className="stat">
+              <span className="label">Papers</span>
+              <span className="value">{overview.totals.papers}</span>
+            </div>
+            <div className="stat">
+              <span className="label">Answer scripts</span>
+              <span className="value">{overview.totals.answer_scripts}</span>
+            </div>
+          </div>
+          <div className="card flush">
+            <div className="tablewrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>School</th>
+                    <th>Students</th>
+                    <th>Papers</th>
+                    <th>Answer scripts</th>
+                    <th>Reports issued</th>
+                    <th>Admin keys</th>
+                    <th>Principal keys</th>
+                    <th />
+                  </tr>
+                </thead>
+                <tbody>
+                  {overview.schools.map((row) => (
+                    <tr key={row.id}>
+                      <td className="strong">{row.name}</td>
+                      <td className="num">{row.students}</td>
+                      <td className="num">{row.papers}</td>
+                      <td className="num">{row.answer_scripts}</td>
+                      <td className="num">{row.reports_issued}</td>
+                      <td className="num">{row.admin_keys}</td>
+                      <td className="num">{row.principal_keys}</td>
+                      <td>
+                        <button
+                          type="button"
+                          className="secondary tiny"
+                          onClick={() => openAsAdmin(row)}
+                        >
+                          Open dashboard
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {overview.cross_school_admin_keys > 0 && (
+              <p className="small muted" style={{ margin: "12px 16px 0" }}>
+                Plus {overview.cross_school_admin_keys} admin key
+                {overview.cross_school_admin_keys === 1 ? "" : "s"} that belong to no single
+                school.
+              </p>
+            )}
+          </div>
+        </>
+      )}
 
       {issued && (
         <div className="card accentbar" style={{ marginTop: 22 }}>
