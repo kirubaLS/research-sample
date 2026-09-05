@@ -50,7 +50,7 @@ def test_a_principal_is_told_what_their_key_may_do(client, school, principal):
     assert body["role"] == "principal"
     assert body["can"] == {
         "read_results": True, "scan_papers": True, "enter_marks": True,
-        "manage_roster": False, "manage_schools": False,
+        "manage_roster": True, "manage_schools": False,
     }
     assert body["scope"] == "one_school"
 
