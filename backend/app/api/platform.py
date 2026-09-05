@@ -127,6 +127,82 @@ def list_schools(db: Session = Depends(get_session)) -> list[dict]:
     return [_school_view(db, s) for s in schools]
 
 
+@router.get("/overview")
+def overview(db: Session = Depends(get_session)) -> dict:
+    """Every school on this deployment, on one screen: students, papers, answer scripts,
+    issued reports and staff keys, each broken down per school and summed across all of
+    them.
+
+    One query per count, grouped by school_id, rather than one row scan per school -- a
+    deployment of any real size would otherwise turn this screen into N+1 queries deep.
+    """
+    from app.models import Assessment, ScanDocument, StudentReport
+
+    schools = list(db.scalars(select(School).order_by(School.name)))
+
+    def _counts_by_school(stmt) -> dict[str, int]:
+        return dict(db.execute(stmt).all())
+
+    students = _counts_by_school(
+        select(StudentProfile.school_id, func.count(StudentProfile.id))
+        .group_by(StudentProfile.school_id)
+    )
+    papers = _counts_by_school(
+        select(Assessment.school_id, func.count(Assessment.id)).group_by(Assessment.school_id)
+    )
+    answer_scripts = _counts_by_school(
+        select(ScanDocument.school_id, func.count(ScanDocument.id))
+        .where(ScanDocument.kind == "answer_sheet")
+        .group_by(ScanDocument.school_id)
+    )
+    reports_issued = _counts_by_school(
+        select(StudentReport.school_id, func.count(StudentReport.id))
+        .group_by(StudentReport.school_id)
+    )
+    # Active (unrevoked) keys only -- a revoked one is not who can act on the school today.
+    active_keys = list(
+        db.scalars(select(StaffKey).where(StaffKey.revoked_at.is_(None)))
+    )
+    principals_by_school: dict[str, int] = {}
+    admins_by_school: dict[str, int] = {}
+    for k in active_keys:
+        if k.school_id is None:
+            continue
+        target = principals_by_school if k.role == "principal" else admins_by_school
+        target[k.school_id] = target.get(k.school_id, 0) + 1
+
+    rows = []
+    for s in schools:
+        rows.append({
+            "id": s.id,
+            "name": s.name,
+            "board": s.board,
+            "state": s.state,
+            "students": students.get(s.id, 0),
+            "papers": papers.get(s.id, 0),
+            "answer_scripts": answer_scripts.get(s.id, 0),
+            "reports_issued": reports_issued.get(s.id, 0),
+            # The school's own api_key counts as one working admin credential even before
+            # anyone issues a separate StaffKey -- see School.api_key's own history.
+            "admin_keys": admins_by_school.get(s.id, 0) + 1,
+            "principal_keys": principals_by_school.get(s.id, 0),
+        })
+
+    return {
+        "schools": rows,
+        "totals": {
+            "schools": len(rows),
+            "students": sum(r["students"] for r in rows),
+            "papers": sum(r["papers"] for r in rows),
+            "answer_scripts": sum(r["answer_scripts"] for r in rows),
+            "reports_issued": sum(r["reports_issued"] for r in rows),
+        },
+        # Admin keys that belong to no school -- an operator's own deputies, not counted
+        # against any one school's row above.
+        "cross_school_admin_keys": sum(1 for k in active_keys if k.school_id is None),
+    }
+
+
 @router.post("/schools", status_code=status.HTTP_201_CREATED)
 def create_school(body: SchoolIn, db: Session = Depends(get_session)) -> dict:
     """Create a school, its sections, and the school's own admin key.
