@@ -34,6 +34,7 @@ from app.models import (
     ScanDocument,
     School,
     Section,
+    StaffKey,
     StudentProfile,
     StudentReport,
     TestSession,
@@ -79,6 +80,38 @@ def whoami(
             "manage_schools": staff.is_admin,
         },
     }
+
+
+@router.get("/staff")
+def list_staff(
+    school: School = Depends(require_reader), db: Session = Depends(get_session)
+) -> list[dict]:
+    """Who else can act on this school -- read-only.
+
+    Issuing or revoking a key is still operator-only (app.api.platform, behind
+    X-Platform-Key): a principal must never mint their own replacement credential or
+    another school's. Seeing who already holds one for their own school is a different
+    act, and today there was no way to do even that -- a principal had to ask the operator
+    rather than check for themselves. Never carries api_key, same as every other listing
+    of a key in this codebase.
+    """
+    keys = list(
+        db.scalars(
+            select(StaffKey)
+            .where(StaffKey.school_id == school.id)
+            .order_by(StaffKey.revoked_at.is_not(None), StaffKey.created_at)
+        )
+    )
+    return [
+        {
+            "id": k.id,
+            "role": k.role,
+            "label": k.label,
+            "created_at": k.created_at.isoformat() if k.created_at else None,
+            "revoked_at": k.revoked_at.isoformat() if k.revoked_at else None,
+        }
+        for k in keys
+    ]
 
 
 @router.get("/overview")
