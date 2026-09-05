@@ -31,6 +31,11 @@ _BARE = re.compile(r"^(\d{1,2})$")
 _PRODUCT = re.compile(
     r"^(\d{1,2})\s*[x×*]\s*(\d{1,2}(?:\.\d)?)\s*=\s*(\d{1,3})$", re.IGNORECASE
 )
+#: The same label with the multiplication sign missing: real papers print "3x1=3" in a
+#: font whose glyph does not survive text extraction, leaving "3 1=3". Accepted only
+#: because is_self_consistent then checks the arithmetic actually holds -- "5 2=9" is
+#: rejected, so a stray pair of numbers cannot pose as marks.
+_PRODUCT_NO_SIGN = re.compile(r"^(\d{1,2})\s+(\d{1,2}(?:\.\d)?)\s*=\s*(\d{1,3})$")
 _SECTION_TOTAL = re.compile(r"(\d{1,3})\s*(?:marks?|अंक|மதிப்பெண்)", re.IGNORECASE)
 
 MarkForm = Literal["bare", "product", "section_total"]
@@ -87,6 +92,12 @@ def parse_label(text: str) -> MarkLabel | None:
         return MarkLabel(
             value=total, form="product", sub_parts=n, per_part=per, raw=s
         )
+
+    m = _PRODUCT_NO_SIGN.match(s)
+    if m:
+        n, per, total = int(m.group(1)), float(m.group(2)), float(m.group(3))
+        if abs(n * per - total) < 1e-6:
+            return MarkLabel(value=total, form="product", sub_parts=n, per_part=per, raw=s)
 
     m = _BARE.match(s)
     if m:

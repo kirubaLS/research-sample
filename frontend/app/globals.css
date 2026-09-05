@@ -123,6 +123,23 @@ main.narrow { max-width: 680px; }
 .navlinks a:hover { background: var(--surface-2); color: var(--ink); }
 .navlinks a[aria-current="page"] { background: var(--surface-2); color: var(--ink); font-weight: 600; }
 
+/* On a phone the links are wider than the screen. They scroll sideways on their own row
+   rather than pushing the page wider, which is what made every screen scroll horizontally
+   and the right-hand edge of every card sit off-screen. */
+@media (max-width: 760px) {
+  .siteheader .inner { flex-wrap: wrap; gap: 10px; padding: 10px 14px; }
+  .navlinks {
+    margin-left: 0;
+    width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    padding-bottom: 2px;
+  }
+  .navlinks::-webkit-scrollbar { display: none; }
+  .navlinks a { white-space: nowrap; padding: 7px 9px; }
+}
+
 /* --- hero ----------------------------------------------------------------------------- */
 .hero { padding: 26px 0 8px; }
 .hero .lede { font-size: 19px; color: var(--ink-2); max-width: 60ch; }
@@ -210,12 +227,15 @@ td.strong { color: var(--ink); font-weight: 600; }
 td.num { font-variant-numeric: tabular-nums; }
 
 /* --- copy field (the student link) ---------------------------------------------------- */
-.copyfield { display: flex; gap: 0; align-items: stretch; }
+.copyfield { display: flex; gap: 0; align-items: stretch; min-width: 0; max-width: 100%; }
 .copyfield code {
   flex: 1; font-family: var(--font-mono), monospace; font-size: 13px;
   padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--rule-2);
   border-right: none; border-radius: var(--radius) 0 0 var(--radius);
   overflow-x: auto; white-space: nowrap; color: var(--ink-2); display: block;
+  /* A flex child's min-width is its content by default, so a long key refused to shrink
+     and carried the whole page sideways on a phone instead of scrolling inside its box. */
+  min-width: 0;
 }
 .copyfield button { border-radius: 0 var(--radius) var(--radius) 0; padding: 10px 15px; font-size: 14px; }
 
@@ -277,3 +297,379 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+/* ---------------------------------------------------------------------------------------
+   Reading a question paper.
+
+   Two columns of information on one row: what the paper printed, and what the book made
+   of it. That pairing is the only judgement a teacher is actually making here, and it is
+   impossible when the two live on separate screens.
+--------------------------------------------------------------------------------------- */
+
+.paper-page {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 20px 96px;
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.ph { padding: 40px 0 4px; display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; }
+.ph h1 { margin: 6px 0 10px; font-size: clamp(26px, 3.4vw, 36px); letter-spacing: -0.02em; }
+.ph .lede { margin: 0; color: var(--ink-2); max-width: 62ch; }
+.ph-actions { display: flex; gap: 8px; flex-shrink: 0; }
+
+/* --- the three steps, which are a real sequence and so are numbered --- */
+.steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* Narrow enough that all five fit one row on a laptop. At 210px the fifth wrapped
+     and left a dead block of colour beside it wider than the step itself. */
+  grid-template-columns: repeat(auto-fit, minmax(168px, 1fr));
+  gap: 1px;
+  background: var(--rule);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.step {
+  background: var(--surface);
+  padding: 14px 16px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.step-n {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 13px;
+  font-weight: 700;
+  border: 1px solid var(--rule-2);
+  color: var(--ink-3);
+}
+.step-b { display: flex; flex-direction: column; line-height: 1.3; }
+.step-b strong { font-size: 15px; }
+.step-b em { font-style: normal; font-size: 13px; color: var(--ink-3); }
+.step-now { background: var(--mark-soft); }
+.step-now .step-n { border-color: var(--mark); color: var(--mark); }
+.step-done .step-n { background: var(--verify); border-color: var(--verify); color: #fff; }
+.step-done .step-n::after { content: "✓"; }
+.step-done .step-n { font-size: 0; }
+.step-done .step-n::after { font-size: 13px; }
+
+/* --- cards --- */
+.paper-page .card {
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-sm);
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
+.field > span { color: var(--ink-2); font-weight: 600; }
+.field input, .field select {
+  font: inherit;
+  padding: 9px 11px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+}
+
+/* --- the drop zone --- */
+.drop {
+  border: 1.5px dashed var(--rule-2);
+  border-radius: var(--radius);
+  padding: 34px 20px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  background: var(--surface-2);
+}
+.drop-title { margin: 0; font-size: 18px; font-weight: 650; }
+.drop-hint { margin: 0; max-width: 52ch; color: var(--ink-3); font-size: 14px; }
+.drop button, .paper-page button.primary {
+  font: inherit;
+  font-weight: 600;
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--mark);
+  background: var(--mark);
+  color: #fff;
+  cursor: pointer;
+}
+.drop button:disabled, .paper-page button.primary:disabled { opacity: 0.55; cursor: default; }
+.paper-page button.primary { align-self: flex-start; }
+
+/* --- number tiles --- */
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(128px, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.tile { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 2px; }
+.tile-n { font-size: 25px; font-weight: 700; letter-spacing: -0.01em; font-variant-numeric: tabular-nums; }
+.tile-l { font-size: 12.5px; color: var(--ink-3); }
+.tile-good .tile-n { color: var(--verify); }
+.tile-warn .tile-n { color: var(--warn); }
+
+/* --- the verdict, which is the point of the scan step --- */
+.verdict { margin: 0; padding: 14px 16px; border-radius: var(--radius); border-left: 3px solid; font-size: 15px; }
+.verdict.good { background: var(--verify-soft); border-color: var(--verify); color: var(--ink); }
+.verdict.warn { background: var(--warn-soft); border-color: var(--warn); }
+.verdict ul { margin: 8px 0 0; padding-left: 20px; display: flex; flex-direction: column; gap: 5px; }
+.verdict p { margin: 0; }
+
+/* The marks total, set apart from the tile row above it. One ratio, in words, because
+   "69 of 80" is the only thing on the screen that shows a mark was never found. */
+.markscheck {
+  margin: 14px 0 0; padding: 13px 16px; border-radius: var(--radius);
+  border-left: 3px solid var(--rule-2); background: var(--surface-2);
+  font-size: 15.5px;
+}
+.markscheck p { margin: 0; }
+.markscheck p + p { margin-top: 6px; }
+.markscheck strong { font-variant-numeric: tabular-nums; }
+.markscheck.good { background: var(--verify-soft); border-color: var(--verify); }
+.markscheck.warn { background: var(--warn-soft); border-color: var(--warn); }
+.markscheck .small { color: var(--ink-2); font-size: 14px; }
+
+.alert {
+  margin: 0;
+  padding: 12px 15px;
+  background: var(--mark-soft);
+  border-left: 3px solid var(--mark);
+  border-radius: var(--radius);
+  color: var(--ink);
+}
+.paper-page .muted { margin: 0; color: var(--ink-3); font-size: 14px; }
+
+/* --- filters --- */
+.toolbar { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; }
+.toolbar h2 { margin: 0; font-size: 19px; }
+.filters { display: flex; gap: 1px; background: var(--rule-2); border: 1px solid var(--rule-2); border-radius: var(--radius); overflow: hidden; }
+.filters button {
+  font: inherit;
+  font-size: 13.5px;
+  padding: 6px 12px;
+  border: 0;
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+}
+.filters button.on { background: var(--ink); color: var(--paper); }
+
+/* --- the question list --- */
+.qlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 1px; background: var(--rule); border: 1px solid var(--rule); }
+.qrow { background: var(--surface); padding: 14px 16px; display: flex; flex-direction: column; gap: 8px; }
+.qrow-blocked { background: var(--warn-soft); }
+.qhead { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.qno { font-weight: 700; font-size: 15px; }
+.qmarks { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.warnish { color: var(--warn); font-style: normal; }
+.qstem { margin: 0; font-size: 14.5px; color: var(--ink-2); max-width: 78ch; }
+
+.qmap { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 13px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--rule-2);
+  background: var(--surface-2);
+}
+.chip-l { font-size: 10.5px; letter-spacing: 0.07em; text-transform: uppercase; color: var(--ink-3); }
+.chip-strong { border-color: var(--verify); background: var(--verify-soft); color: var(--ink); font-weight: 600; }
+.qblocked { margin: 0; font-size: 14px; color: var(--warn); }
+
+@media (max-width: 620px) {
+  .ph { padding-top: 26px; }
+  .qhead { flex-direction: column; gap: 2px; }
+}
+
+/* Present to assistive technology and to tests; invisible to sighted users. */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* --- correcting and confirming, and the mobile shape of both ------------------------- */
+
+.confirmbar { display: flex; flex-direction: column; gap: 12px; align-items: flex-start; }
+.confirmbar .field { width: min(320px, 100%); }
+
+.qedit { display: flex; align-items: center; gap: 8px; flex: none; }
+.qedit input {
+  font: inherit;
+  width: 76px;
+  padding: 7px 9px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.qedit input:focus-visible, .field input:focus-visible, .field select:focus-visible {
+  outline: 2px solid var(--mark);
+  outline-offset: 1px;
+}
+.qedit .remove {
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 10px;
+  border: 1px solid var(--rule-2);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--ink-2);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.qedit .remove:hover { border-color: var(--mark); color: var(--mark); }
+
+/* A row nobody could read a mark for is the one thing a person must not scroll past. */
+.qrow-missing { box-shadow: inset 3px 0 0 var(--warn); }
+.editedby {
+  margin-left: 8px;
+  font-size: 11.5px;
+  font-weight: 400;
+  color: var(--verify);
+  letter-spacing: 0.02em;
+}
+.sr {
+  position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* --- mobile ---
+   A teacher checks a paper on a phone, standing up, one hand. So: the head wraps rather
+   than squeezing the mark box to nothing, controls clear the 44px touch target, and the
+   number field opens the numeric keypad (inputMode on the element). */
+@media (max-width: 620px) {
+  .paper-page { padding: 0 14px 72px; gap: 16px; }
+  .paper-page .card { padding: 16px 14px; }
+
+  .steps { grid-template-columns: 1fr 1fr; }
+  .step { padding: 11px 12px; }
+  .step-b em { display: none; }
+
+  .tiles { grid-template-columns: repeat(2, 1fr); }
+  .tile-n { font-size: 21px; }
+
+  .drop { padding: 24px 14px; }
+  .drop button, .paper-page button.primary { width: 100%; min-height: 46px; }
+
+  .toolbar { flex-direction: column; align-items: stretch; gap: 10px; }
+  .filters { width: 100%; }
+  .filters button { flex: 1; min-height: 42px; }
+
+  .qhead { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px; }
+  .qedit { width: 100%; justify-content: space-between; }
+  .qedit input { width: 96px; min-height: 44px; }
+  .qedit .remove { min-height: 44px; }
+  .qstem { font-size: 14px; }
+  .qmap { gap: 5px; }
+  .chip { font-size: 12px; }
+}
+
+
+/* --- the dashboard shell ----------------------------------------------------------- */
+/* Sidebar beside content. Its own class name: .shell already belongs to the page frame in
+   the root layout, and a second meaning for one name turned the header and the footer into
+   grid columns. min-width:0 on the panel is load-bearing: without it a wide table inside a
+   grid column refuses to shrink and pushes the whole page sideways. */
+.deskshell { display: grid; grid-template-columns: auto 1fr; width: 100%; }
+.deskshell .panel { min-width: 0; padding: 0 22px 56px; }
+
+@media (max-width: 900px) {
+  .deskshell { grid-template-columns: 1fr; }
+  .deskshell .panel { padding: 0 14px 40px; }
+}
+
+
+/* --- the standing side navigation ---------------------------------------------------- */
+/* Global rather than scoped: the entries are Link components, and a styled-jsx block in
+   the nav's own file cannot reach them. */
+.sidenav {
+  background: var(--surface);
+  border-right: 1px solid var(--rule);
+  padding: 18px 12px;
+  min-width: 224px;
+  align-self: stretch;
+}
+.sidenav .group { margin-bottom: 22px; }
+.sidenav .grouplabel {
+  font-family: var(--font-body), system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 0 0 8px 10px;
+}
+.sidenav .item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--ink-2);
+  font-size: 14.5px;
+}
+.sidenav .item:hover { background: var(--surface-2); color: var(--ink); }
+.sidenav .item.on { background: var(--surface-2); color: var(--ink); font-weight: 600; }
+.sidenav .glyph { color: var(--mark); font-size: 13px; }
+
+@media (max-width: 900px) {
+  .sidenav {
+    min-width: 0;
+    border-right: 0;
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    gap: 6px;
+    overflow-x: auto;
+    padding: 8px 12px;
+    scrollbar-width: none;
+  }
+  .sidenav::-webkit-scrollbar { display: none; }
+  .sidenav .group { display: flex; gap: 6px; margin: 0; }
+  .sidenav .grouplabel { display: none; }
+  .sidenav .item { white-space: nowrap; padding: 7px 11px; }
+}
+
+
+/* --- concept family proposals ---------------------------------------------------------- */
+/* A long list a person reads down and ticks. The chapter and section sit under the label
+   rather than beside it, because the label is what is being judged and the source is what
+   the judgement rests on. */
+.famlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.famlist li {
+  padding: 9px 10px; border-radius: var(--radius); border: 1px solid transparent;
+}
+.famlist li:hover { background: var(--surface-2); }
+.famlist li.have { opacity: 0.62; }
+.famlist label { display: flex; align-items: baseline; gap: 10px; cursor: pointer; }
+.famlist li.have label { cursor: default; }
+.famlist input { margin: 0; width: 16px; height: 16px; flex: none; }
+.fam-l { font-weight: 600; font-size: 15px; }
+.fam-m { display: block; margin-left: 26px; color: var(--ink-3); font-size: 13px; }

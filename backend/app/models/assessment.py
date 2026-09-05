@@ -31,6 +31,25 @@ TIER_ALIASES = {
     "AP": "Applying",
     "AEC": "Analysing, Evaluating & Creating",
 }
+#: the reverse of TIER_ALIASES. The tier is stored twice by design, in the board's words
+#: on a placement and as the short code on the append-only tier row, and one of the two
+#: had no way to be written from the other.
+TIER_CODES = {name: code for code, name in TIER_ALIASES.items()}
+
+
+def tier_code(tier: str | None) -> str | None:
+    """The short code for a tier, whichever of its two names arrives.
+
+    None in, None out: abstaining is a legitimate answer, and the only honest one when the
+    evidence does not settle which tier a question belongs to.
+    """
+    if not tier:
+        return None
+    if tier in TIER_CODES:
+        return TIER_CODES[tier]
+    return tier if tier in TIER_ALIASES else None
+
+
 #: target mark share of a board paper, used only as a tie-break on declared blueprints
 CBSE_TIER_TARGET = {
     "Remembering & Understanding": 0.54,
@@ -81,6 +100,12 @@ class Assessment(Base, PkMixin, TimestampMixin):
 
     status: Mapped[str] = mapped_column(String(24), default="ingested", index=True)
     qmatrix_frozen_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    #: When a person confirmed that the extraction matches the paper in front of them.
+    #: Mapping refuses until this is set: every step after it treats the questions as
+    #: fact, and an extraction nobody checked is not fact -- it is a good guess that
+    #: became a mark on a child's report without anyone looking.
+    scan_confirmed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    scan_confirmed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qmatrix_version: Mapped[int] = mapped_column(Integer, default=0)
 
 
@@ -166,6 +191,51 @@ class Question(Base, PkMixin, TimestampMixin):
 
     # Difficulty is deliberately absent and must stay absent. It is derived from observed
     # performance across more than one school (app.analysis.difficulty), never tagged.
+
+
+class ScannedQuestion(Base, PkMixin, TimestampMixin):
+    """A question as the paper prints it, before anything is known about the curriculum.
+
+    Deliberately a separate table from Question rather than nullable columns on it.
+    Question requires board_unit_id and concept_family_id precisely because a null there
+    removes a question from board-impact reporting while the report still renders -- the
+    silent failure that constraint exists to prevent. But a scan genuinely cannot know
+    either: they come from the book, through retrieval and the judge, and that is a later
+    step which may need a person.
+
+    So the scan writes what the paper says -- number, section, marks, the stem as printed --
+    and mapping promotes it to a Question once the chapter is known and the board unit and
+    family follow from it. A row here that never got promoted is a question the pipeline
+    could not place, which is a fact worth keeping rather than a gap to explain away.
+    """
+
+    __tablename__ = "scanned_question"
+    __table_args__ = (
+        UniqueConstraint("assessment_id", "address", name="uq_scanned_address"),
+    )
+
+    assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
+    address: Mapped[str] = mapped_column(String(40), index=True)
+    section: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    question_no: Mapped[str] = mapped_column(String(12))
+    sub_part: Mapped[str | None] = mapped_column(String(12), nullable=True)
+    choice_alt: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    #: Nullable here where Question's is not: a mark label the extractor could not read is
+    #: a gap for a person to fill, not a reason to refuse the whole paper.
+    max_marks: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
+    stem_text: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    logical_page: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    #: set when this row has been promoted to a Question
+    question_id: Mapped[str | None] = mapped_column(
+        ForeignKey("question.id"), nullable=True, index=True
+    )
+    #: why it has not been, when it has not
+    blocked_reason: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: A person changed what the extractor read. Kept because a corrected row and a row
+    #: the machine got right are different evidence about how well the extractor works,
+    #: and a system that cannot tell them apart cannot be improved.
+    edited_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    edited_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class QuestionSkill(Base, PkMixin):

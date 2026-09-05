@@ -1,0 +1,283 @@
+"""Keeping and serving the pages that were scanned.
+
+Everything a mark rests on is stored: the question paper as it was uploaded, and each
+student's answer script. A report that says a boy lost three marks on question 14 is a
+claim about a piece of paper, and a principal who forwards that report to a parent has to
+be able to produce the paper.
+
+Pages are served one at a time, by index, so a browser can show a script without pulling
+twenty megabytes at once, and so a page can be replaced without touching the rest.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+
+from app.api.deps import require_reader, require_scanner
+from app.db import get_session
+from app.models import Assessment, ScanDocument, ScanPage, School, StudentProfile
+
+router = APIRouter(tags=["documents"])
+
+#: A phone photograph of one page. Well above this is not a page.
+MAX_PAGE_BYTES = 12 * 1024 * 1024
+
+CONTENT_TYPES = {
+    "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+    "webp": "image/webp", "pdf": "application/pdf", "tif": "image/tiff",
+    "tiff": "image/tiff",
+}
+
+
+def content_type_for(filename: str | None, declared: str | None) -> str:
+    """What this upload is. One definition, so the paper route and the script route
+    cannot disagree about what a .jpeg is."""
+    suffix = (filename or "").rsplit(".", 1)[-1].lower()
+    if suffix in CONTENT_TYPES:
+        return CONTENT_TYPES[suffix]
+    if declared and declared.startswith(("image/", "application/pdf")):
+        return declared
+    return "application/octet-stream"
+
+
+def store_document(
+    db: Session,
+    *,
+    school_id: str,
+    assessment_id: str,
+    kind: str,
+    pages: list[tuple[bytes, str, dict | None]],
+    student_id: str | None = None,
+    uploaded_by: str = "",
+) -> ScanDocument:
+    """Write one document and its pages.
+
+    A second upload of the same document supersedes the first rather than adding to it:
+    re-scanning a paper is a correction, and two versions of the same script sitting side
+    by side with no way to tell which the marks came from is worse than either.
+    """
+    digest = hashlib.sha256()
+    for content, _, _ in pages:
+        digest.update(content)
+
+    existing = db.scalars(
+        select(ScanDocument).where(
+            ScanDocument.assessment_id == assessment_id,
+            ScanDocument.kind == kind,
+            ScanDocument.student_id.is_(None) if student_id is None
+            else ScanDocument.student_id == student_id,
+        )
+    ).all()
+    for old in existing:
+        db.delete(old)
+    db.flush()
+
+    document = ScanDocument(
+        school_id=school_id, assessment_id=assessment_id, student_id=student_id,
+        kind=kind, page_count=len(pages), sha256=digest.hexdigest(),
+        uploaded_by=uploaded_by[:120],
+    )
+    db.add(document)
+    db.flush()
+    for index, (content, content_type, quality) in enumerate(pages):
+        db.add(ScanPage(
+            document_id=document.id, index=index, content_type=content_type,
+            byte_size=len(content), quality=quality, content=content,
+        ))
+    db.flush()
+    return document
+
+
+def _view(document: ScanDocument) -> dict:
+    return {
+        "document_id": document.id,
+        "kind": document.kind,
+        "assessment_id": document.assessment_id,
+        "student_id": document.student_id,
+        "page_count": document.page_count,
+        "sha256": document.sha256,
+        "uploaded_by": document.uploaded_by,
+        "uploaded_at": document.created_at.isoformat() if document.created_at else None,
+        "confirmed_at": document.confirmed_at.isoformat() if document.confirmed_at else None,
+        "confirmed_by": document.confirmed_by,
+        #: Every page addressable on its own, so a viewer can page through a script.
+        "pages": [
+            {
+                "index": p.index,
+                "content_type": p.content_type,
+                "byte_size": p.byte_size,
+                "quality": p.quality,
+                "url": f"/documents/{document.id}/pages/{p.index}",
+            }
+            for p in document.pages
+        ],
+    }
+
+
+@router.post("/assessments/{assessment_id}/answers/{student_id}/pages")
+async def upload_answer_sheet(
+    assessment_id: str,
+    student_id: str,
+    files: list[UploadFile] = File(...),
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> dict:
+    """One student's answer script, in the order the pages are sent.
+
+    Stored against the paper as well as the student, because a script with no paper is a
+    stack of photographs nobody can mark, and marks with no script are a claim nobody can
+    check.
+    """
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != school.id:
+        raise HTTPException(404, "not found")
+    student = db.get(StudentProfile, student_id)
+    if student is None or student.school_id != school.id:
+        raise HTTPException(404, "not found")
+    if not files:
+        raise HTTPException(422, "no pages were sent")
+
+    pages: list[tuple[bytes, str, dict | None]] = []
+    for upload in files:
+        content = await upload.read()
+        if not content:
+            raise HTTPException(422, f"{upload.filename or 'a page'} is empty")
+        if len(content) > MAX_PAGE_BYTES:
+            raise HTTPException(
+                413, f"{upload.filename or 'a page'} is larger than "
+                     f"{MAX_PAGE_BYTES // 1024 // 1024} MB"
+            )
+        pages.append((content, content_type_for(upload.filename, upload.content_type), None))
+
+    document = store_document(
+        db, school_id=school.id, assessment_id=assessment.id, student_id=student.id,
+        kind="answer_sheet", pages=pages,
+    )
+    db.commit()
+    db.refresh(document)
+    return _view(document)
+
+
+@router.post("/documents/{document_id}/confirm")
+def confirm_document(
+    document_id: str,
+    body: dict | None = None,
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> dict:
+    """A person says these are the right pages, in the right order.
+
+    Kept separate from the upload: pages arriving is a fact about the network, and pages
+    being correct is a judgement somebody has to make and be named for.
+    """
+    document = db.get(ScanDocument, document_id)
+    if document is None or document.school_id != school.id:
+        raise HTTPException(404, "not found")
+    document.confirmed_at = datetime.now(UTC)
+    document.confirmed_by = str((body or {}).get("by", ""))[:120] or None
+    db.commit()
+    db.refresh(document)
+    return _view(document)
+
+
+@router.delete("/documents/{document_id}", status_code=204)
+def delete_document(
+    document_id: str,
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> None:
+    """Remove a scanned document -- a question paper or an answer script -- and its pages.
+
+    A mis-scanned or wrong-student upload needs a way out that is not "upload a blank
+    replacement and hope nobody opens the old one": `store_document` already replaces a
+    script on re-upload, but there was no way to remove one that should never have existed
+    at all. Hard delete: ScanDocument's `pages` relationship cascades to ScanPage, so
+    nothing is left behind.
+    """
+    document = db.get(ScanDocument, document_id)
+    if document is None or document.school_id != school.id:
+        raise HTTPException(404, "not found")
+    db.delete(document)
+    db.commit()
+
+
+@router.get("/assessments/{assessment_id}/documents")
+def list_documents(
+    assessment_id: str,
+    student_id: str | None = None,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != school.id:
+        raise HTTPException(404, "not found")
+    query = select(ScanDocument).where(ScanDocument.assessment_id == assessment.id)
+    if student_id:
+        query = query.where(ScanDocument.student_id == student_id)
+    return {"documents": [_view(d) for d in db.scalars(query)]}
+
+
+@router.get("/students/{student_id}/documents")
+def list_student_documents(
+    student_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Every script this student has, newest first. What the student record shows."""
+    student = db.get(StudentProfile, student_id)
+    if student is None or student.school_id != school.id:
+        raise HTTPException(404, "not found")
+    documents = db.scalars(
+        select(ScanDocument)
+        .where(ScanDocument.student_id == student_id)
+        .order_by(ScanDocument.created_at.desc())
+    ).all()
+    titles = {
+        a.id: a.title for a in db.scalars(
+            select(Assessment).where(
+                Assessment.id.in_([d.assessment_id for d in documents] or [""])
+            )
+        )
+    }
+    return {
+        "documents": [
+            {**_view(d), "assessment_title": titles.get(d.assessment_id)} for d in documents
+        ]
+    }
+
+
+@router.get("/documents/{document_id}/pages/{index}")
+def read_page(
+    document_id: str,
+    index: int,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> Response:
+    """One page, as it was scanned.
+
+    Tenancy is checked on the document, not the page: a page id that leaked would
+    otherwise be a way to read another school's script.
+    """
+    document = db.get(ScanDocument, document_id)
+    if document is None or document.school_id != school.id:
+        raise HTTPException(404, "not found")
+    page = db.scalar(
+        select(ScanPage).where(ScanPage.document_id == document.id, ScanPage.index == index)
+    )
+    if page is None:
+        raise HTTPException(404, "no such page")
+    return Response(
+        content=page.content,
+        media_type=page.content_type,
+        headers={
+            # Immutable: replacing a page writes a new document, so a cached page can
+            # never be a stale version of a different one.
+            "Cache-Control": "private, max-age=3600",
+            "Content-Disposition": f'inline; filename="page-{index + 1}"',
+        },
+    )

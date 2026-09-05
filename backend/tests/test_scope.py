@@ -120,3 +120,26 @@ def test_the_tally_covers_every_chapter_that_voted_including_the_rejected():
     ]))
     assert set(scope.tally) == {"Real Numbers", "Probability"}
     assert scope.tally["Probability"][0] == 1
+
+
+def test_the_browser_is_allowed_the_headers_and_methods_the_frontend_actually_uses(client):
+    """A header or method missing from the CORS list fails in the browser and nowhere else:
+    every server-side test still passes, so it is found by a person, in production.
+
+    This asserts against the routes that exist rather than a copied list, so adding a PATCH
+    route without allowing PATCH fails here instead of silently.
+    """
+    from app.main import app
+
+    cors = next(
+        m for m in app.user_middleware if m.cls.__name__ == "CORSMiddleware"
+    ).kwargs
+
+    for route in app.routes:
+        for method in getattr(route, "methods", set()) or set():
+            if method in ("HEAD", "OPTIONS"):
+                continue
+            assert method in cors["allow_methods"], f"{method} is used but not allowed"
+
+    for header in ("X-API-Key", "X-Platform-Key", "X-School-Id", "Content-Type"):
+        assert header in cors["allow_headers"], f"{header} is sent but not allowed"

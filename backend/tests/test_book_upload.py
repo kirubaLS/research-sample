@@ -315,3 +315,607 @@ def test_a_family_under_a_chapter_that_does_not_exist_is_refused(client, school)
     )
     assert r.json()["created"] == 0
     assert "X.MATH.NOSUCHCHAPTER" in r.json()["unknown_chapters"]
+
+
+# --- proposing families by reading the chapter ---------------------------------------------
+
+def test_proposing_with_a_model_refuses_without_a_key_rather_than_falling_back(client):
+    """Falling back to the headings here would be the worst outcome: the caller asked for
+    the reading, would be billed nothing, and would get a different answer with nothing
+    saying so."""
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = None
+    try:
+        # force=true so the request reaches the key check rather than stopping at the
+        # already-has-proposals conflict, which depends on what else has run.
+        r = client.post(
+            "/platform/books/X.MATH/concept-families/propose-llm?force=true", headers=HEAD
+        )
+    finally:
+        settings.anthropic_api_key = before
+    assert r.status_code in (422, 503), r.text
+    if r.status_code == 503:
+        assert "YAADHUM_ANTHROPIC_API_KEY" in r.json()["detail"]
+
+
+def test_proposals_read_back_empty_before_any_run(client):
+    # A subject no run has touched. Asking X.MATH made this assertion a statement about
+    # every other test in the suite rather than about the endpoint.
+    body = client.get("/platform/books/X.SCI/concept-families/proposals", headers=HEAD).json()
+    assert body["proposed"] == 0 and body["families"] == [] and body["runs"] == []
+
+
+def test_a_stored_run_reads_back_with_its_evidence_and_blocks_a_silent_rerun(client):
+    """The pass costs real money. A second one must be asked for explicitly, and must not
+    overwrite the proposals a person may already have reviewed."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal, TaxonomyNode
+
+    db = SessionLocal()
+    chapter = db.scalar(
+        select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS")
+    )
+    run = str(uuid.uuid4())
+    db.add(
+        ConceptFamilyProposal(
+            curriculum_version="CBSE-2026-27", subject_code="X.MATH", run_id=run,
+            source="llm", model="claude-haiku-4-5",
+            code="X.MATH.CF.STEP_DEVIATION_METHOD", label="Step-deviation method",
+            chapter_id=chapter.id if chapter else None,
+            rationale="Exercise 14.1 drills it separately from the direct method.",
+            evidence=["EXERCISE 14.1"], from_sections=["14.1"],
+        )
+    )
+    db.commit()
+    db.close()
+
+    body = client.get("/platform/books/X.MATH/concept-families/proposals", headers=HEAD).json()
+    assert body["proposed"] == 1
+    [family] = body["families"]
+    assert family["label"] == "Step-deviation method"
+    assert family["evidence"] == ["EXERCISE 14.1"]     # the proof travels with the proposal
+    assert family["applied_at"] is None                # stored is not applied
+
+    again = client.post("/platform/books/X.MATH/concept-families/propose-llm", headers=HEAD)
+    assert again.status_code == 409
+    assert "force=true" in again.json()["detail"]
+
+
+def test_a_stored_proposal_carries_the_chapter_code_needed_to_apply_it(client):
+    """POST /concept-families is keyed on chapter_code. Returning only a display label
+    made the review-then-apply round trip impossible: the chapter silently landed in
+    unknown_chapters and the family was never created."""
+    body = client.get(
+        "/platform/books/X.MATH/concept-families/proposals", headers=HEAD
+    ).json()
+    assert body["families"], "expected the proposal stored by the previous test"
+    [family] = body["families"]
+    assert family["chapter_code"] == "X.MATH.STATS"
+    assert family["chapter"] == "Statistics"
+
+    # The exact shape the apply endpoint reads, built only from what this response gave us.
+    applied = client.post(
+        "/platform/books/X.MATH/concept-families",
+        headers=HEAD,
+        json={"families": [{
+            "code": family["code"],
+            "label": family["label"],
+            "chapter_code": family["chapter_code"],
+        }]},
+    )
+    assert applied.status_code == 201, applied.text
+    assert applied.json() == {
+        "created": 1, "already_existed": 0, "unknown_chapters": [],
+        "note": "Existing families are left alone; a rename would break past comparisons.",
+    }
+
+
+def test_a_chapter_that_fails_does_not_throw_away_the_chapters_already_paid_for(
+    client, school
+):
+    """A failure on one chapter used to abort the request with a bare 500: the money was
+    spent, the work was done, and nothing was kept or explained. Each chapter is now
+    committed as it completes, and the failure is reported with its reason."""
+    from unittest.mock import patch
+
+    from sqlalchemy import select
+
+    from app.curriculum.llm_families import FamilyProposal
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal
+
+    settings = get_settings()
+    before_key = settings.anthropic_api_key
+    settings.anthropic_api_key = "sk-not-used-the-call-is-patched"
+
+    # Two chapters with content, so one can succeed while the other fails.
+    db = SessionLocal()
+    from app.models import BookChunk, TaxonomyNode
+
+    for code, section, ref in (
+        ("X.MATH.STATS", "S14_1", "Section 14.1"),
+        ("X.MATH.PROB", "S15_1", "Section 15.1"),
+    ):
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        node = TaxonomyNode(
+            kind="subtopic", code=f"{code}.{section}", label="A section",
+            parent_id=chapter.id, path=f"{code}.{section}",
+            curriculum_version=chapter.curriculum_version,
+        )
+        db.add(node)
+        db.flush()
+        db.add(BookChunk(
+            curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+            node_id=node.id, bucket="T", reference=ref,
+            text="taught content", normalised="taught content", stem_hash=ref,
+        ))
+    db.commit()
+    db.close()
+
+    calls = {"n": 0}
+
+    def flaky(self, chapter_label, passages):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise RuntimeError("upstream said no")
+        return [FamilyProposal(label=f"Family for {chapter_label}", rationale="r",
+                               evidence=[passages[0][0]], from_sections=[])]
+
+    try:
+        with patch(
+            "app.curriculum.llm_families.AnthropicFamilyProposer.propose", flaky
+        ):
+            r = client.post(
+                "/platform/books/X.MATH/concept-families/propose-llm",
+                headers=HEAD, params={"force": "true"},
+            )
+    finally:
+        settings.anthropic_api_key = before_key
+
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert len(body["failed"]) == 1
+    assert "upstream said no" in body["failed"][0]["error"]
+    assert body["proposed"] >= 1, "the chapters that succeeded must survive the one that did not"
+    assert "re-run with force=true" in body["warning"]
+
+    db = SessionLocal()
+    stored = db.scalars(
+        select(ConceptFamilyProposal).where(ConceptFamilyProposal.run_id == body["run_id"])
+    ).all()
+    db.close()
+    assert len(stored) == body["proposed"]
+
+
+def test_the_book_status_says_which_chapters_have_nothing_behind_them(client):
+    """A whole-book total hides the one thing that decides whether a paper can be read.
+
+    A chapter with no passages can never be matched, so every question from it comes back
+    "no chapter in the book matched" -- and the screen said 213 chunks loaded.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import BookChunk, TaxonomyNode
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+
+    db = SessionLocal()
+    stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+    db.add(BookChunk(
+        curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+        node_id=stats.id, bucket="T", reference="Section 13.2", section_number="13.2",
+        text="the mean of grouped data", normalised="the mean of grouped data",
+        stem_hash="cover-1",
+    ))
+    db.commit()
+    db.close()
+
+    body = client.get("/platform/books/X.MATH", headers=HEAD).json()
+    by_chapter = {c["chapter"]: c for c in body["coverage"]}
+    # Counts are relative, not exact: this suite shares one database, so another test's
+    # chunks land in Statistics too. What has to hold is the distinction the screen draws.
+    assert by_chapter["Statistics"]["chunks"] >= 1
+    assert by_chapter["Statistics"]["with_a_section"] >= 1
+    assert by_chapter["Probability"]["chunks"] == 0
+    # Named, not just counted: the point is knowing which paper cannot be read yet.
+    assert "Probability" in body["chapters_with_nothing_behind_them"]
+    assert "Statistics" not in body["chapters_with_nothing_behind_them"]
+
+
+def test_a_hindi_upload_is_read_through_gemini_not_the_pdfs_own_text_layer(client, monkeypatch):
+    """Kritika's real text layer decodes as mojibake (a pre-Unicode font, no ToUnicode
+    CMap -- see app.ingest.hindi_ocr). Stubs hindi_read_text (app.ingest.hindi_text's
+    dispatcher, which books.py now calls) rather than calling a real backend: what this
+    test checks is that the upload path calls it and threads its answer all the way to a
+    written chapter, not the quality or choice of any one backend's transcription -- and
+    stubbing here rather than one level down (gemini_read_text) means the test does not
+    care whether Tesseract happens to be installed in whatever environment runs it.
+
+    A Hindi upload is backgrounded (see IngestJob) rather than answered directly -- a
+    real OCR call cannot be relied on to finish inside Render's own request timeout.
+    TestClient runs a BackgroundTasks task to completion before client.post() returns, so
+    the job is already resolved by the time this polls its status; a real deployment's
+    browser would poll for longer, but the same two calls -- POST then GET .../jobs/{id}
+    -- are what it does.
+    """
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = "test-gemini-key"
+
+    def fake_hindi_read_text(pdf_bytes, **kwargs):
+        assert kwargs["gemini_api_key"] == "test-gemini-key"
+        # distinguishing by size is enough here: a real 1-page prelims vs. a real chapter
+        return (
+            "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"
+            if len(pdf_bytes) < 2000
+            else "माता का अँचल\nयह एक कहानी है।\nअभ्यास\n1. प्रश्न।\n"
+        )
+
+    monkeypatch.setattr("app.api.books.hindi_read_text", fake_hindi_read_text)
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    contents = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    assert contents.status_code == 202, contents.json()
+    contents_job = client.get(
+        f"/platform/books/X.HIN.KR/jobs/{contents.json()['job_id']}", headers=HEAD,
+    ).json()
+    assert contents_job["status"] == "succeeded", contents_job
+    assert contents_job["chapters_expected"] == 1
+
+    chapter = client.post(
+        "/platform/books/X.HIN.KR/chapters", headers=HEAD,
+        files={"file": ("jhkr101.pdf", io.BytesIO(b"x" * 5000), "application/pdf")},
+    )
+    assert chapter.status_code == 202, chapter.json()
+    chapter_job = client.get(
+        f"/platform/books/X.HIN.KR/jobs/{chapter.json()['job_id']}", headers=HEAD,
+    ).json()
+    assert chapter_job["status"] == "succeeded", chapter_job
+    assert chapter_job["chapter"] == 1
+    assert chapter_job["sections"] == 1
+
+    settings.gemini_api_key = before
+
+
+def test_a_gemini_connection_failure_is_surfaced_not_a_bare_500(client, monkeypatch):
+    """'Could not reach the API' on a request that reached the backend was an unretried
+    transport failure (a dropped connection, a read timeout) bubbling up as an unhandled
+    exception inside the (then-synchronous) upload handler. gemini_read_text now retries
+    that itself, and the call runs in a background job -- this checks what a job's own
+    status shows once retries are exhausted: the same 502 a synchronous upload would have
+    raised, not a job stuck at 'pending' with no visible cause."""
+    import httpx as httpx_module
+
+    from app.config import get_settings
+    from app.ingest.gemini_ocr import gemini_read_text
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = "test-gemini-key"
+
+    def always_fails(pdf_bytes, **kwargs):
+        raise httpx_module.TransportError("[Errno -2] Name or service not known")
+
+    monkeypatch.setattr("app.api.books.hindi_read_text", always_fails)
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    r = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    assert r.status_code == 202, r.json()
+    job = client.get(f"/platform/books/X.HIN.KR/jobs/{r.json()['job_id']}", headers=HEAD)
+    assert job.status_code == 502
+    assert "Gemini could not be reached" in job.json()["detail"]
+
+    settings.gemini_api_key = before
+
+    # not mocked here: a real retry loop that actually retries a transport failure
+    # against an address that will never resolve, confirming it gives up rather than
+    # hanging or raising something this test's own mock could have papered over. A real
+    # one-page PDF, not arbitrary bytes: gemini_read_text renders each page itself now
+    # (one call per page, not per file -- see the module docstring), so it has to open
+    # successfully before the network call it is this test's job to fail.
+    import pymupdf
+
+    doc = pymupdf.open()
+    doc.new_page(width=100, height=100)
+    one_page_pdf = doc.tobytes()
+    doc.close()
+
+    with pytest.raises(RuntimeError, match="failed after"):
+        gemini_read_text(
+            one_page_pdf, api_key="k", model="m",
+            timeout=1.0, max_retries=2,
+        )
+
+
+def test_a_hindi_upload_with_neither_backend_available_fails_the_job_by_name(
+    client, monkeypatch,
+):
+    """app.ingest.hindi_text prefers Tesseract when it is actually installed (see that
+    module's docstring), so 'no Gemini key configured' alone is no longer a failure --
+    only the case where neither backend can run is. ocr_available is forced False here so
+    the test is deterministic regardless of whether the machine running it happens to have
+    tesseract-ocr-hin installed."""
+    from app.config import get_settings
+
+    monkeypatch.setattr("app.ingest.hindi_text.ocr_available", lambda: False)
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = None
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    r = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    assert r.status_code == 202, r.json()
+    job = client.get(f"/platform/books/X.HIN.KR/jobs/{r.json()['job_id']}", headers=HEAD)
+    assert job.status_code == 409
+    assert "Gemini API key" in job.json()["detail"]
+
+    settings.gemini_api_key = before
+
+
+def test_a_hindi_upload_prefers_tesseract_when_it_is_available(client, monkeypatch):
+    """The point of app.ingest.hindi_text: given a choice, use the local, free, more
+    reliable backend rather than the network one, with no Gemini key needed at all."""
+    from app.config import get_settings
+
+    monkeypatch.setattr("app.ingest.hindi_text.ocr_available", lambda: True)
+
+    def fake_ocr_read_text(pdf_bytes):
+        return "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"
+
+    monkeypatch.setattr("app.ingest.hindi_text.ocr_read_text", fake_ocr_read_text)
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = None  # no key at all -- must not be needed
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    r = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    assert r.status_code == 202, r.json()
+    job = client.get(f"/platform/books/X.HIN.KR/jobs/{r.json()['job_id']}", headers=HEAD).json()
+    assert job["status"] == "succeeded", job
+    assert job["chapters_expected"] == 1
+
+    settings.gemini_api_key = before
+
+
+def test_a_noisy_ocr_title_does_not_reject_a_correctly_numbered_hindi_chapter(
+    client, monkeypatch,
+):
+    """The real bug: Kritika's contents page OCR'd chapter 1's title as 'माता का अआँचल ।'
+    (an inserted vowel sign, a stray danda where the page number should be) against the
+    clean 'माता का अँचल' the curriculum entry (X_HINDI_KRITIKA) carries. An exact
+    title_key comparison rejected the chapter over nothing but that OCR noise, even
+    though it is correctly identified by number. Fixed with a difflib similarity ratio,
+    Hindi-only -- this checks the chapter upload succeeds despite the mismatch."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = "test-gemini-key"
+
+    def fake_hindi_read_text(pdf_bytes, **kwargs):
+        if len(pdf_bytes) < 2000:
+            # the noisy real OCR shape for the contents page
+            return "विषय सूची\n. माता का अआँचल ।\n८ शिवपूजन सहाय\n2. साना-साना हाथ जोडि 0\n"
+        return "माता का अँचल\nयह एक कहानी है।\nअभ्यास\n1. प्रश्न।\n"
+
+    monkeypatch.setattr("app.api.books.hindi_read_text", fake_hindi_read_text)
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    contents = client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io.BytesIO(b"x" * 100), "application/pdf")},
+    )
+    contents_job = client.get(
+        f"/platform/books/X.HIN.KR/jobs/{contents.json()['job_id']}", headers=HEAD,
+    ).json()
+    assert contents_job["status"] == "succeeded", contents_job
+
+    chapter = client.post(
+        "/platform/books/X.HIN.KR/chapters", headers=HEAD,
+        files={"file": ("jhkr101.pdf", io.BytesIO(b"x" * 5000), "application/pdf")},
+    )
+    chapter_job = client.get(
+        f"/platform/books/X.HIN.KR/jobs/{chapter.json()['job_id']}", headers=HEAD,
+    ).json()
+    assert chapter_job["status"] == "succeeded", chapter_job
+    assert chapter_job["chapter"] == 1
+
+    settings.gemini_api_key = before
+
+
+def test_a_job_for_another_subject_is_not_found(client):
+    r = client.get("/platform/books/X.HIN.KR/jobs/not-a-real-id", headers=HEAD)
+    assert r.status_code == 404
+
+
+def test_no_db_session_is_open_while_hindi_ocr_runs(client, monkeypatch):
+    """The real bug: _run_ingest_job used to open one session and hold it for the whole
+    job, including the slow OCR call -- which sat idle-in-transaction long enough that
+    Postgres/PgBouncer killed the connection before the job's own final commit could run,
+    losing a result OCR had already produced (psycopg.errors.IdleInTransactionSessionTimeout
+    on the real deployment). Regression-tested by calling _run_ingest_job directly (not
+    through the HTTP client, whose own request-scoped session is a separate concern) and
+    counting how many of *its* sessions are open at the moment OCR runs -- must be zero."""
+    import io as io_module
+
+    from app.api.books import IngestJob, _run_ingest_job
+    from app.config import get_settings
+    from app.db import SessionLocal as real_session_local
+
+    open_sessions = 0
+    max_open_during_ocr = 0
+
+    def tracked_session_local():
+        nonlocal open_sessions
+        session = real_session_local()
+        open_sessions += 1
+        real_close = session.close
+
+        def tracked_close():
+            nonlocal open_sessions
+            open_sessions -= 1
+            real_close()
+
+        session.close = tracked_close
+        return session
+
+    def fake_hindi_read_text(pdf_bytes, **kwargs):
+        nonlocal max_open_during_ocr
+        max_open_during_ocr = max(max_open_during_ocr, open_sessions)
+        return "विषय सूची\n1. माता का अँचल 1\n-शिवपूजन सहाय\n"
+
+    monkeypatch.setattr("app.api.books.hindi_read_text", fake_hindi_read_text)
+
+    settings = get_settings()
+    before = settings.gemini_api_key
+    settings.gemini_api_key = "test-gemini-key"
+
+    client.post("/platform/books/X.HIN.KR/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.HIN.KR/contents", headers=HEAD,
+        files={"file": ("jhkr1ps.pdf", io_module.BytesIO(b"x" * 100), "application/pdf")},
+    )
+
+    db = real_session_local()
+    job = IngestJob(
+        subject_code="X.HIN.KR", curriculum_version="CBSE-2026-27", kind="contents",
+        filename="jhkr1ps.pdf", pdf_bytes=b"y" * 100,
+    )
+    db.add(job)
+    db.commit()
+    job_id = job.id
+    db.close()
+
+    # Patched only for the call under test, not the fixtures/setup above -- so the count
+    # reflects _run_ingest_job's own sessions alone.
+    monkeypatch.setattr("app.db.SessionLocal", tracked_session_local)
+    _run_ingest_job(job_id)
+
+    assert max_open_during_ocr == 0
+
+    settings.gemini_api_key = before
+
+
+def test_status_counts_expected_chapters_for_a_book_with_no_section_list(client):
+    """Every subject but Maths publishes chapter titles only (expected_chapters), not a
+    chapter.section list (expected_sections) -- upload_contents' own "N chapters expected"
+    already falls back to it, but this endpoint's `expected` set read only
+    expected_sections, so every subject but Maths showed "0 chapters expected" here. The
+    frontend treats 0 as falsy and renders it as "5/?" instead of the real total."""
+    from app.db import SessionLocal
+    from app.models import BookSource
+
+    client.post("/platform/books/X.HIST/curriculum", headers=HEAD)
+
+    db = SessionLocal()
+    db.add(BookSource(
+        curriculum_version="CBSE-2026-27", subject_code="X.HIST",
+        expected_sections={}, expected_chapters={"1": "x", "2": "y", "3": "z"}, files={},
+    ))
+    db.commit()
+    db.close()
+
+    body = client.get("/platform/books/X.HIST", headers=HEAD).json()
+    assert body["expected_chapters"] == 3
+
+
+def _one_page(lines: list[str]) -> bytes:
+    import pymupdf
+
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    y = 60
+    for line in lines:
+        page.insert_text((60, y), line, fontsize=10)
+        y += 14
+    data = doc.tobytes()
+    doc.close()
+    return data
+
+
+def test_uploading_a_chapter_again_fills_in_the_sections_it_was_missing(client):
+    """Re-uploading was the obvious fix for a book with no sections, and did nothing.
+
+    A chunk is written only when its hash is absent, and the same file hashes the same, so
+    every chunk already existed and the run reported nothing written -- while the sections
+    it had just worked out were thrown away. Filling the gap in place touches neither the
+    text nor the vector, so a book does not have to be embedded again to gain the topics it
+    always had.
+    """
+    from sqlalchemy import select, update
+
+    from app.db import SessionLocal
+    from app.models import BookChunk
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.MATH/contents", headers=HEAD,
+        files={"file": ("00-contents.pdf", _one_page([
+            "Contents", "13. Statistics", "13.1 Introduction",
+            "13.2 Mean of Grouped Data",
+        ]), "application/pdf")},
+    )
+    chapter = _one_page(
+        ["13 Statistics", "13.1 Introduction"]
+        + ["Statistics is the collection of data. " * 3] * 4
+        + ["13.2 Mean of Grouped Data"]
+        + ["The mean uses class marks. " * 3] * 4
+        # A chapter with no worked example is refused as a bad extraction, and rightly.
+        + ["Example 1 : Find the mean of the distribution."]
+        + ["Working shown here. " * 3] * 4
+    )
+
+    first = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh113.pdf", chapter, "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["chunks"] > 0
+    assert first.json()["sections_filled"] == 0
+
+    # A book loaded before the section was recorded.
+    db = SessionLocal()
+    db.execute(update(BookChunk).values(section_number=None))
+    db.commit()
+    db.close()
+
+    again = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh113.pdf", chapter, "application/pdf")},
+    )
+    assert again.status_code == 201, again.text
+    body = again.json()
+    # Nothing new written -- which is exactly why re-uploading used to be a no-op.
+    assert body["chunks"] == 0
+    assert body["sections_filled"] > 0
+
+    db = SessionLocal()
+    try:
+        filled = db.scalars(
+            select(BookChunk).where(BookChunk.section_number.isnot(None))
+        ).all()
+        assert filled, "the second read worked the sections out and stored none of them"
+    finally:
+        db.close()

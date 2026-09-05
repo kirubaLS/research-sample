@@ -3,6 +3,8 @@
 // deployment, which is why apiBaseIsDefault() exists -- an unset variable in production
 // makes the browser ask the *visitor's* machine for the API, and the resulting failure
 // looks like a dead backend rather than a missing setting.
+import { getActiveSchool } from "@/lib/session";
+
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
 export function apiBase(): string {
@@ -42,15 +44,40 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const detail = await res.text();
     throw new ApiError(res.status, detail || res.statusText);
   }
+  // A DELETE returns 204 with no body -- res.json() throws on empty input, which would
+  // turn a successful deletion into a reported failure.
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
-function authed<T>(path: string, key: string, init?: RequestInit): Promise<T> {
-  return request<T>(path, { ...init, headers: { "X-API-Key": key, ...(init?.headers ?? {}) } });
+/**
+ * Which school this request is about. Sent on every authenticated call because an admin
+ * key belongs to no school and the API refuses rather than guessing one. A principal's
+ * key names its school and the API never reads this, so it is harmless to send.
+ */
+function scopeHeader(): Record<string, string> {
+  const active = getActiveSchool();
+  return active ? { "X-School-Id": active } : {};
 }
 
+function authed<T>(path: string, key: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, {
+    ...init,
+    headers: { "X-API-Key": key, ...scopeHeader(), ...(init?.headers ?? {}) },
+  });
+}
+
+/**
+ * The console takes two credentials -- the operator key that bootstraps a deployment, and
+ * an admin key that names no school. They arrive on different headers, and which one is
+ * held is not worth tracking separately, so the stored secret is offered as both: the
+ * wrong one simply matches nothing.
+ */
 function operator<T>(path: string, key: string, init?: RequestInit): Promise<T> {
-  return request<T>(path, { ...init, headers: { "X-Platform-Key": key, ...(init?.headers ?? {}) } });
+  return request<T>(path, {
+    ...init,
+    headers: { "X-Platform-Key": key, "X-API-Key": key, ...(init?.headers ?? {}) },
+  });
 }
 
 // --- dashboard types ------------------------------------------------------------------
@@ -78,10 +105,265 @@ export interface Overview {
   }[];
 }
 
+export interface PaperSummary {
+  id: string;
+  title: string;
+  subject_code: string;
+  paper_code: string | null;
+  total_marks: number | null;
+  created_at: string | null;
+  stage: "empty" | "scanned" | "confirmed" | "mapped";
+  scanned_questions: number;
+  questions: number;
+  mapped_questions: number;
+  students_with_marks: number;
+  ready_for_answer_sheets: boolean;
+}
+
+export interface AnswerRow {
+  address: string;
+  section: string | null;
+  question_no: string;
+  sub_part: string | null;
+  choice_alt: string | null;
+  max_marks: number;
+  stem_text: string | null;
+  chapter: string | null;
+  concept_family: string | null;
+  marks: number | null;
+  state: string | null;
+  source: string | null;
+}
+
+export interface AnswerSheet {
+  assessment: { id: string; title: string; subject_code: string; total_marks: number | null };
+  student: { id: string; name: string; roll_no: string };
+  questions: AnswerRow[];
+  entered: number;
+  remaining: number;
+  scored: number;
+  available: number;
+}
+
+export interface ConfirmAnswersResult {
+  written: number;
+  rejected: { address: string; reason: string }[];
+  scored: number;
+  available: number;
+  remaining: number;
+  complete: boolean;
+}
+
+export interface Proof {
+  question_no: string;
+  section: string | null;
+  sub_part: string | null;
+  choice_alt: string | null;
+  question_type: string | null;
+  stem_text: string | null;
+  logical_page: number | null;
+  curriculum_section: string | null;
+  curriculum_section_title: string | null;
+  concept_variant: string | null;
+  mark_source: string | null;
+  earned: number | null;
+  max_marks: number | null;
+  state: string | null;
+  placement: {
+    source: string | null;
+    confidence: number | null;
+    needs_review: boolean | null;
+    book_evidence: string[];
+    candidates: unknown[];
+    chapter: string | null;
+    concept_family: string | null;
+    board_unit: string | null;
+  } | null;
+}
+
+/** One reported figure, with the questions it was computed from. */
+export interface Finding {
+  kind: string;
+  scope: string;
+  /** The taxonomy code. Stable across cycles, and not for showing to anyone. */
+  key: string;
+  /** What the code is called in the book. Always prefer this on screen. */
+  label: string;
+  earned: number;
+  available: number;
+  questions: number;
+  rate: number | null;
+  ci: [number, number] | null;
+  sufficient: boolean;
+  message: string | null;
+  evidence: Proof[];
+}
+
+export interface StudentDiagnosis {
+  assessment_id: string;
+  assessment_title: string;
+  student_id: string;
+  total: { earned: number; available: number; rate: number | null; questions: number };
+  topic_axis: "concept_family" | "subtopic" | "chapter";
+  topics: Finding[];
+  strengths: Finding[];
+  focus: Finding[];
+  tier_summary: Finding[];
+  findings: Finding[];
+  all_crosstab: Finding[];
+  board_weighted_indicators: {
+    board_unit: string;
+    label: string;
+    /** Percentage points of the board's own weighting, already on a 0-100 scale. */
+    board_weight: number;
+    lost: number;
+    available: number;
+    weighted_loss: number;
+  }[];
+  coverage_gaps: {
+    board_unit: string;
+    label: string;
+    board_weight: number;
+    message: string;
+  }[];
+  not_offered: string[];
+}
+
+export interface ScanPageRef {
+  index: number;
+  content_type: string;
+  byte_size: number;
+  url: string;
+}
+
+export interface ScanDoc {
+  document_id: string;
+  kind: "question_paper" | "answer_sheet";
+  assessment_id: string;
+  assessment_title?: string | null;
+  student_id: string | null;
+  page_count: number;
+  uploaded_at: string | null;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  pages: ScanPageRef[];
+}
+
+export interface IssuedReport {
+  report_id: string;
+  assessment_id: string;
+  assessment_title: string | null;
+  student_id: string;
+  issued_by: string;
+  issued_at: string | null;
+  sha256: string;
+  earned: number;
+  available: number;
+  payload?: StudentDiagnosis;
+}
+
+export interface ReadRow {
+  address: string;
+  section: string | null;
+  question_no: string;
+  choice_alt: string | null;
+  max_marks: number;
+  stem_text: string | null;
+  read: boolean;
+  marks: number | null;
+  state: string | null;
+  origin: string | null;
+  raw_value: string | null;
+  problem: string | null;
+  edited_by: string | null;
+  source_name: string | null;
+}
+
+export interface ReadingSheet {
+  assessment: { id: string; title: string };
+  student: { id: string; name: string; roll_no: string };
+  questions: ReadRow[];
+  read: number;
+  missing: number;
+  blocked: number;
+  can_confirm: boolean;
+}
+
+export interface ReadResult {
+  read: number;
+  used_ocr: boolean;
+  unmatched: { raw_address: string; raw_value: string; reason: string; origin: string }[];
+  questions_on_paper: number;
+  rolls_in_file: string[];
+  problems: string[];
+  source: string;
+  note: string | null;
+}
+
+export interface SatPaper {
+  assessment_id: string;
+  title: string;
+  subject_code: string;
+  created_at: string | null;
+  questions_marked: number;
+}
+
+export interface DashboardPaper {
+  id: string;
+  title: string;
+  subject_code: string;
+  created_at: string | null;
+  questions: number;
+  mapped: number;
+  students_marked: number;
+  paper_stored: boolean;
+  stage: "empty" | "scanned" | "read" | "mapped";
+}
+
+export interface DashboardStudent {
+  student_id: string;
+  name: string;
+  roll_no: string;
+  papers_marked: number;
+  scripts: number;
+  reports: number;
+}
+
+export interface DashboardScript {
+  document_id: string;
+  student_id: string | null;
+  student: string;
+  roll_no: string;
+  assessment_title: string | null;
+  page_count: number;
+  stored_at: string | null;
+  first_page: string | null;
+}
+
+export interface Dashboard {
+  school: { id: string; name: string; state: string | null };
+  counts: {
+    students: number;
+    classes: number;
+    papers: number;
+    papers_read: number;
+    question_papers_stored: number;
+    scripts_stored: number;
+    reports_issued: number;
+    questions_total: number;
+    questions_mapped: number;
+  };
+  papers: DashboardPaper[];
+  students: DashboardStudent[];
+  recent_scripts: DashboardScript[];
+}
+
 export interface RosterRow {
   student_id: string;
   name: string;
   roll_no: string;
+  /** How many papers this student has marks on. Zero is a real answer, not a gap. */
+  papers_marked: number;
   status: "not_started" | "in_progress" | "complete";
   validity: string | null;
   holland_code: string | null;
@@ -147,6 +429,72 @@ export interface IssuedKey {
   api_key_notice: string;
 }
 
+export interface PlatformOverviewRow {
+  id: string;
+  name: string;
+  board: string;
+  state: string | null;
+  students: number;
+  papers: number;
+  answer_scripts: number;
+  reports_issued: number;
+  admin_keys: number;
+  principal_keys: number;
+}
+
+export interface PlatformOverview {
+  schools: PlatformOverviewRow[];
+  totals: {
+    schools: number;
+    students: number;
+    papers: number;
+    answer_scripts: number;
+    reports_issued: number;
+  };
+  cross_school_admin_keys: number;
+}
+
+export interface StaffKeySummary {
+  id: string;
+  /** null for an admin key: it belongs to no school, which is what lets it span them. */
+  school_id: string | null;
+  role: "principal" | "admin";
+  label: string;
+  created_at: string | null;
+  revoked_at: string | null;
+}
+
+export interface FamilyProposal {
+  code: string;
+  label: string;
+  chapter_code: string;
+  chapter_label: string;
+  /** The sections of the chapter this family draws on. Empty means it cannot be chosen
+   *  by section afterwards, so it is worth knowing before creating it. */
+  from_sections: string[];
+  source: string;
+  rationale: string | null;
+  chunks: number;
+  already_exists: boolean;
+}
+
+export interface FamilyProposals {
+  subject: string;
+  existing: number;
+  proposed: number;
+  without_a_section: number;
+  families: FamilyProposal[];
+  note: string;
+}
+
+export interface ChapterCoverage {
+  chapter_code: string;
+  chapter: string;
+  chunks: number;
+  embedded: number;
+  with_a_section: number;
+}
+
 export interface BookStatus {
   subject: string;
   curriculum_ready: boolean;
@@ -158,22 +506,218 @@ export interface BookStatus {
   chunks: number;
   embedded: number;
   embeddings_configured: boolean;
+  /** Per chapter. A healthy whole-book total hides a chapter with nothing behind it. */
+  coverage: ChapterCoverage[];
+  chapters_with_nothing_behind_them: string[];
   next: string;
 }
 
 /** Multipart, so it cannot go through `request` -- setting Content-Type by hand drops the
- *  boundary the server needs to parse the body. */
-async function upload<T>(path: string, key: string, file: File): Promise<T> {
+ *  boundary the server needs to parse the body. The header name is a parameter because
+ *  the operator surface and the school surface authenticate differently, and hard-coding
+ *  one of them here would silently 404 every call from the other. */
+/**
+ * A book upload the backend could not finish inside the request -- a Hindi subject's
+ * text has to come from Gemini, tens of seconds for one call, and Render's own reverse
+ * proxy enforces a request timeout no amount of backend-side retrying can get around. The
+ * upload endpoint answers 202 with a job id instead of blocking, and this is what used to
+ * be a bare fetch becomes: poll GET .../jobs/{id} until it resolves, then hand back
+ * exactly what the synchronous endpoint (every other subject) returns directly, so
+ * uploadContents/uploadChapter's own callers never have to know which happened.
+ *
+ * 2s between polls, 10 minutes before giving up -- long enough for a real chapter PDF, not
+ * so long a genuinely stuck job hangs the page forever with no feedback.
+ */
+async function pollJob<T>(
+  jobsBase: string, key: string, jobId: string,
+  header: "X-Platform-Key" | "X-API-Key",
+): Promise<T> {
+  const deadline = Date.now() + 10 * 60 * 1000;
+  while (true) {
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}${jobsBase}/jobs/${jobId}`, {
+        headers: { [header]: key, ...(header === "X-API-Key" ? scopeHeader() : {}) },
+      });
+    } catch {
+      throw new ApiUnreachable(BASE);
+    }
+    if (!res.ok) {
+      // the job failed -- the same status/detail a synchronous upload would have thrown
+      throw new ApiError(res.status, await res.text());
+    }
+    const body = (await res.json()) as { status: string };
+    if (body.status === "succeeded") return body as T;
+    if (Date.now() > deadline) {
+      throw new ApiError(504, `job ${jobId} did not finish within 10 minutes`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  }
+}
+
+async function upload<T>(
+  path: string,
+  key: string,
+  file: File,
+  header: "X-Platform-Key" | "X-API-Key" = "X-Platform-Key",
+): Promise<T> {
   const body = new FormData();
   body.append("file", file);
   let res: Response;
   try {
-    res = await fetch(`${BASE}${path}`, { method: "POST", headers: { "X-Platform-Key": key }, body });
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { [header]: key, ...(header === "X-API-Key" ? scopeHeader() : {}) },
+      body,
+    });
+  } catch {
+    throw new ApiUnreachable(BASE);
+  }
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  const data = (await res.json()) as Record<string, unknown>;
+  if (data.status === "pending" && typeof data.job_id === "string") {
+    const jobsBase = path.split("?")[0].replace(/\/(contents|chapters)$/, "");
+    return pollJob<T>(jobsBase, key, data.job_id, header);
+  }
+  return data as T;
+}
+
+async function uploadMany<T>(
+  path: string,
+  key: string,
+  files: File[],
+  header: "X-Platform-Key" | "X-API-Key",
+): Promise<T> {
+  const body = new FormData();
+  // The field name repeats rather than being indexed: that is what FastAPI reads as a
+  // list, and the order of appends is the page order the server keeps.
+  for (const file of files) body.append("files", file);
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { [header]: key, ...(header === "X-API-Key" ? scopeHeader() : {}) },
+      body,
+    });
   } catch {
     throw new ApiUnreachable(BASE);
   }
   if (!res.ok) throw new ApiError(res.status, await res.text());
   return (await res.json()) as T;
+}
+
+export interface Subject {
+  subject_code: string;
+  label: string;
+  grade: number;
+  chapters: number;
+  board_units: number;
+  book_loaded: boolean;
+  chunks: number;
+  chunks_embedded: number;
+}
+
+export interface ScanResult {
+  route: "text" | "vision";
+  pages: number;
+  questions: number;
+  sub_parts: number;
+  choice_alternatives: number;
+  context_stems: number;
+  total_marks: number;
+  staged: number;
+  already_promoted: number;
+  declared: {
+    questions: number | null;
+    sections: Record<string, number> | null;
+    total_marks: number | null;
+  };
+  problems: string[];
+}
+
+export interface MappedTo {
+  chapter: string | null;
+  curriculum_section: string | null;
+  /** The book's own heading for that section. */
+  topic: string | null;
+  concept_family: string | null;
+  board_unit: string | null;
+  /** 'R&U' | 'AP' | 'AEC', or null when nothing has worked it out yet. */
+  tier: string | null;
+  tier_label: string | null;
+}
+
+export interface StagedQuestion {
+  address: string;
+  edited_by?: string | null;
+  section: string | null;
+  question_no: string;
+  sub_part: string | null;
+  choice_alt: string | null;
+  max_marks: number | null;
+  /** The shared stem of a question whose sub-parts carry the marks. Worth nothing itself. */
+  is_context: boolean;
+  stem_text: string | null;
+  page: number | null;
+  mapped_to: MappedTo | null;
+  blocked_reason: string | null;
+}
+
+export interface ScanReview {
+  assessment_id: string;
+  route: string;
+  staged: number;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  edited: number;
+  mapped: number;
+  marks_missing: number;
+  /** What was read, against what the paper says it is worth. */
+  marks: { read: number; declared: number | null; short_by: number | null };
+  questions: StagedQuestion[];
+}
+
+export interface ConfirmResult {
+  confirmed_at: string;
+  confirmed_by: string;
+  questions: number;
+  edited: number;
+  total_marks: number;
+}
+
+export interface MapResult {
+  retrieval: string;
+  mapped: number;
+  blocked: number;
+  blocked_addresses: string[];
+  needs_review: number;
+  with_topic: number;
+  context_stems: number;
+}
+
+export interface Spend {
+  model: string;
+  effort: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  passages_shown: number;
+  chapters_shown: number;
+}
+
+export interface PlaceResult {
+  placed: number;
+  /** Questions whose chapter, topic and sub-topic the judge settled on the question. */
+  labelled: number;
+  unsettled_family: number;
+  family_refused: number;
+  /** How many came back with a category. The rest abstained. */
+  tiers: number;
+  needs_review: number;
+  note: string | null;
+  grounding_violations: { question: string; problems: string[] }[];
+  /** What the run actually spent, read back off the responses rather than estimated. */
+  spend: Spend;
 }
 
 export interface ProbeRow {
@@ -226,9 +770,28 @@ export const api = {
     }),
 
   // --- dashboard ---
-  whoami: (key: string) => authed<{ name: string; state: string | null }>("/admin/me", key),
+  whoami: (key: string) =>
+    authed<{
+      name: string;
+      state: string | null;
+      school_id: string;
+      role: "principal" | "admin";
+      scope: "all_schools" | "one_school";
+      can: {
+        read_results: boolean;
+        scan_papers: boolean;
+        enter_marks: boolean;
+        manage_roster: boolean;
+        manage_schools: boolean;
+      };
+    }>("/admin/me", key),
 
   overview: (key: string) => authed<Overview>("/admin/overview", key),
+
+  dashboard: (key: string) => authed<Dashboard>("/admin/dashboard", key),
+
+  /** The subjects this deployment carries. Never a list written into a screen. */
+  subjects: (key: string) => authed<{ subjects: Subject[] }>("/admin/subjects", key),
 
   roster: (key: string, sectionId: string) =>
     authed<{ section: { id: string; label: string; student_path: string }; students: RosterRow[] }>(
@@ -242,10 +805,40 @@ export const api = {
       key,
     ),
 
+  /** Add a student to the roster by hand -- self-registration via the class link is
+   * still the normal path; this is for a correction or a student who has not sat it. */
+  createStudent: (
+    key: string,
+    sectionId: string,
+    body: { name: string; roll_no: string; age?: number; gender?: string; dob?: string },
+  ) =>
+    authed<{ student_id: string; name: string; roll_no: string }>(
+      `/admin/sections/${sectionId}/students`, key, { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  /** Every field optional -- send only what changed. */
+  updateStudent: (
+    key: string,
+    studentId: string,
+    body: { name?: string; roll_no?: string; age?: number; gender?: string; dob?: string },
+  ) =>
+    authed<{ student_id: string; changed: string[] }>(`/admin/students/${studentId}`, key, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  /** Hard delete: the student and every test session, mark and script that names them. */
+  deleteStudent: (key: string, studentId: string) =>
+    authed<void>(`/admin/students/${studentId}`, key, { method: "DELETE" }),
+
   // --- operator console ---
   platformWhoami: (key: string) => operator<{ role: string }>("/platform/me", key),
 
   listSchools: (key: string) => operator<PlatformSchool[]>("/platform/schools", key),
+
+  /** Every school's counts on one screen -- students, papers, answer scripts, issued
+   * reports and active staff keys, summed and broken down per school. */
+  platformOverview: (key: string) => operator<PlatformOverview>("/platform/overview", key),
 
   createSchool: (
     key: string,
@@ -268,6 +861,31 @@ export const api = {
       body: JSON.stringify(section),
     }),
 
+  listAdminKeys: (key: string) => operator<StaffKeySummary[]>("/platform/keys", key),
+
+  issueAdminKey: (key: string, label: string) =>
+    operator<StaffKeySummary & IssuedKey>("/platform/keys", key, {
+      method: "POST",
+      body: JSON.stringify({ role: "admin", label }),
+    }),
+
+  revokeAdminKey: (key: string, keyId: string) =>
+    operator<StaffKeySummary>(`/platform/keys/${keyId}/revoke`, key, { method: "POST" }),
+
+  listStaffKeys: (key: string, schoolId: string) =>
+    operator<StaffKeySummary[]>(`/platform/schools/${schoolId}/keys`, key),
+
+  issueStaffKey: (key: string, schoolId: string, role: string, label: string) =>
+    operator<StaffKeySummary & IssuedKey>(`/platform/schools/${schoolId}/keys`, key, {
+      method: "POST",
+      body: JSON.stringify({ role, label }),
+    }),
+
+  revokeStaffKey: (key: string, schoolId: string, keyId: string) =>
+    operator<{ id: string; revoked_at: string }>(
+      `/platform/schools/${schoolId}/keys/${keyId}/revoke`, key, { method: "POST" },
+    ),
+
   rotateKey: (key: string, schoolId: string) =>
     operator<IssuedKey & { school_id: string; name: string }>(
       `/platform/schools/${schoolId}/rotate-key`,
@@ -279,10 +897,80 @@ export const api = {
   bookStatus: (key: string, subject: string) =>
     operator<BookStatus>(`/platform/books/${subject}`, key),
 
+  /** What families the loaded book's own section headings suggest. */
+  proposeFamilies: (key: string, subject: string) =>
+    operator<FamilyProposals>(`/platform/books/${subject}/concept-families`, key),
+
+  createFamilies: (key: string, subject: string, families: FamilyProposal[]) =>
+    operator<{ created: number; skipped: number; unknown_chapters: string[] }>(
+      `/platform/books/${subject}/concept-families`,
+      key,
+      { method: "POST", body: JSON.stringify({ families }) },
+    ),
+
   setupCurriculum: (key: string, subject: string) =>
     operator<{ label: string; board_units: number; chapters: number; next: string }>(
       `/platform/books/${subject}/curriculum`, key, { method: "POST" },
     ),
+
+  // --- question papers ---
+  createAssessment: (key: string, body: Record<string, unknown>) =>
+    authed<{ assessment_id: string; status: string }>("/assessments", key, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** Rename a paper, or correct its code / total marks. Refused once its scan is confirmed. */
+  editAssessment: (
+    key: string,
+    assessmentId: string,
+    body: { title?: string; paper_code?: string; total_marks?: number },
+  ) =>
+    authed<{ assessment_id: string; changed: string[] }>(`/assessments/${assessmentId}`, key, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  /** Removes the paper and everything staged, scanned, mapped or marked under it. */
+  deleteAssessment: (key: string, assessmentId: string) =>
+    authed<void>(`/assessments/${assessmentId}`, key, { method: "DELETE" }),
+
+  /** Removes one scanned document -- a question paper or an answer script -- and its pages. */
+  deleteDocument: (key: string, documentId: string) =>
+    authed<void>(`/documents/${documentId}`, key, { method: "DELETE" }),
+
+  /** One page or many, PDFs or photographs, in the order given. */
+  scanPaper: (key: string, assessmentId: string, files: File[]) =>
+    uploadMany<ScanResult>(`/assessments/${assessmentId}/scan`, key, files, "X-API-Key"),
+
+  readScan: (key: string, assessmentId: string) =>
+    authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),
+
+  editScanned: (
+    key: string,
+    assessmentId: string,
+    address: string,
+    body: Record<string, unknown>,
+  ) =>
+    authed<{ address: string; changed?: string[]; removed?: boolean }>(
+      `/assessments/${assessmentId}/scan/${encodeURIComponent(address)}`,
+      key,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
+  confirmScan: (key: string, assessmentId: string, by: string) =>
+    authed<ConfirmResult>(`/assessments/${assessmentId}/scan/confirm`, key, {
+      method: "POST",
+      body: JSON.stringify({ by }),
+    }),
+
+  mapPaper: (key: string, assessmentId: string) =>
+    authed<MapResult>(`/assessments/${assessmentId}/map`, key, { method: "POST" }),
+
+  /** The judge reads the passages retrieval found and settles chapter, topic, sub-topic
+   *  and the cognitive category. Needs the classifier key on the API service. */
+  placePaper: (key: string, assessmentId: string) =>
+    authed<PlaceResult>(`/assessments/${assessmentId}/place`, key, { method: "POST" }),
 
   uploadContents: (key: string, subject: string, file: File, edition: string) =>
     upload<{ chapters_expected: number; sections_expected: number; next: string }>(
@@ -308,6 +996,102 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ questions }),
     }),
+
+  listPapers: (key: string) =>
+    authed<{ assessments: PaperSummary[] }>("/assessments", key),
+
+  answerSheet: (key: string, assessmentId: string, studentId: string) =>
+    authed<AnswerSheet>(`/assessments/${assessmentId}/answers/${studentId}`, key),
+
+  confirmAnswers: (
+    key: string,
+    assessmentId: string,
+    studentId: string,
+    answers: { address: string; marks?: number | null; state?: string }[],
+    by: string,
+  ) =>
+    authed<ConfirmAnswersResult>(
+      `/assessments/${assessmentId}/answers/${studentId}/confirm`,
+      key,
+      { method: "POST", body: JSON.stringify({ answers, by }) },
+    ),
+
+  readMarksFile: async (
+    key: string, assessmentId: string, studentId: string, files: File[],
+  ) => {
+    const body = new FormData();
+    // The field name repeats rather than being indexed: that is what FastAPI reads as a
+    // list, and the order of appends is the page order the server keeps.
+    for (const file of files) body.append("files", file);
+    const res = await fetch(
+      `${BASE}/assessments/${assessmentId}/answers/${studentId}/read`,
+      { method: "POST", headers: { "X-API-Key": key, ...scopeHeader() }, body },
+    );
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return (await res.json()) as ReadResult;
+  },
+
+  reading: (key: string, assessmentId: string, studentId: string) =>
+    authed<ReadingSheet>(`/assessments/${assessmentId}/answers/${studentId}/reading`, key),
+
+  editReading: (
+    key: string, assessmentId: string, studentId: string, address: string,
+    body: { marks: number | null; state: string; by: string },
+  ) =>
+    authed<ReadingSheet>(
+      `/assessments/${assessmentId}/answers/${studentId}/reading/${address}`,
+      key,
+      { method: "PATCH", body: JSON.stringify(body) },
+    ),
+
+  confirmReading: (key: string, assessmentId: string, studentId: string, by: string) =>
+    authed<{ written: number; confirmed_by: string }>(
+      `/assessments/${assessmentId}/answers/${studentId}/reading/confirm`,
+      key,
+      { method: "POST", body: JSON.stringify({ by }) },
+    ),
+
+  uploadAnswerPages: (key: string, assessmentId: string, studentId: string, files: File[]) =>
+    uploadMany<ScanDoc>(
+      `/assessments/${assessmentId}/answers/${studentId}/pages`, key, files, "X-API-Key",
+    ),
+
+  /**
+   * One stored page, as a blob.
+   *
+   * Fetched rather than linked: the page endpoint needs the school key, and an <img src>
+   * or a plain link sends no headers, so a link would have been an affordance that shows
+   * nothing. The caller revokes the object URL when it is done with it.
+   */
+  pageBlob: async (key: string, url: string): Promise<string> => {
+    const res = await fetch(`${BASE}${url}`, { headers: { "X-API-Key": key, ...scopeHeader() } });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return URL.createObjectURL(await res.blob());
+  },
+
+  studentDocuments: (key: string, studentId: string) =>
+    authed<{ documents: ScanDoc[] }>(`/students/${studentId}/documents`, key),
+
+  issueReport: (key: string, studentId: string, assessmentId: string, by: string) =>
+    authed<IssuedReport>(`/reports/student/${studentId}/issue`, key, {
+      method: "POST",
+      body: JSON.stringify({ assessment_id: assessmentId, by }),
+    }),
+
+  issuedReports: (key: string, studentId: string) =>
+    authed<{ reports: IssuedReport[] }>(`/reports/student/${studentId}/issued`, key),
+
+  studentPapers: (key: string, studentId: string) =>
+    authed<{ student: { id: string; name: string; roll_no: string }; assessments: SatPaper[] }>(
+      `/reports/student/${studentId}/assessments`,
+      key,
+    ),
+
+  studentDiagnosis: (key: string, studentId: string, assessmentId: string) =>
+    authed<StudentDiagnosis>(
+      `/reports/student/${studentId}?assessment_id=${encodeURIComponent(assessmentId)}`,
+      key,
+    ),
 
   interestReport: (key: string, studentId: string) =>
     authed<InterestReport>(`/reports/interest/${studentId}`, key),
