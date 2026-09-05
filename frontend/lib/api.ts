@@ -780,6 +780,32 @@ export const api = {
       key,
     ),
 
+  /** Add a student to the roster by hand -- self-registration via the class link is
+   * still the normal path; this is for a correction or a student who has not sat it. */
+  createStudent: (
+    key: string,
+    sectionId: string,
+    body: { name: string; roll_no: string; age?: number; gender?: string; dob?: string },
+  ) =>
+    authed<{ student_id: string; name: string; roll_no: string }>(
+      `/admin/sections/${sectionId}/students`, key, { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  /** Every field optional -- send only what changed. */
+  updateStudent: (
+    key: string,
+    studentId: string,
+    body: { name?: string; roll_no?: string; age?: number; gender?: string; dob?: string },
+  ) =>
+    authed<{ student_id: string; changed: string[] }>(`/admin/students/${studentId}`, key, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+
+  /** Hard delete: the student and every test session, mark and script that names them. */
+  deleteStudent: (key: string, studentId: string) =>
+    authed<void>(`/admin/students/${studentId}`, key, { method: "DELETE" }),
+
   // --- operator console ---
   platformWhoami: (key: string) => operator<{ role: string }>("/platform/me", key),
 
