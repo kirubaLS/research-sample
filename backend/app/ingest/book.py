@@ -89,6 +89,12 @@ BARE_DRILL_LABEL = re.compile(
 #: still needs this.
 HINDI_DRILL_LABEL = re.compile(r"^\s*अभ्यास\s*$", re.M)
 
+#: Tamil's own fixed end-of-chapter heading, confirmed against the real jhtl101-equivalent
+#: chapter file (chapter 1): a standing phrase introducing the questions that close a
+#: literature chapter, the same role 'EXERCISES'/'अभ्यास' play elsewhere in this module.
+#: Trailing dots vary (the real heading ends in an ellipsis).
+TAMIL_DRILL_LABEL = re.compile(r"^\s*கற்பவை\s+கற்றபின்\.*\s*$", re.M)
+
 #: Some First Flight chapters (Two Stories about Flying, The Sermon at Benares, The
 #: Proposal -- jeff103/108/109) close a story, poem or play with a plain numbered
 #: question list and NO fixed label at all in front of it: the play's own last line
@@ -110,6 +116,14 @@ ENGLISH_NUMBERED_QUESTION = re.compile(r"^[ \t]*(\d{1,2})\.[ \t]*\n(?=[A-Z(\"'�
 #: _recover_hindi_first_chapter_number) -- the digit group is optional so a bare '. <text>'
 #: still counts.
 HINDI_NUMBERED_QUESTION = re.compile(r"^[ \t]*(\d{1,2})?\.[ \t]+(?=[ऀ-ॿ])", re.M)
+
+#: Tamil's own shape of the same numbered-list-under-a-fixed-heading pattern (see
+#: TAMIL_DRILL_LABEL): the number and a trailing tab sit alone on their own line, like
+#: English's layout rather than Hindi's same-line one, with the question text starting on
+#: the next line -- confirmed against the real chapter 1 file, where each question opens
+#: with a quotation mark rather than a bare Tamil letter, hence the quote characters in
+#: the lookahead alongside the Tamil block itself.
+TAMIL_NUMBERED_QUESTION = re.compile(r"^[ \t]*(\d{1,2})\.[ \t]*\n(?=[ \t]*[஀-௿\"“])", re.M)
 #: The one place a bare numbered list is NOT a student exercise: 'WHAT YOU CAN DO', a
 #: teacher-facing box of classroom instructions ('1.\nRead and discuss the following
 #: extract... with the students'), sitting right beside real exercises the same shape.
@@ -1122,6 +1136,10 @@ def extract_chunks(
     # only Hindi's caller would ever set.
     for n, m in enumerate(HINDI_DRILL_LABEL.finditer(text), start=1):
         markers.append((m.start(), "exercise", "E", f"अभ्यास {chapter}.{n}"))
+    # Same reasoning as HINDI_DRILL_LABEL: Tamil-script-only, so it can never match
+    # another book's markers -- run unconditionally rather than gating on a flag.
+    for n, m in enumerate(TAMIL_DRILL_LABEL.finditer(text), start=1):
+        markers.append((m.start(), "exercise", "E", f"கற்பவை கற்றபின் {chapter}.{n}"))
     if bare_numbered_questions:
         for n, m in enumerate(ENGLISH_NUMBERED_QUESTION.finditer(text), start=1):
             lookback = text[max(0, m.start() - 40):m.start()].rstrip()
@@ -1130,6 +1148,8 @@ def extract_chunks(
             markers.append((m.start(), "exercise", "E", f"Question {chapter}.{n}"))
         for n, m in enumerate(HINDI_NUMBERED_QUESTION.finditer(text), start=1):
             markers.append((m.start(), "exercise", "E", f"प्रश्न {chapter}.{n}"))
+        for n, m in enumerate(TAMIL_NUMBERED_QUESTION.finditer(text), start=1):
+            markers.append((m.start(), "exercise", "E", f"வினா {chapter}.{n}"))
 
     markers.sort()
     # A reference appearing twice is a back-reference in body text, not a restatement:
