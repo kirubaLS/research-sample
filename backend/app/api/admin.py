@@ -14,17 +14,23 @@ from app.api.deps import (
     Staff,
     current_staff,
     require_reader,
+    require_scanner,
     require_staff,
     school_in_scope,
 )
+from app.api.schemas import StudentCreateIn, StudentUpdateIn
 from app.curriculum import CURRICULA
 from app.db import get_session
 from app.models import (
     Assessment,
     BookChunk,
+    DataQualityFlag,
+    ItemResponse,
     MarkEvent,
     ProfileResult,
+    ProposedMark,
     Question,
+    ScaleScore,
     ScanDocument,
     School,
     Section,
@@ -65,8 +71,11 @@ def whoami(
             # as well as reading them: a deliberate choice, not an oversight.
             "scan_papers": True,
             "enter_marks": True,
-            # The roster, the Q-matrix and the credentials stay with the admin.
-            "manage_roster": staff.is_admin,
+            # The roster is now open to a principal too (add/edit/remove a student in
+            # their own school) -- the same widening require_scanner already made for
+            # scanning and marks. The Q-matrix and the credentials still stay with the
+            # admin: those act across a school's whole setup, not one student's record.
+            "manage_roster": True,
             "manage_schools": staff.is_admin,
         },
     }
@@ -359,6 +368,111 @@ def roster(
         },
         "students": rows,
     }
+
+
+def _student_in_scope(db: Session, school: School, student_id: str) -> StudentProfile:
+    student = db.get(StudentProfile, student_id)
+    if student is None or student.school_id != school.id:
+        raise HTTPException(404, "not found")
+    return student
+
+
+@router.post("/sections/{section_id}/students", status_code=201)
+def create_student(
+    section_id: str, body: StudentCreateIn,
+    school: School = Depends(require_scanner), db: Session = Depends(get_session),
+) -> dict:
+    """Add a student to the roster by hand.
+
+    A principal reaches this the same way they already reach scanning and marks
+    (require_scanner) -- see the roster's own widened scope. self-registration
+    (app.api.interest) is still the normal path for a student who has the class link;
+    this is for the one who does not sit the interest test first, or whose name a
+    principal is correcting before a paper is scanned.
+    """
+    section = db.get(Section, section_id)
+    if section is None or section.school_id != school.id:
+        raise HTTPException(404, "not found")
+
+    existing = db.scalar(
+        select(StudentProfile).where(
+            StudentProfile.section_id == section_id, StudentProfile.roll_no == body.roll_no,
+        )
+    )
+    if existing is not None:
+        raise HTTPException(
+            409, f"roll number {body.roll_no!r} is already in this class -- {existing.name}",
+        )
+
+    student = StudentProfile(
+        school_id=school.id, section_id=section_id, name=body.name, roll_no=body.roll_no,
+        age=body.age, gender=body.gender, dob=body.dob,
+    )
+    db.add(student)
+    db.commit()
+    return {"student_id": student.id, "name": student.name, "roll_no": student.roll_no}
+
+
+@router.patch("/students/{student_id}")
+def edit_student(
+    student_id: str, body: StudentUpdateIn,
+    school: School = Depends(require_scanner), db: Session = Depends(get_session),
+) -> dict:
+    student = _student_in_scope(db, school, student_id)
+
+    if body.roll_no is not None and body.roll_no != student.roll_no:
+        clash = db.scalar(
+            select(StudentProfile).where(
+                StudentProfile.section_id == student.section_id,
+                StudentProfile.roll_no == body.roll_no,
+            )
+        )
+        if clash is not None:
+            raise HTTPException(
+                409, f"roll number {body.roll_no!r} is already in this class -- {clash.name}",
+            )
+
+    changed = []
+    for field_name in ("name", "roll_no", "age", "gender", "dob"):
+        value = getattr(body, field_name)
+        if value is None:
+            continue
+        setattr(student, field_name, value)
+        changed.append(field_name)
+    db.commit()
+    return {"student_id": student.id, "changed": changed}
+
+
+@router.delete("/students/{student_id}", status_code=204)
+def delete_student(
+    student_id: str,
+    school: School = Depends(require_scanner), db: Session = Depends(get_session),
+) -> None:
+    """Remove a student and every record that names them.
+
+    Hard delete, like every other removal in this API -- there is no soft-delete column to
+    honour instead. A principal reaches this the same way they reach the rest of the
+    roster now; unlike delete_assessment (admin-only: a whole paper's worth of everyone
+    else's marks), the blast radius here is scoped to one student's own record, which a
+    principal is already trusted to enter and correct.
+    """
+    student = _student_in_scope(db, school, student_id)
+
+    session_ids = list(
+        db.scalars(select(TestSession.id).where(TestSession.student_id == student_id))
+    )
+    if session_ids:
+        db.execute(ItemResponse.__table__.delete().where(ItemResponse.session_id.in_(session_ids)))
+        db.execute(ScaleScore.__table__.delete().where(ScaleScore.session_id.in_(session_ids)))
+        db.execute(ProfileResult.__table__.delete().where(ProfileResult.session_id.in_(session_ids)))
+    for model in (TestSession, MarkEvent, StudentReport, ProposedMark, DataQualityFlag):
+        db.execute(model.__table__.delete().where(model.student_id == student_id))
+    for document in db.scalars(
+        select(ScanDocument).where(ScanDocument.student_id == student_id)
+    ):
+        db.delete(document)
+    db.delete(student)
+    db.commit()
 
 
 @router.get("/cohort/{section_id}")
