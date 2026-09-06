@@ -22,7 +22,10 @@ Four acts:
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -37,6 +40,7 @@ from app.extraction.gridsheet import read_grid
 from app.extraction.marksheet import parse_address
 from app.models import (
     Assessment,
+    GridSheetJob,
     GridSheetRow,
     MarkEvent,
     ProposedMark,
@@ -139,15 +143,149 @@ def _write_proposed_marks(
         ))
 
 
-@router.post("/{assessment_id}/sections/{section_id}/gridsheet", status_code=201)
+def _finish_gridsheet_job(
+    job_id: str, *, status_value: str, result: dict | None = None,
+    error_status: int | None = None, error_detail: str | None = None,
+) -> None:
+    """Write a job's outcome in its own short-lived session, opened only for this update
+    -- see _run_gridsheet_job's docstring for why a session is never held open across the
+    vision call itself."""
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        job = db.get(GridSheetJob, job_id)
+        if job is None:
+            return
+        job.status = status_value
+        job.result = result
+        job.error_status = error_status
+        job.error_detail = error_detail
+        job.finished_at = datetime.now(UTC)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _run_gridsheet_job(job_id: str) -> None:
+    """The slow part of reading a grid sheet, run after the request that queued it has
+    already returned.
+
+    Two short-lived sessions, never one held open across the vision call: the same lesson
+    IngestJob's own docstring gives for a Hindi book upload -- a session kept open while a
+    slow external call runs sits idle-in-transaction for however long that takes, and
+    Postgres enforces its own idle-in-transaction timeout regardless of what this process
+    is doing.
+
+    Never raises: every failure is caught and written to the job row, because that row is
+    the only place left a failure can be seen once the request that would have shown it
+    has already returned.
+    """
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        job = db.get(GridSheetJob, job_id)
+        if job is None:
+            return
+        document = db.get(ScanDocument, job.document_id)
+        if document is None:
+            _finish_gridsheet_job(
+                job_id, status_value="failed", error_status=404,
+                error_detail="the uploaded sheet's pages went missing before it could be read",
+            )
+            return
+        pages = [(p.content, p.content_type) for p in document.pages]
+        # ScanPage keeps bytes and content type, not the filename it arrived under -- the
+        # same information a single-student script upload already discards.
+        source_name = "class mark-entry sheet"
+        assessment_id, section_id, school_id = job.assessment_id, job.section_id, job.school_id
+    finally:
+        db.close()  # released BEFORE the slow vision call below, not held across it
+
+    reading = read_grid(pages, api_key=get_settings().anthropic_api_key)
+    if reading.refused:
+        _finish_gridsheet_job(job_id, status_value="failed", error_status=422, error_detail=reading.refused)
+        return
+
+    db = SessionLocal()
+    try:
+        school = db.get(School, school_id)
+        assessment = db.get(Assessment, assessment_id)
+        if school is None or assessment is None:
+            _finish_gridsheet_job(
+                job_id, status_value="failed", error_status=404,
+                error_detail="the school or the paper this sheet belonged to was removed",
+            )
+            return
+        questions = list(db.scalars(select(Question).where(Question.assessment_id == assessment.id)))
+        roster = list(db.scalars(select(StudentProfile).where(StudentProfile.section_id == section_id)))
+        by_roll = {s.roll_no: s for s in roster}
+
+        rows: list[GridSheetRow] = []
+        for parsed in reading.rows:
+            student = by_roll.get(parsed.roll_no)
+            if student is None:
+                row_status = "unmatched"
+            elif _name_matches(parsed.name_as_written, student.name):
+                row_status = "clean"
+            else:
+                row_status = "name_mismatch"
+
+            grid_row = GridSheetRow(
+                school_id=school.id, assessment_id=assessment.id, section_id=section_id,
+                document_id=document.id, roll_no=parsed.roll_no,
+                name_as_written=parsed.name_as_written[:200],
+                student_id=student.id if student else None, status=row_status,
+                cells=[
+                    {"question_label": c.question_label, "raw_value": c.raw_value}
+                    for c in parsed.cells
+                ],
+            )
+            db.add(grid_row)
+            db.flush()
+            if student is not None:
+                _write_proposed_marks(db, school, assessment, questions, student, grid_row, source_name)
+            rows.append(grid_row)
+        db.commit()
+
+        result = {
+            "document_id": document.id,
+            "rows": len(rows),
+            "clean": sum(1 for r in rows if r.status == "clean"),
+            "name_mismatch": sum(1 for r in rows if r.status == "name_mismatch"),
+            "unmatched": sum(1 for r in rows if r.status == "unmatched"),
+            "problems": reading.problems,
+            "next": f"/assessments/{assessment.id}/gridsheet/{document.id}",
+        }
+    except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
+        _finish_gridsheet_job(
+            job_id, status_value="failed", error_status=500,
+            error_detail=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    finally:
+        db.close()
+
+    _finish_gridsheet_job(job_id, status_value="succeeded", result=result)
+
+
+@router.post("/{assessment_id}/sections/{section_id}/gridsheet", status_code=status.HTTP_202_ACCEPTED)
 async def upload_gridsheet(
     assessment_id: str,
     section_id: str,
     files: list[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
     school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
-) -> dict:
-    """Read a class mark-entry sheet and stage one row per roll number it names."""
+) -> JSONResponse:
+    """Store a class mark-entry sheet's pages and hand reading it to a background task.
+
+    Storing the pages is fast (no network) and happens here; reading them is the part
+    that calls the vision API and can run past Render's request timeout, so it happens in
+    ``_run_gridsheet_job`` after this returns. Poll GET .../gridsheet/jobs/{job_id} for the
+    result this endpoint used to return directly.
+    """
     assessment = _assessment(db, school, assessment_id)
     section = _section(db, school, section_id)
 
@@ -173,53 +311,46 @@ async def upload_gridsheet(
             )
         pages.append((content, content_type_for(upload.filename, upload.content_type)))
 
-    reading = read_grid(pages, api_key=get_settings().anthropic_api_key)
-    if reading.refused:
-        raise HTTPException(422, reading.refused)
-
     document = store_document(
         db, school_id=school.id, assessment_id=assessment.id, student_id=None,
         kind="mark_grid", pages=[(content, content_type, None) for content, content_type in pages],
         uploaded_by="",
     )
-
-    roster = list(db.scalars(select(StudentProfile).where(StudentProfile.section_id == section.id)))
-    by_roll = {s.roll_no: s for s in roster}
-    source_name = files[0].filename or "grid sheet"
-
-    rows: list[GridSheetRow] = []
-    for parsed in reading.rows:
-        student = by_roll.get(parsed.roll_no)
-        if student is None:
-            status = "unmatched"
-        elif _name_matches(parsed.name_as_written, student.name):
-            status = "clean"
-        else:
-            status = "name_mismatch"
-
-        grid_row = GridSheetRow(
-            school_id=school.id, assessment_id=assessment.id, section_id=section.id,
-            document_id=document.id, roll_no=parsed.roll_no,
-            name_as_written=parsed.name_as_written[:200],
-            student_id=student.id if student else None, status=status,
-            cells=[{"question_label": c.question_label, "raw_value": c.raw_value} for c in parsed.cells],
-        )
-        db.add(grid_row)
-        db.flush()
-        if student is not None:
-            _write_proposed_marks(db, school, assessment, questions, student, grid_row, source_name)
-        rows.append(grid_row)
+    job = GridSheetJob(
+        school_id=school.id, assessment_id=assessment.id, section_id=section.id,
+        document_id=document.id,
+    )
+    db.add(job)
     db.commit()
+    background_tasks.add_task(_run_gridsheet_job, job.id)
 
-    return {
-        "document_id": document.id,
-        "rows": len(rows),
-        "clean": sum(1 for r in rows if r.status == "clean"),
-        "name_mismatch": sum(1 for r in rows if r.status == "name_mismatch"),
-        "unmatched": sum(1 for r in rows if r.status == "unmatched"),
-        "problems": reading.problems,
-        "next": f"/assessments/{assessment.id}/gridsheet/{document.id}",
-    }
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "job_id": job.id, "status": "pending", "document_id": document.id,
+            "next": f"Poll GET /assessments/{assessment.id}/gridsheet/jobs/{job.id} for the result.",
+        },
+    )
+
+
+@router.get("/{assessment_id}/gridsheet/jobs/{job_id}")
+def get_gridsheet_job(
+    assessment_id: str,
+    job_id: str,
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Poll for the result of reading a grid sheet -- see GridSheetJob and
+    upload_gridsheet. A failed job carries the same status code and detail a synchronous
+    read would have raised, not a bare 'failed'."""
+    job = db.get(GridSheetJob, job_id)
+    if job is None or job.assessment_id != assessment_id or job.school_id != school.id:
+        raise HTTPException(404, f"no job {job_id!r} for this paper")
+    if job.status == "failed":
+        raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
+    if job.status != "succeeded":
+        return {"job_id": job.id, "status": job.status}
+    return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
 
 
 @router.get("/{assessment_id}/gridsheet/{document_id}")
