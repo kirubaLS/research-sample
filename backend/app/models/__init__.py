@@ -23,6 +23,8 @@ from app.models.corpus import (
 )
 from app.models.documents import (
     DOCUMENT_KINDS,
+    GRID_ROW_STATUSES,
+    GridSheetRow,
     ProposedMark,
     ScanDocument,
     ScanPage,
@@ -63,6 +65,7 @@ __all__ = [
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
     "STAFF_ROLES", "StaffKey",
     "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport", "ProposedMark",
+    "GRID_ROW_STATUSES", "GridSheetRow",
     "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
     "CaptureAsset", "Crop", "Prediction", "HumanLabel", "Disagreement",
 ]

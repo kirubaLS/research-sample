@@ -33,7 +33,9 @@ from app.models.base import Base, PkMixin, TimestampMixin
 
 #: What a stored document is. A question paper belongs to an assessment; an answer sheet
 #: belongs to an assessment *and* a student, which is what joins a script to the marks.
-DOCUMENT_KINDS = ("question_paper", "answer_sheet")
+#: A mark grid belongs to an assessment and a section -- it holds many students at once,
+#: so it carries no single student_id of its own.
+DOCUMENT_KINDS = ("question_paper", "answer_sheet", "mark_grid")
 
 
 class ScanDocument(Base, PkMixin, TimestampMixin):
@@ -59,6 +61,9 @@ class ScanDocument(Base, PkMixin, TimestampMixin):
 
     pages: Mapped[list[ScanPage]] = relationship(
         back_populates="document", cascade="all, delete-orphan", order_by="ScanPage.index"
+    )
+    grid_rows: Mapped[list[GridSheetRow]] = relationship(
+        back_populates="document", cascade="all, delete-orphan"
     )
 
 
@@ -143,3 +148,49 @@ class ProposedMark(Base, PkMixin, TimestampMixin):
     #: on. A row with a problem is shown and blocked, never dropped and never repaired.
     problem: Mapped[str | None] = mapped_column(String(300), nullable=True)
     edited_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+
+
+#: A row's standing on a class mark-entry sheet, before its marks are trusted.
+GRID_ROW_STATUSES = ("unmatched", "name_mismatch", "clean")
+
+
+class GridSheetRow(Base, PkMixin, TimestampMixin):
+    """One student's row on a class mark-entry sheet, before it becomes an ordinary
+    per-student proposal.
+
+    A grid sheet holds many students at once, so a roll number has to be resolved to a
+    real student before anything from its row can join the same ProposedMark table every
+    other reading writes to. Until that happens the row's cells are held here, exactly as
+    read; once resolved, they become ProposedMarks like any other reading and this row
+    keeps only the identity trail -- who it was on the sheet, who it turned out to be, and
+    whether a person had to decide that.
+    """
+
+    __tablename__ = "grid_sheet_row"
+    __table_args__ = (UniqueConstraint("document_id", "roll_no", name="uq_grid_row"),)
+
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
+    section_id: Mapped[str] = mapped_column(ForeignKey("section.id"), index=True)
+    document_id: Mapped[str] = mapped_column(
+        ForeignKey("scan_document.id", ondelete="CASCADE"), index=True
+    )
+    roll_no: Mapped[str] = mapped_column(String(16))
+    #: exactly as the sheet spelled it -- a display check against the roster, never the
+    #: join key itself
+    name_as_written: Mapped[str] = mapped_column(String(200), default="")
+    student_id: Mapped[str | None] = mapped_column(
+        ForeignKey("student_profile.id"), index=True, nullable=True
+    )
+    #: "unmatched" -- no student found for this roll; "name_mismatch" -- matched, but the
+    #: handwritten name and the roster name disagree enough to ask a person; "clean" --
+    #: matched and named consistently, or a person has since said so. Only a "clean" row
+    #: is offered by the bulk-confirm action.
+    status: Mapped[str] = mapped_column(String(16), default="unmatched")
+    #: the sheet's own cells for this row, kept exactly as read -- {question_label,
+    #: raw_value} -- so a row can be re-resolved to a different or a new student without
+    #: reading the image again
+    cells: Mapped[list] = mapped_column(JSON, default=list)
+    note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    document: Mapped[ScanDocument] = relationship(back_populates="grid_rows")
