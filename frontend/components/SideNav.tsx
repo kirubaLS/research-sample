@@ -30,6 +30,7 @@ const WORK: Item[] = [
   { href: "/admin", label: "Dashboard", glyph: "▤" },
   { href: "/admin/paper", label: "Question paper", glyph: "▦" },
   { href: "/admin/answers", label: "Answer sheet", glyph: "▧" },
+  { href: "/admin/gridsheet", label: "Class mark sheet", glyph: "▥" },
   { href: "/admin/scan", label: "Scan scripts", glyph: "▨" },
 ];
 
