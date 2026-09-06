@@ -5,7 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -22,6 +22,7 @@ from app.analysis.diagnostics import (
     skill_by_tier,
 )
 from app.analysis.paper_quality import cronbach_alpha, item_analysis, typology_alignment
+from app.analysis.report_pdf import render_student_report_pdf
 from app.api.deps import require_reader
 from app.db import get_session
 from app.models import (
@@ -424,6 +425,43 @@ def read_issued_report(
     if record is None or record.school_id != school.id:
         raise HTTPException(404, "not found")
     return _issued_view(record, full=True)
+
+
+@router.get("/issued/{report_id}/pdf")
+def download_issued_report_pdf(
+    report_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> Response:
+    """The same issued report, as an actual PDF file -- something a principal can hand a
+    parent or keep on file, rather than only ever a screen. Renders the exact payload
+    that was frozen at issue time; nothing is recomputed and nothing here can drift from
+    what read_issued_report returns.
+    """
+    record = db.get(StudentReport, report_id)
+    if record is None or record.school_id != school.id:
+        raise HTTPException(404, "not found")
+    student = db.get(StudentProfile, record.student_id)
+    if student is None:
+        raise HTTPException(404, "the student this report was issued for no longer exists")
+
+    try:
+        pdf_bytes = render_student_report_pdf(
+            record, student_name=student.name, roll_no=student.roll_no, school_name=school.name,
+        )
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            501, "PDF generation is not available on this deployment (fpdf2 is not installed)",
+        ) from exc
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="report-{student.roll_no}-{record.id[:8]}.pdf"',
+            "Cache-Control": "private, max-age=3600",
+        },
+    )
 
 
 @router.get("/paper/{assessment_id}")

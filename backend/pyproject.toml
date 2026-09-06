@@ -30,6 +30,11 @@ dependencies = [
   # base, not an extra: a school's marks arrive as a spreadsheet more often than any other
   # way, and a deployment that cannot open one sends them back to typing by hand
   "openpyxl>=3.1",
+  # pure Python, no system library (unlike weasyprint/wkhtmltopdf) -- a Render instance
+  # installs this the same way as everything else. Imported lazily inside the PDF
+  # renderer, the same way AnthropicJudge imports anthropic, so a missing install
+  # degrades only the PDF download, not the whole API's boot.
+  "fpdf2>=2.8",
 ]
 
 [project.optional-dependencies]
