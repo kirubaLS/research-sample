@@ -364,3 +364,56 @@ def test_an_issued_report_does_not_change_when_the_marks_do(
 
     assert live["total"]["earned"] < issued["earned"], "the live report follows the marks"
     assert stored["earned"] == issued["earned"], "the issued one is what was issued"
+
+
+def test_an_issued_report_downloads_as_a_real_pdf(client, school, mapped_paper, student):
+    """A principal has to be able to hand a parent a file, not only a screen."""
+    sheet = client.get(
+        f"/assessments/{mapped_paper}/answers/{student}", headers=_auth(school)
+    ).json()
+    client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm", headers=_auth(school),
+        json={"answers": [
+            {"address": q["address"], "marks": q["max_marks"]} for q in sheet["questions"]
+        ], "by": "Mrs Rani"},
+    )
+    issued = client.post(
+        f"/reports/student/{student}/issue", headers=_auth(school),
+        json={"assessment_id": mapped_paper, "by": "Mrs Rani"},
+    ).json()
+
+    pdf = client.get(f"/reports/issued/{issued['report_id']}/pdf", headers=_auth(school))
+    assert pdf.status_code == 200, pdf.text
+    assert pdf.headers["content-type"] == "application/pdf"
+    assert pdf.content[:5] == b"%PDF-"
+    assert "attachment" in pdf.headers["content-disposition"]
+
+
+def test_a_pdf_for_someone_elses_report_is_refused(client, school, mapped_paper, student):
+    from app.db import SessionLocal
+    from app.models import School as SchoolModel
+
+    sheet = client.get(
+        f"/assessments/{mapped_paper}/answers/{student}", headers=_auth(school)
+    ).json()
+    client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm", headers=_auth(school),
+        json={"answers": [
+            {"address": q["address"], "marks": q["max_marks"]} for q in sheet["questions"]
+        ], "by": "Mrs Rani"},
+    )
+    report_id = client.post(
+        f"/reports/student/{student}/issue", headers=_auth(school),
+        json={"assessment_id": mapped_paper, "by": "Mrs Rani"},
+    ).json()["report_id"]
+
+    db = SessionLocal()
+    other = SchoolModel(name="Someone Else's School", api_key="other-report-pdf-key", state="Tamil Nadu")
+    db.add(other)
+    db.commit()
+    db.close()
+
+    pdf = client.get(
+        f"/reports/issued/{report_id}/pdf", headers={"X-API-Key": "other-report-pdf-key"},
+    )
+    assert pdf.status_code == 404

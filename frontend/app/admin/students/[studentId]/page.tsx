@@ -36,6 +36,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
   const [issued, setIssued] = useState<IssuedReport[]>([]);
   const [issuing, setIssuing] = useState(false);
   const [issuedNote, setIssuedNote] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   // The two halves are independent. A student who sat a test but no interest inventory,
   // or the reverse, has a real record either way -- loading them together meant one
@@ -74,6 +75,25 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
       setIssuedNote("Could not save a copy. Nothing was stored.");
     } finally {
       setIssuing(false);
+    }
+  }
+
+  async function downloadPdf(reportId: string) {
+    const key = getApiKey();
+    if (!key) return;
+    setDownloadingId(reportId);
+    try {
+      const blob = await api.issuedReportPdf(key, reportId);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `report-${who?.roll_no ?? studentId}-${reportId.slice(0, 8)}.pdf`;
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      setIssuedNote("Could not fetch the PDF. Try again.");
+    } finally {
+      setDownloadingId(null);
     }
   }
 
@@ -149,18 +169,63 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
                 </button>
                 {issuedNote && <p className="small muted">{issuedNote}</p>}
                 {issued.length > 0 && (
-                  <p className="small muted">
-                    {issued.length} cop{issued.length === 1 ? "y" : "ies"} saved. Latest by{" "}
-                    {issued[0].issued_by || "someone unnamed"} on{" "}
-                    {issued[0].issued_at?.slice(0, 10)}, {issued[0].earned} of{" "}
-                    {issued[0].available}.
-                  </p>
+                  <>
+                    <p className="small muted">
+                      {issued.length} cop{issued.length === 1 ? "y" : "ies"} saved. Latest by{" "}
+                      {issued[0].issued_by || "someone unnamed"} on{" "}
+                      {issued[0].issued_at?.slice(0, 10)}, {issued[0].earned} of{" "}
+                      {issued[0].available}.
+                    </p>
+                    <button
+                      className="secondary tiny"
+                      onClick={() => downloadPdf(issued[0].report_id)}
+                      disabled={downloadingId === issued[0].report_id}
+                      style={{ marginTop: 6 }}
+                    >
+                      {downloadingId === issued[0].report_id ? "Preparing…" : "Download as PDF"}
+                    </button>
+                  </>
                 )}
               </div>
             </>
           ) : (
             <p className="muted">Loading the result…</p>
           )}
+        </>
+      )}
+
+      {issued.length > 1 && (
+        <>
+          <div className="section-head noprint">
+            <p className="eyebrow">Every issued report</p>
+            <h2>Progress over time</h2>
+          </div>
+          <ol className="progresslist noprint">
+            {[...issued]
+              .sort((a, b) => (a.issued_at ?? "").localeCompare(b.issued_at ?? ""))
+              .map((r) => {
+                const pct = r.available > 0 ? Math.round((r.earned / r.available) * 100) : 0;
+                return (
+                  <li key={r.report_id} className="scalerow progressrow">
+                    <span className="nm">
+                      {r.assessment_title ?? "Untitled paper"}
+                      <span className="small muted"> · {r.issued_at?.slice(0, 10)}</span>
+                    </span>
+                    <span className="scaletrack">
+                      <span className="scalefill lead" style={{ width: `${pct}%` }} />
+                    </span>
+                    <span className="pct">{pct}%</span>
+                    <button
+                      className="secondary tiny"
+                      onClick={() => downloadPdf(r.report_id)}
+                      disabled={downloadingId === r.report_id}
+                    >
+                      {downloadingId === r.report_id ? "…" : "PDF"}
+                    </button>
+                  </li>
+                );
+              })}
+          </ol>
         </>
       )}
 
@@ -280,6 +345,11 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
           :global(.sitefooter) {
             display: none !important;
           }
+        }
+        .progresslist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+        .progressrow { grid-template-columns: 200px 1fr 46px auto; }
+        @media (max-width: 620px) {
+          .progressrow { grid-template-columns: 1fr; gap: 4px; }
         }
       `}</style>
     </main>

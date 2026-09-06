@@ -1144,6 +1144,17 @@ export const api = {
     return URL.createObjectURL(await res.blob());
   },
 
+  /** An issued report, rendered server-side as an actual PDF file -- something a
+   * principal can hand a parent or keep on file. Fetched as a blob, like a page image,
+   * because the download needs the school's key on the request. */
+  issuedReportPdf: async (key: string, reportId: string): Promise<Blob> => {
+    const res = await fetch(`${BASE}/reports/issued/${reportId}/pdf`, {
+      headers: { "X-API-Key": key, ...scopeHeader() },
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.blob();
+  },
+
   studentDocuments: (key: string, studentId: string) =>
     authed<{ documents: ScanDoc[] }>(`/students/${studentId}/documents`, key),
 
