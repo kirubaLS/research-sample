@@ -65,6 +65,10 @@ class ProposedRow:
     #: way to the screen, because a recognised number and a typed one must never look
     #: alike to the person deciding whether to accept it.
     via_ocr: bool = False
+    #: which student's row this was, when the file names one -- blank when the file is
+    #: scoped to a single student from the start (no roll column at all), never guessed
+    #: at when a roll column exists but this particular row left it blank.
+    roll_no: str = ""
 
     def as_dict(self) -> dict:
         return {
@@ -76,6 +80,7 @@ class ProposedRow:
             "origin": self.origin,
             "raw_value": self.raw_value,
             "problem": self.problem,
+            "roll_no": self.roll_no,
         }
 
 
@@ -196,6 +201,7 @@ def _rows_from_table(table: list[list[str]], source: str) -> Reading:
                 continue
             raw_q = row[q_col] if q_col < len(row) else ""
             raw_v = row[m_col] if m_col < len(row) else ""
+            roll = ""
             if r_col is not None and r_col < len(row):
                 roll = _clean(row[r_col])
                 if roll and roll not in out.rolls:
@@ -207,6 +213,7 @@ def _rows_from_table(table: list[list[str]], source: str) -> Reading:
             out.rows.append(ProposedRow(
                 raw_address=_clean(raw_q), address=address, marks=marks, state=state,
                 origin=f"row {n}", raw_value=_clean(raw_v), problem=why or problem or None,
+                roll_no=roll,
             ))
         return out
 
@@ -236,11 +243,14 @@ def _rows_from_table(table: list[list[str]], source: str) -> Reading:
         )
         return out
 
-    roll_col = kinds.index("roll") if "roll" in kinds else 0
+    # None, not a guessed column 0: a sheet with no column actually headed "roll" (or
+    # "reg", "admission", ...) names no student at all, and treating its first column as
+    # one anyway is how a mark ends up filed under a roll number nobody wrote down.
+    roll_col = kinds.index("roll") if "roll" in kinds else None
     for n, row in enumerate(body, start=header_index + 2):
         if not any(_clean(c) for c in row):
             continue
-        roll = _clean(row[roll_col]) if roll_col < len(row) else ""
+        roll = _clean(row[roll_col]) if roll_col is not None and roll_col < len(row) else ""
         if roll and roll not in out.rolls:
             out.rolls.append(roll)
         for i, label, address in columns:
@@ -251,7 +261,7 @@ def _rows_from_table(table: list[list[str]], source: str) -> Reading:
             out.rows.append(ProposedRow(
                 raw_address=label, address=address, marks=marks, state=state,
                 origin=f"row {n}, column {label}" + (f", roll {roll}" if roll else ""),
-                raw_value=_clean(raw_v), problem=problem,
+                raw_value=_clean(raw_v), problem=problem, roll_no=roll,
             ))
     return out
 

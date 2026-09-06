@@ -273,3 +273,45 @@ def test_a_refused_reading_surfaces_through_the_job_not_a_bare_failure(
         assert "too dark" in job.text
     finally:
         settings.anthropic_api_key = before
+
+
+def _upload_csv(client, school, aid, section_id, csv_bytes):
+    return client.post(
+        f"/assessments/{aid}/sections/{section_id}/gridsheet/file", headers=_auth(school),
+        files=[("files", ("marks.csv", io.BytesIO(csv_bytes), "text/csv"))],
+    )
+
+
+def test_a_csv_naming_several_students_is_split_one_row_per_roll(client, school, paper, roster):
+    """The CSV/XLSX counterpart to the class photo: no vision call, answers inside one
+    request, and a roll the roster doesn't recognise is flagged, not invented."""
+    csv_bytes = b"Roll,Q1,B/2\n1,1.5,2\n9,1,1\n"
+    out = _upload_csv(client, school, paper, school["section_id"], csv_bytes)
+    assert out.status_code == 201, out.text
+    body = out.json()
+    assert body["clean"] == 1
+    assert body["unmatched"] == 1
+
+    review = client.get(
+        f"/assessments/{paper}/gridsheet/{body['document_id']}", headers=_auth(school)
+    ).json()
+    clean_row = next(r for r in review["rows"] if r["roll_no"] == "1")
+    assert clean_row["status"] == "clean"
+    assert {m["address"] for m in clean_row["marks"]} == {"A/1//", "B/2//"}
+    unmatched_row = next(r for r in review["rows"] if r["roll_no"] == "9")
+    assert unmatched_row["status"] == "unmatched"
+
+    # Section-blank ("Q1") and section-qualified ("B/2") headers both resolved against
+    # the real, section-qualified questions on the paper -- match_address's own job.
+    proposals = client.get(
+        f"/assessments/{paper}/answers/{roster['1']}/reading", headers=_auth(school)
+    ).json()
+    assert proposals["read"] == 2
+
+
+def test_a_csv_naming_no_student_is_refused(client, school, paper):
+    """A single-student sheet with no roll column at all belongs to the single-student
+    upload, not here -- refused by name rather than silently attributed to nobody."""
+    out = _upload_csv(client, school, paper, school["section_id"], b"Q1,B/2\n1.5,2\n")
+    assert out.status_code == 422, out.text
+    assert "does not name any student" in out.text

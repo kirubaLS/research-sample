@@ -35,6 +35,7 @@ from app.models import (
     ProposedMark,
     Question,
     School,
+    Section,
     StudentProfile,
 )
 
@@ -389,3 +390,75 @@ def confirm_reading(
         db.delete(p)
     db.commit()
     return {"written": written, "confirmed_by": body.by}
+
+
+@router.post("/{assessment_id}/sections/{section_id}/reading/confirm-class")
+def confirm_class_reading(
+    assessment_id: str,
+    section_id: str,
+    body: ConfirmIn,
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Confirm every student in a class whose reading is clean, in one call.
+
+    The grid-sheet path (one photo, many students) already has this in
+    ``gridsheets.confirm_gridsheet``; this is the same action for a class whose marks
+    arrived as separate per-student files -- one read per student, but one button to turn
+    all of them into marks. A student with no proposals, or with a proposal still carrying
+    a problem, is skipped and named, exactly as a flagged grid-sheet row is: never
+    silently confirmed, never silently dropped.
+    """
+    assessment = _assessment(db, school, assessment_id)
+    section = db.get(Section, section_id)
+    if section is None or section.school_id != school.id:
+        raise HTTPException(404, "not found")
+    if not body.by.strip():
+        raise HTTPException(422, "put your name to these marks before confirming them")
+
+    questions = {
+        q.address: q for q in db.scalars(select(Question).where(Question.assessment_id == assessment.id))
+    }
+    students = list(db.scalars(select(StudentProfile).where(StudentProfile.section_id == section.id)))
+
+    confirmed, skipped = [], []
+    for student in students:
+        proposals = list(db.scalars(
+            select(ProposedMark).where(
+                ProposedMark.assessment_id == assessment.id,
+                ProposedMark.student_id == student.id,
+            )
+        ))
+        if not proposals:
+            continue  # never read at all -- not this student's turn to be mentioned
+        blocked = [p for p in proposals if p.problem]
+        if blocked:
+            skipped.append({
+                "student_id": student.id, "name": student.name,
+                "reason": f"{len(blocked)} row(s) still have a problem",
+            })
+            continue
+
+        for p in proposals:
+            question = questions.get(p.address)
+            if question is None:
+                continue
+            db.add(MarkEvent(
+                assessment_id=assessment.id, student_id=student.id, question_id=question.id,
+                state=p.state,
+                marks=float(p.marks) if p.state == "awarded" and p.marks is not None else None,
+                source="teacher", confidence=1.0, actor_id=body.by[:36],
+                provenance={
+                    "confirmed_by": body.by,
+                    "read_from": p.source_name or p.source_kind,
+                    "origin": p.origin,
+                    "raw_value": p.raw_value,
+                    "edited_by": p.edited_by,
+                },
+            ))
+        for p in proposals:
+            db.delete(p)
+        confirmed.append({"student_id": student.id, "name": student.name})
+
+    db.commit()
+    return {"confirmed": confirmed, "skipped": skipped, "confirmed_by": body.by}
