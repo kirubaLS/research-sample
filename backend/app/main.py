@@ -18,6 +18,7 @@ from app.api import (
     admin,
     books,
     documents,
+    gridsheets,
     interest,
     marks,
     placement,
@@ -107,6 +108,7 @@ app.include_router(platform.router)
 app.include_router(reports.router)
 app.include_router(documents.router)
 app.include_router(reading.router)
+app.include_router(gridsheets.router)
 
 
 @app.get("/healthz", tags=["ops"])
