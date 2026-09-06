@@ -375,24 +375,25 @@ export default function AnswersPage() {
       <style jsx>{`
         .wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 64px; }
         h1 { margin: 0 0 4px; font-size: 26px; }
-        .lede { color: #555; margin: 0 0 20px; max-width: 60ch; }
-        .panel { border: 1px solid #e3e3e6; border-radius: 12px; padding: 14px; margin-bottom: 16px; background: #fff; }
+        .lede { color: var(--ink-2); margin: 0 0 20px; max-width: 60ch; }
+        .panel { border: 1px solid var(--rule); border-radius: 12px; padding: 14px; margin-bottom: 16px; background: var(--surface); }
         .sticky { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
         .picks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-        .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #555; }
-        select, input { padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; background: #fff; }
+        .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
         .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
         .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
         .confirmrow label { flex: 1 1 180px; display: flex; }
         .confirmrow input { width: 100%; }
-        button { padding: 10px 16px; border-radius: 8px; border: 0; background: #16324f; color: #fff; font-size: 15px; }
+        button { padding: 10px 16px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 15px; transition: transform .16s var(--ease-spring, ease), box-shadow .2s ease; }
+        button:hover:not([disabled]) { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
         button[disabled] { opacity: .5; }
         .qlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-        .handnote { color: #555; font-size: 13px; max-width: 64ch; margin: 18px 0 8px; }
-        .muted { color: #666; }
-        .error { color: #a11; }
-        .ok { color: #196b2c; margin: 8px 0 0; }
-        .warnish { color: #8a5b00; }
+        .handnote { color: var(--ink-2); font-size: 13px; max-width: 64ch; margin: 18px 0 8px; }
+        .muted { color: var(--ink-3); }
+        .error { color: var(--mark); }
+        .ok { color: var(--verify); margin: 8px 0 0; }
+        .warnish { color: var(--warn); }
         .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
         @media (max-width: 560px) {
           .picks { grid-template-columns: 1fr; }
@@ -471,22 +472,22 @@ function Row({
       {rejected && <p className="rej">Not recorded. {rejected}</p>}
 
       <style jsx>{`
-        li { border: 1px solid #e3e3e6; border-left: 4px solid #16324f; border-radius: 10px; padding: 12px; background: #fff; }
-        li.pending { border-left-color: #d9a441; }
-        li.bad { border-left-color: #a11; background: #fff7f7; }
+        li { border: 1px solid var(--rule); border-left: 4px solid var(--ink); border-radius: 10px; padding: 12px; background: var(--surface); }
+        li.pending { border-left-color: var(--warn); }
+        li.bad { border-left-color: var(--mark); background: var(--mark-soft); }
         .head { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
         .no { font-weight: 600; }
-        .worth { color: #666; font-size: 13px; }
-        .stem { margin: 6px 0; color: #333; font-size: 14px; }
+        .worth { color: var(--ink-3); font-size: 13px; }
+        .stem { margin: 6px 0; color: var(--ink); font-size: 14px; }
         .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
-        .chip { font-size: 12px; background: #f1f2f4; border-radius: 999px; padding: 2px 9px; color: #444; }
-        .chip.strong { background: #16324f; color: #fff; }
+        .chip { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 2px 9px; color: var(--ink-2); }
+        .chip.strong { background: var(--ink); color: var(--surface); }
         .entry { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
         .entry label { display: flex; }
-        input { width: 110px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
-        select { flex: 1 1 180px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; background: #fff; }
-        input[disabled] { background: #f4f4f5; color: #999; }
-        .rej { color: #a11; font-size: 13px; margin: 8px 0 0; }
+        input { width: 110px; padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; }
+        select { flex: 1 1 180px; padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
+        input[disabled] { background: var(--surface-2); color: var(--ink-3); }
+        .rej { color: var(--mark); font-size: 13px; margin: 8px 0 0; }
         .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
       `}</style>
     </li>
@@ -589,17 +590,17 @@ function ScriptPanel({
 
       <style jsx>{`
         .scriptpanel {
-          border: 1px dashed #c7ccd2;
+          border: 1px dashed var(--rule-2);
           border-radius: 12px;
           padding: 14px;
           margin-bottom: 16px;
-          background: #fff;
+          background: var(--surface);
         }
         .scriptrow { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; align-items: center; }
         .scriptbtns { display: flex; gap: 8px; align-items: center; }
-        .muted { color: #666; margin: 4px 0 0; font-size: 13px; max-width: 60ch; }
+        .muted { color: var(--ink-3); margin: 4px 0 0; font-size: 13px; max-width: 60ch; }
         .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-        .thumb { font-size: 12px; background: #f1f2f4; border-radius: 999px; padding: 3px 10px; color: #444; }
+        .thumb { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
       `}</style>
     </section>
   );
