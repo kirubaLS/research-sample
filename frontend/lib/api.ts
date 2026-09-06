@@ -640,6 +640,10 @@ async function uploadMany<T>(
   key: string,
   files: File[],
   header: "X-Platform-Key" | "X-API-Key",
+  // Set only by an endpoint that can answer with {status:"pending", job_id} because the
+  // real work runs too long for one request (see GridSheetJob) -- everything else gets
+  // its result directly and never looks at this.
+  jobsBase?: string,
 ): Promise<T> {
   const body = new FormData();
   // The field name repeats rather than being indexed: that is what FastAPI reads as a
@@ -656,7 +660,11 @@ async function uploadMany<T>(
     throw new ApiUnreachable(BASE);
   }
   if (!res.ok) throw new ApiError(res.status, await res.text());
-  return (await res.json()) as T;
+  const data = (await res.json()) as Record<string, unknown>;
+  if (jobsBase && data.status === "pending" && typeof data.job_id === "string") {
+    return pollJob<T>(jobsBase, key, data.job_id, header);
+  }
+  return data as T;
 }
 
 export interface Subject {
@@ -1131,6 +1139,9 @@ export const api = {
   uploadGridSheet: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
     uploadMany<GridUploadResult>(
       `/assessments/${assessmentId}/sections/${sectionId}/gridsheet`, key, files, "X-API-Key",
+      // Reading a photo calls a vision model and can run past Render's request timeout,
+      // so this endpoint always answers 202 with a job to poll -- never the result directly.
+      `/assessments/${assessmentId}/gridsheet`,
     ),
 
   gridSheet: (key: string, assessmentId: string, documentId: string) =>

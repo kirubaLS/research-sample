@@ -109,8 +109,16 @@ def test_a_roll_on_the_roster_is_resolved_and_its_marks_become_proposals(
     client, school, paper, roster, stub_grid
 ):
     out = _upload(client, school, paper, school["section_id"])
-    assert out.status_code == 201, out.text
-    body = out.json()
+    # TestClient runs BackgroundTasks inline before the response is handed back, so the
+    # job has already finished here -- but the endpoint itself only ever promises 202 and
+    # a document_id; the counts arrive from polling the job, matching how ingest_job's
+    # 202/poll pair already works for a Hindi book upload.
+    assert out.status_code == 202, out.text
+    job_id = out.json()["job_id"]
+    job = client.get(f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school))
+    assert job.status_code == 200, job.text
+    body = job.json()
+    assert body["status"] == "succeeded"
     assert body["clean"] == 1
     assert body["name_mismatch"] == 1
     assert body["unmatched"] == 1
@@ -214,3 +222,54 @@ def test_confirm_moves_only_the_clean_rows(client, school, paper, roster, stub_g
     events = db.scalars(select(MarkEvent).where(MarkEvent.student_id == roster["1"])).all()
     db.close()
     assert len(events) == 2
+
+
+def test_reading_is_backgrounded_so_the_endpoint_answers_before_the_slow_part_runs(
+    client, school, paper, roster, stub_grid
+):
+    """The vision call is the part that can outrun Render's own request timeout -- see
+    GridSheetJob's docstring -- so the upload endpoint must promise only a job id and a
+    document id, never the reading itself, and a job row must actually exist to poll."""
+    out = _upload(client, school, paper, school["section_id"])
+    assert out.status_code == 202, out.text
+    body = out.json()
+    assert set(body) >= {"job_id", "status", "document_id", "next"}
+    assert body["status"] == "pending"
+
+    from app.db import SessionLocal
+    from app.models import GridSheetJob
+
+    db = SessionLocal()
+    job = db.get(GridSheetJob, body["job_id"])
+    db.close()
+    assert job is not None
+    assert job.document_id == body["document_id"]
+
+
+def test_a_refused_reading_surfaces_through_the_job_not_a_bare_failure(
+    client, school, paper, roster, monkeypatch
+):
+    """A sheet the vision reader could not make sense of is a 422 with the real reason,
+    the same as any other refused reading in this codebase -- not a bare 'the job failed'
+    and not a silently empty success."""
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    class RefusingReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return GridReading(refused="the photograph was too dark to read anything from it")
+
+    monkeypatch.setattr("app.extraction.gridsheet.AnthropicGridReader", RefusingReader)
+    try:
+        out = _upload(client, school, paper, school["section_id"])
+        assert out.status_code == 202, out.text
+        job_id = out.json()["job_id"]
+        job = client.get(f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school))
+        assert job.status_code == 422, job.text
+        assert "too dark" in job.text
+    finally:
+        settings.anthropic_api_key = before

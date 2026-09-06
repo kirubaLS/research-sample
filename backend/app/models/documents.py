@@ -25,6 +25,7 @@ from sqlalchemy import (
     LargeBinary,
     Numeric,
     String,
+    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -194,3 +195,36 @@ class GridSheetRow(Base, PkMixin, TimestampMixin):
     note: Mapped[str | None] = mapped_column(String(300), nullable=True)
 
     document: Mapped[ScanDocument] = relationship(back_populates="grid_rows")
+
+
+class GridSheetJob(Base, PkMixin, TimestampMixin):
+    """Reading a class mark-entry sheet cannot finish inside one HTTP request.
+
+    It calls the Anthropic vision API -- seconds to tens of seconds for one sheet -- as
+    one blocking call, and Render's own reverse proxy kills a web request at a fixed
+    timeout regardless of what the app is doing (see ``IngestJob``, which exists for the
+    identical reason on a Hindi book upload). A synchronous handler here would return to
+    the browser as a bare "Could not reach the API" on a request that reached the backend
+    fine and was still working.
+
+    So the upload endpoint does no more than store the sheet's pages (fast: no network)
+    and hand this row to a background task, returning 202 immediately; the browser polls
+    GET .../gridsheet/jobs/{id} for the result the endpoint used to return directly. The
+    pages themselves are not duplicated here -- the background task reads them back off
+    the ScanDocument this job points at, the same rows the synchronous handler wrote.
+    """
+
+    __tablename__ = "grid_sheet_job"
+
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
+    section_id: Mapped[str] = mapped_column(ForeignKey("section.id"))
+    document_id: Mapped[str] = mapped_column(ForeignKey("scan_document.id", ondelete="CASCADE"))
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    #: whatever the synchronous handler used to return as its response body
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    #: an HTTPException's (status_code, detail), so a failed job surfaces the same 422/502
+    #: a synchronous read would have raised, not a bare "failed"
+    error_status: Mapped[int | None] = mapped_column(nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
