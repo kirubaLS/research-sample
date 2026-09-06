@@ -314,11 +314,14 @@ function SchoolPicker({ onPick }: { onPick: (id: string) => void }) {
           text-align: left;
           background: var(--surface, #fff);
           color: inherit;
-          border: 1px solid var(--line, #e3e3e6);
+          border: 1px solid var(--rule, #e3e3e6);
           cursor: pointer;
+          animation: rise-in 0.4s var(--ease, ease) both;
         }
         .schoolpick:hover {
-          border-color: var(--ink, #16324f);
+          border-color: var(--mark-2, #16324f);
+          transform: translateY(-2px);
+          box-shadow: var(--shadow);
         }
         .schoolname {
           display: block;
