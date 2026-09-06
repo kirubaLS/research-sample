@@ -37,7 +37,7 @@ from app.api.schemas import StudentCreateIn
 from app.api.upload import IMAGE_SUFFIXES, pages_to_pdf
 from app.config import get_settings
 from app.db import get_session
-from app.extraction.gridsheet import read_grid
+from app.extraction.gridsheet import read_grid, read_single_script
 from app.extraction.marksheet import parse_address, read_any, read_pdf
 from app.models import (
     Assessment,
@@ -226,14 +226,34 @@ def _run_gridsheet_job(job_id: str) -> None:
         pages = [(p.content, p.content_type) for p in document.pages]
         # ScanPage keeps bytes and content type, not the filename it arrived under -- the
         # same information a single-student script upload already discards.
-        source_name = "class mark-entry sheet"
+        source_name = "class mark-entry sheet" if job.kind == "class_photo" else "answer script"
+        job_kind = job.kind
         assessment_id, section_id, school_id = job.assessment_id, job.section_id, job.school_id
     finally:
         db.close()  # released BEFORE the slow vision call below, not held across it
 
-    reading = read_grid(pages, api_key=get_settings().anthropic_api_key)
+    api_key = get_settings().anthropic_api_key
+    reading = (
+        read_grid(pages, api_key=api_key) if job_kind == "class_photo"
+        else read_single_script(pages, api_key=api_key)
+    )
     if reading.refused:
         _finish_gridsheet_job(job_id, status_value="failed", error_status=422, error_detail=reading.refused)
+        return
+    if job_kind == "single_script" and len(reading.rows) > 1:
+        _finish_gridsheet_job(
+            job_id, status_value="failed", error_status=422,
+            error_detail=(
+                f"this looks like it has {len(reading.rows)} different students' marks on "
+                f"it, not one -- use the class mark-entry sheet instead"
+            ),
+        )
+        return
+    if job_kind == "single_script" and not reading.rows:
+        _finish_gridsheet_job(
+            job_id, status_value="failed", error_status=422,
+            error_detail="could not find a student's name or roll number on this script",
+        )
         return
 
     db = SessionLocal()
@@ -298,16 +318,19 @@ def _run_gridsheet_job(job_id: str) -> None:
     _finish_gridsheet_job(job_id, status_value="succeeded", result=result)
 
 
-@router.post("/{assessment_id}/sections/{section_id}/gridsheet", status_code=status.HTTP_202_ACCEPTED)
-async def upload_gridsheet(
+async def _queue_vision_reading(
     assessment_id: str,
     section_id: str,
-    files: list[UploadFile] = File(...),
-    background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
-    school: School = Depends(require_scanner),
-    db: Session = Depends(get_session),
+    files: list[UploadFile],
+    background_tasks: BackgroundTasks,
+    school: School,
+    db: Session,
+    *,
+    kind: str,
 ) -> JSONResponse:
-    """Store a class mark-entry sheet's pages and hand reading it to a background task.
+    """Store a photo's pages and hand reading it to a background task -- shared by the
+    class-photo and the single-script upload, which differ only in ``kind`` (which vision
+    prompt reads the photo, and how many rows _run_gridsheet_job expects back).
 
     Storing the pages is fast (no network) and happens here; reading them is the part
     that calls the vision API and can run past Render's request timeout, so it happens in
@@ -346,7 +369,7 @@ async def upload_gridsheet(
     )
     job = GridSheetJob(
         school_id=school.id, assessment_id=assessment.id, section_id=section.id,
-        document_id=document.id,
+        document_id=document.id, kind=kind,
     )
     db.add(job)
     db.commit()
@@ -358,6 +381,44 @@ async def upload_gridsheet(
             "job_id": job.id, "status": "pending", "document_id": document.id,
             "next": f"Poll GET /assessments/{assessment.id}/gridsheet/jobs/{job.id} for the result.",
         },
+    )
+
+
+@router.post("/{assessment_id}/sections/{section_id}/gridsheet", status_code=status.HTTP_202_ACCEPTED)
+async def upload_gridsheet(
+    assessment_id: str,
+    section_id: str,
+    files: list[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> JSONResponse:
+    """A whole class's mark-entry sheet: one photo, many students' rows expected."""
+    return await _queue_vision_reading(
+        assessment_id, section_id, files, background_tasks, school, db, kind="class_photo",
+    )
+
+
+@router.post("/{assessment_id}/sections/{section_id}/script", status_code=status.HTTP_202_ACCEPTED)
+async def upload_single_script(
+    assessment_id: str,
+    section_id: str,
+    files: list[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> JSONResponse:
+    """One student's own answer script: their name and roll are read off the page itself,
+    rather than picked from a dropdown first -- for the ordinary case where the teacher
+    already knows who it is, and for the student who was missed off the roster and
+    appeared on the day anyway, resolved the same way an unmatched grid-sheet roll is:
+    flagged, never invented, with a one-click "create this student" once a person looks.
+
+    Refused, not guessed past, if the photo turns out to hold more than one student's
+    marks -- that photo belongs on the class mark-entry sheet endpoint instead.
+    """
+    return await _queue_vision_reading(
+        assessment_id, section_id, files, background_tasks, school, db, kind="single_script",
     )
 
 

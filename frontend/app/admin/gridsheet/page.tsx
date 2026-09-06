@@ -31,6 +31,8 @@ const STATUS_LABEL: Record<GridSheetRowView["status"], string> = {
   unmatched: "No student with this roll",
 };
 
+type PhotoMode = "class" | "single";
+
 export default function GridSheetPage() {
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [sections, setSections] = useState<SectionSummary[]>([]);
@@ -45,6 +47,7 @@ export default function GridSheetPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCamera, setShowCamera] = useState(false);
+  const [photoMode, setPhotoMode] = useState<PhotoMode>("class");
 
   function explain(err: unknown): string {
     if (err instanceof ApiUnreachable) return "Could not reach the API.";
@@ -102,12 +105,14 @@ export default function GridSheetPage() {
     const key = getApiKey();
     if (!key || !paperId || !sectionId || files.length === 0) return;
     setShowCamera(false);
-    setBusy("Reading the sheet");
+    setBusy(photoMode === "class" ? "Reading the sheet" : "Reading the script");
     setError(null);
     setUploadSummary(null);
     setConfirmResult(null);
     try {
-      const out = await api.uploadGridSheet(key, paperId, sectionId, files);
+      const out = photoMode === "class"
+        ? await api.uploadGridSheet(key, paperId, sectionId, files)
+        : await api.uploadSingleScript(key, paperId, sectionId, files);
       setDocumentId(out.document_id);
       setUploadSummary(
         `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
@@ -208,15 +213,35 @@ export default function GridSheetPage() {
   return (
     <main className="wrap">
       <p className="eyebrow">Mark-entry sheet</p>
-      <h1>Read a class sheet, one photo for many students</h1>
+      <h1>Read marks off a photo -- a whole class, or one script</h1>
       <p className="lede">
-        Upload a single mark-entry sheet for a whole class -- one row per roll number, one
-        column per question. A roll already on the roster is picked up automatically;
-        anything that doesn&rsquo;t match cleanly is shown here for a person to settle
-        before it counts.
+        A whole class&rsquo;s mark-entry sheet in one photo -- one row per roll number, one
+        column per question -- or one student&rsquo;s own script, its name and roll read
+        straight off the page rather than picked from a list first. A roll already on the
+        roster is picked up automatically; anything that doesn&rsquo;t match cleanly,
+        including a student missed off the roster entirely, is shown here for a person to
+        settle before it counts.
       </p>
 
       <section className="panel">
+        <div className="row" style={{ marginBottom: 10 }}>
+          <div className="filters">
+            <button
+              type="button"
+              className={photoMode === "class" ? "on" : ""}
+              onClick={() => setPhotoMode("class")}
+            >
+              Whole class
+            </button>
+            <button
+              type="button"
+              className={photoMode === "single" ? "on" : ""}
+              onClick={() => setPhotoMode("single")}
+            >
+              One student&rsquo;s script
+            </button>
+          </div>
+        </div>
         <div className="picks">
           <label>
             <span>Paper</span>
@@ -242,10 +267,10 @@ export default function GridSheetPage() {
             </select>
           </label>
           <label>
-            <span>Photograph</span>
+            <span>{photoMode === "class" ? "Photograph" : "Photo of the script"}</span>
             <input
               type="file"
-              multiple
+              multiple={photoMode === "class"}
               accept="image/*"
               disabled={!paperId || !sectionId || !!busy}
               onChange={(e) => void uploadPhoto(Array.from(e.target.files ?? []))}
