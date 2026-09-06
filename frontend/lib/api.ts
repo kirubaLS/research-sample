@@ -1166,6 +1166,14 @@ export const api = {
       `/assessments/${assessmentId}/gridsheet`,
     ),
 
+  uploadSingleScript: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
+    uploadMany<GridUploadResult>(
+      `/assessments/${assessmentId}/sections/${sectionId}/script`, key, files, "X-API-Key",
+      // Same reason as the class photo: a vision call can run past Render's request
+      // timeout, so this always answers 202 with a job to poll.
+      `/assessments/${assessmentId}/gridsheet`,
+    ),
+
   uploadGridSheetFile: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
     uploadMany<GridUploadResult>(
       `/assessments/${assessmentId}/sections/${sectionId}/gridsheet/file`, key, files, "X-API-Key",

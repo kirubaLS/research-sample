@@ -105,6 +105,13 @@ def _upload(client, school, aid, section_id):
     )
 
 
+def _upload_script(client, school, aid, section_id):
+    return client.post(
+        f"/assessments/{aid}/sections/{section_id}/script", headers=_auth(school),
+        files=[("files", ("script.jpg", io.BytesIO(b"not a real image"), "image/jpeg"))],
+    )
+
+
 def test_a_roll_on_the_roster_is_resolved_and_its_marks_become_proposals(
     client, school, paper, roster, stub_grid
 ):
@@ -315,3 +322,96 @@ def test_a_csv_naming_no_student_is_refused(client, school, paper):
     out = _upload_csv(client, school, paper, school["section_id"], b"Q1,B/2\n1.5,2\n")
     assert out.status_code == 422, out.text
     assert "does not name any student" in out.text
+
+
+def _stub_single_script(monkeypatch, reading):
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return reading
+
+    monkeypatch.setattr("app.extraction.gridsheet.AnthropicGridReader", StubReader)
+    return settings, before
+
+
+def test_a_single_scripts_own_name_and_roll_are_read_and_matched(
+    client, school, paper, roster, monkeypatch
+):
+    """One student's own script -- no dropdown, no roll picked up front -- reads their
+    name and roll straight off the page and resolves it exactly like a clean grid row."""
+    reading = GridReading(rows=[
+        GridRow(roll_no="1", name_as_written="Aarthi Selvaraj", cells=[
+            GridCell("A/1", "2"), GridCell("B/2", "3"),
+        ]),
+    ])
+    settings, before = _stub_single_script(monkeypatch, reading)
+    try:
+        out = _upload_script(client, school, paper, school["section_id"])
+        assert out.status_code == 202, out.text
+        job_id = out.json()["job_id"]
+        job = client.get(f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school))
+        assert job.status_code == 200, job.text
+        body = job.json()
+        assert body["status"] == "succeeded"
+        assert body["clean"] == 1
+    finally:
+        settings.anthropic_api_key = before
+
+
+def test_a_single_scripts_student_missed_off_the_roster_is_flagged_not_invented(
+    client, school, paper, monkeypatch
+):
+    """The student who was absent when the roster was entered and showed up for the exam
+    anyway: flagged as unmatched, same as an unrecognised grid-sheet roll, with the same
+    create-a-student resolve action -- never silently invented."""
+    reading = GridReading(rows=[
+        GridRow(roll_no="77", name_as_written="Late Addition", cells=[GridCell("A/1", "2")]),
+    ])
+    settings, before = _stub_single_script(monkeypatch, reading)
+    try:
+        out = _upload_script(client, school, paper, school["section_id"])
+        job_id = out.json()["job_id"]
+        job = client.get(
+            f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school)
+        ).json()
+        assert job["unmatched"] == 1
+
+        review = client.get(
+            f"/assessments/{paper}/gridsheet/{job['document_id']}", headers=_auth(school)
+        ).json()
+        row = review["rows"][0]
+        assert row["status"] == "unmatched"
+
+        created = client.post(
+            f"/assessments/{paper}/gridsheet/{job['document_id']}/rows/{row['row_id']}/resolve",
+            headers=_auth(school), json={"create": {"name": "Late Addition", "roll_no": "77"}},
+        )
+        assert created.status_code == 200, created.text
+    finally:
+        settings.anthropic_api_key = before
+
+
+def test_a_photo_of_several_students_is_refused_on_the_single_script_endpoint(
+    client, school, paper, roster, monkeypatch
+):
+    """A class sheet sent to the single-script endpoint by mistake is caught, not guessed
+    past by picking whichever row came first."""
+    reading = GridReading(rows=[
+        GridRow(roll_no="1", name_as_written="Aarthi Selvaraj", cells=[GridCell("A/1", "2")]),
+        GridRow(roll_no="2", name_as_written="Abinaya Murugan", cells=[GridCell("A/1", "1")]),
+    ])
+    settings, before = _stub_single_script(monkeypatch, reading)
+    try:
+        out = _upload_script(client, school, paper, school["section_id"])
+        job_id = out.json()["job_id"]
+        job = client.get(f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school))
+        assert job.status_code == 422, job.text
+        assert "2 different students" in job.text
+    finally:
+        settings.anthropic_api_key = before

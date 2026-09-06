@@ -154,6 +154,10 @@ class ProposedMark(Base, PkMixin, TimestampMixin):
 #: A row's standing on a class mark-entry sheet, before its marks are trusted.
 GRID_ROW_STATUSES = ("unmatched", "name_mismatch", "clean")
 
+#: What a GridSheetJob is reading: a whole class's mark-entry sheet, or one student's own
+#: answer script.
+GRID_JOB_KINDS = ("class_photo", "single_script")
+
 
 class GridSheetRow(Base, PkMixin, TimestampMixin):
     """One student's row on a class mark-entry sheet, before it becomes an ordinary
@@ -220,6 +224,11 @@ class GridSheetJob(Base, PkMixin, TimestampMixin):
     assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
     section_id: Mapped[str] = mapped_column(ForeignKey("section.id"))
     document_id: Mapped[str] = mapped_column(ForeignKey("scan_document.id", ondelete="CASCADE"))
+    #: "class_photo" -- a whole section's mark-entry sheet, many rows expected; or
+    #: "single_script" -- one student's own answer script, exactly one row expected. Same
+    #: reading, same job, same review/resolve/confirm pipeline either way -- this only
+    #: says which vision prompt to read the photo with, and how many rows to expect back.
+    kind: Mapped[str] = mapped_column(String(16), default="class_photo")
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     #: whatever the synchronous handler used to return as its response body
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
