@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Source_Sans_3, Spectral } from "next/font/google";
 import { SiteHeader } from "@/components/SiteHeader";
+import { Tilt3D } from "@/components/Tilt3D";
 import "./globals.css";
 
 const display = Spectral({
@@ -32,6 +33,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
         <div className="shell">
+          <Tilt3D />
           <SiteHeader />
           {children}
           <footer className="sitefooter">
