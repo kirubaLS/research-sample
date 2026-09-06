@@ -114,6 +114,50 @@ export interface SchoolStaffRow {
   revoked_at: string | null;
 }
 
+// --- class mark-entry sheet: one photograph, many students ----------------------------
+
+export interface GridUploadResult {
+  document_id: string;
+  rows: number;
+  clean: number;
+  name_mismatch: number;
+  unmatched: number;
+  problems: string[];
+  next: string;
+}
+
+export interface GridRowMark {
+  address: string;
+  marks: number | null;
+  state: string;
+  raw_value: string;
+  problem: string | null;
+}
+
+export interface GridSheetRowView {
+  row_id: string;
+  roll_no: string;
+  name_as_written: string;
+  status: "unmatched" | "name_mismatch" | "clean";
+  note: string | null;
+  student: { id: string; name: string } | null;
+  marks: GridRowMark[];
+  can_confirm: boolean;
+}
+
+export interface GridSheetReview {
+  document_id: string;
+  assessment: { id: string; title: string };
+  rows: GridSheetRowView[];
+  ready_to_confirm: number;
+}
+
+export interface GridConfirmResult {
+  confirmed: string[];
+  skipped: { roll_no: string; reason: string }[];
+  confirmed_by: string;
+}
+
 export interface PaperSummary {
   id: string;
   title: string;
@@ -1083,6 +1127,31 @@ export const api = {
 
   studentDocuments: (key: string, studentId: string) =>
     authed<{ documents: ScanDoc[] }>(`/students/${studentId}/documents`, key),
+
+  uploadGridSheet: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
+    uploadMany<GridUploadResult>(
+      `/assessments/${assessmentId}/sections/${sectionId}/gridsheet`, key, files, "X-API-Key",
+    ),
+
+  gridSheet: (key: string, assessmentId: string, documentId: string) =>
+    authed<GridSheetReview>(`/assessments/${assessmentId}/gridsheet/${documentId}`, key),
+
+  resolveGridRow: (
+    key: string, assessmentId: string, documentId: string, rowId: string,
+    body:
+      | { student_id: string }
+      | { create: { name: string; roll_no: string; age?: number | null; gender?: string | null; dob?: string | null } },
+  ) =>
+    authed<{ row_id: string; student_id: string; status: string }>(
+      `/assessments/${assessmentId}/gridsheet/${documentId}/rows/${rowId}/resolve`,
+      key, { method: "POST", body: JSON.stringify(body) },
+    ),
+
+  confirmGridSheet: (key: string, assessmentId: string, documentId: string, by: string) =>
+    authed<GridConfirmResult>(
+      `/assessments/${assessmentId}/gridsheet/${documentId}/confirm`, key,
+      { method: "POST", body: JSON.stringify({ by }) },
+    ),
 
   issueReport: (key: string, studentId: string, assessmentId: string, by: string) =>
     authed<IssuedReport>(`/reports/student/${studentId}/issue`, key, {
