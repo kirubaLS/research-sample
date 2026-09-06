@@ -286,23 +286,24 @@ export default function GridSheetPage() {
       <style jsx>{`
         .wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 64px; }
         h1 { margin: 0 0 4px; font-size: 26px; }
-        .lede { color: #555; margin: 0 0 20px; max-width: 68ch; }
-        .panel { border: 1px solid #e3e3e6; border-radius: 12px; padding: 14px; margin-bottom: 16px; background: #fff; }
+        .lede { color: var(--ink-2); margin: 0 0 20px; max-width: 68ch; }
+        .panel { border: 1px solid var(--rule); border-radius: 12px; padding: 14px; margin-bottom: 16px; background: var(--surface); }
         .sticky { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
         .picks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-        .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: #555; }
-        select, input { padding: 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; background: #fff; }
+        .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
         .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
         .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
         .confirmrow label { flex: 1 1 180px; display: flex; }
         .confirmrow input { width: 100%; }
-        button { padding: 10px 16px; border-radius: 8px; border: 0; background: #16324f; color: #fff; font-size: 15px; }
+        button { padding: 10px 16px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 15px; transition: transform .16s var(--ease-spring, ease), box-shadow .2s ease; }
+        button:hover:not([disabled]) { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
         button[disabled] { opacity: .5; }
         .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-        .muted { color: #666; }
-        .error { color: #a11; }
-        .ok { color: #196b2c; margin: 8px 0 0; }
-        .warnish { color: #8a5b00; }
+        .muted { color: var(--ink-3); }
+        .error { color: var(--mark); }
+        .ok { color: var(--verify); margin: 8px 0 0; }
+        .warnish { color: var(--warn); }
         .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
         @media (max-width: 560px) {
           .picks { grid-template-columns: 1fr; }
@@ -417,23 +418,24 @@ function GridRow({
       )}
 
       <style jsx>{`
-        .row { border: 1px solid #e3e3e6; border-left: 4px solid #16324f; border-radius: 10px; padding: 12px; background: #fff; }
-        .row-name_mismatch { border-left-color: #d9a441; }
-        .row-unmatched { border-left-color: #a11; background: #fff7f7; }
+        .row { border: 1px solid var(--rule); border-left: 4px solid var(--ink); border-radius: 10px; padding: 12px; background: var(--surface); }
+        .row-name_mismatch { border-left-color: var(--warn); }
+        .row-unmatched { border-left-color: var(--mark); background: var(--mark-soft); }
         .head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; }
         .who { font-weight: 600; }
-        .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: #eaf4ec; color: #196b2c; }
-        .badge-name_mismatch { background: #fdf1de; color: #8a5b00; }
-        .badge-unmatched { background: #fbe9e9; color: #a11; }
-        .note { font-size: 13px; color: #555; margin: 8px 0 0; }
-        .note.bad { color: #a11; }
+        .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--verify-soft); color: var(--verify); }
+        .badge-name_mismatch { background: var(--warn-soft); color: var(--warn); }
+        .badge-unmatched { background: var(--mark-soft); color: var(--mark); }
+        .note { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; }
+        .note.bad { color: var(--mark); }
         .marks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
-        .mark { font-size: 12px; background: #f1f2f4; border-radius: 999px; padding: 3px 10px; color: #444; }
-        .mark-bad { background: #fbe9e9; color: #a11; }
+        .mark { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
+        .mark-bad { background: var(--mark-soft); color: var(--mark); }
         .resolve { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
-        select, input { padding: 8px 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 14px; background: #fff; }
-        button { padding: 8px 14px; border-radius: 8px; border: 0; background: #16324f; color: #fff; font-size: 14px; }
-        button.ghost { background: transparent; color: #16324f; border: 1px solid #16324f; }
+        select, input { padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 14px; background: var(--surface); }
+        button { padding: 8px 14px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 14px; transition: transform .16s var(--ease-spring, ease); }
+        button:hover:not([disabled]) { transform: translateY(-1px); }
+        button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
         button[disabled] { opacity: .5; }
       `}</style>
     </li>
