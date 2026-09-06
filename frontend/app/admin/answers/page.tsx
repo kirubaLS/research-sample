@@ -68,6 +68,8 @@ export default function AnswersPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
+  const [classBy, setClassBy] = useState("");
+  const [classResult, setClassResult] = useState<string | null>(null);
 
   function explain(err: unknown): string {
     if (err instanceof ApiUnreachable) return "Could not reach the API.";
@@ -239,6 +241,34 @@ export default function AnswersPage() {
     }
   }
 
+  async function confirmClass() {
+    const key = getApiKey();
+    if (!key || !paperId || !sectionId) return;
+    if (!classBy.trim()) {
+      setError("Put your name to these marks before confirming them.");
+      return;
+    }
+    setBusy("Confirming the class");
+    setError(null);
+    setClassResult(null);
+    try {
+      const out = await api.confirmClassReading(key, paperId, sectionId, classBy);
+      if (studentId) await load();
+      const skippedText = out.skipped.length
+        ? ` ${out.skipped.length} skipped: ` +
+          out.skipped.map((s) => `${s.name} (${s.reason})`).join(", ") + "."
+        : " Nothing was skipped.";
+      setClassResult(
+        `${out.confirmed.length} student${out.confirmed.length === 1 ? "" : "s"} confirmed.` +
+          skippedText,
+      );
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <main className="wrap">
       <p className="eyebrow">Answer sheet</p>
@@ -296,6 +326,31 @@ export default function AnswersPage() {
             No paper has been read yet. Scan and confirm one on the Question paper screen
             first. Marks have nothing to attach to until then.
           </p>
+        )}
+
+        {paperId && sectionId && (
+          <div className="classconfirm">
+            <p className="muted">
+              Every student in this class whose reading is clean -- read, and nothing left
+              to fix -- confirmed in one call. A student still carrying a problem, or who
+              hasn&rsquo;t been read yet, is skipped and named.
+            </p>
+            <div className="confirmrow">
+              <label>
+                <span className="sr">Your name</span>
+                <input
+                  value={classBy}
+                  onChange={(e) => setClassBy(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </label>
+              <button onClick={confirmClass} disabled={!!busy}>
+                Confirm the whole class
+              </button>
+            </div>
+            {classResult && <p className="ok">{classResult}</p>}
+          </div>
         )}
       </section>
 
@@ -382,6 +437,7 @@ export default function AnswersPage() {
         .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
         select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
         .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
+        .classconfirm { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
         .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
         .confirmrow label { flex: 1 1 180px; display: flex; }
         .confirmrow input { width: 100%; }

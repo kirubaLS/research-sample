@@ -1115,6 +1115,17 @@ export const api = {
       { method: "POST", body: JSON.stringify({ by }) },
     ),
 
+  confirmClassReading: (key: string, assessmentId: string, sectionId: string, by: string) =>
+    authed<{
+      confirmed: { student_id: string; name: string }[];
+      skipped: { student_id: string; name: string; reason: string }[];
+      confirmed_by: string;
+    }>(
+      `/assessments/${assessmentId}/sections/${sectionId}/reading/confirm-class`,
+      key,
+      { method: "POST", body: JSON.stringify({ by }) },
+    ),
+
   uploadAnswerPages: (key: string, assessmentId: string, studentId: string, files: File[]) =>
     uploadMany<ScanDoc>(
       `/assessments/${assessmentId}/answers/${studentId}/pages`, key, files, "X-API-Key",
@@ -1142,6 +1153,13 @@ export const api = {
       // Reading a photo calls a vision model and can run past Render's request timeout,
       // so this endpoint always answers 202 with a job to poll -- never the result directly.
       `/assessments/${assessmentId}/gridsheet`,
+    ),
+
+  uploadGridSheetFile: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
+    uploadMany<GridUploadResult>(
+      `/assessments/${assessmentId}/sections/${sectionId}/gridsheet/file`, key, files, "X-API-Key",
+      // No vision call for a spreadsheet or a text-layer PDF -- fast enough to answer
+      // directly, no job to poll.
     ),
 
   gridSheet: (key: string, assessmentId: string, documentId: string) =>

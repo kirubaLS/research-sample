@@ -34,10 +34,11 @@ from app.api.deps import require_scanner
 from app.api.documents import content_type_for, store_document
 from app.api.matching import match_address
 from app.api.schemas import StudentCreateIn
+from app.api.upload import IMAGE_SUFFIXES, pages_to_pdf
 from app.config import get_settings
 from app.db import get_session
 from app.extraction.gridsheet import read_grid
-from app.extraction.marksheet import parse_address
+from app.extraction.marksheet import parse_address, read_any, read_pdf
 from app.models import (
     Assessment,
     GridSheetJob,
@@ -98,7 +99,15 @@ def _write_proposed_marks(
 ) -> None:
     """Turn one resolved row's cells into this student's ProposedMarks -- the same table,
     the same shape, that a single-student reading writes to. A re-resolve (a different
-    student picked, a correction) replaces whatever this row wrote before."""
+    student picked, a correction) replaces whatever this row wrote before.
+
+    A cell arrives one of two ways. From a photo, it is raw text needing address
+    resolution and a plain number parse, done here. From a spreadsheet or a text-layer
+    PDF (the multi-student file path), ``marksheet.py`` has already resolved the address
+    and parsed the value -- absent/not-offered states, "3/5" fractions, the lot -- and a
+    cell carrying a ``"resolved_address"`` key is trusted for that instead of re-derived
+    with the cruder photo-cell logic, which cannot represent any of it.
+    """
     for old in db.scalars(
         select(ProposedMark).where(
             ProposedMark.assessment_id == assessment.id,
@@ -110,23 +119,38 @@ def _write_proposed_marks(
 
     seen: set[str] = set()
     for cell in row.cells:
-        canonical, _why = parse_address(cell.get("question_label") or "")
+        canonical = (
+            cell["resolved_address"] if "resolved_address" in cell
+            else parse_address(cell.get("question_label") or "")[0]
+        )
+        # match_address, not a plain dict lookup keyed by question.address: a spreadsheet
+        # header often parses to a section-blank canonical form ("/1//"), and it is
+        # match_address's own number/sub/alt fallback that resolves that against the
+        # paper's real section-qualified address, exactly as it already does for a
+        # section-qualified label like "B/2".
         question, _why = match_address(questions, canonical)
         if question is None or question.address in seen:
             continue
         seen.add(question.address)
 
         raw = cell.get("raw_value") or ""
-        marks: float | None = None
-        problem: str | None = None
-        if not raw:
-            problem = "left blank on the sheet"
+        if "state" in cell:
+            # pre-parsed by marksheet.py: trust its state/marks/problem as they stand.
+            state = cell["state"]
+            marks = cell.get("marks")
+            problem = cell.get("problem")
         else:
-            try:
-                marks = float(raw)
-            except ValueError:
-                problem = f"{raw!r} is not a number"
-        if problem is None and marks is not None:
+            state = "awarded"
+            marks = None
+            problem = None
+            if not raw:
+                problem = "left blank on the sheet"
+            else:
+                try:
+                    marks = float(raw)
+                except ValueError:
+                    problem = f"{raw!r} is not a number"
+        if problem is None and state == "awarded" and marks is not None:
             if marks > float(question.max_marks):
                 problem = (
                     f"{marks:g} is more than the {float(question.max_marks):g} this "
@@ -134,11 +158,15 @@ def _write_proposed_marks(
                 )
             elif marks < 0:
                 problem = "a negative mark"
+        if problem is None and cell.get("via_ocr"):
+            # Recognised text is a proposal, never an assertion -- the same rule
+            # reading.py's own single-student path already applies to a scanned file.
+            problem = "read by text recognition; check this one against the sheet"
 
         db.add(ProposedMark(
             school_id=school.id, assessment_id=assessment.id, student_id=student.id,
-            address=question.address, marks=marks, state="awarded",
-            source_kind="ocr_grid", source_name=source_name[:200],
+            address=question.address, marks=marks if state == "awarded" else None,
+            state=state, source_kind="ocr_grid", source_name=source_name[:200],
             origin=f"grid sheet, roll {row.roll_no}"[:200], raw_value=raw[:64], problem=problem,
         ))
 
@@ -552,3 +580,125 @@ def confirm_gridsheet(
 
     db.commit()
     return {"confirmed": confirmed, "skipped": skipped, "confirmed_by": body.by}
+
+
+@router.post("/{assessment_id}/sections/{section_id}/gridsheet/file", status_code=201)
+async def upload_gridsheet_file(
+    assessment_id: str,
+    section_id: str,
+    files: list[UploadFile] = File(...),
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> dict:
+    """A spreadsheet or text-layer PDF naming several students in one file -- the same
+    idea as the class mark-entry photo above, for a school whose marks already live in a
+    CSV, an Excel workbook, or a printed PDF instead of a photograph.
+
+    Reading text is fast enough to answer inside one request -- no vision call, no
+    background job, unlike ``upload_gridsheet``. Everything downstream is identical: an
+    unmatched roll is flagged, never invented; nothing becomes a mark until a person
+    resolves and confirms it, through the same review/resolve/confirm endpoints above.
+    """
+    assessment = _assessment(db, school, assessment_id)
+    section = _section(db, school, section_id)
+
+    questions = list(db.scalars(select(Question).where(Question.assessment_id == assessment.id)))
+    if not questions:
+        raise HTTPException(
+            422,
+            "this paper has no questions yet. Scan it, confirm the extraction and map it "
+            "to the book first, so a mark has something to attach to.",
+        )
+    if not files:
+        raise HTTPException(422, "no file was sent")
+
+    first = files[0]
+    name = (first.filename or "").lower()
+    if len(files) == 1 and not name.endswith((".pdf", *IMAGE_SUFFIXES)):
+        data = await first.read()
+        if not data:
+            raise HTTPException(422, "the file is empty")
+        if len(data) > MAX_SHEET_BYTES:
+            raise HTTPException(
+                413, f"file is larger than {MAX_SHEET_BYTES // 1024 // 1024} MB"
+            )
+        reading = read_any(first.filename or "", data, None)
+        stored_bytes, content_type = data, content_type_for(first.filename, first.content_type)
+    else:
+        path = await pages_to_pdf(files)
+        try:
+            reading = read_pdf(path, source=first.filename or "scan")
+            stored_bytes = path.read_bytes()
+        finally:
+            path.unlink(missing_ok=True)
+        content_type = "application/pdf"
+
+    if reading.refused:
+        raise HTTPException(422, reading.refused)
+    if not reading.rolls:
+        raise HTTPException(
+            422,
+            "this file does not name any student -- no roll-number column was found. Use "
+            "the single-student upload if it belongs to just one student.",
+        )
+
+    document = store_document(
+        db, school_id=school.id, assessment_id=assessment.id, student_id=None,
+        kind="mark_grid", pages=[(stored_bytes, content_type, None)], uploaded_by="",
+    )
+
+    roster = list(db.scalars(select(StudentProfile).where(StudentProfile.section_id == section.id)))
+    by_roll = {s.roll_no: s for s in roster}
+
+    by_student_roll: dict[str, list] = {}
+    problems = list(reading.problems)
+    unattributed = sum(1 for r in reading.rows if not r.roll_no)
+    if unattributed:
+        problems.append(f"{unattributed} row(s) did not name a roll number and were left out")
+    for row in reading.rows:
+        if row.roll_no:
+            by_student_roll.setdefault(row.roll_no, []).append(row)
+
+    rows: list[GridSheetRow] = []
+    for roll_no, file_rows in by_student_roll.items():
+        student = by_roll.get(roll_no)
+        cells = []
+        for r in file_rows:
+            if r.address is None:
+                problems.append(
+                    f"roll {roll_no}: {r.raw_address!r} -- "
+                    f"{r.problem or 'not a question on this paper'}"
+                )
+                continue
+            cells.append({
+                "resolved_address": r.address, "raw_value": r.raw_value,
+                "marks": r.marks, "state": r.state, "problem": r.problem,
+                "via_ocr": r.via_ocr,
+            })
+
+        grid_row = GridSheetRow(
+            school_id=school.id, assessment_id=assessment.id, section_id=section.id,
+            document_id=document.id, roll_no=roll_no, name_as_written="",
+            student_id=student.id if student else None,
+            status="clean" if student else "unmatched",
+            cells=cells,
+        )
+        db.add(grid_row)
+        db.flush()
+        if student is not None:
+            _write_proposed_marks(
+                db, school, assessment, questions, student, grid_row,
+                first.filename or "spreadsheet",
+            )
+        rows.append(grid_row)
+    db.commit()
+
+    return {
+        "document_id": document.id,
+        "rows": len(rows),
+        "clean": sum(1 for r in rows if r.status == "clean"),
+        "name_mismatch": 0,
+        "unmatched": sum(1 for r in rows if r.status == "unmatched"),
+        "problems": problems,
+        "next": f"/assessments/{assessment.id}/gridsheet/{document.id}",
+    }

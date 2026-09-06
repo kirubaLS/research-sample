@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { CameraCapture } from "@/components/CameraCapture";
 import {
   api,
   ApiError,
@@ -43,6 +44,7 @@ export default function GridSheetPage() {
   const [confirmResult, setConfirmResult] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
 
   function explain(err: unknown): string {
     if (err instanceof ApiUnreachable) return "Could not reach the API.";
@@ -96,19 +98,43 @@ export default function GridSheetPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
 
-  async function upload(files: FileList | null) {
+  async function uploadPhoto(files: File[]) {
     const key = getApiKey();
-    if (!key || !paperId || !sectionId || !files || files.length === 0) return;
+    if (!key || !paperId || !sectionId || files.length === 0) return;
+    setShowCamera(false);
     setBusy("Reading the sheet");
     setError(null);
     setUploadSummary(null);
     setConfirmResult(null);
     try {
-      const out = await api.uploadGridSheet(key, paperId, sectionId, Array.from(files));
+      const out = await api.uploadGridSheet(key, paperId, sectionId, files);
       setDocumentId(out.document_id);
       setUploadSummary(
         `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
           `${out.name_mismatch} with a name to check, ${out.unmatched} with no matching student.`,
+      );
+      await loadReview(out.document_id);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function uploadSpreadsheet(files: FileList | null) {
+    const key = getApiKey();
+    if (!key || !paperId || !sectionId || !files || files.length === 0) return;
+    setBusy("Reading the file");
+    setError(null);
+    setUploadSummary(null);
+    setConfirmResult(null);
+    try {
+      const out = await api.uploadGridSheetFile(key, paperId, sectionId, Array.from(files));
+      setDocumentId(out.document_id);
+      setUploadSummary(
+        `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
+          `${out.unmatched} with no matching student.` +
+          (out.problems.length ? ` ${out.problems.join(" ")}` : ""),
       );
       await loadReview(out.document_id);
     } catch (err) {
@@ -222,10 +248,34 @@ export default function GridSheetPage() {
               multiple
               accept="image/*"
               disabled={!paperId || !sectionId || !!busy}
-              onChange={(e) => void upload(e.target.files)}
+              onChange={(e) => void uploadPhoto(Array.from(e.target.files ?? []))}
             />
           </label>
+          <label>
+            <span>Spreadsheet or PDF</span>
+            <input
+              type="file"
+              accept=".csv,.tsv,.txt,.xlsx,.xlsm,.pdf"
+              disabled={!paperId || !sectionId || !!busy}
+              onChange={(e) => void uploadSpreadsheet(e.target.files)}
+            />
+            <span className="hint">One row per student, one column per question -- a CSV, an Excel file, or a printed PDF.</span>
+          </label>
         </div>
+
+        <div className="row" style={{ marginTop: 4 }}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={!paperId || !sectionId || !!busy}
+            onClick={() => setShowCamera((v) => !v)}
+          >
+            {showCamera ? "Close camera" : "Use camera instead"}
+          </button>
+        </div>
+        {showCamera && (
+          <CameraCapture onCapture={(file) => void uploadPhoto([file])} onCancel={() => setShowCamera(false)} />
+        )}
 
         {papers.length > 0 && ready.length === 0 && (
           <p className="warnish">
