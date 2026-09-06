@@ -149,6 +149,25 @@ a { color: var(--mark); text-underline-offset: 3px; transition: color var(--dur-
 }
 main { animation: rise-in var(--dur-slow) var(--ease) both; }
 
+/* A card, a stat tile, a numbered step doesn't just fade in -- it tips up out of the page,
+   as if it had real thickness, each one a beat behind the last. Self-contained perspective
+   (the perspective() term lives inside the transform itself) so no ancestor needs its own
+   3D containing block for this to render correctly. */
+@keyframes card-in {
+  from { opacity: 0; transform: perspective(800px) rotateX(-16deg) translateY(16px) translateZ(-30px); }
+  to { opacity: 1; transform: perspective(800px) rotateX(0deg) translateY(0) translateZ(0); }
+}
+.grid > *, .tiles > *, .steps > * {
+  animation: card-in 0.7s var(--ease-spring) both;
+}
+.grid > *:nth-child(1), .tiles > *:nth-child(1), .steps > *:nth-child(1) { animation-delay: 0.02s; }
+.grid > *:nth-child(2), .tiles > *:nth-child(2), .steps > *:nth-child(2) { animation-delay: 0.07s; }
+.grid > *:nth-child(3), .tiles > *:nth-child(3), .steps > *:nth-child(3) { animation-delay: 0.12s; }
+.grid > *:nth-child(4), .tiles > *:nth-child(4), .steps > *:nth-child(4) { animation-delay: 0.17s; }
+.grid > *:nth-child(5), .tiles > *:nth-child(5), .steps > *:nth-child(5) { animation-delay: 0.22s; }
+.grid > *:nth-child(6), .tiles > *:nth-child(6), .steps > *:nth-child(6) { animation-delay: 0.27s; }
+.grid > *:nth-child(n+7), .tiles > *:nth-child(n+7), .steps > *:nth-child(n+7) { animation-delay: 0.32s; }
+
 /* --- layout --------------------------------------------------------------------------- */
 .shell { min-height: 100dvh; display: flex; flex-direction: column; }
 main { width: 100%; max-width: var(--max); margin: 0 auto; padding: 32px 22px 90px; flex: 1; }
@@ -181,8 +200,14 @@ main.narrow { max-width: 680px; }
   font-size: 17px; font-weight: 700; border-radius: 9px;
   box-shadow: var(--shadow-sm);
   transition: transform var(--dur) var(--ease-spring);
+  animation: float3d 5s ease-in-out infinite;
+  transform-style: preserve-3d;
 }
-.brand:hover .glyph { transform: rotate(-6deg) scale(1.06); }
+.brand:hover .glyph { animation-play-state: paused; transform: perspective(600px) rotate(-6deg) scale(1.08) translateZ(8px); }
+@keyframes float3d {
+  0%, 100% { transform: perspective(600px) rotateY(-8deg) rotateX(4deg); }
+  50% { transform: perspective(600px) rotateY(8deg) rotateX(-4deg); }
+}
 .brand .name { font-family: var(--font-display), serif; font-size: 19px; font-weight: 600; }
 .brand .sub { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
 .navlinks { margin-left: auto; display: flex; gap: 6px; align-items: center; }
