@@ -11,6 +11,7 @@ from typing import Protocol
 
 from app.classify.grounding import Grounded, ground
 from app.classify.judge import SYSTEM, Classification, Evidence, build_prompt
+from app.llm import output_config
 
 
 class Judge(Protocol):
@@ -23,9 +24,11 @@ class AnthropicJudge:
     def __init__(
         self,
         api_key: str,
-        model: str = "claude-haiku-4-5",
+        model: str = "claude-opus-5",
         *,
         known_sections: dict[str, set[str]] | None = None,
+        effort: str | None = None,
+        passage_chars: int = 1200,
     ) -> None:
         if not api_key:
             raise ValueError(
@@ -37,19 +40,44 @@ class AnthropicJudge:
 
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        #: None on a model that does not take an effort parameter, and then the keyword is
+        #: dropped from the request rather than sent empty
+        self.output_config = output_config(model, effort)
         #: chapter -> the section numbers that actually exist for it, from the taxonomy
         self.known_sections = known_sections
+        #: how much of each passage the model is shown -- the price of the call
+        self.passage_chars = passage_chars
         #: every field the knowledge base could not vouch for, kept for inspection
         self.violations: list[tuple[str, list[str]]] = []
+        #: What was actually spent, added up as the paper is read. Reported rather than
+        #: estimated: every figure anybody quoted for a paper before this, mine included,
+        #: was arithmetic on a guess about the prompt.
+        self.input_tokens = 0
+        self.output_tokens = 0
+        self.calls = 0
 
     def classify(self, question: str, evidence: list[Evidence]) -> Classification:
+        extra = {"output_config": self.output_config} if self.output_config else {}
         response = self.client.messages.parse(
             model=self.model,
-            max_tokens=2000,
+            # Room for the reasoning as well as the answer. Thinking is on by default on
+            # the current models and its tokens count against this ceiling, so a limit
+            # sized for the answer alone truncates the reply mid-thought -- on a paid
+            # request, in production, which is exactly what app.llm exists to prevent.
+            max_tokens=16000,
             system=SYSTEM,
-            messages=[{"role": "user", "content": build_prompt(question, evidence)}],
+            messages=[{
+                "role": "user",
+                "content": build_prompt(question, evidence, self.passage_chars),
+            }],
             output_format=Classification,
+            **extra,
         )
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self.input_tokens += getattr(usage, "input_tokens", 0) or 0
+            self.output_tokens += getattr(usage, "output_tokens", 0) or 0
+        self.calls += 1
         checked: Grounded = ground(
             response.parsed_output, evidence, known_sections=self.known_sections
         )

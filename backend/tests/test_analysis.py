@@ -50,7 +50,7 @@ def test_a_board_unit_with_no_marks_is_a_coverage_gap_not_a_zero():
         _rows(), {"U.MENSURATION": 10.0, "U.TRIG": 12.0}
     )
     assert [g.board_unit for g in gaps] == ["U.TRIG"]
-    assert "no information" in gaps[0].message
+    assert "says nothing about it" in gaps[0].message
 
 
 def test_indicator_carries_an_interval_and_a_share():
@@ -95,3 +95,81 @@ def test_typology_alignment_passes_a_balanced_paper():
     rep = typology_alignment({"R&U": 43.2, "AP": 19.2, "AEC": 17.6})
     assert rep.alignment_score > 0.95
     assert "well aligned" in rep.verdict
+
+
+def test_strengths_rank_on_the_interval_not_the_point_estimate():
+    """2/2 on one question is not stronger evidence than 11/12, and must not outrank it."""
+    from app.analysis.diagnostics import MarkRow, by_concept_family, select_strengths
+
+    rows = [
+        MarkRow("s", "1", 2.0, 2.0, concept_family="TINY"),
+        MarkRow("s", "2", 2.0, 2.0, concept_family="TINY"),
+        *[MarkRow("s", f"{i}", 1.0, 1.0, concept_family="SOLID") for i in range(3, 14)],
+        MarkRow("s", "14", 0.0, 1.0, concept_family="SOLID"),
+        *[MarkRow("s", f"{i}", 1.0, 4.0, concept_family="WEAK") for i in range(15, 19)],
+    ]
+    strengths = [f.key for f in select_strengths(by_concept_family(rows))]
+    assert strengths == ["SOLID", "TINY"]
+    assert "WEAK" not in strengths
+
+
+def test_proof_distinguishes_a_confirmed_placement_from_a_guessed_one():
+    """Same chapter label, very different standing -- the report must not hide that."""
+    from types import SimpleNamespace as NS
+
+    from app.api.reports import _proof
+
+    q = NS(question_no="17", section="C", sub_part=None, choice_alt=None,
+           question_type="LA", stem_text="A cone surmounted on a hemisphere...",
+           logical_page=3, curriculum_section="12.2",
+           curriculum_section_title="Volume of a Combination of Solids",
+           concept_variant="cone on hemisphere r=3.5", chapter_id="ch-sav",
+           verified_against="NCERT Reprint 2026-27", verified_at="2026-08-30")
+    ev = NS(source="scan")
+    codes = {"ch-sav": "X.MATH.SAV"}
+
+    guessed = _proof(q, NS(source="model", confidence=0.41, needs_review=True,
+                           reviewed_by=None, reasoning="closest match",
+                           evidence=["Example 4"], candidates=["X.MATH.SAV", "X.MATH.AOT"],
+                           chapter_id="ch-sav"), ev, codes)
+    confirmed = _proof(q, NS(source="human", confidence=1.0, needs_review=False,
+                             reviewed_by="teacher-7", reasoning=None,
+                             evidence=["Example 4"], candidates=[],
+                             chapter_id="ch-sav"), ev, codes)
+
+    assert guessed["placement"]["chapter"] == confirmed["placement"]["chapter"]
+    assert guessed["placement"]["needs_review"] is True
+    assert guessed["placement"]["candidates"] == ["X.MATH.SAV", "X.MATH.AOT"]
+    assert confirmed["placement"]["reviewed_by"] == "teacher-7"
+    # The book passage the decision rested on travels with the finding, both times.
+    assert guessed["placement"]["book_evidence"] == ["Example 4"]
+
+
+def test_a_topic_scored_well_is_never_listed_as_where_to_work_next():
+    """Ranking by actionability alone put a 94% topic under "where to work next" whenever
+    the paper had fewer than five topics: the list was right about the number and wrong
+    about what it meant, which is the kind of error a teacher acts on."""
+    from app.analysis.diagnostics import (
+        MarkRow,
+        by_concept_family,
+        select_findings,
+        select_strengths,
+    )
+
+    rows = [
+        MarkRow(student_id="s", address=f"A/{i}//", earned=e, max_marks=m,
+                concept_family=fam, state="awarded")
+        for i, (fam, e, m) in enumerate([
+            ("STRONG", 4.0, 4.0), ("STRONG", 3.5, 4.0),
+            ("WEAK", 1.0, 4.0), ("WEAK", 1.0, 4.0),
+        ])
+    ]
+    topics = by_concept_family(rows)
+    focus = select_findings(topics, {})
+    strengths = select_strengths(topics)
+
+    assert {f.key for f in strengths} == {"STRONG"}
+    assert {f.key for f in focus} == {"WEAK"}
+    assert not ({f.key for f in focus} & {f.key for f in strengths}), (
+        "one report cannot call the same topic both"
+    )

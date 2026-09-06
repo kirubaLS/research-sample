@@ -1,0 +1,518 @@
+"use client";
+
+import { useCallback, useEffect, useState } from "react";
+import { CameraCapture } from "@/components/CameraCapture";
+import {
+  api,
+  ApiError,
+  ApiUnreachable,
+  GridSheetReview,
+  GridSheetRowView,
+  PaperSummary,
+  RosterRow,
+  SectionSummary,
+} from "@/lib/api";
+import { getApiKey } from "@/lib/session";
+
+/**
+ * Reading a class mark-entry sheet: one photograph, many students, read in a single call
+ * and staged one row per roll number.
+ *
+ * A roll already on the roster, whose written name is not too far from the roster's own,
+ * needs nothing further -- it is ready to confirm the moment the sheet is read. Anything
+ * else -- a roll nobody recognises, a name that does not match -- is shown and left for a
+ * person to settle, never guessed at and never silently dropped. Confirming moves every
+ * clean row in one call; a flagged row stays exactly where it is until it is resolved.
+ */
+
+const STATUS_LABEL: Record<GridSheetRowView["status"], string> = {
+  clean: "Ready",
+  name_mismatch: "Name doesn't match the roster",
+  unmatched: "No student with this roll",
+};
+
+type PhotoMode = "class" | "single";
+
+export default function GridSheetPage() {
+  const [papers, setPapers] = useState<PaperSummary[]>([]);
+  const [sections, setSections] = useState<SectionSummary[]>([]);
+  const [students, setStudents] = useState<RosterRow[]>([]);
+  const [paperId, setPaperId] = useState("");
+  const [sectionId, setSectionId] = useState("");
+  const [documentId, setDocumentId] = useState("");
+  const [review, setReview] = useState<GridSheetReview | null>(null);
+  const [uploadSummary, setUploadSummary] = useState<string | null>(null);
+  const [by, setBy] = useState("");
+  const [confirmResult, setConfirmResult] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  const [photoMode, setPhotoMode] = useState<PhotoMode>("class");
+
+  function explain(err: unknown): string {
+    if (err instanceof ApiUnreachable) return "Could not reach the API.";
+    if (!(err instanceof ApiError)) return "Something went wrong.";
+    try {
+      const body = JSON.parse(err.message) as { detail?: string };
+      if (body.detail) return body.detail;
+    } catch {
+      /* not JSON */
+    }
+    return `Request failed (${err.status}).`;
+  }
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key) return;
+    (async () => {
+      try {
+        const [list, overview] = await Promise.all([api.listPapers(key), api.overview(key)]);
+        setPapers(list.assessments);
+        setSections(overview.sections);
+      } catch (err) {
+        setError(explain(err));
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key || !sectionId) {
+      setStudents([]);
+      return;
+    }
+    (async () => {
+      try {
+        setStudents((await api.roster(key, sectionId)).students);
+      } catch (err) {
+        setError(explain(err));
+      }
+    })();
+  }, [sectionId]);
+
+  const loadReview = useCallback(async (docId: string) => {
+    const key = getApiKey();
+    if (!key || !paperId || !docId) return;
+    try {
+      setReview(await api.gridSheet(key, paperId, docId));
+    } catch (err) {
+      setError(explain(err));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperId]);
+
+  async function uploadPhoto(files: File[]) {
+    const key = getApiKey();
+    if (!key || !paperId || !sectionId || files.length === 0) return;
+    setShowCamera(false);
+    setBusy(photoMode === "class" ? "Reading the sheet" : "Reading the script");
+    setError(null);
+    setUploadSummary(null);
+    setConfirmResult(null);
+    try {
+      const out = photoMode === "class"
+        ? await api.uploadGridSheet(key, paperId, sectionId, files)
+        : await api.uploadSingleScript(key, paperId, sectionId, files);
+      setDocumentId(out.document_id);
+      setUploadSummary(
+        `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
+          `${out.name_mismatch} with a name to check, ${out.unmatched} with no matching student.`,
+      );
+      await loadReview(out.document_id);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function uploadSpreadsheet(files: FileList | null) {
+    const key = getApiKey();
+    if (!key || !paperId || !sectionId || !files || files.length === 0) return;
+    setBusy("Reading the file");
+    setError(null);
+    setUploadSummary(null);
+    setConfirmResult(null);
+    try {
+      const out = await api.uploadGridSheetFile(key, paperId, sectionId, Array.from(files));
+      setDocumentId(out.document_id);
+      setUploadSummary(
+        `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
+          `${out.unmatched} with no matching student.` +
+          (out.problems.length ? ` ${out.problems.join(" ")}` : ""),
+      );
+      await loadReview(out.document_id);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resolveWithStudent(row: GridSheetRowView, studentId: string) {
+    const key = getApiKey();
+    if (!key || !documentId) return;
+    setBusy(`Resolving roll ${row.roll_no}`);
+    setError(null);
+    try {
+      await api.resolveGridRow(key, paperId, documentId, row.row_id, { student_id: studentId });
+      await loadReview(documentId);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function resolveWithNewStudent(row: GridSheetRowView, name: string, rollNo: string) {
+    const key = getApiKey();
+    if (!key || !documentId) return;
+    setBusy(`Creating a student for roll ${row.roll_no}`);
+    setError(null);
+    try {
+      await api.resolveGridRow(key, paperId, documentId, row.row_id, {
+        create: { name, roll_no: rollNo },
+      });
+      await loadReview(documentId);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function confirmAll() {
+    const key = getApiKey();
+    if (!key || !documentId) return;
+    if (!by.trim()) {
+      setError("Put your name to these marks before confirming them.");
+      return;
+    }
+    setBusy("Confirming");
+    setError(null);
+    try {
+      const out = await api.confirmGridSheet(key, paperId, documentId, by);
+      await loadReview(documentId);
+      const skippedText = out.skipped.length
+        ? ` ${out.skipped.length} row${out.skipped.length === 1 ? "" : "s"} skipped: ` +
+          out.skipped.map((s) => `roll ${s.roll_no} (${s.reason})`).join(", ") + "."
+        : " Nothing was skipped.";
+      setConfirmResult(
+        `${out.confirmed.length} student${out.confirmed.length === 1 ? "" : "s"} confirmed.` +
+          skippedText,
+      );
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const ready = papers.filter((p) => p.ready_for_answer_sheets);
+
+  return (
+    <main className="wrap">
+      <p className="eyebrow">Mark-entry sheet</p>
+      <h1>Read marks off a photo -- a whole class, or one script</h1>
+      <p className="lede">
+        A whole class&rsquo;s mark-entry sheet in one photo -- one row per roll number, one
+        column per question -- or one student&rsquo;s own script, its name and roll read
+        straight off the page rather than picked from a list first. A roll already on the
+        roster is picked up automatically; anything that doesn&rsquo;t match cleanly,
+        including a student missed off the roster entirely, is shown here for a person to
+        settle before it counts.
+      </p>
+
+      <section className="panel">
+        <div className="row" style={{ marginBottom: 10 }}>
+          <div className="filters">
+            <button
+              type="button"
+              className={photoMode === "class" ? "on" : ""}
+              onClick={() => setPhotoMode("class")}
+            >
+              Whole class
+            </button>
+            <button
+              type="button"
+              className={photoMode === "single" ? "on" : ""}
+              onClick={() => setPhotoMode("single")}
+            >
+              One student&rsquo;s script
+            </button>
+          </div>
+        </div>
+        <div className="picks">
+          <label>
+            <span>Paper</span>
+            <select value={paperId} onChange={(e) => { setPaperId(e.target.value); setDocumentId(""); setReview(null); }}>
+              <option value="">Choose a paper…</option>
+              {ready.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.title} · {p.subject_code} · {p.questions} questions
+                  {p.stage === "mapped" ? "" : " (not linked to the book yet)"}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>Class</span>
+            <select value={sectionId} onChange={(e) => { setSectionId(e.target.value); setDocumentId(""); setReview(null); }}>
+              <option value="">Choose a class…</option>
+              {sections.map((s) => (
+                <option key={s.section_id} value={s.section_id}>
+                  {s.label} · {s.students} students
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            <span>{photoMode === "class" ? "Photograph" : "Photo of the script"}</span>
+            <input
+              type="file"
+              multiple={photoMode === "class"}
+              accept="image/*"
+              disabled={!paperId || !sectionId || !!busy}
+              onChange={(e) => void uploadPhoto(Array.from(e.target.files ?? []))}
+            />
+          </label>
+          <label>
+            <span>Spreadsheet or PDF</span>
+            <input
+              type="file"
+              accept=".csv,.tsv,.txt,.xlsx,.xlsm,.pdf"
+              disabled={!paperId || !sectionId || !!busy}
+              onChange={(e) => void uploadSpreadsheet(e.target.files)}
+            />
+            <span className="hint">One row per student, one column per question -- a CSV, an Excel file, or a printed PDF.</span>
+          </label>
+        </div>
+
+        <div className="row" style={{ marginTop: 4 }}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={!paperId || !sectionId || !!busy}
+            onClick={() => setShowCamera((v) => !v)}
+          >
+            {showCamera ? "Close camera" : "Use camera instead"}
+          </button>
+        </div>
+        {showCamera && (
+          <CameraCapture onCapture={(file) => void uploadPhoto([file])} onCancel={() => setShowCamera(false)} />
+        )}
+
+        {papers.length > 0 && ready.length === 0 && (
+          <p className="warnish">
+            No paper has been read yet. Scan and confirm one on the Question paper screen
+            first. Marks have nothing to attach to until then.
+          </p>
+        )}
+        {uploadSummary && <p className="ok">{uploadSummary}</p>}
+      </section>
+
+      {error && <p className="error">{error}</p>}
+      {busy && <p className="muted">{busy}…</p>}
+
+      {review && (
+        <>
+          <section className="panel sticky">
+            <div className="tally">
+              <div>
+                <strong>{review.assessment.title}</strong>
+              </div>
+              <div>
+                <strong>{review.ready_to_confirm}</strong>
+                <span className="muted"> of {review.rows.length} ready to confirm</span>
+              </div>
+            </div>
+            <div className="confirmrow">
+              <label>
+                <span className="sr">Your name</span>
+                <input
+                  value={by}
+                  onChange={(e) => setBy(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </label>
+              <button onClick={confirmAll} disabled={!!busy || review.ready_to_confirm === 0}>
+                Confirm all ready rows
+              </button>
+            </div>
+            {confirmResult && <p className="ok">{confirmResult}</p>}
+          </section>
+
+          <ol className="rows">
+            {review.rows.map((row) => (
+              <GridRow
+                key={row.row_id}
+                row={row}
+                students={students}
+                busy={!!busy}
+                onPick={(studentId) => void resolveWithStudent(row, studentId)}
+                onCreate={(name, rollNo) => void resolveWithNewStudent(row, name, rollNo)}
+              />
+            ))}
+          </ol>
+        </>
+      )}
+
+      <style jsx>{`
+        .wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 64px; }
+        h1 { margin: 0 0 4px; font-size: 26px; }
+        .lede { color: var(--ink-2); margin: 0 0 20px; max-width: 68ch; }
+        .panel { border: 1px solid var(--rule); border-radius: 12px; padding: 14px; margin-bottom: 16px; background: var(--surface); }
+        .sticky { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
+        .picks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+        .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
+        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
+        .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
+        .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .confirmrow label { flex: 1 1 180px; display: flex; }
+        .confirmrow input { width: 100%; }
+        button { padding: 10px 16px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 15px; transition: transform .16s var(--ease-spring, ease), box-shadow .2s ease; }
+        button:hover:not([disabled]) { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
+        button[disabled] { opacity: .5; }
+        .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+        .muted { color: var(--ink-3); }
+        .error { color: var(--mark); }
+        .ok { color: var(--verify); margin: 8px 0 0; }
+        .warnish { color: var(--warn); }
+        .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+        @media (max-width: 560px) {
+          .picks { grid-template-columns: 1fr; }
+          .sticky { position: static; }
+        }
+      `}</style>
+    </main>
+  );
+}
+
+function GridRow({
+  row,
+  students,
+  busy,
+  onPick,
+  onCreate,
+}: {
+  row: GridSheetRowView;
+  students: RosterRow[];
+  busy: boolean;
+  onPick: (studentId: string) => void;
+  onCreate: (name: string, rollNo: string) => void;
+}) {
+  const [picked, setPicked] = useState("");
+  const [creating, setCreating] = useState(false);
+  const [newName, setNewName] = useState(row.name_as_written);
+
+  const blocked = row.marks.filter((m) => m.problem);
+
+  return (
+    <li className={`row row-${row.status}`}>
+      <div className="head">
+        <span className="who">
+          Roll {row.roll_no}
+          {row.student ? ` · ${row.student.name}` : row.name_as_written ? ` · written as “${row.name_as_written}”` : ""}
+        </span>
+        <span className={`badge badge-${row.status}`}>{STATUS_LABEL[row.status]}</span>
+      </div>
+
+      {row.status === "name_mismatch" && row.student && (
+        <p className="note">
+          The sheet reads &ldquo;{row.name_as_written}&rdquo; but roll {row.roll_no} on the
+          roster is {row.student.name}. If that&rsquo;s the same student, say so below;
+          otherwise pick or create the right one.
+        </p>
+      )}
+
+      {row.marks.length > 0 && (
+        <div className="marks">
+          {row.marks.map((m) => (
+            <span key={m.address} className={m.problem ? "mark mark-bad" : "mark"} title={m.problem ?? undefined}>
+              {m.address}: {m.marks ?? (m.raw_value || "—")}
+            </span>
+          ))}
+        </div>
+      )}
+      {blocked.length > 0 && (
+        <p className="note bad">
+          {blocked.length} cell{blocked.length === 1 ? "" : "s"} need a look: {blocked.map((m) => `${m.address} (${m.problem})`).join("; ")}
+        </p>
+      )}
+
+      {row.status !== "clean" && (
+        <div className="resolve">
+          {row.status === "name_mismatch" && row.student && (
+            <button type="button" onClick={() => onPick(row.student!.id)} disabled={busy}>
+              This is {row.student.name}
+            </button>
+          )}
+          {!creating && (
+            <>
+              <select
+                value={picked}
+                onChange={(e) => setPicked(e.target.value)}
+                disabled={busy || !students.length}
+              >
+                <option value="">Pick a different student…</option>
+                {students.map((s) => (
+                  <option key={s.student_id} value={s.student_id}>
+                    {s.roll_no}. {s.name}
+                  </option>
+                ))}
+              </select>
+              <button type="button" onClick={() => picked && onPick(picked)} disabled={busy || !picked}>
+                Use this student
+              </button>
+              <button type="button" className="ghost" onClick={() => setCreating(true)} disabled={busy}>
+                Create a new student
+              </button>
+            </>
+          )}
+          {creating && (
+            <>
+              <input
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+                placeholder="Student's name"
+              />
+              <button
+                type="button"
+                onClick={() => newName.trim() && onCreate(newName.trim(), row.roll_no)}
+                disabled={busy || !newName.trim()}
+              >
+                Create roll {row.roll_no}
+              </button>
+              <button type="button" className="ghost" onClick={() => setCreating(false)} disabled={busy}>
+                Cancel
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
+      <style jsx>{`
+        .row { border: 1px solid var(--rule); border-left: 4px solid var(--ink); border-radius: 10px; padding: 12px; background: var(--surface); }
+        .row-name_mismatch { border-left-color: var(--warn); }
+        .row-unmatched { border-left-color: var(--mark); background: var(--mark-soft); }
+        .head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; }
+        .who { font-weight: 600; }
+        .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--verify-soft); color: var(--verify); }
+        .badge-name_mismatch { background: var(--warn-soft); color: var(--warn); }
+        .badge-unmatched { background: var(--mark-soft); color: var(--mark); }
+        .note { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; }
+        .note.bad { color: var(--mark); }
+        .marks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+        .mark { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
+        .mark-bad { background: var(--mark-soft); color: var(--mark); }
+        .resolve { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+        select, input { padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 14px; background: var(--surface); }
+        button { padding: 8px 14px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 14px; transition: transform .16s var(--ease-spring, ease); }
+        button:hover:not([disabled]) { transform: translateY(-1px); }
+        button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
+        button[disabled] { opacity: .5; }
+      `}</style>
+    </li>
+  );
+}

@@ -84,14 +84,61 @@ class Settings(BaseSettings):
     #: the classifier's judge. Without it, placement falls back to nearest-neighbour
     #: retrieval, which cannot tell a question about a theorem from the theorem.
     anthropic_api_key: str | None = None
-    #: one call per question, ~38 per paper, so the high-volume model is the right default
-    model_classifier: str = "claude-haiku-4-5"
+    #: One call per question, around forty per paper. This call decides the chapter, the
+    #: topic and the cognitive tier that a school reads about a child, so it is not the
+    #: place to take the cheapest thing available -- but it is not the place to take the
+    #: dearest without evidence either. Overridable per deployment, and the run reports
+    #: what it actually spent so the choice can be made on measurement rather than on a
+    #: guess about what a paper costs.
+    model_classifier: str = "claude-sonnet-5"
+    #: How hard the model is asked to work, sent only to models that accept it -- Haiku 4.5
+    #: rejects the parameter and the request drops it. See app.llm. Thinking tokens are the
+    #: larger half of what a paper costs, so this is the strongest price lever here, and
+    #: the one most worth measuring before moving.
+    model_effort: str = "medium"
+
+    # --- what the classifier is shown, which is what it costs ---------------------------
+    #: How many book passages go into one classification, and how many chapters they are
+    #: drawn from. Both are the price of the call and the quality of the answer at once:
+    #: too few and the rival chapter is never shown, so the reading cannot correct
+    #: retrieval; too many and every question carries passages that were never in
+    #: contention. Settings rather than constants because the right number depends on the
+    #: book, and finding it should not need a code change.
+    classifier_evidence_passages: int = 6
+    classifier_evidence_chapters: int = 3
+    #: Characters kept from each passage. A whole exercise runs to 8500 and the signal is
+    #: at the start; the tail is later questions that pull the reading off.
+    classifier_passage_chars: int = 1200
 
     # --- embeddings ---
     #: Multilingual by requirement, not preference: the papers are bilingual and Tamil is
     #: in scope. Unset means the knowledge base answers exact matches only.
     jina_api_key: str | None = None
     embedding_model: str = "jina-embeddings-v4"
+    #: The Hindi NCERT books (Kshitij, Kritika, Sparsh, Sanchayan) embed a pre-Unicode
+    #: font with no ToUnicode CMap, so their own text layer decodes as mojibake regardless
+    #: of extraction method -- see app.ingest.gemini_ocr. Tesseract would read the
+    #: rendered page correctly too, but needs a system binary the free-tier Render Python
+    #: runtime cannot install; Gemini reads the PDF directly over the API, no system
+    #: dependency. Unset means Hindi contents/chapter uploads are refused by name rather
+    #: than silently falling through to the broken text layer.
+    gemini_api_key: str | None = None
+    #: A model name shifts under a deployment in a way jina_api_key's model does not.
+    #: gemini-2.5-flash (this module's first default) started 404ing with "no longer
+    #: available to new users" -- Google's own error named the replacement, gemini-3.6-
+    #: flash, which is what this is now. Verify this is still current before relying on it
+    #: rather than trusting this default blind a second time.
+    gemini_model: str = "gemini-3.6-flash"
+    #: Sarvam Vision 1.5 (app.ingest.sarvam_ocr), tried ahead of both Tesseract and
+    #: Gemini when set -- an OCR model trained specifically on Indic scripts, offered as
+    #: the accuracy option rather than the free-and-local or the general-purpose-network
+    #: one. Unset falls through to whichever of the other two this deployment can run.
+    sarvam_api_key: str | None = None
+    #: BCP-47, matching what app.ingest.hindi_ocr's OCR_LANG ('hin', Tesseract's own
+    #: three-letter code) means for the Hindi books this was built for -- change this
+    #: alongside the subject if this deployment starts loading a book in another of
+    #: Sarvam's 23 supported Indic languages.
+    sarvam_language: str = "hi-IN"
     #: Matryoshka truncation. Vectors from different models or dimensions are not
     #: comparable, so changing either requires re-embedding the whole corpus.
     embedding_dimensions: int = 512

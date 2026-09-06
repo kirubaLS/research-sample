@@ -15,7 +15,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { assess, type QualityReport } from "@/lib/quality";
-import { deletePage, listPages, purgeStale, putPage, type ScannedPage } from "@/lib/pageStore";
+import {
+  deletePage,
+  historyState,
+  listPages,
+  purgeStale,
+  putPage,
+  redo,
+  undo,
+  type ScannedPage,
+} from "@/lib/pageStore";
 
 type Mode = "cover" | "script";
 
@@ -33,9 +42,11 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
   const [retakeIndex, setRetakeIndex] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [history, setHistory] = useState({ canUndo: false, canRedo: false });
 
   const refresh = useCallback(async () => {
     setPages(await listPages(sessionId));
+    setHistory(await historyState(sessionId));
   }, [sessionId]);
 
   useEffect(() => {
@@ -117,6 +128,33 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
     }
   }
 
+  // A deleted page cannot be re-shot -- the script has gone back in the pile -- so undo
+  // has to give the image back, not just the row. That is why deletion is soft.
+  const step = useCallback(
+    async (direction: "undo" | "redo") => {
+      setBusy(true);
+      try {
+        await (direction === "undo" ? undo(sessionId) : redo(sessionId));
+        setRetakeIndex(null);
+        await refresh();
+      } finally {
+        setBusy(false);
+      }
+    },
+    [sessionId, refresh],
+  );
+
+  // Ctrl/Cmd-Z on a staffroom laptop; the buttons carry the phone.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (!(e.ctrlKey || e.metaKey) || e.key.toLowerCase() !== "z") return;
+      e.preventDefault();
+      void step(e.shiftKey ? "redo" : "undo");
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [step]);
+
   const shutterEnabled = Boolean(quality?.passed) && !busy;
   const weakPages = pages.filter((p) => p.quality.band !== "green");
 
@@ -147,6 +185,22 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
             Cancel retake
           </button>
         )}
+        <button
+          className="secondary"
+          onClick={() => step("undo")}
+          disabled={!history.canUndo || busy}
+          title="Undo the last capture, retake or delete (Ctrl+Z)"
+        >
+          Undo
+        </button>
+        <button
+          className="secondary"
+          onClick={() => step("redo")}
+          disabled={!history.canRedo || busy}
+          title="Redo (Ctrl+Shift+Z)"
+        >
+          Redo
+        </button>
       </div>
       {!quality?.passed && quality && (
         <p className="muted" style={{ fontSize: 13 }}>
@@ -187,7 +241,8 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
 
       {weakPages.length > 0 && (
         <p className="muted" style={{ fontSize: 13 }}>
-          {weakPages.length} page(s) marked for a possible retake — you can continue, but a
+          {weakPages.length} page{weakPages.length === 1 ? " is" : "s are"} marked for a
+          possible retake. You can continue, but a
           clearer photo reads more reliably.
         </p>
       )}

@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { api, ApiError, BookStatus } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  BookStatus,
+  type FamilyProposals,
+  type Subject,
+} from "@/lib/api";
 import { getPlatformKey } from "@/lib/session";
-
-const SUBJECTS = [
-  ["X.MATH", "Class X Mathematics"],
-  ["X.SCI", "Class X Science"],
-] as const;
 
 type Line = { text: string; bad?: boolean };
 
@@ -18,17 +19,23 @@ type Line = { text: string; bad?: boolean };
  * against, and the server refuses a chapter until it has one.
  */
 export default function BooksPage() {
-  const [subject, setSubject] = useState<string>("X.MATH");
+  // From the deployment, never a list written into this screen: this is the page that
+  // loads a book, so it is the last place that should be told in advance which books exist.
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subject, setSubject] = useState<string>("");
   const [edition, setEdition] = useState("Reprint 2026-27");
   const [status, setStatus] = useState<BookStatus | null>(null);
   const [log, setLog] = useState<Line[]>([]);
   const [busy, setBusy] = useState(false);
+  const [families, setFamilies] = useState<FamilyProposals | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
 
   const say = (text: string, bad = false) => setLog((l) => [...l, { text, bad }]);
 
   const refresh = useCallback(async () => {
     const key = getPlatformKey();
-    if (!key) return;
+    // Nothing to ask about until the subject list has arrived.
+    if (!key || !subject) return;
     try {
       setStatus(await api.bookStatus(key, subject));
     } catch {
@@ -37,8 +44,58 @@ export default function BooksPage() {
   }, [subject]);
 
   useEffect(() => {
+    const key = getPlatformKey();
+    if (!key) return;
+    api
+      .subjects(key)
+      .then(({ subjects: found }) => {
+        setSubjects(found);
+        setSubject((current) => current || found[0]?.subject_code || "");
+      })
+      .catch(() => setSubjects([]));
+  }, []);
+
+  useEffect(() => {
     refresh();
   }, [refresh]);
+
+  // Cleared when the subject changes: the proposals belong to one book.
+  useEffect(() => {
+    setFamilies(null);
+    setPicked(new Set());
+  }, [subject]);
+
+  async function loadFamilies() {
+    const key = getPlatformKey();
+    if (!key || !subject) return;
+    setBusy(true);
+    try {
+      const out = await api.proposeFamilies(key, subject);
+      setFamilies(out);
+      say(`${out.proposed} families suggested by the book, ${out.existing} already exist.`);
+    } catch (err) {
+      say(describe(err), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function saveFamilies() {
+    const key = getPlatformKey();
+    if (!key || !subject || !families) return;
+    setBusy(true);
+    try {
+      const chosen = families.families.filter((f) => picked.has(f.code));
+      const out = await api.createFamilies(key, subject, chosen);
+      say(`${out.created} created, ${out.skipped} already existed.`);
+      setPicked(new Set());
+      setFamilies(await api.proposeFamilies(key, subject));
+    } catch (err) {
+      say(describe(err), true);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function describe(err: unknown): string {
     if (!(err instanceof ApiError)) return "Could not reach the API.";
@@ -153,7 +210,7 @@ export default function BooksPage() {
         <h1>Load a book</h1>
         <p className="lede">
           The chapter tree, the taught content and the exercises come from the NCERT book.
-          Upload the contents page first &mdash; every chapter is checked against it, and one
+          Upload the contents page first. Every chapter is checked against it, and one
           that disagrees is refused rather than loaded.
         </p>
       </div>
@@ -163,7 +220,7 @@ export default function BooksPage() {
           <div className="field">
             <label htmlFor="subject">Subject</label>
             <select id="subject" value={subject} onChange={(e) => setSubject(e.target.value)}>
-              {SUBJECTS.map(([code, label]) => (
+              {subjects.map(({ subject_code: code, label }) => (
                 <option key={code} value={code}>
                   {label}
                 </option>
@@ -204,7 +261,7 @@ export default function BooksPage() {
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>
-          The board units and their weightage &mdash; from CBSE&apos;s syllabus, not from the
+          The board units and their weightage, from CBSE&apos;s syllabus rather than from the
           book. A unit may span several chapters (Algebra covers four) or exist where no
           chapter does, so it cannot be derived from the book and has to be in place before
           one is loaded.
@@ -223,7 +280,7 @@ export default function BooksPage() {
       </div>
       <div className="card">
         <p className="cardnote" style={{ marginBottom: 14 }}>
-          The prelims file &mdash; NCERT names it <span className="mono">jemh1ps.pdf</span> for
+          The prelims file, which NCERT names <span className="mono">jemh1ps.pdf</span> for
           Maths. It lists every section of every chapter, which is what makes an extraction
           checkable rather than merely plausible.
         </p>
@@ -243,7 +300,7 @@ export default function BooksPage() {
         <p className="cardnote" style={{ marginBottom: 14 }}>
           Select them all at once, under NCERT&apos;s own names (
           <span className="mono">jemh101.pdf</span>) or as{" "}
-          <span className="mono">NN-slug.pdf</span> &mdash; no renaming needed. The contents
+          <span className="mono">NN-slug.pdf</span>, with no renaming needed. The contents
           page, the answers and the appendices are refused: the answers file matches
           &ldquo;EXERCISE&rdquo; 31 times and would load the answer key as practice content.
         </p>
@@ -268,13 +325,149 @@ export default function BooksPage() {
         </p>
         {status && !status.embeddings_configured && (
           <div className="notice warn" style={{ marginBottom: 14 }}>
-            No embedding key on the API service. Set{" "}
-            <span className="mono">YAADHUM_JINA_API_KEY</span> and redeploy.
+            The embedding service is not configured for this deployment, so nothing can be
+            embedded yet. Add its key and publish again.
           </div>
         )}
         <button onClick={embed} disabled={busy || !status?.chunks || !status?.embeddings_configured}>
           {busy ? "Working…" : `Embed ${status ? status.chunks - status.embedded : 0} chunks`}
         </button>
+      </div>
+
+      {status && status.coverage?.length > 0 && (
+        <>
+          <div className="section-head">
+            <h2>Chapter by chapter</h2>
+          </div>
+          <div className="card">
+            <p className="cardnote" style={{ marginBottom: 14 }}>
+              A whole-book total hides the thing that matters. A chapter with no passages
+              behind it can never be matched, so every question from it comes back saying
+              no chapter matched, however healthy the total looks.
+            </p>
+            {(() => {
+              const total = status.coverage.reduce((n, c) => n + c.chunks, 0);
+              const sectioned = status.coverage.reduce((n, c) => n + c.with_a_section, 0);
+              const without = total - sectioned;
+              if (!total || !without) return null;
+              return (
+                <div className="notice warn" style={{ marginBottom: 14 }}>
+                  {without} of {total} passages carry no section of their chapter. A
+                  question matched to one gets a chapter but no topic, and cannot be
+                  matched to a sub topic by section either. Books loaded before this was
+                  recorded are the usual cause: the reader works the section out for every
+                  passage, so uploading the chapters again fills them all in.
+                </div>
+              );
+            })()}
+
+            {status.chapters_with_nothing_behind_them.length > 0 && (
+              <div className="notice warn" style={{ marginBottom: 14 }}>
+                {status.chapters_with_nothing_behind_them.length} of{" "}
+                {status.coverage.length} chapters have nothing behind them:{" "}
+                {status.chapters_with_nothing_behind_them.join(", ")}. Upload those
+                chapters before reading a paper that covers them.
+              </div>
+            )}
+            <ul className="famlist">
+              {status.coverage.map((c) => (
+                <li key={c.chapter_code} className={c.chunks ? undefined : "have"}>
+                  <span className="fam-l">{c.chapter}</span>
+                  <span className="fam-m" style={{ marginLeft: 0 }}>
+                    {c.chunks === 0
+                      ? "nothing loaded"
+                      : `${c.chunks} passages \u00b7 ${c.embedded} embedded \u00b7 ${c.with_a_section} carry a section`}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </>
+      )}
+
+      <div className="section-head">
+        <h2>5 &middot; Concept families</h2>
+      </div>
+      <div className="card">
+        <p className="cardnote" style={{ marginBottom: 14 }}>
+          A family is the learning area a report compares against itself over time. Chapter
+          is too coarse to act on and section numbers move when the book is reprinted, so
+          neither can carry a trend. Loading a book does not create these: a question can
+          only be placed in a chapter that has them, so a chapter with none blocks every
+          question that belongs to it. What a proposal run has already worked out comes
+          first here; the book&rsquo;s own section headings fill in the chapters no run has
+          covered.
+        </p>
+
+        {families === null ? (
+          <button onClick={loadFamilies} disabled={busy || !status?.chunks}>
+            {busy ? "Working…" : "Show what this book suggests"}
+          </button>
+        ) : (
+          <>
+            <p className="small" style={{ marginBottom: 12 }}>
+              {families.proposed} suggested,{" "}
+              {families.families.filter((f) => f.already_exists).length} of them already
+              created. {families.existing} exist for this subject in total.
+            </p>
+            {families.without_a_section > 0 && (
+              <div className="notice warn" style={{ marginBottom: 14 }}>
+                {families.without_a_section} of these name no section of the chapter. They
+                can be created, but a question can only be matched to a family by the
+                section it came from, so a chapter whose families all lack one still has
+                to be settled by a person question by question.
+              </div>
+            )}
+            <ul className="famlist">
+              {families.families.map((f) => (
+                <li key={f.code} className={f.already_exists ? "have" : undefined}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={f.already_exists || picked.has(f.code)}
+                      disabled={f.already_exists}
+                      onChange={(e) => {
+                        setPicked((was) => {
+                          const next = new Set(was);
+                          if (e.target.checked) next.add(f.code);
+                          else next.delete(f.code);
+                          return next;
+                        });
+                      }}
+                    />
+                    <span className="fam-l">{f.label}</span>
+                  </label>
+                  <span className="fam-m">
+                    {f.chapter_label}
+                    {/* Plain text, not an entity: this is a JS expression, and an entity
+                        written here reaches the page as its own characters. */}
+                    {f.from_sections.length > 0
+                      ? ` \u00b7 section${f.from_sections.length > 1 ? "s" : ""} ${f.from_sections.join(", ")}`
+                      : " \u00b7 no section named"}
+                    {f.already_exists ? " \u00b7 created" : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="row" style={{ marginTop: 14 }}>
+              <button onClick={saveFamilies} disabled={busy || picked.size === 0}>
+                {busy ? "Working…" : `Create ${picked.size} famil${picked.size === 1 ? "y" : "ies"}`}
+              </button>
+              <button
+                className="ghost"
+                onClick={() =>
+                  setPicked(
+                    new Set(
+                      families.families.filter((f) => !f.already_exists).map((f) => f.code),
+                    ),
+                  )
+                }
+              >
+                Select every one that is not created
+              </button>
+            </div>
+          </>
+        )}
       </div>
 
       {log.length > 0 && (

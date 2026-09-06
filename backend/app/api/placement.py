@@ -13,19 +13,24 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin
+from app.api.books import clean_sections
+from app.api.deps import require_admin, require_reader, require_scanner
 from app.classify.pipeline import place_paper
+from app.mapping.family import Choice, choose_family
 from app.config import get_settings
 from app.db import get_session
 from app.ingest.probe import LexicalIndex, SemanticIndex
 from app.models import (
     Assessment,
     BookChunk,
+    ConceptFamilyProposal,
     Question,
     QuestionPlacement,
+    QuestionTier,
     School,
     TaxonomyNode,
 )
+from app.models.assessment import TIERS, tier_code
 
 router = APIRouter(prefix="/assessments", tags=["placement"])
 
@@ -87,7 +92,9 @@ def set_scope(
 @router.post("/{assessment_id}/place")
 def place(
     assessment_id: str,
-    school: School = Depends(require_admin),
+    # The same permission as reading a paper and mapping it: this is a step of that flow,
+    # and an admin-only step in the middle of it is a wall a principal cannot get past.
+    school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """Run retrieval, the judge and the constraints over every question in the paper."""
@@ -152,6 +159,8 @@ def place(
         settings.anthropic_api_key,
         model=settings.model_classifier,
         known_sections=known_sections or None,
+        effort=settings.model_effort,
+        passage_chars=settings.classifier_passage_chars,
     )
 
     scope = None
@@ -160,6 +169,9 @@ def place(
 
     result = place_paper(
         stems, indexes, judge,
+        # What the reader is shown, and so what the run costs. Both from settings.
+        evidence_passages=settings.classifier_evidence_passages,
+        evidence_chapters=settings.classifier_evidence_chapters,
         chapter_of=lambda nid: nodes[nid].label if nid in nodes else None,
         unit_of=lambda label: unit_by_chapter.get(label),
         section_of=lambda ref: None,
@@ -167,27 +179,113 @@ def place(
         scope=scope,
     )
 
+    # Which families each chapter has, and which sections each of those draws on. Read
+    # from the book's own record, so a judgement lands in the same family the mapping step
+    # would have chosen for the same section -- one rule, in app.mapping.family.
+    families: dict[str, list[TaxonomyNode]] = {}
+    for node in nodes.values():
+        if node.kind == "concept_family" and node.parent_id:
+            families.setdefault(node.parent_id, []).append(node)
+    sections_of = {
+        row.code: set(clean_sections(row.from_sections))
+        for row in db.scalars(select(ConceptFamilyProposal).where(
+            ConceptFamilyProposal.subject_code == a.subject_code
+        ))
+    }
+
+    settled, unsettled, refused = 0, 0, []
     for placed in result.questions:
         chapter = by_label.get(placed.chapter)
+        unit_id = _unit_node_id(db, nodes, placed.board_unit)
+        question = db.get(Question, placed.question_id)
+
+        # The judge reads the passages retrieval found and can tell a question ABOUT a
+        # theorem from the theorem, which is the whole reason it exists. Its answer used to
+        # be written only as a placement, while every report prefers what the question
+        # itself carries -- so the correction was recorded and then ignored. It settles the
+        # question now, exactly as a teacher's correction does, and the mapping step's
+        # attempt stays in the placement history.
+        choice = Choice(None)
+        if question is not None and chapter is not None:
+            choice = choose_family(
+                families.get(chapter.id, []), sections_of,
+                placed.curriculum_section, chapter.label,
+            )
+            if choice.family is not None:
+                question.chapter_id = chapter.id
+                question.curriculum_section = placed.curriculum_section
+                question.concept_family_id = choice.family.id
+                if unit_id:
+                    question.board_unit_id = unit_id
+                settled += 1
+                if choice.unsettled:
+                    unsettled += 1
+            else:
+                # The chapter changed to one whose families cannot place this question.
+                # Leaving the old family in place would file the marks under a chapter the
+                # judge has just said is the wrong one.
+                refused.append(placed.question_id)
+            if placed.skill_required:
+                question.skill_required = placed.skill_required
+
         db.add(QuestionPlacement(
             question_id=placed.question_id,
             chapter_id=chapter.id if chapter else None,
-            board_unit_id=_unit_node_id(db, nodes, placed.board_unit),
+            board_unit_id=unit_id,
             curriculum_section=placed.curriculum_section,
             tier=placed.tier,
             skill_required=placed.skill_required,
             confidence=placed.confidence,
             source="blueprint" if placed.overruled else "model",
-            needs_review=placed.needs_review,
-            reasoning=placed.reasoning,
+            needs_review=(
+                placed.needs_review
+                or choice.unsettled is not None
+                or choice.blocked is not None
+            ),
+            reasoning=" ".join(filter(None, [
+                placed.reasoning, choice.unsettled, choice.blocked,
+            ])),
             evidence=placed.evidence,
             candidates=[placed.chapter],
+        ))
+        # The tier belongs on its own append-only row too. Reports read it from there, so
+        # writing it only onto the placement meant the judge decided the cognitive tier of
+        # every question and no report ever saw one.
+        db.add(QuestionTier(
+            question_id=placed.question_id,
+            tier=tier_code(placed.tier),
+            confidence=placed.confidence,
+            source="ensemble",
+            model_version=settings.model_classifier,
+            rationale=placed.reasoning,
         ))
     db.commit()
 
     return {
         "assessment_id": a.id,
         "placed": len(result.questions),
+        #: questions whose chapter, topic and sub-topic the judge settled on the question
+        #: itself, which is what every report reads
+        "labelled": settled,
+        #: settled, but more than one family had an equal claim on the section
+        "unsettled_family": unsettled,
+        #: the judge moved the question to a chapter whose families cannot place it, so
+        #: the old family was left rather than filed under a chapter it was just told is
+        #: the wrong one
+        "family_refused": len(refused),
+        "tiers": sum(1 for q in result.questions if tier_code(q.tier)),
+        #: What this run actually cost, in tokens, read back off the responses. Not an
+        #: estimate: every figure anybody has quoted for a paper so far was arithmetic on
+        #: a guess about the prompt, and the two differed by more than double.
+        "spend": {
+            "model": settings.model_classifier,
+            "effort": settings.model_effort,
+            "calls": getattr(judge, "calls", 0),
+            "input_tokens": getattr(judge, "input_tokens", 0),
+            "output_tokens": getattr(judge, "output_tokens", 0),
+            "passages_shown": settings.classifier_evidence_passages,
+            "chapters_shown": settings.classifier_evidence_chapters,
+        },
         "settled": result.settled,
         "needs_review": result.reviewed_count,
         "blueprint_feasible": result.feasible,
@@ -233,7 +331,7 @@ def _unit_node_id(db: Session, nodes: dict, unit_code: str) -> str | None:
 @router.get("/{assessment_id}/review")
 def review_queue(
     assessment_id: str,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
     """The questions a person still has to settle, with what the machine had to go on."""
@@ -305,6 +403,11 @@ def confirm(
     if chapter is None:
         raise HTTPException(422, f"no chapter with code {body.chapter_code!r}")
 
+    if body.tier and tier_code(body.tier) is None:
+        raise HTTPException(
+            422,
+            f"{body.tier!r} is not a tier. Use one of: " + "; ".join(TIERS),
+        )
     db.add(QuestionPlacement(
         question_id=question_id,
         chapter_id=chapter.id,
@@ -320,6 +423,13 @@ def confirm(
     question.chapter_id = chapter.id
     if body.curriculum_section:
         question.curriculum_section = body.curriculum_section
+    if body.tier:
+        # A person's tier outranks the machine's, and both stay: how often a teacher
+        # overrules it is the only honest measure of whether it can be trusted.
+        db.add(QuestionTier(
+            question_id=question_id, tier=tier_code(body.tier), confidence=1.0,
+            source="human", rationale=f"settled by {body.reviewed_by}",
+        ))
     db.commit()
 
     # Placements are append-only, so the question just corrected still has its original

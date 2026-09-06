@@ -179,6 +179,100 @@ def test_marks_engine_flow(client, school):
     assert reasons == {"no_such_address", "out_of_range"}
 
 
+def test_student_report_reads_the_curriculum_columns(client, school):
+    """The single-paper report: strengths, focus, and no invented coverage gap.
+
+    Regression: _rows() used to leave board_unit null on every row, so the board-weighted
+    indicator aggregated nothing and the report claimed the paper carried no marks for
+    Mensuration -- the unit it tested end to end.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Assessment, StudentProfile
+
+    db = SessionLocal()
+    aid = db.scalar(
+        select(Assessment.id).where(Assessment.title == "Unit Test II — Section B")
+    )
+    sid = db.scalar(select(StudentProfile.id).where(StudentProfile.roll_no == "047"))
+    db.close()
+    assert aid and sid
+
+    r = client.get(
+        f"/reports/student/{sid}", headers=_auth(school), params={"assessment_id": aid}
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    # 2 + 1 + 2 + 0 + 1 over five counted questions; 22(a) is not_offered and excluded.
+    assert body["total"] == {"earned": 6.0, "available": 10.0, "rate": 0.6, "questions": 5}
+    assert body["not_offered"] == ["B/22//a"]
+
+    units = {i["board_unit"]: i for i in body["board_weighted_indicators"]}
+    assert "X.MATH.U.MENSURATION" in units, body["board_weighted_indicators"]
+    assert units["X.MATH.U.MENSURATION"]["marks_available"] == 10.0
+    # ...and the unit that was tested is therefore not reported as a coverage gap.
+    assert "X.MATH.U.MENSURATION" not in {g["board_unit"] for g in body["coverage_gaps"]}
+
+    # Every question carries a concept family, so that is the axis the report groups by.
+    assert body["topic_axis"] == "concept_family"
+    assert [t["key"] for t in body["topics"]] == ["X.MATH.CF.VOLUME"]
+
+    # 60% is not a strength and must not be claimed as one.
+    assert body["strengths"] == []
+    assert [f["key"] for f in body["focus"]] == ["X.MATH.CF.VOLUME"]
+
+
+def test_every_number_in_the_report_carries_its_proof(client, school):
+    """No line is an assertion: each one expands to the questions it is made of."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Assessment, StudentProfile
+
+    db = SessionLocal()
+    aid = db.scalar(
+        select(Assessment.id).where(Assessment.title == "Unit Test II — Section B")
+    )
+    sid = db.scalar(select(StudentProfile.id).where(StudentProfile.roll_no == "047"))
+    db.close()
+
+    body = client.get(
+        f"/reports/student/{sid}", headers=_auth(school), params={"assessment_id": aid}
+    ).json()
+
+    shown = body["topics"] + body["focus"] + body["all_crosstab"] + body["tier_summary"]
+    assert shown
+    for finding in shown:
+        ev = finding["evidence"]
+        assert ev, finding                       # a line nobody can check is not a finding
+        assert len(ev) == finding["questions"]
+        # The proof reconciles to the number exactly -- a teacher adds the column up.
+        assert sum(e["earned"] for e in ev) == finding["earned"]
+        assert sum(e["max_marks"] for e in ev) == finding["available"]
+
+    topic = body["topics"][0]
+    assert [e["address"] for e in topic["evidence"]] == [
+        "B/21//", "B/22//b", "B/23//", "B/24//", "B/25//"
+    ]
+    zero = next(e for e in topic["evidence"] if e["address"] == "B/25//")
+    assert zero["earned"] == 0.0 and zero["lost"] == 2.0
+    assert zero["question_no"] == "25" and zero["section"] == "B"
+    assert zero["curriculum_section"] == "12.2"
+    assert zero["concept_variant"] == "variant 25"
+    # Provenance is present and states plainly that a person typed this one in.
+    assert zero["placement"]["source"] == "import"
+    assert zero["placement"]["needs_review"] is False
+
+    # The board-weighted indicator is proved the same way.
+    mensuration = next(
+        i for i in body["board_weighted_indicators"]
+        if i["board_unit"] == "X.MATH.U.MENSURATION"
+    )
+    assert len(mensuration["evidence"]) == mensuration["questions"] == 5
+
+
 def test_reconcile_repairs_a_misread_through_the_api(client, school):
     created = client.post(
         "/assessments",
@@ -330,3 +424,30 @@ def test_the_api_blocks_a_paper_that_reuses_a_variant(client, school):
     _, repeat = make_paper("Cycle 3", "cone  +  hemisphere,  r = 3.5 cm")
     assert repeat.status_code == 409
     assert "Cycle 1" in repeat.json()["detail"]
+
+
+def test_the_dashboard_counts_only_rows_that_exist(client, school):
+    """Every figure on the landing screen is a count of something stored.
+
+    No target, no projection, and no progress that is not marks entered over questions on
+    the paper. A dashboard that estimates is a dashboard somebody eventually acts on.
+    """
+    body = client.get("/admin/dashboard", headers={"X-API-Key": school["api_key"]}).json()
+
+    counts = body["counts"]
+    assert counts["questions_mapped"] <= counts["questions_total"], (
+        "a question cannot be mapped more than once"
+    )
+    assert counts["papers_read"] <= counts["papers"]
+
+    # the parts add up to the whole they are drawn from
+    assert sum(p["questions"] for p in body["papers"]) <= counts["questions_total"]
+    for paper in body["papers"]:
+        assert paper["mapped"] <= paper["questions"]
+        assert paper["stage"] in ("empty", "scanned", "read", "mapped")
+
+    for row in body["students"]:
+        assert row["papers_marked"] >= 0 and row["scripts"] >= 0
+    for script in body["recent_scripts"]:
+        assert script["page_count"] >= 0
+        assert script["first_page"] or script["page_count"] == 0

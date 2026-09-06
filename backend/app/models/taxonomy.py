@@ -6,12 +6,16 @@ adds a node version so historical reports stay reproducible.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import (
     JSON,
     Boolean,
     Date,
+    DateTime,
     Float,
     ForeignKey,
+    LargeBinary,
     Numeric,
     String,
     Text,
@@ -145,12 +149,68 @@ class BookChunk(Base, PkMixin):
     node_id: Mapped[str | None] = mapped_column(ForeignKey("taxonomy_node.id"), nullable=True)
     bucket: Mapped[str] = mapped_column(String(1), index=True)  # 'T' | 'E'
     reference: Mapped[str | None] = mapped_column(String(80), nullable=True)  # 'Ex 1.2 Q1'
+    #: '12.2' -- which section of the chapter this passage came from. The ingest works it
+    #: out and used to discard it, which left every chunk filed under its chapter and the
+    #: section unknowable, so no question could be given a topic.
+    section_number: Mapped[str | None] = mapped_column(String(16), nullable=True)
     #: unbounded: a real exercise runs to 8500 characters of frequency tables, and a
     #: truncated one is a silently corrupted familiarity signal rather than a short row
     text: Mapped[str] = mapped_column(Text)
     normalised: Mapped[str] = mapped_column(Text)
     stem_hash: Mapped[str] = mapped_column(String(64), index=True)
     embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)  # pgvector in production
+
+
+class ConceptFamilyProposal(Base, PkMixin, TimestampMixin):
+    """A proposed concept family, kept whether or not it is ever applied.
+
+    Stored rather than returned and forgotten, for three reasons that all come up later:
+
+    * **The run is expensive to repeat and cheap to keep.** Reading both books costs about
+      a dollar; storing the answer costs nothing. The route refuses to run twice for a
+      subject unless asked to, and this table is how it knows.
+    * **A family that was applied has to stay explicable.** Eighteen months from now,
+      "why is Step-deviation method a row on this report?" is answerable only if the
+      passages the model cited are still here next to the label it chose.
+    * **A family that was NOT applied is evidence too.** The proposals a person rejected
+      are how we find out whether the model's reading is worth paying for at all.
+
+    Never a taxonomy node on its own. Applying a proposal creates the node, and that
+    remains a separate, deliberate act: renaming a family after a class has been tested
+    breaks every trend that references it.
+    """
+
+    __tablename__ = "concept_family_proposal"
+    __table_args__ = (
+        UniqueConstraint(
+            "curriculum_version", "subject_code", "run_id", "code",
+            name="uq_family_proposal",
+        ),
+    )
+
+    curriculum_version: Mapped[str] = mapped_column(String(32), index=True)
+    subject_code: Mapped[str] = mapped_column(String(32), index=True)
+    #: one id per pass over a subject, so a re-run is comparable with the one before it
+    #: rather than merged into it
+    run_id: Mapped[str] = mapped_column(String(36), index=True)
+    #: 'sections' -- the headings, free and blind to a heading that drills two procedures;
+    #: 'llm' -- a model reading the chapter's own passages
+    source: Mapped[str] = mapped_column(String(16), default="llm", index=True)
+    model: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    code: Mapped[str] = mapped_column(String(80), index=True)
+    label: Mapped[str] = mapped_column(String(200))
+    chapter_id: Mapped[str | None] = mapped_column(
+        ForeignKey("taxonomy_node.id"), nullable=True, index=True
+    )
+    #: the model's own words on why this is one thing a student can fail
+    rationale: Mapped[str | None] = mapped_column(String(2000), nullable=True)
+    #: chunk references, every one of them verified to be a passage actually shown
+    evidence: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    #: section numbers it draws on, e.g. ['14.1']
+    from_sections: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    #: set when the proposal has been turned into a taxonomy node
+    applied_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class BookSource(Base, PkMixin, TimestampMixin):
@@ -174,5 +234,47 @@ class BookSource(Base, PkMixin, TimestampMixin):
     edition: Mapped[str | None] = mapped_column(String(120), nullable=True)
     #: {chapter_number: [{"number": "1.1", "title": "Introduction"}, ...]}
     expected_sections: Mapped[dict] = mapped_column(JSON)
+    #: {chapter_number: "Light -- Reflection and Refraction"}. All the Science contents
+    #: page publishes: it stops at chapter titles where the Maths one lists every section.
+    #: A chapter still gets checked against it -- that the file uploaded as 9 is the
+    #: chapter the book calls 9 -- but a chapter verified only this far must stay marked
+    #: unverified at section level rather than passing as fully checked.
+    expected_chapters: Mapped[dict] = mapped_column(JSON, default=dict)
     #: {"01-real-numbers.pdf": {"sha256": ..., "chunks": 16, "loaded_at": ...}}
     files: Mapped[dict] = mapped_column(JSON, default=dict)
+
+
+class IngestJob(Base, PkMixin, TimestampMixin):
+    """A book upload that could not finish inside one HTTP request.
+
+    A Hindi book's real text has to come from Gemini (see app.ingest.gemini_ocr) --
+    tens of seconds for one chapter PDF, sent as one blocking call -- and Render's own
+    reverse proxy kills a web request at a fixed timeout regardless of what the app is
+    doing, so the same synchronous handler every other subject uses returns to the
+    browser as a bare connection failure ("Could not reach the API") on a request that
+    reached the backend fine and was still working.
+
+    So for a subject this slow, the upload endpoint does no more than write this row and
+    hand it to a background task, and returns immediately: the browser gets a job id
+    inside Render's timeout, and polls GET .../jobs/{id} for the result the synchronous
+    endpoints used to return directly. `pdf_bytes` is stored here rather than on disk
+    because a Render instance keeps no disk between requests -- the same reason
+    scan_page.content lives in Postgres rather than a local path.
+    """
+
+    __tablename__ = "ingest_job"
+
+    subject_code: Mapped[str] = mapped_column(String(32), index=True)
+    curriculum_version: Mapped[str] = mapped_column(String(32))
+    kind: Mapped[str] = mapped_column(String(16))          # 'contents' | 'chapter'
+    filename: Mapped[str] = mapped_column(String(255))
+    edition: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    pdf_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    #: whatever the synchronous endpoint used to return as its response body
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    #: an HTTPException's (status_code, detail), so a failed job surfaces the same 422/502
+    #: a synchronous upload would have, not a bare "failed"
+    error_status: Mapped[int | None] = mapped_column(nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

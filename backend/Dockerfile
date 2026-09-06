@@ -7,8 +7,21 @@ ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
 # libGL and libglib are needed only by the optional opencv extra; keep the layer small.
+#
+# tesseract-ocr is what lets a scanned marks sheet be read at all. It is a system binary,
+# not a Python package, so Render's native Python runtime cannot install it: on that
+# runtime the app still works and refuses scans by name, which is why app.extraction
+# .marksheet checks for the binary rather than assuming it. Deploy this image instead of
+# the native runtime if you want scans read.
+#
+# tesseract-ocr-hin is what lets a Hindi NCERT book be read at all: the real files
+# (Kshitij, Kritika, Sparsh, Sanchayan) embed a pre-Unicode font (Walkman-Chanakya) with
+# no ToUnicode CMap, so the PDF's own text layer decodes as mojibake regardless of which
+# extraction method reads it -- reading the rendered page as an image sidesteps the
+# encoding entirely. app.ingest.hindi_ocr checks for the binary and the language data the
+# same way app.extraction.marksheet does, rather than assuming either is present.
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential libpq5 \
+        build-essential libpq5 tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv
