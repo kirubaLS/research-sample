@@ -58,10 +58,13 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    # PATCH is here because correcting a scanned question uses it, and PUT because the
-    # syllabus scope does. A method missing from this list fails in the browser only --
-    # every server-side test passes, which is exactly how it goes unnoticed.
-    allow_methods=["GET", "POST", "PATCH", "PUT", "OPTIONS"],
+    # PATCH is here because correcting a scanned question uses it, PUT because the
+    # syllabus scope does, and DELETE because removing a paper, a document, or a student
+    # does. A method missing from this list fails in the browser only -- every
+    # server-side test passes (TestClient calls the route directly, no preflight), which
+    # is exactly how this one went unnoticed until a real Delete button 400'd on its
+    # OPTIONS preflight in production.
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-API-Key", "X-Platform-Key", "X-School-Id"],
     max_age=600,
 )
