@@ -481,7 +481,15 @@ def _finish_paper_scan(
     of which route (text or vision) produced ``extract`` -- everything from here on is
     one pipeline, exactly as the module docstrings for paper.py and paper_vision.py say.
     """
-    from app.extraction.paper import context_addresses
+    from app.extraction.paper import context_addresses, dedupe_addresses
+
+    # A duplicate address is a database uniqueness violation, not just a data-quality
+    # complaint -- see dedupe_addresses's own docstring for the shape of vision read that
+    # produces one. Caught and resolved here rather than left to the INSERT below, whose
+    # failure took every other question read off the same paper down with it in the same
+    # transaction.
+    extract.questions, dedupe_problems = dedupe_addresses(extract.questions)
+    extract.problems = [*extract.problems, *dedupe_problems]
 
     promoted = {
         row.address

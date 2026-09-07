@@ -148,6 +148,77 @@ def test_a_job_stuck_pending_past_the_stale_window_is_failed_not_polled_forever(
     assert "restarted" in r.text or "retake" in r.text
 
 
+def test_two_context_rows_reading_the_same_question_are_merged_not_a_crash(
+    client, school, assessment, monkeypatch,
+):
+    """The production shape that crashed the whole scan: a case-study question's
+    instruction line ("Read the passage and answer...") and the passage itself were read
+    as two separate is_context rows, both section A / question 1 / no sub_part -- the
+    same address (uq_scanned_address is a database unique constraint), which used to
+    reach the INSERT and fail the entire paper's read, losing every other question on it
+    along with the one bad one."""
+    from app.extraction.paper import ExtractedQuestion
+    from app.extraction.paper_vision import PaperVisionReading
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return PaperVisionReading(questions=[
+                ExtractedQuestion(
+                    section="A", question_no="1", sub_part=None, choice_alt=None,
+                    max_marks=None, stem_text="Read the passage and answer the questions.",
+                    logical_page=1, is_context=True,
+                ),
+                ExtractedQuestion(
+                    section="A", question_no="1", sub_part=None, choice_alt=None,
+                    max_marks=None, stem_text="The passage itself, in full.",
+                    logical_page=1, is_context=True,
+                ),
+                ExtractedQuestion(
+                    section="A", question_no="1", sub_part="i", choice_alt=None,
+                    max_marks=1.0, stem_text="What does the passage say?",
+                    logical_page=1,
+                ),
+            ])
+
+    monkeypatch.setattr("app.extraction.paper_vision.AnthropicPaperVisionReader", StubReader)
+    try:
+        doc = pymupdf.open()
+        pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 8, 8))
+        pixmap.clear_with(180)
+        page = doc.new_page(width=595, height=842)
+        page.insert_image(pymupdf.Rect(0, 0, 595, 842), pixmap=pixmap)
+        data = doc.tobytes()
+        doc.close()
+
+        out = _upload(client, school, assessment, data, name="scan.pdf")
+        assert out.status_code == 202, out.text
+        job_id = out.json()["job_id"]
+
+        for _ in range(20):
+            job = client.get(f"/assessments/{assessment}/scan/jobs/{job_id}", headers=_auth(school))
+            if job.json().get("status") != "pending":
+                break
+        assert job.status_code == 200, job.text
+        body = job.json()
+        # The one real sub-question survives, and the two context rows merged into one
+        # instead of either colliding or silently dropping the other's text.
+        assert body["staged"] == 2, body
+
+        scan = client.get(f"/assessments/{assessment}/scan", headers=_auth(school))
+        rows = {r["address"]: r["stem_text"] for r in scan.json()["questions"]}
+        assert "Read the passage" in rows["A/1//"]
+        assert "The passage itself" in rows["A/1//"]
+    finally:
+        settings.anthropic_api_key = before
+
+
 def test_a_scanned_papers_vision_read_stages_questions_the_same_way_text_does(
     client, school, assessment, monkeypatch
 ):

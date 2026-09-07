@@ -745,3 +745,38 @@ def context_addresses(rows) -> set[str]:
         and row.question_no in with_sub_parts
         and row.max_marks is None
     }
+
+
+def dedupe_addresses(
+    questions: list[ExtractedQuestion],
+) -> tuple[list[ExtractedQuestion], list[str]]:
+    """``address`` is a database unique constraint (``uq_scanned_address``) -- two rows
+    that collide is not a warning, it is an INSERT that fails outright, taking every
+    other question read off the same paper down with it in the same transaction. A vision
+    read is the one route this can actually happen on: a case-study question sometimes
+    prints its instruction line ("Read the passage and answer...") and the passage itself
+    as two separate lines, and the model has read both as their own is_context row --
+    same question number, no sub_part on either, so both land on the same address. The
+    text route's own parsing groups these by construction and cannot produce this shape.
+
+    Two context rows for the same address are merged into one, stem text joined, since
+    both are the same shared-stem role and losing either loses nothing a person reviewing
+    the scan would miss. Any other collision (two rows that are not both context, or one
+    that carries marks) is not something safe to guess how to merge -- the second is
+    dropped and named in ``problems`` instead, so a person reviewing the scan sees it
+    rather than the whole read silently failing on a duplicate-key error.
+    """
+    problems: list[str] = []
+    by_address: dict[str, ExtractedQuestion] = {}
+    for q in questions:
+        existing = by_address.get(q.address)
+        if existing is None:
+            by_address[q.address] = q
+        elif existing.is_context and q.is_context:
+            existing.stem_text = f"{existing.stem_text}\n{q.stem_text}".strip()
+        else:
+            problems.append(
+                f"question {q.address!r} was read twice with different text -- "
+                "the second reading was dropped; check it against the paper"
+            )
+    return list(by_address.values()), problems
