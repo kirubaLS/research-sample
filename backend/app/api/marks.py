@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
@@ -727,6 +727,17 @@ async def scan_paper(
     return _finish_paper_scan(db, school, assessment, extract, originals, source_sha)
 
 
+#: No legitimate scan sits in "pending" this long -- rasterizing a paper and reading it
+#: with the vision model is a matter of tens of seconds to a few minutes, even for a long
+#: paper. A job still pending past this is one whose worker process died mid-task (an
+#: OOM-kill, a deploy that restarted the instance): a process kill bypasses the try/except
+#: in _run_paper_scan_job entirely, so nothing ever writes "failed" to that row, and
+#: without this check the frontend would poll it forever. Chosen well above the ~10
+#: minutes the client itself gives up polling at, so a job that is merely slow is never
+#: mistaken for one that is stuck.
+PAPER_SCAN_JOB_STALE_AFTER = timedelta(minutes=15)
+
+
 @router.get("/{assessment_id}/scan/jobs/{job_id}")
 def get_paper_scan_job(
     assessment_id: str,
@@ -740,6 +751,16 @@ def get_paper_scan_job(
     job = db.get(PaperScanJob, job_id)
     if job is None or job.assessment_id != assessment_id or job.school_id != school.id:
         raise HTTPException(404, f"no job {job_id!r} for this paper")
+    created_at = job.created_at if job.created_at.tzinfo else job.created_at.replace(tzinfo=UTC)
+    if job.status == "pending" and datetime.now(UTC) - created_at > PAPER_SCAN_JOB_STALE_AFTER:
+        job.status = "failed"
+        job.error_status = 504
+        job.error_detail = (
+            "the scan never finished -- the server likely restarted while reading it. "
+            "Please retake or resubmit the pages."
+        )
+        job.finished_at = datetime.now(UTC)
+        db.commit()
     if job.status == "failed":
         raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
     if job.status != "succeeded":
