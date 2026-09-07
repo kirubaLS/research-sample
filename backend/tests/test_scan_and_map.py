@@ -120,6 +120,34 @@ def test_a_scan_of_an_image_only_paper_is_queued_and_refused_without_a_vision_ke
     assert "cannot be read" in job.text
 
 
+def test_a_job_stuck_pending_past_the_stale_window_is_failed_not_polled_forever(
+    client, school, assessment,
+):
+    """A worker killed mid-scan (an OOM-kill, a deploy restart) never reaches the
+    try/except in _run_paper_scan_job -- a process kill bypasses Python exception
+    handling entirely -- so nothing ever writes "failed" to that job's row. Without a
+    staleness check here, a poller would sit on that job forever. This reproduces that
+    exact shape: a job manually left at "pending" with an old created_at, standing in for
+    the process that died before it could finish."""
+    from datetime import UTC, datetime, timedelta
+
+    from app.db import SessionLocal
+    from app.models.documents import PaperScanJob
+
+    db = SessionLocal()
+    job = PaperScanJob(school_id=school["school_id"], assessment_id=assessment, pdf_bytes=b"%PDF-1.4")
+    db.add(job)
+    db.commit()
+    job.created_at = datetime.now(UTC) - timedelta(minutes=30)
+    db.commit()
+    job_id = job.id
+    db.close()
+
+    r = client.get(f"/assessments/{assessment}/scan/jobs/{job_id}", headers=_auth(school))
+    assert r.status_code == 504, r.text
+    assert "restarted" in r.text or "retake" in r.text
+
+
 def test_a_scanned_papers_vision_read_stages_questions_the_same_way_text_does(
     client, school, assessment, monkeypatch
 ):

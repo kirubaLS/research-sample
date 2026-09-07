@@ -294,6 +294,15 @@ export default function PaperPage() {
         setPendingResume(pending);
         setPendingPageCount(files.length);
       } else {
+        // A real refusal, not a dropped connection -- retrying would only repeat it
+        // (most often now: the job the caller was resuming was declared stale server-
+        // side, because the worker that was reading it died mid-scan). Nothing left to
+        // resume, so drop the pending record rather than let the 20-second retry loop
+        // poll a job that is never coming back.
+        if (sessionId) {
+          await clearPending(sessionId);
+          setPendingResume(null);
+        }
         setError(explain(err));
       }
     } finally {
