@@ -629,7 +629,11 @@ def _run_paper_scan_job(job_id: str) -> None:
 
     from app.extraction.paper import PaperExtract
 
-    extract = PaperExtract(route="vision", page_count=len(pages), questions=reading.questions)
+    extract = PaperExtract(
+        route="vision", page_count=len(pages), questions=reading.questions,
+        declared_sections=reading.declared_sections, declared_count=reading.declared_count,
+        declared_total=reading.declared_total,
+    )
 
     db = SessionLocal()
     try:

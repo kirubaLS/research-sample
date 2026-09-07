@@ -43,6 +43,12 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState({ canUndo: false, canRedo: false });
+  // Encoding a full-resolution frame to JPEG and writing it to IndexedDB takes real time
+  // on a phone -- long enough that waiting for it before unlocking the shutter again is
+  // the whole page feeling slow one click at a time. So the shutter unlocks the instant
+  // the frame is drawn, and this count is what actually gates Complete: nothing is
+  // uploaded until every page this session captured has really finished writing.
+  const [pendingWrites, setPendingWrites] = useState(0);
 
   const refresh = useCallback(async () => {
     setPages(await listPages(sessionId));
@@ -90,42 +96,66 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
     return () => window.clearInterval(timer);
   }, []);
 
-  async function capture() {
+  function capture() {
     const video = videoRef.current;
     if (!video || !quality) return;
-    setBusy(true);
-    try {
-      const full = document.createElement("canvas");
-      full.width = video.videoWidth;
-      full.height = video.videoHeight;
-      full.getContext("2d")!.drawImage(video, 0, 0);
-      const blob: Blob = await new Promise((resolve) =>
-        full.toBlob((b) => resolve(b!), "image/jpeg", 0.92),
-      );
 
-      const thumbCanvas = document.createElement("canvas");
-      thumbCanvas.width = 168;
-      thumbCanvas.height = 224;
-      thumbCanvas.getContext("2d")!.drawImage(video, 0, 0, 168, 224);
+    // Everything up to here is synchronous -- drawing a frame into a canvas has no
+    // encoding cost -- so the shutter can unlock again the instant this returns, before
+    // the slow part (JPEG encode, IndexedDB write) has even started.
+    const full = document.createElement("canvas");
+    full.width = video.videoWidth;
+    full.height = video.videoHeight;
+    full.getContext("2d")!.drawImage(video, 0, 0);
 
-      const index = retakeIndex ?? pages.length;
-      await putPage({
-        sessionId,
-        index,
-        blob,
-        thumbnail: thumbCanvas.toDataURL("image/jpeg", 0.6),
-        quality: {
-          blur: quality.blur, glare: quality.glare,
-          coverage: quality.coverage, skew: quality.skew, band: quality.band,
-        },
-        capturedAt: Date.now(),
-        uploaded: false,
+    const thumbCanvas = document.createElement("canvas");
+    thumbCanvas.width = 168;
+    thumbCanvas.height = 224;
+    thumbCanvas.getContext("2d")!.drawImage(video, 0, 0, 168, 224);
+    const thumbnail = thumbCanvas.toDataURL("image/jpeg", 0.6);
+
+    const index = retakeIndex ?? pages.length;
+    const capturedQuality = {
+      blur: quality.blur, glare: quality.glare,
+      coverage: quality.coverage, skew: quality.skew, band: quality.band,
+    };
+    const capturedAt = Date.now();
+    setRetakeIndex(null);
+
+    // An instant preview so the strip and the page count feel immediate. Nothing here
+    // is trusted for the actual upload -- putPage below is the real, durable write, and
+    // Complete is held back by pendingWrites until it lands.
+    setPages((prev) => {
+      const next = prev.filter((p) => p.index !== index);
+      next.push({
+        sessionId, index, blob: new Blob(), thumbnail, quality: capturedQuality,
+        capturedAt, uploaded: false,
       });
-      setRetakeIndex(null);
-      await refresh();
-    } finally {
-      setBusy(false);
-    }
+      return next.sort((a, b) => a.index - b.index);
+    });
+
+    setPendingWrites((n) => n + 1);
+    full.toBlob(
+      (blob) => {
+        void (async () => {
+          try {
+            if (blob) {
+              await putPage({
+                sessionId, index, blob, thumbnail, quality: capturedQuality,
+                capturedAt, uploaded: false,
+              });
+              await refresh();
+            } else {
+              setError("A captured page could not be saved. Retake it before completing.");
+            }
+          } finally {
+            setPendingWrites((n) => Math.max(0, n - 1));
+          }
+        })();
+      },
+      "image/jpeg",
+      0.92,
+    );
   }
 
   // A deleted page cannot be re-shot -- the script has gone back in the pile -- so undo
@@ -247,6 +277,11 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
         </p>
       )}
 
+      {pendingWrites > 0 && (
+        <p className="muted" style={{ fontSize: 13, marginTop: 10 }}>
+          Saving {pendingWrites} page{pendingWrites === 1 ? "" : "s"}…
+        </p>
+      )}
       <p style={{ marginTop: 18 }}>
         <button
           onClick={async () => {
@@ -257,9 +292,11 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
               setBusy(false);
             }
           }}
-          disabled={pages.length === 0 || busy}
+          disabled={pages.length === 0 || busy || pendingWrites > 0}
         >
-          Complete ({pages.length} page{pages.length === 1 ? "" : "s"})
+          {pendingWrites > 0
+            ? "Saving…"
+            : `Complete (${pages.length} page${pages.length === 1 ? "" : "s"})`}
         </button>
       </p>
     </div>
