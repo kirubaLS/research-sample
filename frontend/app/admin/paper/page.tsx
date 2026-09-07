@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Scanner } from "@/components/Scanner";
 import {
   api,
   ApiError,
@@ -14,7 +15,18 @@ import {
   StagedQuestion,
   type Subject,
 } from "@/lib/api";
+import type { ScannedPage } from "@/lib/pageStore";
 import { getApiKey } from "@/lib/session";
+
+/** The same conversion the single-student script scanner already uses: a captured page's
+ * blob, in capture order, as a real File -- nothing downstream needs to know a camera was
+ * involved rather than a file picker. */
+function toFiles(pages: ScannedPage[]): File[] {
+  return pages
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((p, i) => new File([p.blob], `page-${i + 1}.jpg`, { type: p.blob.type || "image/jpeg" }));
+}
 
 /**
  * Reading a question paper, and watching the book make sense of it.
@@ -61,6 +73,10 @@ export default function PaperPage() {
   // below) still take priority once they happen.
   const [openedStage, setOpenedStage] = useState<Stage | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  // One id per paper, not per mount: switching subject/paper before Complete would
+  // otherwise lose a half-shot paper's pages to a fresh, disconnected session.
+  const [scanSessionId] = useState(() => crypto.randomUUID());
 
   const loadPapers = useCallback(async () => {
     const key = getApiKey();
@@ -407,6 +423,28 @@ export default function PaperPage() {
               }}
             />
           </div>
+
+          <div className="row" style={{ marginTop: 12 }}>
+            <button type="button" className="secondary" onClick={() => setShowCamera((v) => !v)}>
+              {showCamera ? "Close camera" : "Use camera instead"}
+            </button>
+          </div>
+          {showCamera && (
+            <div style={{ marginTop: 10 }}>
+              <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
+                Captured pages are kept on this device until you press Complete, even with
+                no signal -- pick up where you left off if the connection drops mid-scan.
+              </p>
+              <Scanner
+                sessionId={scanSessionId}
+                mode="script"
+                onComplete={async (pages) => {
+                  await onFiles(toFiles(pages));
+                  setShowCamera(false);
+                }}
+              />
+            </div>
+          )}
         </section>
       )}
 
