@@ -29,6 +29,16 @@ class PaperVisionReading:
     #: set when nothing usable could be read at all, rather than read badly
     refused: str | None = None
     problems: list[str] = field(default_factory=list)
+    #: what the paper says about itself -- "Maximum Marks: 80", "this paper contains 38
+    #: questions", "Section A (20 marks)" -- read straight off the cover/instructions,
+    #: never computed from the questions the model itself just extracted. This is what
+    #: makes the guardrail real: confirm_scan checks the extracted total against this
+    #: figure and refuses to let a mismatch through, exactly as it already does for a
+    #: text-route read (see paper.py's own DECLARED_TOTAL). A vision read that skipped
+    #: this would be checked against nothing.
+    declared_sections: dict[str, float] = field(default_factory=dict)
+    declared_count: int | None = None
+    declared_total: float | None = None
 
 
 class _QuestionOut(BaseModel):
@@ -44,26 +54,57 @@ class _QuestionOut(BaseModel):
     is_context: bool = False
 
 
+class _DeclaredOut(BaseModel):
+    #: {"A": 20.0, "B": 24.0, ...} -- only sections the paper states a mark total for
+    #: on its own cover or instructions page, never inferred by adding up questions
+    sections: dict[str, float] = {}
+    question_count: int | None = None
+    total_marks: float | None = None
+
+
 class _PaperOut(BaseModel):
     questions: list[_QuestionOut] = []
+    declared: _DeclaredOut = _DeclaredOut()
 
 
 SYSTEM = (
     "You are reading a scanned or photographed CBSE question paper -- a picture of a "
-    "page, not a text document. Extract every question in the order it is printed: its "
-    "section letter if the paper has sections (A, B, C...), its question number, a "
-    "sub-part letter if it has one (i, ii, iii or a, b, c), an internal-choice letter if "
-    "this is the alternative offered after the word OR (the first of a pair is blank, "
-    "the alternative is 'b'), how many marks it is worth, its stem text (the question as "
-    "printed, not your summary of it), and the page it is on. "
-    "A paper often prints each question twice, once in Hindi and once in English -- "
-    "extract only the English copy, never both. "
+    "page, not a text document -- in any of the languages CBSE Class X sets one in "
+    "(English, Hindi, Tamil, or a bilingual paper printing both). "
+    "\n\n"
+    "GUARDRAIL, more important than completeness: this paper is being read to build a "
+    "school's official record of marks. A confident wrong answer is worse than an "
+    "honest gap. Never invent, estimate, or round a value you cannot actually see. "
+    "Every number and every word of stem text must be traceable to ink on the page. If "
+    "a mark, a question number, or any other field is not legible, leave it blank -- do "
+    "not fill it in from what a typical CBSE paper usually has. Do not let familiarity "
+    "with common paper patterns substitute for what THIS paper actually shows.  "
+    "\n\n"
+    "Extract every question in the order it is printed: its section letter if the "
+    "paper has sections (A, B, C...), its question number, a sub-part letter if it has "
+    "one (i, ii, iii or a, b, c), an internal-choice letter if this is the alternative "
+    "offered after the word OR (the first of a pair is blank, the alternative is 'b'), "
+    "how many marks it is worth, its stem text (the question exactly as printed, "
+    "transliterated faithfully if not in English -- never your summary or translation "
+    "of it), and the page it is on. "
+    "A bilingual paper prints each question twice, once in Hindi (or Tamil) and once in "
+    "English -- extract only the English copy, never both, and never invent an English "
+    "translation of a question that was only printed in the other language. "
     "A case-study or comprehension question prints a shared paragraph before several "
     "numbered sub-questions: extract that paragraph as its own row with is_context=true "
     "and no marks of its own; the marks belong to its sub-parts. "
     "Read marks exactly as printed (often in brackets at the right margin, like [2] or "
     "(3)) -- do not compute or guess a total. If a question's marks are not legible, "
-    "leave max_marks blank rather than guessing."
+    "leave max_marks blank rather than guessing. "
+    "\n\n"
+    "Separately, read what the paper's own cover or instructions page declares about "
+    "itself, if anything is printed there: the maximum marks for the whole paper "
+    "(e.g. 'Maximum Marks: 80'), how many questions it contains (e.g. 'This question "
+    "paper contains 38 questions'), and any per-section mark total (e.g. 'Section A: "
+    "20 marks', or 'This section comprises 6 questions of 3 marks each' -- multiply "
+    "those two numbers together for that section's total). Leave any of these blank "
+    "if the paper does not state it outright -- never calculate it yourself from the "
+    "questions you extracted; it must be a number the paper itself prints."
 )
 
 
@@ -107,7 +148,11 @@ class AnthropicPaperVisionReader:
             output_format=_PaperOut,
         )
         parsed: _PaperOut = response.parsed_output
-        out = PaperVisionReading()
+        out = PaperVisionReading(
+            declared_sections={k.upper(): v for k, v in parsed.declared.sections.items()},
+            declared_count=parsed.declared.question_count,
+            declared_total=parsed.declared.total_marks,
+        )
         for q in parsed.questions:
             number = q.question_no.strip()
             if not number:

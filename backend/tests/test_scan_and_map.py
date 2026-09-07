@@ -185,6 +185,65 @@ def test_a_scanned_papers_vision_read_stages_questions_the_same_way_text_does(
         settings.anthropic_api_key = before
 
 
+def test_a_vision_read_that_falls_short_of_the_papers_own_declared_total_is_blocked(
+    client, school, assessment, monkeypatch
+):
+    """The guardrail against a vision hallucination or a missed question: the model is
+    told to read what the paper's OWN cover declares itself worth, never to compute it
+    from what it just extracted, and confirm_scan holds the extraction to that number --
+    the same check a text-route read has always had, now applied to a vision read too.
+    A question the model missed (or invented too few marks for) surfaces here, not as a
+    silently accepted, quietly wrong Q-matrix."""
+    from app.extraction.paper import ExtractedQuestion
+    from app.extraction.paper_vision import PaperVisionReading
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return PaperVisionReading(
+                questions=[
+                    ExtractedQuestion(
+                        section="A", question_no="1", sub_part=None, choice_alt=None,
+                        max_marks=3.0, stem_text="Find the mean of the grouped data.",
+                        logical_page=1,
+                    ),
+                ],
+                # The paper declares 8 marks on its own cover; only 3 were extracted --
+                # a question 2 the model missed entirely.
+                declared_total=8.0,
+            )
+
+    monkeypatch.setattr("app.extraction.paper_vision.AnthropicPaperVisionReader", StubReader)
+    try:
+        doc = pymupdf.open()
+        pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 8, 8))
+        pixmap.clear_with(180)
+        page = doc.new_page(width=595, height=842)
+        page.insert_image(pymupdf.Rect(0, 0, 595, 842), pixmap=pixmap)
+        data = doc.tobytes()
+        doc.close()
+
+        out = _upload(client, school, assessment, data, name="scan.pdf")
+        job_id = out.json()["job_id"]
+        job = client.get(f"/assessments/{assessment}/scan/jobs/{job_id}", headers=_auth(school))
+        assert job.status_code == 200, job.text
+        assert job.json()["staged"] == 1
+
+        confirmed = client.post(
+            f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={"by": "Mrs Rani"},
+        )
+        assert confirmed.status_code == 422, confirmed.text
+        assert "8 marks" in confirmed.text and "add up to 3" in confirmed.text
+    finally:
+        settings.anthropic_api_key = before
+
+
 def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
     client, school, assessment, book
 ):
