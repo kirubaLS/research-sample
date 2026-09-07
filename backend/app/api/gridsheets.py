@@ -223,7 +223,21 @@ def _run_gridsheet_job(job_id: str) -> None:
                 error_detail="the uploaded sheet's pages went missing before it could be read",
             )
             return
-        pages = [(p.content, p.content_type) for p in document.pages]
+        from app.api.documents import read_page_bytes
+
+        try:
+            pages = [(read_page_bytes(p), p.content_type) for p in document.pages]
+        except FileNotFoundError:
+            # Not expected in practice -- this job runs moments after the pages were
+            # uploaded, long before any object-store lifecycle rule could have expired
+            # them -- but the alternative is this exception reaching the bare
+            # try/finally above uncaught, which (like the paper-scan job before this
+            # same fix) would strand the job at "pending" forever instead of failing it.
+            _finish_gridsheet_job(
+                job_id, status_value="failed", error_status=410,
+                error_detail="one of this sheet's pages could not be read back -- please re-upload",
+            )
+            return
         # ScanPage keeps bytes and content type, not the filename it arrived under -- the
         # same information a single-student script upload already discards.
         source_name = "class mark-entry sheet" if job.kind == "class_photo" else "answer script"

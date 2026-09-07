@@ -27,10 +27,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /srv
 
 COPY pyproject.toml ./
-RUN pip install --upgrade pip && pip install -e . || true
+RUN pip install --upgrade pip && pip install -e ".[vision,storage]" || true
 
 COPY . .
-RUN pip install -e .
+RUN pip install -e ".[vision,storage]"
 
 # Run as a non-root user.
 RUN useradd --create-home --uid 10001 yaadhum && chown -R yaadhum:yaadhum /srv
