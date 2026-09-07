@@ -5,7 +5,8 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -19,13 +20,13 @@ from app.api.schemas import (
     ReconcileIn,
 )
 from app.api.upload import pages_to_pdf
+from app.config import get_settings
 from app.db import get_session
 from app.extraction.address import Address, AddressResolver
 from app.extraction.choice import group_choices
 from app.extraction.verification import verify_paper
 from app.ingest.book import stem_hash
 from app.mapping.solver import Constraint, QuestionDist, solve
-from app.models.assessment import TIER_ALIASES
 from app.models import (
     MARK_STATES,
     SOURCE_PRECEDENCE,
@@ -37,6 +38,7 @@ from app.models import (
     DataQualityFlag,
     LogicalPage,
     MarkEvent,
+    PaperScanJob,
     ProposedMark,
     Question,
     QuestionPlacement,
@@ -44,11 +46,12 @@ from app.models import (
     QuestionTier,
     ScanDocument,
     ScannedQuestion,
-    StudentReport,
     School,
     StudentProfile,
+    StudentReport,
     TaxonomyNode,
 )
+from app.models.assessment import TIER_ALIASES
 from app.taxonomy.variants import ServedVariant, VariantReuseError, enforce, variant_hash
 
 router = APIRouter(prefix="/assessments", tags=["marks-engine"])
@@ -471,56 +474,14 @@ def reconcile(
 # --------------------------------------------------------------------------------------
 # Scanning a question paper
 # --------------------------------------------------------------------------------------
-@router.post("/{assessment_id}/scan", status_code=status.HTTP_201_CREATED)
-async def scan_paper(
-    assessment_id: str,
-    files: list[UploadFile] = File(...),
-    school: School = Depends(require_scanner),
-    db: Session = Depends(get_session),
+def _finish_paper_scan(
+    db: Session, school: School, assessment: Assessment, extract, originals, source_sha: str,
 ) -> dict:
-    """Read a question paper PDF into staged questions.
-
-    Writes to scanned_question, not to question: a question row needs a board unit and a
-    concept family, and neither is knowable from the paper. They come from the book, in
-    the mapping step that follows.
-
-    Re-scanning replaces the staged rows for questions that have not been promoted yet, so
-    a paper can be re-read after a bad upload without unpicking what mapping already did.
+    """Write a paper's extracted questions and return the same response body regardless
+    of which route (text or vision) produced ``extract`` -- everything from here on is
+    one pipeline, exactly as the module docstrings for paper.py and paper_vision.py say.
     """
-    from app.extraction.paper import context_addresses, extract_paper
-
-    assessment = _get_assessment(db, school, assessment_id)
-    if assessment.qmatrix_frozen_at:
-        raise HTTPException(409, "the Q-matrix is frozen; create a new version to re-scan")
-
-    # One page or twenty, PDFs or photographs, in the order the caller sent them.
-    #: Read once, before pages_to_pdf consumes the uploads, because the pages are kept:
-    #: a report is a claim about a piece of paper, and the paper has to survive the read.
-    originals = [
-        (await f.read(), content_type_for(f.filename, f.content_type), f.filename)
-        for f in files
-    ]
-    for upload, (content, _, _) in zip(files, originals, strict=True):
-        await upload.seek(0)
-        if not content:
-            raise HTTPException(422, f"{upload.filename or 'a file'} is empty")
-
-    path = await pages_to_pdf(files)
-    try:
-        extract = extract_paper(path)
-        source_sha = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
-    finally:
-        path.unlink(missing_ok=True)
-
-    if extract.route == "vision":
-        assessment.route = "vision"
-        assessment.pdf_page_count = extract.page_count
-        db.commit()
-        raise HTTPException(
-            422,
-            "; ".join(extract.problems)
-            + " Upload a PDF that carries a text layer, or wait for the vision route.",
-        )
+    from app.extraction.paper import context_addresses
 
     promoted = {
         row.address
@@ -554,7 +515,7 @@ async def scan_paper(
     # these rows.
     assessment.scan_confirmed_at = None
     assessment.scan_confirmed_by = None
-    assessment.route = "text"
+    assessment.route = extract.route
     assessment.pdf_page_count = extract.page_count
     assessment.source_sha256 = source_sha
     assessment.declared = {
@@ -598,6 +559,188 @@ async def scan_paper(
         "problems": extract.problems,
         "next": f"Review at GET /assessments/{assessment.id}/scan, then POST /map.",
     }
+
+
+def _finish_paper_scan_job(
+    job_id: str, *, status_value: str, result: dict | None = None,
+    error_status: int | None = None, error_detail: str | None = None,
+) -> None:
+    """Write a job's outcome in its own short-lived session -- see _run_paper_scan_job's
+    docstring for why a session is never held open across the vision call itself."""
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        job = db.get(PaperScanJob, job_id)
+        if job is None:
+            return
+        job.status = status_value
+        job.result = result
+        job.error_status = error_status
+        job.error_detail = error_detail
+        job.finished_at = datetime.now(UTC)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _run_paper_scan_job(job_id: str) -> None:
+    """The slow part of reading a scanned question paper, run after the request that
+    queued it has already returned.
+
+    Two short-lived sessions, never one held open across the vision call -- the same
+    lesson IngestJob's and GridSheetJob's own docstrings give: a session kept open while a
+    slow external call runs sits idle-in-transaction for however long that takes, and
+    Postgres enforces its own idle-in-transaction timeout regardless of what this process
+    is doing.
+
+    Never raises: every failure is caught and written to the job row, because that row is
+    the only place left a failure can be seen once the request that would have shown it
+    has already returned.
+    """
+    import tempfile
+    from pathlib import Path
+
+    from app.db import SessionLocal
+    from app.extraction.paper_vision import rasterize_pdf, read_paper_vision
+
+    db = SessionLocal()
+    try:
+        job = db.get(PaperScanJob, job_id)
+        if job is None:
+            return
+        pdf_bytes, school_id, assessment_id = job.pdf_bytes, job.school_id, job.assessment_id
+    finally:
+        db.close()  # released BEFORE the slow vision call below, not held across it
+
+    handle = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+    handle.write(pdf_bytes)
+    handle.close()
+    path = Path(handle.name)
+    try:
+        pages = rasterize_pdf(path)
+    finally:
+        path.unlink(missing_ok=True)
+
+    reading = read_paper_vision(pages, api_key=get_settings().anthropic_api_key)
+    if reading.refused:
+        _finish_paper_scan_job(job_id, status_value="failed", error_status=422, error_detail=reading.refused)
+        return
+
+    from app.extraction.paper import PaperExtract
+
+    extract = PaperExtract(route="vision", page_count=len(pages), questions=reading.questions)
+
+    db = SessionLocal()
+    try:
+        school = db.get(School, school_id)
+        assessment = db.get(Assessment, assessment_id)
+        if school is None or assessment is None:
+            _finish_paper_scan_job(
+                job_id, status_value="failed", error_status=404,
+                error_detail="the school or the paper this scan belonged to was removed",
+            )
+            return
+        source_sha = __import__("hashlib").sha256(pdf_bytes).hexdigest()
+        originals = [(pdf_bytes, "application/pdf", "scan.pdf")]
+        result = _finish_paper_scan(db, school, assessment, extract, originals, source_sha)
+    except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
+        _finish_paper_scan_job(
+            job_id, status_value="failed", error_status=500,
+            error_detail=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    finally:
+        db.close()
+
+    _finish_paper_scan_job(job_id, status_value="succeeded", result=result)
+
+
+@router.post("/{assessment_id}/scan", status_code=status.HTTP_201_CREATED, response_model=None)
+async def scan_paper(
+    assessment_id: str,
+    files: list[UploadFile] = File(...),
+    background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> dict | JSONResponse:
+    """Read a question paper -- PDF or photograph -- into staged questions.
+
+    Writes to scanned_question, not to question: a question row needs a board unit and a
+    concept family, and neither is knowable from the paper. They come from the book, in
+    the mapping step that follows.
+
+    Re-scanning replaces the staged rows for questions that have not been promoted yet, so
+    a paper can be re-read after a bad upload without unpicking what mapping already did.
+
+    A PDF with a text layer is read here, directly, and returns its result the way it
+    always has. A scan or a photograph -- no text layer at all -- cannot be read inside
+    this request: it needs a vision call, which can run past Render's own request
+    timeout, so it is queued as a PaperScanJob and this returns 202 instead. Poll
+    GET .../scan/jobs/{job_id} for the result this endpoint used to refuse to produce.
+    """
+    from app.extraction.paper import extract_paper
+
+    assessment = _get_assessment(db, school, assessment_id)
+    if assessment.qmatrix_frozen_at:
+        raise HTTPException(409, "the Q-matrix is frozen; create a new version to re-scan")
+
+    # One page or twenty, PDFs or photographs, in the order the caller sent them.
+    #: Read once, before pages_to_pdf consumes the uploads, because the pages are kept:
+    #: a report is a claim about a piece of paper, and the paper has to survive the read.
+    originals = [
+        (await f.read(), content_type_for(f.filename, f.content_type), f.filename)
+        for f in files
+    ]
+    for upload, (content, _, _) in zip(files, originals, strict=True):
+        await upload.seek(0)
+        if not content:
+            raise HTTPException(422, f"{upload.filename or 'a file'} is empty")
+
+    path = await pages_to_pdf(files)
+    try:
+        extract = extract_paper(path)
+        source_sha = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
+        pdf_bytes = path.read_bytes() if extract.route == "vision" else None
+    finally:
+        path.unlink(missing_ok=True)
+
+    if extract.route == "vision":
+        assessment.route = "vision"
+        assessment.pdf_page_count = extract.page_count
+        job = PaperScanJob(school_id=school.id, assessment_id=assessment.id, pdf_bytes=pdf_bytes)
+        db.add(job)
+        db.commit()
+        background_tasks.add_task(_run_paper_scan_job, job.id)
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": job.id, "status": "pending",
+                "next": f"Poll GET /assessments/{assessment.id}/scan/jobs/{job.id} for the result.",
+            },
+        )
+
+    return _finish_paper_scan(db, school, assessment, extract, originals, source_sha)
+
+
+@router.get("/{assessment_id}/scan/jobs/{job_id}")
+def get_paper_scan_job(
+    assessment_id: str,
+    job_id: str,
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Poll for the result of a scanned paper's vision read -- see PaperScanJob and
+    scan_paper. A failed job carries the same status code and detail a synchronous scan
+    would have raised, not a bare 'failed'."""
+    job = db.get(PaperScanJob, job_id)
+    if job is None or job.assessment_id != assessment_id or job.school_id != school.id:
+        raise HTTPException(404, f"no job {job_id!r} for this paper")
+    if job.status == "failed":
+        raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
+    if job.status != "succeeded":
+        return {"job_id": job.id, "status": job.status}
+    return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
 
 
 @router.get("/{assessment_id}/scan")
@@ -922,10 +1065,10 @@ def map_paper_to_book(
     the numbers tidy is exactly the invention this pipeline exists to refuse.
     """
     from app.api.books import clean_sections
-    from app.mapping.family import choose_family
     from app.config import get_settings
     from app.extraction.paper import context_addresses
     from app.ingest.probe import LexicalIndex, SemanticIndex, locate
+    from app.mapping.family import choose_family
 
     assessment = _get_assessment(db, school, assessment_id)
     settings = get_settings()
