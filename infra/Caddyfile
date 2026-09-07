@@ -1,0 +1,11 @@
+# Automatic HTTPS (Let's Encrypt) for both hostnames -- no ACM, no load balancer. Replace
+# the two domains with your real ones before first deploy; Caddy needs them to issue
+# certificates, and both must already point their DNS A record at this VM's static IP.
+
+app.yourdomain.in {
+    reverse_proxy frontend:3000
+}
+
+api.yourdomain.in {
+    reverse_proxy backend:8000
+}

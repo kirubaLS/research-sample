@@ -12,6 +12,8 @@ twenty megabytes at once, and so a page can be replaced without touching the res
 from __future__ import annotations
 
 import hashlib
+import io
+import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
@@ -21,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_reader, require_scanner
 from app.db import get_session
 from app.models import Assessment, ScanDocument, ScanPage, School, StudentProfile
+from app.storage import get_object_store
 
 router = APIRouter(tags=["documents"])
 
@@ -84,13 +87,39 @@ def store_document(
     )
     db.add(document)
     db.flush()
+    store = get_object_store()
     for index, (content, content_type, quality) in enumerate(pages):
+        # One key per page, not reused across a retake: the old object is left for the
+        # object store's own lifecycle rule to expire rather than deleted here, so a page
+        # replaced mid-review does not remove evidence a dispute might still need.
+        key = f"scans/{school_id}/{document.id}/{index}-{uuid.uuid4().hex[:8]}"
+        store.put(key, io.BytesIO(content), content_type=content_type)
         db.add(ScanPage(
             document_id=document.id, index=index, content_type=content_type,
-            byte_size=len(content), quality=quality, content=content,
+            byte_size=len(content), quality=quality, storage_key=key,
         ))
     db.flush()
     return document
+
+
+def read_page_bytes(page: ScanPage) -> bytes:
+    """A page's actual bytes, wherever they live -- the object store for anything written
+    since storage_key existed, the row itself for anything written before.
+
+    Raises FileNotFoundError, not silently empty bytes, when a page's storage_key is set
+    but the object is gone: with a 30-day lifecycle rule on the bucket, that is the
+    expected shape of an old page, not a bug, and the two callers of this (read_page below,
+    and the grid-sheet vision reader) need to tell it apart from every other failure.
+    """
+    if page.storage_key:
+        # Not a `with` block: LocalObjectStore.open() returns a plain file object, but
+        # S3ObjectStore.open() returns botocore's StreamingBody, whose context-manager
+        # support depends on the installed botocore version -- .read() alone works on
+        # both, and a short-lived response body needs no explicit close.
+        return get_object_store().open(page.storage_key).read()
+    if page.content is not None:
+        return page.content
+    raise FileNotFoundError(f"scan page {page.id} has neither a storage key nor stored content")
 
 
 def _view(document: ScanDocument) -> dict:
@@ -271,8 +300,20 @@ def read_page(
     )
     if page is None:
         raise HTTPException(404, "no such page")
+    try:
+        data = read_page_bytes(page)
+    except FileNotFoundError:
+        # The expected shape once the object store's 30-day lifecycle rule has run: the
+        # extracted record (the marks, the questions) is untouched by that expiry, only
+        # the original photograph is gone, so this is a 410 with an explanation, not a
+        # bare 404 that reads as "never existed".
+        raise HTTPException(
+            410,
+            "this page's original image was auto-deleted 30 days after it was scanned; "
+            "the marks and questions extracted from it are still on record",
+        ) from None
     return Response(
-        content=page.content,
+        content=data,
         media_type=page.content_type,
         headers={
             # Immutable: replacing a page writes a new document, so a cached page can

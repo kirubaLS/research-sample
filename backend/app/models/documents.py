@@ -5,12 +5,14 @@ cannot be checked -- so the pages are kept, not just what was read off them. A p
 sending a report to a parent must be able to answer "show me his answer sheet", and the
 only honest way to answer is the sheet itself.
 
-Bytes live in the database rather than in object storage. At pilot scale -- one school,
-forty students, a handful of papers a term -- that keeps the pages inside the same backup,
-the same restore and the same access control as the marks they justify, with no second
-system to configure or leak. It is the wrong choice at a thousand schools; ``storage.py``
-is where that move goes when it is needed, and nothing outside this module assumes bytes
-are local.
+A page's bytes live in object storage (``storage.py``, an S3 bucket with a 30-day
+lifecycle rule in production), addressed by ``storage_key`` -- not in this database. Only
+the raw scan is time-limited; the ``ScannedQuestion``, ``Mark`` and report rows an
+extraction produced from it are the permanent record and are never touched by that
+expiry. ``content`` is what an older row still carries from when bytes lived directly in
+Postgres (pilot scale: one school, a handful of papers a term, no second system to
+configure) -- kept nullable and read as a fallback so those rows keep serving without a
+backfill, but every row written from here on goes through the object store instead.
 """
 
 from __future__ import annotations
@@ -82,7 +84,11 @@ class ScanPage(Base, PkMixin, TimestampMixin):
     #: the capture-time quality metrics, kept because a disputed reading is usually a
     #: disputed photograph, and "it was blurred" is checkable only if we wrote it down
     quality: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    content: Mapped[bytes] = mapped_column(LargeBinary)
+    #: where this page's bytes live in the object store (see module docstring). Null only
+    #: for a row written before this column existed, which carries its bytes in `content`
+    #: instead -- a fresh row always sets this and leaves `content` null.
+    storage_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    content: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
 
     document: Mapped[ScanDocument] = relationship(back_populates="pages")
 
