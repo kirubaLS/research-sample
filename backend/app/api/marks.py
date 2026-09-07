@@ -613,27 +613,42 @@ def _run_paper_scan_job(job_id: str) -> None:
     finally:
         db.close()  # released BEFORE the slow vision call below, not held across it
 
-    handle = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
-    handle.write(pdf_bytes)
-    handle.close()
-    path = Path(handle.name)
     try:
-        pages = rasterize_pdf(path)
-    finally:
-        path.unlink(missing_ok=True)
+        handle = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+        handle.write(pdf_bytes)
+        handle.close()
+        path = Path(handle.name)
+        try:
+            pages = rasterize_pdf(path)
+        finally:
+            path.unlink(missing_ok=True)
 
-    reading = read_paper_vision(pages, api_key=get_settings().anthropic_api_key)
-    if reading.refused:
-        _finish_paper_scan_job(job_id, status_value="failed", error_status=422, error_detail=reading.refused)
+        reading = read_paper_vision(pages, api_key=get_settings().anthropic_api_key)
+        if reading.refused:
+            _finish_paper_scan_job(
+                job_id, status_value="failed", error_status=422, error_detail=reading.refused,
+            )
+            return
+
+        from app.extraction.paper import PaperExtract
+
+        extract = PaperExtract(
+            route="vision", page_count=len(pages), questions=reading.questions,
+            declared_sections=reading.declared_sections, declared_count=reading.declared_count,
+            declared_total=reading.declared_total,
+        )
+    except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape.
+        # This covers the rasterize/vision-read half of the job, the same way the
+        # try/except below already covered the database-write half -- previously a
+        # failure here (a 413 from too large a request, a rate limit, a network drop)
+        # propagated all the way out as an uncaught background-task exception, which
+        # crashed silently and left the job at "pending" forever with nothing left
+        # running to ever mark it failed.
+        _finish_paper_scan_job(
+            job_id, status_value="failed", error_status=500,
+            error_detail=f"{type(exc).__name__}: {exc}",
+        )
         return
-
-    from app.extraction.paper import PaperExtract
-
-    extract = PaperExtract(
-        route="vision", page_count=len(pages), questions=reading.questions,
-        declared_sections=reading.declared_sections, declared_count=reading.declared_count,
-        declared_total=reading.declared_total,
-    )
 
     db = SessionLocal()
     try:

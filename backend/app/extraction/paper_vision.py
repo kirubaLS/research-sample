@@ -140,13 +140,32 @@ class AnthropicPaperVisionReader:
             for data, content_type in pages
         ]
         content.append({"type": "text", "text": "Read every question on this paper, in order."})
-        response = self.client.messages.parse(
-            model=self.model,
-            max_tokens=16000,
-            system=SYSTEM,
-            messages=[{"role": "user", "content": content}],
-            output_format=_PaperOut,
-        )
+        import anthropic
+
+        try:
+            response = self.client.messages.parse(
+                model=self.model,
+                max_tokens=16000,
+                system=SYSTEM,
+                messages=[{"role": "user", "content": content}],
+                output_format=_PaperOut,
+            )
+        except anthropic.APIStatusError as exc:
+            # Caught here, by name, rather than left to _run_paper_scan_job's own
+            # try/except: that one only wraps the database write that follows this call,
+            # not the call itself, so an uncaught error here used to crash the background
+            # task outright and leave the job at "pending" forever (nothing left running
+            # to ever write "failed" to its row). A refusal turns it into the same
+            # reviewable outcome any other unreadable paper gets.
+            out = PaperVisionReading()
+            if exc.status_code == 413:
+                out.refused = (
+                    "this paper is too large to read in one request -- try scanning "
+                    "fewer pages at a time, or at a lower camera resolution"
+                )
+            else:
+                out.refused = f"the vision read failed ({exc.status_code}): {exc.message}"
+            return out
         parsed: _PaperOut = response.parsed_output
         out = PaperVisionReading(
             declared_sections={k.upper(): v for k, v in parsed.declared.sections.items()},
@@ -172,16 +191,38 @@ class AnthropicPaperVisionReader:
         return out
 
 
-def rasterize_pdf(path, *, dpi: int = 300) -> list[tuple[bytes, str]]:
-    """A PDF's pages, as PNG images -- what the vision model actually needs to look at.
-    300dpi matches the render used elsewhere in this codebase for a page a model has to
-    read (see app.ingest.gemini_ocr.RENDER_DPI)."""
+#: Anthropic resizes any image bigger than this on its own side before the model ever
+#: sees it (long edge ~1568px, ~1.15 megapixels) -- sending more resolution than that
+#: buys nothing but bytes. Rendering straight for this size, rather than at a fixed high
+#: DPI and letting the request balloon, is what keeps a normal multi-page paper (10-20
+#: pages) safely under Anthropic's 32MB request-size cap: a 300dpi PNG scan of even a
+#: dozen pages routinely exceeds it (this is what produced 'RequestTooLargeError: Error
+#: code: 413' in production), while this size costs the same vision tokens either way.
+_VISION_LONG_EDGE_PX = 1568
+#: Never below this even for a tiny page -- stay legible for a paper with small print.
+_VISION_MIN_DPI = 100
+#: Never above this even for a huge page -- a giant page rendered at full DPI before
+#: being downscaled is still a giant amount of memory to hold mid-render.
+_VISION_MAX_DPI = 220
+
+
+def rasterize_pdf(path) -> list[tuple[bytes, str]]:
+    """A PDF's pages, as JPEG images sized for what the vision model actually looks at.
+
+    JPEG, not PNG: these pages are photographs of paper (scans, phone photos of an answer
+    script), and PNG's lossless compression does badly on photographic noise -- it can
+    run 5-10x larger than a JPEG that looks identical to the model. Quality 85 keeps text
+    edges sharp; nothing here needs pixel-perfect reproduction, only legibility.
+    """
     import pymupdf
 
     pages: list[tuple[bytes, str]] = []
     with pymupdf.open(path) as doc:
         for page in doc:
-            pages.append((page.get_pixmap(dpi=dpi).tobytes("png"), "image/png"))
+            long_edge_in = max(page.rect.width, page.rect.height) / 72
+            dpi = max(_VISION_MIN_DPI, min(_VISION_MAX_DPI, _VISION_LONG_EDGE_PX / long_edge_in))
+            pixmap = page.get_pixmap(dpi=round(dpi))
+            pages.append((pixmap.tobytes("jpg", jpg_quality=85), "image/jpeg"))
     return pages
 
 
