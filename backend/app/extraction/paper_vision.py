@@ -108,8 +108,18 @@ SYSTEM = (
 )
 
 
+#: Read one page, and only one page, per Claude call -- not the whole paper in a single
+#: request. This is the same shape app.ingest.gemini_ocr already uses for Hindi books,
+#: and for the same underlying reason: a request built from every page at once is a
+#: request whose size scales with how long the paper is, with no ceiling, which is what
+#: turned into 'RequestTooLargeError: Error code: 413' in production even after
+#: individual pages were compressed (a 20+ page paper's compressed pages can still add
+#: up). One call per page makes the request size a function of ONE page, never of how
+#: many the paper has, so it cannot recur no matter how long a paper gets -- and a page
+#: ruined by glare or a bad photo fails on its own instead of taking the whole paper down
+#: with it (see ``problems`` on the reading this returns).
 class AnthropicPaperVisionReader:
-    """One call, one paper, structured output -- the same shape as the grid-sheet vision
+    """One call per page, structured output -- the same shape as the grid-sheet vision
     reader (``app.extraction.gridsheet.AnthropicGridReader``): reading a scan accurately
     is exactly as uncertain as classifying a question, and both get the same discipline
     of a person reviewing before anything counts.
@@ -127,21 +137,20 @@ class AnthropicPaperVisionReader:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
 
-    def read(self, pages: list[tuple[bytes, str]]) -> PaperVisionReading:
-        content: list[dict] = [
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "media_type": content_type,
-                    "data": base64.b64encode(data).decode(),
-                },
-            }
-            for data, content_type in pages
-        ]
-        content.append({"type": "text", "text": "Read every question on this paper, in order."})
+    def _read_page(self, data: bytes, content_type: str, prompt: str) -> _PaperOut | None:
+        """One page's worth of the call this reader makes. Returns None, with the
+        problem recorded by the caller, rather than raising -- a page that fails to read
+        is a fact about that page, not a reason to give up on the ones around it."""
         import anthropic
 
+        content = [
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": content_type,
+                           "data": base64.b64encode(data).decode()},
+            },
+            {"type": "text", "text": prompt},
+        ]
         try:
             response = self.client.messages.parse(
                 model=self.model,
@@ -155,39 +164,66 @@ class AnthropicPaperVisionReader:
             # try/except: that one only wraps the database write that follows this call,
             # not the call itself, so an uncaught error here used to crash the background
             # task outright and leave the job at "pending" forever (nothing left running
-            # to ever write "failed" to its row). A refusal turns it into the same
-            # reviewable outcome any other unreadable paper gets.
-            out = PaperVisionReading()
-            if exc.status_code == 413:
-                out.refused = (
-                    "this paper is too large to read in one request -- try scanning "
-                    "fewer pages at a time, or at a lower camera resolution"
+            # to ever write "failed" to its row). Raised again as a plain exception with
+            # the detail read() needs, so one page's failure is reported against that
+            # page rather than aborting every other page still to be read.
+            raise RuntimeError(f"({exc.status_code}) {exc.message}") from exc
+        return response.parsed_output
+
+    def read(self, pages: list[tuple[bytes, str]]) -> PaperVisionReading:
+        out = PaperVisionReading()
+        # Carried across pages, not reset per page: a section header is often printed
+        # once and left implicit on every page after it, and a page read on its own (no
+        # longer seeing the whole paper in one call) has nothing else to infer it from.
+        last_section: str | None = None
+
+        for index, (data, content_type) in enumerate(pages, start=1):
+            prompt = "Read every question on this page, in order."
+            if last_section:
+                prompt = (
+                    f"This is page {index} of a multi-page question paper. If it "
+                    f"continues without printing a new section header, this page is "
+                    f"still in section '{last_section}' (the last one printed on an "
+                    "earlier page). " + prompt
                 )
-            else:
-                out.refused = f"the vision read failed ({exc.status_code}): {exc.message}"
-            return out
-        parsed: _PaperOut = response.parsed_output
-        out = PaperVisionReading(
-            declared_sections={k.upper(): v for k, v in parsed.declared.sections.items()},
-            declared_count=parsed.declared.question_count,
-            declared_total=parsed.declared.total_marks,
-        )
-        for q in parsed.questions:
-            number = q.question_no.strip()
-            if not number:
+            try:
+                parsed = self._read_page(data, content_type, prompt)
+            except RuntimeError as exc:
+                out.problems.append(f"page {index}: the vision read failed {exc}")
                 continue
-            out.questions.append(ExtractedQuestion(
-                section=q.section.strip() or None,
-                question_no=number,
-                sub_part=q.sub_part.strip().lower() or None,
-                choice_alt=q.choice_alt.strip().lower() or None,
-                max_marks=q.max_marks,
-                stem_text=q.stem_text.strip(),
-                logical_page=max(1, q.logical_page),
-                is_context=q.is_context,
-            ))
+
+            for key, value in parsed.declared.sections.items():
+                out.declared_sections.setdefault(key.upper(), value)
+            if out.declared_count is None:
+                out.declared_count = parsed.declared.question_count
+            if out.declared_total is None:
+                out.declared_total = parsed.declared.total_marks
+
+            for q in parsed.questions:
+                number = q.question_no.strip()
+                if not number:
+                    continue
+                section = q.section.strip() or last_section
+                if q.section.strip():
+                    last_section = q.section.strip()
+                out.questions.append(ExtractedQuestion(
+                    section=section or None,
+                    question_no=number,
+                    sub_part=q.sub_part.strip().lower() or None,
+                    choice_alt=q.choice_alt.strip().lower() or None,
+                    max_marks=q.max_marks,
+                    stem_text=q.stem_text.strip(),
+                    # Known outright now, not a guess the model has to make: each call
+                    # sees exactly one page, so there is only one page it could be.
+                    logical_page=index,
+                    is_context=q.is_context,
+                ))
+
         if not out.questions:
-            out.refused = "nothing readable as a question paper was found in the image(s) sent"
+            out.refused = (
+                "; ".join(out.problems) if out.problems
+                else "nothing readable as a question paper was found in the image(s) sent"
+            )
         return out
 
 

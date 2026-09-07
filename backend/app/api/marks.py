@@ -635,7 +635,7 @@ def _run_paper_scan_job(job_id: str) -> None:
         extract = PaperExtract(
             route="vision", page_count=len(pages), questions=reading.questions,
             declared_sections=reading.declared_sections, declared_count=reading.declared_count,
-            declared_total=reading.declared_total,
+            declared_total=reading.declared_total, problems=reading.problems,
         )
     except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape.
         # This covers the rasterize/vision-read half of the job, the same way the
