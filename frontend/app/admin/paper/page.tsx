@@ -224,12 +224,20 @@ export default function PaperPage() {
   // is something to resume from); a file-picker upload that fails the same way is
   // reported the ordinary way, because a File the browser handed to a form field cannot
   // be recovered once the request that held it is gone.
+  //
+  // resumeJobId matters more than it looks: a scan that is a vision read is queued
+  // server-side (202 + job id) and then polled -- losing the connection can happen
+  // *after* the server already has the job, while only the polling is failing. Retrying
+  // by calling scanPaper() again would queue a second, separately-billed vision read on
+  // top of one the server is already running or has already finished. Resuming by job
+  // id instead just watches the one that already exists.
   async function submitScan(
     scanSubject: string,
     scanTitle: string,
     existingId: string | null,
     files: File[],
     sessionId: string | null,
+    resumeJobId?: string,
   ) {
     const key = getApiKey();
     if (!key) {
@@ -240,12 +248,30 @@ export default function PaperPage() {
     setBusy(sessionId && pendingResume ? "Retrying…" : "Reading the paper…");
     let id = existingId;
     try {
-      if (!id) {
-        const created = await api.createAssessment(key, { subject_code: scanSubject, title: scanTitle });
-        id = created.assessment_id;
-        setAssessmentId(id);
+      if (resumeJobId && id) {
+        setScan(await api.resumeScanJob(key, id, resumeJobId));
+      } else {
+        if (!id) {
+          const created = await api.createAssessment(key, { subject_code: scanSubject, title: scanTitle });
+          id = created.assessment_id;
+          setAssessmentId(id);
+        }
+        const capturedId = id;
+        setScan(await api.scanPaper(key, id, files, (jobId) => {
+          // Fired the instant the server has queued the read -- persisted right away,
+          // before this function has even finished, so a disconnect one line from now
+          // still has somewhere to resume from rather than re-uploading.
+          if (sessionId) {
+            void setPending({
+              sessionId, subject: scanSubject, title: scanTitle, assessmentId: capturedId,
+              savedAt: Date.now(), jobId,
+            });
+            setPendingResume((prev) =>
+              prev && prev.sessionId === sessionId ? { ...prev, assessmentId: capturedId, jobId } : prev,
+            );
+          }
+        }));
       }
-      setScan(await api.scanPaper(key, id, files));
       setMapped(null);
       setConfirmation(null);
       await refresh(id);
@@ -257,13 +283,15 @@ export default function PaperPage() {
       if (err instanceof ApiUnreachable && sessionId) {
         // The pages are already safe on this device (Scanner wrote them before this
         // ever ran) -- what failed is only the request, and only because the server
-        // could not be reached. Keep the id if one was already created, so a retry
-        // scans into the same paper rather than starting a duplicate.
-        await setPending({
+        // could not be reached. Keep the id if one was already created, and the job id
+        // if the server had already queued one, so a retry resumes rather than repeats.
+        const existing = await getPending(sessionId);
+        const pending: PendingSubmission = {
           sessionId, subject: scanSubject, title: scanTitle, assessmentId: id,
-          savedAt: Date.now(), lastError: explain(err),
-        });
-        setPendingResume({ sessionId, subject: scanSubject, title: scanTitle, assessmentId: id, savedAt: Date.now() });
+          savedAt: Date.now(), lastError: explain(err), jobId: existing?.jobId ?? resumeJobId,
+        };
+        await setPending(pending);
+        setPendingResume(pending);
         setPendingPageCount(files.length);
       } else {
         setError(explain(err));
@@ -320,7 +348,10 @@ export default function PaperPage() {
         }
         setRetrying(true);
         try {
-          await submitScan(current.subject, current.title, current.assessmentId, toFiles(pages), sessionId);
+          await submitScan(
+            current.subject, current.title, current.assessmentId, toFiles(pages), sessionId,
+            current.jobId,
+          );
         } finally {
           setRetrying(false);
         }
@@ -432,12 +463,14 @@ export default function PaperPage() {
               className="secondary"
               disabled={retrying || !!busy}
               onClick={async () => {
+                const current = await getPending(pendingResume.sessionId);
+                if (!current) return;
                 const pages = await listPages(pendingResume.sessionId);
                 setRetrying(true);
                 try {
                   await submitScan(
-                    pendingResume.subject, pendingResume.title, pendingResume.assessmentId,
-                    toFiles(pages), pendingResume.sessionId,
+                    current.subject, current.title, current.assessmentId,
+                    toFiles(pages), current.sessionId, current.jobId,
                   );
                 } finally {
                   setRetrying(false);
