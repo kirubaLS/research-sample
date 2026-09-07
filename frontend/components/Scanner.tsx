@@ -49,6 +49,10 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
   // the frame is drawn, and this count is what actually gates Complete: nothing is
   // uploaded until every page this session captured has really finished writing.
   const [pendingWrites, setPendingWrites] = useState(0);
+  // A brief freeze-frame of what was just shot, the way a phone camera confirms a photo
+  // before returning to the live feed -- the confirmation a click actually landed,
+  // without stopping to look at the thumbnail strip.
+  const [flash, setFlash] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setPages(await listPages(sessionId));
@@ -113,6 +117,11 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
     thumbCanvas.height = 224;
     thumbCanvas.getContext("2d")!.drawImage(video, 0, 0, 168, 224);
     const thumbnail = thumbCanvas.toDataURL("image/jpeg", 0.6);
+
+    // The freeze-frame itself -- shown instead of the live video for a beat, then back
+    // to normal, the same shutter-confirmation rhythm a phone's own camera app uses.
+    setFlash(thumbnail);
+    window.setTimeout(() => setFlash(null), 450);
 
     const index = retakeIndex ?? pages.length;
     const capturedQuality = {
@@ -190,7 +199,13 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
 
   return (
     <div>
-      <video ref={videoRef} playsInline muted />
+      <div style={{ position: "relative" }}>
+        <video ref={videoRef} playsInline muted style={{ display: flash ? "none" : undefined }} />
+        {flash && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={flash} alt="" style={{ width: "100%", display: "block" }} />
+        )}
+      </div>
       <canvas ref={canvasRef} style={{ display: "none" }} />
 
       <div className="row" style={{ justifyContent: "space-between", padding: "10px 0" }}>
