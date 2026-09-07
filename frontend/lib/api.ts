@@ -1005,7 +1005,13 @@ export const api = {
 
   /** One page or many, PDFs or photographs, in the order given. */
   scanPaper: (key: string, assessmentId: string, files: File[]) =>
-    uploadMany<ScanResult>(`/assessments/${assessmentId}/scan`, key, files, "X-API-Key"),
+    uploadMany<ScanResult>(
+      `/assessments/${assessmentId}/scan`, key, files, "X-API-Key",
+      // A scanned/photographed paper (no text layer) needs a vision call and can run
+      // past Render's request timeout, so that case answers 202 with a job to poll --
+      // a text-layer PDF still returns its result directly, no polling.
+      `/assessments/${assessmentId}/scan`,
+    ),
 
   readScan: (key: string, assessmentId: string) =>
     authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),

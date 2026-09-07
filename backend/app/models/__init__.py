@@ -27,6 +27,7 @@ from app.models.documents import (
     GRID_ROW_STATUSES,
     GridSheetJob,
     GridSheetRow,
+    PaperScanJob,
     ProposedMark,
     ScanDocument,
     ScanPage,
@@ -67,7 +68,7 @@ __all__ = [
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
     "STAFF_ROLES", "StaffKey",
     "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport", "ProposedMark",
-    "GRID_ROW_STATUSES", "GridSheetRow", "GridSheetJob", "GRID_JOB_KINDS",
+    "GRID_ROW_STATUSES", "GridSheetRow", "GridSheetJob", "GRID_JOB_KINDS", "PaperScanJob",
     "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
     "CaptureAsset", "Crop", "Prediction", "HumanLabel", "Disagreement",
 ]

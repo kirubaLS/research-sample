@@ -96,7 +96,13 @@ def test_a_scanned_paper_is_staged_not_written_as_questions(client, school, asse
     assert real == [], "the scan must not create question rows"
 
 
-def test_a_scan_of_an_image_only_paper_is_refused_with_its_reason(client, school, assessment):
+def test_a_scan_of_an_image_only_paper_is_queued_and_refused_without_a_vision_key(
+    client, school, assessment,
+):
+    """A scan cannot be read inside the request -- it needs a vision call, so it is
+    queued as a PaperScanJob (202) rather than read here. With no Anthropic key
+    configured (the test environment's default), the job itself then fails with the
+    same 'no usable text layer'-shaped reason a synchronous refusal would have given."""
     doc = pymupdf.open()
     pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 8, 8))
     pixmap.clear_with(180)
@@ -107,8 +113,76 @@ def test_a_scan_of_an_image_only_paper_is_refused_with_its_reason(client, school
     doc.close()
 
     r = _upload(client, school, assessment, data, name="scan.pdf")
-    assert r.status_code == 422
-    assert "no usable text layer" in r.json()["detail"]
+    assert r.status_code == 202, r.text
+    job_id = r.json()["job_id"]
+    job = client.get(f"/assessments/{assessment}/scan/jobs/{job_id}", headers=_auth(school))
+    assert job.status_code == 422, job.text
+    assert "cannot be read" in job.text
+
+
+def test_a_scanned_papers_vision_read_stages_questions_the_same_way_text_does(
+    client, school, assessment, monkeypatch
+):
+    """The whole point of the vision route: once it reads the paper, everything after
+    that -- staging, review, mapping -- is the one pipeline the text route already uses,
+    not a second one. Stubbed here because nothing in a test can actually read an image."""
+    from app.extraction.paper import ExtractedQuestion
+    from app.extraction.paper_vision import PaperVisionReading
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return PaperVisionReading(questions=[
+                ExtractedQuestion(
+                    section="A", question_no="1", sub_part=None, choice_alt=None,
+                    max_marks=3.0, stem_text="Find the mean of the grouped data.",
+                    logical_page=1,
+                ),
+                ExtractedQuestion(
+                    section="A", question_no="2", sub_part=None, choice_alt=None,
+                    max_marks=5.0, stem_text="Prove the tangent is perpendicular.",
+                    logical_page=1,
+                ),
+            ])
+
+    monkeypatch.setattr("app.extraction.paper_vision.AnthropicPaperVisionReader", StubReader)
+    try:
+        doc = pymupdf.open()
+        pixmap = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, 8, 8))
+        pixmap.clear_with(180)
+        page = doc.new_page(width=595, height=842)
+        page.insert_image(pymupdf.Rect(0, 0, 595, 842), pixmap=pixmap)
+        data = doc.tobytes()
+        doc.close()
+
+        out = _upload(client, school, assessment, data, name="scan.pdf")
+        assert out.status_code == 202, out.text
+        job_id = out.json()["job_id"]
+
+        job = client.get(f"/assessments/{assessment}/scan/jobs/{job_id}", headers=_auth(school))
+        assert job.status_code == 200, job.text
+        body = job.json()
+        assert body["status"] == "succeeded"
+        assert body["route"] == "vision"
+        assert body["staged"] == 2
+
+        from app.db import SessionLocal
+        from app.models import ScannedQuestion
+
+        db = SessionLocal()
+        staged = db.scalars(
+            select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment)
+        ).all()
+        db.close()
+        assert {s.question_no for s in staged} == {"1", "2"}
+    finally:
+        settings.anthropic_api_key = before
 
 
 def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
@@ -367,12 +441,16 @@ def test_the_order_sent_is_the_order_read_not_the_filename_order(client, school,
 
 
 def test_a_photograph_is_accepted_and_routed_to_vision(client, school, assessment):
-    """A teacher photographing a paper has JPEGs, not a PDF. The image is accepted, and
-    then correctly reported as unreadable text -- which is a different failure from
-    'wrong file type', and the difference matters to whoever is standing there."""
+    """A teacher photographing a paper has JPEGs, not a PDF. The image is accepted and
+    queued for a vision read rather than rejected outright -- which is a different
+    outcome from 'wrong file type', and the difference matters to whoever is standing
+    there. With no Anthropic key configured, that queued job then fails cleanly."""
     r = _upload_many(client, school, assessment, [("page1.png", _png(), "image/png")])
-    assert r.status_code == 422
-    assert "no usable text layer" in r.json()["detail"]
+    assert r.status_code == 202, r.text
+    job_id = r.json()["job_id"]
+    job = client.get(f"/assessments/{assessment}/scan/jobs/{job_id}", headers=_auth(school))
+    assert job.status_code == 422, job.text
+    assert "cannot be read" in job.text
 
 
 def test_a_file_that_is_neither_says_which_one(client, school, assessment):

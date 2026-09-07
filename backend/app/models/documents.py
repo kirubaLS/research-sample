@@ -237,3 +237,27 @@ class GridSheetJob(Base, PkMixin, TimestampMixin):
     error_status: Mapped[int | None] = mapped_column(nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PaperScanJob(Base, PkMixin, TimestampMixin):
+    """Reading a scanned or photographed question paper cannot finish inside one HTTP
+    request, for the same reason GridSheetJob's docstring gives: the vision call is a
+    blocking network round trip that can run past Render's request timeout.
+
+    ``pdf_bytes`` is stored here rather than referenced, the same choice IngestJob makes
+    for a Hindi book upload -- a Render instance keeps no disk between requests, and at
+    this point (before scan_paper has decided the paper is even readable) there is no
+    ScanDocument row yet to hang the pages off.
+    """
+
+    __tablename__ = "paper_scan_job"
+
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
+    pdf_bytes: Mapped[bytes] = mapped_column(LargeBinary)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    #: whatever the synchronous handler used to return as its response body
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_status: Mapped[int | None] = mapped_column(nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
