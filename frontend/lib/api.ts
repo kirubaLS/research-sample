@@ -581,7 +581,12 @@ export interface BookStatus {
  * 2s between polls, 10 minutes before giving up -- long enough for a real chapter PDF, not
  * so long a genuinely stuck job hangs the page forever with no feedback.
  */
-async function pollJob<T>(
+// Exported (not just used internally by upload()/uploadMany()) so a caller that already
+// knows a job is in flight -- persisted from a previous onJobQueued callback -- can
+// resume watching it directly, without re-uploading anything. Skipping straight to a
+// poll here is what stops a lost connection from turning into a second, costly vision
+// call for work the server already has queued or finished.
+export async function pollJob<T>(
   jobsBase: string, key: string, jobId: string,
   header: "X-Platform-Key" | "X-API-Key",
 ): Promise<T> {
@@ -644,6 +649,11 @@ async function uploadMany<T>(
   // real work runs too long for one request (see GridSheetJob) -- everything else gets
   // its result directly and never looks at this.
   jobsBase?: string,
+  // Fired the instant a job is queued (202 + job_id received), before polling starts --
+  // a caller with somewhere durable to put it (see PendingSubmission) can persist the id
+  // right away, so a connection lost partway through polling resumes by watching that
+  // same job instead of resubmitting the files as a brand new one.
+  onJobQueued?: (jobId: string) => void,
 ): Promise<T> {
   const body = new FormData();
   // The field name repeats rather than being indexed: that is what FastAPI reads as a
@@ -662,6 +672,7 @@ async function uploadMany<T>(
   if (!res.ok) throw new ApiError(res.status, await res.text());
   const data = (await res.json()) as Record<string, unknown>;
   if (jobsBase && data.status === "pending" && typeof data.job_id === "string") {
+    onJobQueued?.(data.job_id);
     return pollJob<T>(jobsBase, key, data.job_id, header);
   }
   return data as T;
@@ -1003,15 +1014,26 @@ export const api = {
   deleteDocument: (key: string, documentId: string) =>
     authed<void>(`/documents/${documentId}`, key, { method: "DELETE" }),
 
-  /** One page or many, PDFs or photographs, in the order given. */
-  scanPaper: (key: string, assessmentId: string, files: File[]) =>
+  /** One page or many, PDFs or photographs, in the order given. onJobQueued fires the
+   * instant a vision read is queued (202 + job_id) -- pass it to persist the id
+   * somewhere durable before polling starts, so a lost connection can resume watching
+   * that job instead of resubmitting the pages as a second, separately-billed read. */
+  scanPaper: (key: string, assessmentId: string, files: File[], onJobQueued?: (jobId: string) => void) =>
     uploadMany<ScanResult>(
       `/assessments/${assessmentId}/scan`, key, files, "X-API-Key",
       // A scanned/photographed paper (no text layer) needs a vision call and can run
       // past Render's request timeout, so that case answers 202 with a job to poll --
       // a text-layer PDF still returns its result directly, no polling.
       `/assessments/${assessmentId}/scan`,
+      onJobQueued,
     ),
+
+  /** Resume watching a scan job already queued on the server -- no files to send, it
+   * already has them. Use this instead of scanPaper() whenever a job_id from an earlier
+   * onJobQueued is on hand: re-uploading would queue a second, wasted vision read for
+   * work the server is already doing or has already finished. */
+  resumeScanJob: (key: string, assessmentId: string, jobId: string) =>
+    pollJob<ScanResult>(`/assessments/${assessmentId}/scan`, key, jobId, "X-API-Key"),
 
   readScan: (key: string, assessmentId: string) =>
     authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),

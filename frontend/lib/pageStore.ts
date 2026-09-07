@@ -55,6 +55,15 @@ export interface PendingSubmission {
   assessmentId: string | null;
   savedAt: number;
   lastError?: string;
+  /**
+   * Set the instant the server has actually queued a vision read for these pages (a
+   * 202 with a job id, before the result is even known). A retry that finds this set
+   * resumes watching that one job instead of resubmitting the pages -- without it, a
+   * connection lost while only *polling* (the read already running or done server-side)
+   * looked identical to one lost before the server ever saw the pages, and every retry
+   * paid for a brand new vision call on top of whatever was already in flight.
+   */
+  jobId?: string;
 }
 
 class ScanDatabase extends Dexie {
