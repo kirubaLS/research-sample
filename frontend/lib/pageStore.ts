@@ -39,9 +39,28 @@ export interface HistoryEntry {
   undone: boolean;
 }
 
+/**
+ * A capture whose pages are safe on this device (see ScannedPage above) but whose upload
+ * never reached the server -- the backend was unreachable, not that anything was wrong
+ * with the scan itself. Kept apart from the pages: the pages are the source of truth for
+ * "what was captured", this is only "what still needs to be sent, and to where", so a
+ * retry can resume with nothing re-typed -- the same subject, the same title, the same
+ * paper if one was already created.
+ */
+export interface PendingSubmission {
+  id?: number;
+  sessionId: string;
+  subject: string;
+  title: string;
+  assessmentId: string | null;
+  savedAt: number;
+  lastError?: string;
+}
+
 class ScanDatabase extends Dexie {
   pages!: Table<ScannedPage, number>;
   history!: Table<HistoryEntry, number>;
+  pending!: Table<PendingSubmission, number>;
 
   constructor() {
     super("yaadhum-scan");
@@ -49,6 +68,11 @@ class ScanDatabase extends Dexie {
     this.version(2).stores({
       pages: "++id, sessionId, index, uploaded, capturedAt, deletedAt",
       history: "++id, sessionId, at, undone",
+    });
+    this.version(3).stores({
+      pages: "++id, sessionId, index, uploaded, capturedAt, deletedAt",
+      history: "++id, sessionId, at, undone",
+      pending: "++id, &sessionId, savedAt",
     });
   }
 }
@@ -62,7 +86,47 @@ export async function purgeStale(now = Date.now()): Promise<number> {
   await scanDb.pages.bulkDelete(stale.map((p) => p.id!).filter(Boolean));
   const staleHistory = await scanDb.history.where("at").below(now - DAY_MS).toArray();
   await scanDb.history.bulkDelete(staleHistory.map((h) => h.id!).filter(Boolean));
+  const stalePending = await scanDb.pending.where("savedAt").below(now - DAY_MS).toArray();
+  await scanDb.pending.bulkDelete(stalePending.map((p) => p.id!).filter(Boolean));
   return stale.length;
+}
+
+/** Record that a capture is done but has not reached the server yet -- called the moment
+ * an upload fails because the backend could not be reached, never for a real refusal
+ * (a bad file, a validation error), which is not something retrying fixes. */
+export async function setPending(p: Omit<PendingSubmission, "id">): Promise<void> {
+  const existing = await scanDb.pending.where({ sessionId: p.sessionId }).first();
+  if (existing?.id) {
+    await scanDb.pending.update(existing.id, p);
+  } else {
+    await scanDb.pending.add(p as PendingSubmission);
+  }
+}
+
+export async function getPending(sessionId: string): Promise<PendingSubmission | undefined> {
+  return scanDb.pending.where({ sessionId }).first();
+}
+
+/** Every capture still waiting to reach the server, oldest first -- what a "resume"
+ * banner on the paper screen offers, not just the one from the current tab's session. */
+export async function listAllPending(): Promise<PendingSubmission[]> {
+  return scanDb.pending.orderBy("savedAt").toArray();
+}
+
+export async function clearPending(sessionId: string): Promise<void> {
+  await scanDb.pending.where({ sessionId }).delete();
+}
+
+/** Hard-delete every page and history entry for a session -- used when a person
+ * explicitly discards a capture that could not reach the server, rather than the soft
+ * delete deletePage() uses (that one keeps the image so undo can bring one page back;
+ * discarding an entire abandoned capture has nothing left to undo into). */
+export async function clearSession(sessionId: string): Promise<void> {
+  const pages = await scanDb.pages.where({ sessionId }).toArray();
+  await scanDb.pages.bulkDelete(pages.map((p) => p.id!).filter(Boolean));
+  const history = await scanDb.history.where({ sessionId }).toArray();
+  await scanDb.history.bulkDelete(history.map((h) => h.id!).filter(Boolean));
+  await scanDb.pending.where({ sessionId }).delete();
 }
 
 export async function putPage(page: Omit<ScannedPage, "id">): Promise<void> {

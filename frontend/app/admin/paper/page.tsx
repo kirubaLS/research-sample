@@ -15,7 +15,16 @@ import {
   StagedQuestion,
   type Subject,
 } from "@/lib/api";
-import type { ScannedPage } from "@/lib/pageStore";
+import {
+  clearPending,
+  clearSession,
+  getPending,
+  listAllPending,
+  listPages,
+  setPending,
+  type PendingSubmission,
+  type ScannedPage,
+} from "@/lib/pageStore";
 import { getApiKey } from "@/lib/session";
 
 /** The same conversion the single-student script scanner already uses: a captured page's
@@ -77,6 +86,13 @@ export default function PaperPage() {
   // One id per paper, not per mount: switching subject/paper before Complete would
   // otherwise lose a half-shot paper's pages to a fresh, disconnected session.
   const [scanSessionId] = useState(() => crypto.randomUUID());
+  // A capture whose pages reached this device but never reached the server -- the
+  // backend was unreachable, not that anything was wrong with the scan. Checked for on
+  // mount (any tab's leftover, not just this one's) and set the moment an upload fails
+  // that way; cleared the moment a retry lands.
+  const [pendingResume, setPendingResume] = useState<PendingSubmission | null>(null);
+  const [pendingPageCount, setPendingPageCount] = useState(0);
+  const [retrying, setRetrying] = useState(false);
 
   const loadPapers = useCallback(async () => {
     const key = getApiKey();
@@ -202,22 +218,30 @@ export default function PaperPage() {
     setReview(await api.readScan(key, id));
   }, []);
 
-  async function onFiles(files: File[]) {
+  // The one submission path, used whether the pages just came off the camera, a file
+  // picker, or a retry of a capture that could not reach the server last time. A
+  // sessionId is passed only for a camera capture (pages backed by IndexedDB, so there
+  // is something to resume from); a file-picker upload that fails the same way is
+  // reported the ordinary way, because a File the browser handed to a form field cannot
+  // be recovered once the request that held it is gone.
+  async function submitScan(
+    scanSubject: string,
+    scanTitle: string,
+    existingId: string | null,
+    files: File[],
+    sessionId: string | null,
+  ) {
     const key = getApiKey();
     if (!key) {
       setError("Sign in first.");
       return;
     }
     setError(null);
-    if (!subject) {
-      setError("Choose a subject before reading the paper.");
-      return;
-    }
-    setBusy("Reading the paper…");
+    setBusy(sessionId && pendingResume ? "Retrying…" : "Reading the paper…");
+    let id = existingId;
     try {
-      let id = assessmentId;
       if (!id) {
-        const created = await api.createAssessment(key, { subject_code: subject, title });
+        const created = await api.createAssessment(key, { subject_code: scanSubject, title: scanTitle });
         id = created.assessment_id;
         setAssessmentId(id);
       }
@@ -225,13 +249,85 @@ export default function PaperPage() {
       setMapped(null);
       setConfirmation(null);
       await refresh(id);
+      if (sessionId) {
+        await clearPending(sessionId);
+        setPendingResume(null);
+      }
     } catch (err) {
-      setError(explain(err));
+      if (err instanceof ApiUnreachable && sessionId) {
+        // The pages are already safe on this device (Scanner wrote them before this
+        // ever ran) -- what failed is only the request, and only because the server
+        // could not be reached. Keep the id if one was already created, so a retry
+        // scans into the same paper rather than starting a duplicate.
+        await setPending({
+          sessionId, subject: scanSubject, title: scanTitle, assessmentId: id,
+          savedAt: Date.now(), lastError: explain(err),
+        });
+        setPendingResume({ sessionId, subject: scanSubject, title: scanTitle, assessmentId: id, savedAt: Date.now() });
+        setPendingPageCount(files.length);
+      } else {
+        setError(explain(err));
+      }
     } finally {
       setBusy(null);
       if (fileInput.current) fileInput.current.value = "";
     }
   }
+
+  async function onFiles(files: File[]) {
+    if (!subject) {
+      setError("Choose a subject before reading the paper.");
+      return;
+    }
+    await submitScan(subject, title, assessmentId, files, null);
+  }
+
+  // On mount, pick up any capture left waiting from a previous visit -- a tab closed, a
+  // page reload, the same "the backend was down" reason -- not only one from this
+  // session. Runs once; the pages themselves are still exactly where Scanner put them.
+  useEffect(() => {
+    (async () => {
+      const [pending] = await listAllPending();
+      if (!pending) return;
+      const pages = await listPages(pending.sessionId);
+      if (!pages.length) {
+        await clearPending(pending.sessionId);
+        return;
+      }
+      setPendingResume(pending);
+      setPendingPageCount(pages.length);
+    })();
+  }, []);
+
+  // Retried automatically, not just offered: a principal who pressed Complete and got
+  // "could not reach the API" should not have to remember to come back and try again.
+  useEffect(() => {
+    if (!pendingResume) return;
+    const sessionId = pendingResume.sessionId;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        // Read the pending record fresh from IndexedDB rather than trusting this
+        // closure's copy: a prior retry in this same loop may have already created the
+        // assessment and persisted its id, and using a stale assessmentId here would
+        // create a second paper instead of resuming the first.
+        const current = await getPending(sessionId);
+        if (!current) return;
+        const pages = await listPages(sessionId);
+        if (!pages.length) {
+          await clearPending(sessionId);
+          setPendingResume(null);
+          return;
+        }
+        setRetrying(true);
+        try {
+          await submitScan(current.subject, current.title, current.assessmentId, toFiles(pages), sessionId);
+        } finally {
+          setRetrying(false);
+        }
+      })();
+    }, 20000);
+    return () => window.clearInterval(timer);
+  }, [pendingResume?.sessionId]);
 
   async function onEdit(address: string, patch: Record<string, unknown>) {
     const key = getApiKey();
@@ -319,6 +415,52 @@ export default function PaperPage() {
           </div>
         )}
       </header>
+
+      {pendingResume && (
+        <section className="notice warn" style={{ marginBottom: 18 }}>
+          <p style={{ margin: 0 }}>
+            <strong>
+              {pendingPageCount} page{pendingPageCount === 1 ? "" : "s"} of &ldquo;{pendingResume.title}&rdquo;
+            </strong>{" "}
+            {pendingResume.assessmentId ? "were captured but a re-scan" : "were captured but the paper"} could
+            not reach the server last time -- nothing was lost, they are still on this device.
+            {retrying ? " Trying again now…" : " Retrying automatically every 20 seconds."}
+          </p>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={retrying || !!busy}
+              onClick={async () => {
+                const pages = await listPages(pendingResume.sessionId);
+                setRetrying(true);
+                try {
+                  await submitScan(
+                    pendingResume.subject, pendingResume.title, pendingResume.assessmentId,
+                    toFiles(pages), pendingResume.sessionId,
+                  );
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+            >
+              Retry now
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={retrying}
+              onClick={async () => {
+                if (!window.confirm(`Discard the ${pendingPageCount} captured page(s)? They cannot be brought back.`)) return;
+                await clearSession(pendingResume.sessionId);
+                setPendingResume(null);
+              }}
+            >
+              Discard
+            </button>
+          </div>
+        </section>
+      )}
 
       {deleted && (
         <p className="notice" style={{ marginBottom: 18 }}>
@@ -439,7 +581,11 @@ export default function PaperPage() {
                 sessionId={scanSessionId}
                 mode="script"
                 onComplete={async (pages) => {
-                  await onFiles(toFiles(pages));
+                  if (!subject) {
+                    setError("Choose a subject before reading the paper.");
+                    return;
+                  }
+                  await submitScan(subject, title, assessmentId, toFiles(pages), scanSessionId);
                   setShowCamera(false);
                 }}
               />
