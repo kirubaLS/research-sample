@@ -257,3 +257,28 @@ def test_the_correction_message_stays_readable_when_the_citation_is_a_paragraph(
     result = ground(_families(("Nonsense", ["x" * 4000])), MATHS_PASSAGES)
     assert result.families == []
     assert len(result.violations[0]) < 200
+
+
+def test_a_hindi_label_still_gets_a_code():
+    """A label in Devanagari has no Latin letters; the code used to come out empty and
+    every Hindi family collided on X.HIN.CF. -- the rows found in production."""
+    from app.curriculum.families import slugify
+
+    code = slugify("नेताजी का चश्मा")
+    assert code and code.startswith("L") and len(code) == 11
+    assert slugify("नेताजी का चश्मा") == code
+    assert slugify("बालगोबिन भगत") != code
+
+
+def test_the_english_code_label_wins_over_the_hindi_label():
+    from app.curriculum.families import slugify
+    from app.curriculum.llm_families import ChapterFamilies, FamilyProposal, ground
+
+    fam = FamilyProposal(
+        label="कैप्टन का चरित्र", code_label="Netaji ka chashma - character of Captain",
+        rationale="r", evidence=["P1"],
+    )
+    passages = [("Netaji ka chashma p.1", "", "कैप्टन चश्मे वाला एक देशभक्त था " * 3)]
+    out = ground(ChapterFamilies(families=[fam]), passages)
+    assert len(out.families) == 1
+    assert slugify(out.families[0].code_label) == "NETAJI_KA_CHASHMA_CHARACTER_CAPTAIN"

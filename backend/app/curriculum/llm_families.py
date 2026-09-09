@@ -46,6 +46,14 @@ class FamilyProposal(BaseModel):
     """One proposed family. Every field is checkable against what the model was shown."""
 
     label: str = Field(description="Short name a teacher would recognise, e.g. 'Step-deviation method'")
+    code_label: str = Field(
+        default="",
+        description=(
+            "The same name in plain English letters, for a stable code: 'Step-deviation "
+            "method' stays as it is; a Hindi or Tamil label is given in English or "
+            "transliterated, e.g. 'Netaji ka chashma - character of Captain'"
+        ),
+    )
     rationale: str = Field(description="Why this is one thing a student can be good or bad at")
     evidence: list[str] = Field(
         description="References of the passages this rests on, copied exactly as shown"
@@ -78,7 +86,11 @@ Rules, all of them absolute:
 - Do not judge difficulty, importance, or how often something is examined. You cannot
   know those from the book, and guessing them is the failure this task must avoid.
 
-Return between 1 and 12 families. Fewer, well-chosen families are better than many."""
+Return between 1 and 12 families. Fewer, well-chosen families are better than many.
+
+Write the label in the language of the book, so a teacher of that book recognises it. Put
+an English (or transliterated) version in code_label: the code that outlives the label is
+built from that, and a label in Devanagari or Tamil script alone cannot become one."""
 
 
 def tag(index: int) -> str:
@@ -220,7 +232,7 @@ def ground(
     deduped: list[FamilyProposal] = []
     seen: set[str] = set()
     for family in kept:
-        code = slugify(family.label)
+        code = slugify(family.code_label or family.label)
         if code in seen:
             violations.append(f"{family.label!r} duplicates a family already proposed")
             continue

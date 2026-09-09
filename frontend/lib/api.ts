@@ -979,6 +979,13 @@ export const api = {
   proposeFamilies: (key: string, subject: string) =>
     operator<FamilyProposals>(`/platform/books/${subject}/concept-families`, key),
 
+  /** One paid read of every loaded chapter, proposing its families. 409 when a run is
+   *  already stored -- read those instead of paying again. */
+  proposeFamiliesWithModel: (key: string, subject: string) =>
+    operator<{ proposed: number; chapters_read: number; failed: { chapter: string; error: string }[]; warning?: string | null }>(
+      `/platform/books/${subject}/concept-families/propose-llm`, key, { method: "POST" },
+    ),
+
   createFamilies: (key: string, subject: string, families: FamilyProposal[]) =>
     operator<{ created: number; skipped: number; unknown_chapters: string[] }>(
       `/platform/books/${subject}/concept-families`,

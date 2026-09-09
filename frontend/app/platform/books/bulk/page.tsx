@@ -207,8 +207,27 @@ export default function BulkBooksPage() {
         say(subject, "embedding service not configured, nothing embedded", true);
       }
 
-      // 5. concept families: everything the book suggests that does not exist yet
+      // 5. concept families: everything the book suggests that does not exist yet.
+      // A Hindi or Tamil chapter has no numbered section headings to read families
+      // off, so for a language book the model reads the chapters first; its proposals
+      // are then what the list below returns. A run already stored answers 409 and is
+      // simply read instead of paid for again.
       if (familiesAfter && status.chunks > 0) {
+        if (language.key !== "any") {
+          update(subject, { step: "reading chapters for concept families (model)" });
+          try {
+            const r = await api.proposeFamiliesWithModel(key, subject);
+            say(subject, `model proposed ${r.proposed} families from ${r.chapters_read} chapters`);
+            for (const f of r.failed) say(subject, `${f.chapter}: ${f.error}`, true);
+            if (r.warning) say(subject, r.warning, true);
+          } catch (err) {
+            if (err instanceof ApiError && err.status === 409) {
+              say(subject, "model proposals already stored, reusing them");
+            } else {
+              throw err;
+            }
+          }
+        }
         update(subject, { step: "creating concept families" });
         const proposals = await api.proposeFamilies(key, subject);
         const fresh = proposals.families.filter((f) => !f.already_exists);

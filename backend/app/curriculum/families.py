@@ -110,6 +110,14 @@ def slugify(label: str) -> str:
     # drop the filler that makes codes long without making them distinct
     parts = [p for p in cleaned.split("_") if p not in {"of", "a", "the", "to", "and", "on"}]
     full = "_".join(parts)
+    if not full and label.strip():
+        # A label written in Devanagari or Tamil has no Latin letters to keep, and the
+        # first version of this returned "" -- so every Hindi family got the code
+        # X.HIN.CF. and they all collided. The digest of the label is stable and unique;
+        # a caller with an English name for the family (see llm_families) passes that
+        # instead, so this is the fallback, not the usual case.
+        digest = hashlib.sha256(label.strip().encode("utf-8")).hexdigest()[:10]
+        return f"L{digest}".upper()
     if len(full) <= CODE_CHARS:
         return full.upper()
 
@@ -145,9 +153,7 @@ def propose(
         if not_a_learning_area(label):
             continue
         slug = slugify(label)
-        if not slug:
-            # a heading in a script the slug cannot carry (Hindi, Tamil) would produce the
-            # code "X.HIN.CF." for every chapter -- one code for many families
+        if not slug:  # only an empty label; a Hindi or Tamil one gets a digest code
             continue
         code = f"{subject_code}.CF.{slug}"
         if code in seen:

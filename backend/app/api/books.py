@@ -1715,7 +1715,7 @@ def propose_families_with_a_model(
 
         seen: set[str] = set()
         for family in proposed:
-            code = f"{subject}.CF.{slugify(family.label)}"
+            code = f"{subject}.CF.{slugify(family.code_label or family.label)}"
             if code in seen:
                 continue
             seen.add(code)

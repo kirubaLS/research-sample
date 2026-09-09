@@ -925,8 +925,8 @@ def test_uploading_a_chapter_again_fills_in_the_sections_it_was_missing(client):
 
 def test_apparatus_headings_are_not_proposed_as_families():
     """'Notes for the teacher' and 'Project work' are the book's furniture, not things a
-    student can be weak at. A Hindi heading whose slug is empty would give every such
-    family one code, so it is dropped rather than created as 'X.HIN.CF.'."""
+    student can be weak at. A Hindi heading has no Latin letters for a slug, and once
+    gave every such family the one code 'X.HIN.CF.'; now it gets a code of its own."""
     from app.curriculum.families import not_a_learning_area, propose
 
     assert not_a_learning_area("Notes for the teacher")
@@ -939,7 +939,9 @@ def test_apparatus_headings_are_not_proposed_as_families():
         ("X.GEO.AGRICULTURE", "Agriculture", "4.9", "Project work", 0),
         ("X.HIN.KR.MAIN", "मैं क्यों लिखता हूँ?", "1.1", "मैं क्यों लिखता हूँ?", 2),
     ], "X.GEO")
-    assert [p.label for p in proposed] == ["Types of farming"]
+    assert [p.label for p in proposed] == ["Types of farming", "मैं क्यों लिखता हूँ?"]
+    hindi = proposed[1].code
+    assert hindi.startswith("X.GEO.CF.L") and len(hindi) > len("X.GEO.CF.")
 
 
 def test_proposals_and_creation_stay_inside_the_subject(client, school):
