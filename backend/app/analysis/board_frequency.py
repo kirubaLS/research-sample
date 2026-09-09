@@ -54,8 +54,17 @@ class FrequencyConfig:
     low_confidence_cap: float = 1.5
     #: never below this, whatever else happens
     floor: float = 1.0
-    #: travels with every stored row, so a change here is visible in the data
-    version: str = "v1"
+    #: How the share of eligible years becomes the base multiplier.
+    #: 'table'  -- the design note's rows, as in base_by_share. Exact at 4/4, 3/4, 2/4.
+    #: 'square' -- 1 + share^2: the same values at those points (2.0, 1.56, 1.25) with no
+    #:             cliff between them, so a five-year window is not punished for 2/5 being
+    #:             40% rather than 50%. Still one line anyone can check.
+    base_curve: str = "table"
+
+    @property
+    def version(self) -> str:
+        """Travels with every stored row, so a change here is visible in the data."""
+        return "v1" if self.base_curve == "table" else f"v1-{self.base_curve}"
 
 
 DEFAULT_CONFIG = FrequencyConfig()
@@ -71,6 +80,14 @@ class YearEvidence:
     #: marks the family carried that year, or None if it did not appear. Across several
     #: sets of the same year this is the median (see marks_for_year).
     marks: float | None
+    #: where ``eligible`` came from -- 'appeared', 'curriculum_version', 'dates' or
+    #: 'assumed' (see app.curriculum.board_frequency.eligibility). Carried so a row can
+    #: say which of its years rest on a syllabus record and which on an assumption.
+    eligibility_source: str = "assumed"
+    #: sets of this year that carried the family, and sets that did not. Disagreement
+    #: between sets is a signal for a reviewer, never something the median settles quietly.
+    sets_with: int = 0
+    sets_without: int = 0
 
     @property
     def appeared(self) -> bool:
@@ -97,6 +114,8 @@ def base_multiplier(years_appeared: int, years_eligible: int, config: FrequencyC
     if years_eligible <= 0 or years_appeared <= 0:
         return config.base_floor
     share = years_appeared / years_eligible
+    if config.base_curve == "square":
+        return round(1.0 + share * share, 4)
     for minimum, base in config.base_by_share:
         if share >= minimum:
             return base

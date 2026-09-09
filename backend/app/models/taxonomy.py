@@ -298,12 +298,16 @@ class FamilyBoardFrequency(Base, PkMixin):
     __tablename__ = "family_board_frequency"
     __table_args__ = (
         UniqueConstraint(
-            "curriculum_version", "concept_family_id", name="uq_family_board_frequency"
+            "curriculum_version", "stream", "concept_family_id", name="uq_family_board_frequency"
         ),
     )
 
     curriculum_version: Mapped[str] = mapped_column(String(32), index=True)
     subject_code: Mapped[str] = mapped_column(String(32), index=True)
+    #: 'standard' or 'basic'. CBSE sets Maths as two exams on one syllabus, and their
+    #: papers must never be pooled: a Basic set weighting a family differently would pull
+    #: the Standard median. Every other subject has one stream, 'standard'.
+    stream: Mapped[str] = mapped_column(String(16), default="standard", index=True)
     concept_family_id: Mapped[str] = mapped_column(ForeignKey("taxonomy_node.id"), index=True)
     #: the years the window covered, oldest first -- [2021, 2022, 2023, 2024, 2025]
     window_years: Mapped[list] = mapped_column(JSON)
@@ -317,6 +321,37 @@ class FamilyBoardFrequency(Base, PkMixin):
     multiplier: Mapped[float] = mapped_column(Float)
     #: every step that moved the number from base to final, in words a person can check
     adjustments: Mapped[list] = mapped_column(JSON)
+    #: {"2022": "curriculum_version", "2023": "assumed", ...} -- what each year's
+    #: eligibility rests on. An 'assumed' year is one nobody has seeded a syllabus for.
+    eligibility: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    #: {"2024": {"with": 2, "without": 1}} -- years whose sets disagreed on whether the
+    #: family appeared at all. For a reviewer; the median already decided the number.
+    sets_disagree: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     papers_used: Mapped[int] = mapped_column(Integer)
     config_version: Mapped[str] = mapped_column(String(16))
     computed_at: Mapped[str] = mapped_column(String(40))
+
+
+class SyllabusVersion(Base, PkMixin):
+    """What an older syllabus did NOT contain, per subject -- one row per revision.
+
+    The board-frequency layer needs "was this family in the syllabus in 2022". The full
+    tree is not copied under an older version to answer that: every lookup in the mapping
+    path finds a node by code alone, and a second node per code would send a question to
+    whichever the database returned first. So the record is the difference only: the
+    version, the subject, and the family codes that did not exist then. A row with no
+    exclusions still matters -- it says the version was checked and nothing was missing,
+    which is what lets a year count as known rather than assumed.
+    """
+
+    __tablename__ = "syllabus_version"
+    __table_args__ = (
+        UniqueConstraint("curriculum_version", "subject_code", name="uq_syllabus_version"),
+    )
+
+    curriculum_version: Mapped[str] = mapped_column(String(32), index=True)
+    subject_code: Mapped[str] = mapped_column(String(32), index=True)
+    #: family codes not in the syllabus under this version
+    excluded_families: Mapped[list] = mapped_column(JSON, default=list)
+    source_doc_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    seeded_at: Mapped[str] = mapped_column(String(40))

@@ -52,6 +52,7 @@ from app.models.taxonomy import (
     FamilyBoardFrequency,
     IngestJob,
     Prerequisite,
+    SyllabusVersion,
     TaxonomyAlias,
     TaxonomyNode,
 )
@@ -61,7 +62,7 @@ __all__ = [
     "School", "Section", "StudentProfile",
     "TaxonomyNode", "TaxonomyAlias", "Prerequisite", "BoardUnitWeight", "BookSource", "IngestJob",
     "ChapterBoardUnit",
-    "ConceptFamilyProposal", "FamilyBoardFrequency",
+    "ConceptFamilyProposal", "FamilyBoardFrequency", "SyllabusVersion",
     "CanonicalProcedure", "BookChunk", "NODE_KINDS",
     "Assessment", "LogicalPage", "Question", "QuestionJudgment", "QuestionPlacement", "QuestionSkill",
     "ScannedQuestion",

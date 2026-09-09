@@ -259,3 +259,116 @@ def test_a_board_paper_does_not_trip_the_variant_reuse_guard(client, school):
     r = client.post(f"/assessments/{test['assessment_id']}/questions", headers=_auth(school),
                     json={"questions": [q]})
     assert r.status_code == 200, r.json()
+
+
+# --- the four decisions the note leaves open ---------------------------------------------
+
+def test_a_board_paper_is_registered_under_its_own_years_syllabus(client, school):
+    """The 2024 exam closes 2023-24. Eligibility is read off which version carries a
+    family, so a paper filed under the current version would answer the wrong question."""
+    r = client.post("/board-papers", headers=_auth(school),
+                    json={"subject_code": "X.MATH", "exam_year": 2024,
+                          "paper_code": f"30/{uuid.uuid4().hex[:4]}"})
+    assert r.status_code == 201
+    assert r.json()["curriculum_version"] == "CBSE-2023-24"
+
+
+def test_a_seeded_older_syllabus_decides_eligibility(client, school, four_board_years):
+    """Seed 2022-23 without Volume: 2023 stops counting against it. 3 of 3, tight range
+    -> 2.0, where the unseeded reading gave 3 of 4 -> 1.5. Eligibility source is recorded."""
+    from app.config import get_settings
+
+    settings = get_settings()
+    before = settings.platform_admin_key
+    settings.platform_admin_key = "platform-test-key-freq"
+    try:
+        r = client.post("/platform/books/X.MATH/curriculum?version=CBSE-2022-23",
+                        headers={"X-Platform-Key": "platform-test-key-freq"},
+                        json={"exclude_families": ["X.MATH.CF.VOLUME"]})
+    finally:
+        settings.platform_admin_key = before
+    assert r.status_code == 201, r.json()
+    assert r.json()["excluded_families"] == ["X.MATH.CF.VOLUME"]
+
+    client.post("/board-frequency/recompute?subject_code=X.MATH&window=4", headers=_auth(school))
+    table = client.get("/board-frequency?subject_code=X.MATH", headers=_auth(school)).json()
+    volume = {row["concept_family"]: row for row in table["families"]}["X.MATH.CF.VOLUME"]
+    assert volume["years_eligible"] == 3
+    assert volume["years_appeared"] == 3
+    assert volume["multiplier"] == 2.0
+    assert volume["eligibility"]["2023"] == "curriculum_version"
+    assert volume["eligibility"]["2022"] == "appeared"
+    # a family on a paper is eligible that year whatever the record says
+    irrational = {row["concept_family"]: row for row in table["families"]}["X.MATH.CF.IRRATIONAL"]
+    assert irrational["eligibility"]["2023"] == "appeared"
+
+
+def test_sets_that_disagree_are_flagged_for_a_reviewer(client, school):
+    """2019: set 1 carries Volume, set 2 does not. The median decides the marks; the
+    disagreement is recorded rather than settled quietly."""
+    _board_paper(client, school, 2019, 4, paper_code=f"30/1/{uuid.uuid4().hex[:4]}")
+    r = client.post("/board-papers", headers=_auth(school),
+                    json={"subject_code": "X.MATH", "exam_year": 2019,
+                          "paper_code": f"30/2/{uuid.uuid4().hex[:4]}"})
+    other = r.json()["assessment_id"]
+    client.post(f"/assessments/{other}/questions", headers=_auth(school), json={"questions": [{
+        "section": "A", "question_no": "1", "max_marks": 2, "stem_text": "Prove root 3 irrational",
+        "board_unit": "X.MATH.U.NUMBER", "concept_family": "X.MATH.CF.IRRATIONAL",
+        "concept_variant": f"irrational 2019 {uuid.uuid4().hex[:6]}",
+    }]})
+    client.post("/board-frequency/recompute?subject_code=X.MATH&window=10", headers=_auth(school))
+    table = client.get("/board-frequency?subject_code=X.MATH", headers=_auth(school)).json()
+    volume = {row["concept_family"]: row for row in table["families"]}["X.MATH.CF.VOLUME"]
+    assert volume["sets_disagree"]["2019"] == {"with": 1, "without": 1}
+    assert any(r["concept_family"] == "X.MATH.CF.VOLUME" for r in table["review"])
+
+
+def test_basic_maths_never_pools_with_standard(client, school):
+    """'30(B)' is the Basic paper. Filed as standard it is refused; filed as basic it
+    builds its own table and leaves the standard one alone."""
+    code = f"30(B)/{uuid.uuid4().hex[:4]}"
+    wrong = client.post("/board-papers", headers=_auth(school),
+                        json={"subject_code": "X.MATH", "exam_year": 2018, "paper_code": code})
+    assert wrong.status_code == 422
+    assert "basic" in wrong.json()["detail"].lower()
+
+    right = client.post("/board-papers", headers=_auth(school),
+                        json={"subject_code": "X.MATH", "exam_year": 2018, "paper_code": code,
+                              "stream": "basic"})
+    assert right.status_code == 201
+    aid = right.json()["assessment_id"]
+    client.post(f"/assessments/{aid}/questions", headers=_auth(school), json={"questions": [{
+        "section": "C", "question_no": "30", "max_marks": 9,
+        "stem_text": "A basic volume question", "board_unit": "X.MATH.U.MENSURATION",
+        "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"basic {uuid.uuid4().hex[:6]}",
+    }]})
+    r = client.post("/board-frequency/recompute?subject_code=X.MATH&stream=basic&window=10",
+                    headers=_auth(school))
+    assert r.status_code == 200 and r.json()["stream"] == "basic"
+    basic = client.get("/board-frequency?subject_code=X.MATH&stream=basic", headers=_auth(school)).json()
+    standard = client.get("/board-frequency?subject_code=X.MATH", headers=_auth(school)).json()
+    b = {row["concept_family"]: row for row in basic["families"]}["X.MATH.CF.VOLUME"]
+    s = {row["concept_family"]: row for row in standard["families"]}["X.MATH.CF.VOLUME"]
+    assert b["marks_by_year"].get("2018") == 9.0
+    assert "2018" not in s["marks_by_year"]
+
+
+def test_the_square_curve_matches_the_table_at_its_own_points_and_removes_the_cliff():
+    from app.analysis.board_frequency import FrequencyConfig, base_multiplier
+
+    square = FrequencyConfig(base_curve="square")
+    table = FrequencyConfig()
+    assert base_multiplier(4, 4, square) == 2.0 == base_multiplier(4, 4, table)
+    assert base_multiplier(2, 4, square) == 1.25 == base_multiplier(2, 4, table)
+    assert base_multiplier(3, 4, square) == 1.5625      # the table says 1.5
+    # the cliff: 2/5 falls to 1.0 on the table but keeps a real share on the curve
+    assert base_multiplier(2, 5, table) == 1.0
+    assert base_multiplier(2, 5, square) == 1.16
+    assert square.version == "v1-square" and table.version == "v1"
+
+
+def test_recompute_can_be_asked_for_the_square_curve(client, school, four_board_years):
+    r = client.post("/board-frequency/recompute?subject_code=X.MATH&window=4&base=square",
+                    headers=_auth(school))
+    assert r.status_code == 200
+    assert r.json()["config_version"] == "v1-square"

@@ -1315,8 +1315,11 @@ def map_paper_to_book(
     frequency = None
     if assessment.paper_kind == "board" and mapped:
         from app.curriculum.board_frequency import recompute as recompute_frequency
+        from app.curriculum.board_frequency import stream_of
 
-        frequency = recompute_frequency(db, assessment.subject_code, assessment.curriculum_version)
+        frequency = recompute_frequency(
+            db, assessment.subject_code, stream=stream_of(assessment),
+        )
 
     return {
         "assessment_id": assessment.id,

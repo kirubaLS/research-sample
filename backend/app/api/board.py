@@ -10,14 +10,22 @@ falls out once enough of them are mapped.
 
 from __future__ import annotations
 
+import re
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.analysis.board_frequency import DEFAULT_CONFIG, urgency
+from app.analysis.board_frequency import DEFAULT_CONFIG, FrequencyConfig, urgency
 from app.api.deps import require_reader, require_scanner
-from app.curriculum.board_frequency import DEFAULT_WINDOW, board_papers, recompute
+from app.curriculum.board_frequency import (
+    DEFAULT_WINDOW,
+    board_papers,
+    recompute,
+    stream_of,
+    version_for_year,
+)
 from app.db import get_session
 from app.models import (
     Assessment,
@@ -32,6 +40,10 @@ from app.models import (
 router = APIRouter(tags=["board-frequency"])
 
 
+#: CBSE prints the Basic Maths paper as '30(B)' or '430'; Standard as '30' or '041'
+BASIC_CODE = re.compile(r"\(B\)|^430\b", re.I)
+
+
 class BoardPaperIn(BaseModel):
     subject_code: str = Field(max_length=32)
     #: the year the board set it -- 2024 for the March 2024 exam
@@ -39,9 +51,14 @@ class BoardPaperIn(BaseModel):
     #: the set, as printed: '30/1/1', '30(B)'. Several sets of one year are normal.
     paper_code: str | None = Field(default=None, max_length=32)
     total_marks: float | None = Field(default=None, gt=0)
-    curriculum_version: str = "CBSE-2026-27"
+    #: the syllabus this paper was set under. Defaults to the exam year's own version
+    #: ('CBSE-2023-24' for the 2024 exam) -- NOT the current one -- because "was this
+    #: family in the syllabus that year" is answered by which version carries it.
+    curriculum_version: str | None = Field(default=None, max_length=32)
     #: 'board' is a real exam; 'sample' is CBSE's own sample paper, kept out of the count
     kind: str = Field(default="board", pattern="^(board|sample)$")
+    #: 'standard' or 'basic'. Maths only; every other subject is 'standard'.
+    stream: str = Field(default="standard", pattern="^(standard|basic)$")
     title: str | None = Field(default=None, max_length=200)
 
 
@@ -52,10 +69,17 @@ def register_board_paper(
     db: Session = Depends(get_session),
 ) -> dict:
     """Register one real board paper, then scan it the way any paper is scanned."""
+    if body.paper_code and BASIC_CODE.search(body.paper_code) and body.stream != "basic":
+        raise HTTPException(
+            422,
+            f"paper code {body.paper_code!r} is a Basic Maths paper. Register it with "
+            f"stream='basic': Basic and Standard are two exams on one syllabus and their "
+            f"sets are never pooled.",
+        )
+    version = body.curriculum_version or version_for_year(body.exam_year)
     duplicate = db.scalar(
         select(Assessment).where(
             Assessment.subject_code == body.subject_code,
-            Assessment.curriculum_version == body.curriculum_version,
             Assessment.paper_kind == body.kind,
             Assessment.exam_year == body.exam_year,
             Assessment.paper_code == body.paper_code,
@@ -71,16 +95,18 @@ def register_board_paper(
     label = "Board" if body.kind == "board" else "Sample"
     title = body.title or (
         f"CBSE {label} Paper {body.exam_year} {body.subject_code}"
+        + (" Basic" if body.stream == "basic" else "")
         + (f" set {body.paper_code}" if body.paper_code else "")
     )
+    # a real board paper declares CBSE's blueprint, which the tier tie-break may use
+    declared: dict = {"blueprint": body.kind == "board", "stream": body.stream}
+    if body.total_marks:
+        declared["total_marks"] = body.total_marks
     a = Assessment(
         school_id=school.id, subject_code=body.subject_code, title=title,
         paper_code=body.paper_code, total_marks=body.total_marks,
-        curriculum_version=body.curriculum_version,
-        paper_kind=body.kind, exam_year=body.exam_year,
-        # a real board paper declares CBSE's blueprint, which the tier tie-break may use
-        declared={"blueprint": body.kind == "board", "total_marks": body.total_marks}
-        if body.total_marks else {"blueprint": body.kind == "board"},
+        curriculum_version=version,
+        paper_kind=body.kind, exam_year=body.exam_year, declared=declared,
     )
     db.add(a)
     db.commit()
@@ -89,6 +115,8 @@ def register_board_paper(
         "title": a.title,
         "paper_kind": a.paper_kind,
         "exam_year": a.exam_year,
+        "stream": body.stream,
+        "curriculum_version": version,
         "next": (
             f"POST /assessments/{a.id}/scan with the PDF, then /scan/confirm, then /map. "
             f"The frequency table for {a.subject_code} rebuilds itself after /map."
@@ -125,6 +153,8 @@ def list_board_papers(
                 "exam_year": a.exam_year,
                 "paper_code": a.paper_code,
                 "paper_kind": a.paper_kind,
+                "stream": stream_of(a),
+                "curriculum_version": a.curriculum_version,
                 "title": a.title,
                 "confirmed": a.scan_confirmed_at is not None,
                 "questions_mapped": counts.get(a.id, 0),
@@ -139,25 +169,30 @@ def list_board_papers(
 def recompute_frequency(
     subject_code: str = Query(..., max_length=32),
     curriculum_version: str = Query(default="CBSE-2026-27"),
+    stream: str = Query(default="standard", pattern="^(standard|basic)$"),
     window: int = Query(default=DEFAULT_WINDOW, ge=1, le=10),
+    base: str = Query(default="table", pattern="^(table|square)$"),
     school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
 ) -> dict:
     """Rebuild the table by hand. /map does this on its own; this is for after a review
-    moved a question, or after a family's syllabus dates were set."""
-    if not board_papers(db, subject_code, curriculum_version):
+    moved a question, after an older syllabus version was seeded, or to compare the
+    note's base table against the continuous curve (``base=square``)."""
+    if not board_papers(db, subject_code, stream):
         raise HTTPException(
             409,
-            f"no mapped board paper exists for {subject_code} on {curriculum_version}. "
-            f"Register one at POST /board-papers, scan it, confirm it and map it first.",
+            f"no mapped {stream} board paper exists for {subject_code}. Register one at "
+            f"POST /board-papers, scan it, confirm it and map it first.",
         )
-    return recompute(db, subject_code, curriculum_version, window=window)
+    config = FrequencyConfig(base_curve=base)
+    return recompute(db, subject_code, curriculum_version, stream=stream, window=window, config=config)
 
 
 @router.get("/board-frequency")
 def frequency_table(
     subject_code: str = Query(..., max_length=32),
     curriculum_version: str = Query(default="CBSE-2026-27"),
+    stream: str = Query(default="standard", pattern="^(standard|basic)$"),
     school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
@@ -170,6 +205,7 @@ def frequency_table(
     rows = list(db.scalars(select(FamilyBoardFrequency).where(
         FamilyBoardFrequency.subject_code == subject_code,
         FamilyBoardFrequency.curriculum_version == curriculum_version,
+        FamilyBoardFrequency.stream == stream,
     )))
     nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
     unit_of = {
@@ -206,17 +242,31 @@ def frequency_table(
             "marks_by_year": row.marks_by_year,
             "marks_range": row.marks_range,
             "adjustments": row.adjustments,
+            "eligibility": row.eligibility,
+            "sets_disagree": row.sets_disagree,
             "papers_used": row.papers_used,
             "config_version": row.config_version,
             "computed_at": row.computed_at,
         })
     out.sort(key=lambda r: (-(r["urgency"] or 0.0), -r["multiplier"], r["label"]))
+    assumed = sum(
+        1 for r in out for src in (r["eligibility"] or {}).values() if src == "assumed"
+    )
     return {
         "subject_code": subject_code,
         "curriculum_version": curriculum_version,
+        "stream": stream,
         "families": out,
+        #: years whose sets disagreed on whether a family appeared -- for a reviewer
+        "review": [
+            {"concept_family": r["concept_family"], "sets_disagree": r["sets_disagree"]}
+            for r in out if r["sets_disagree"]
+        ],
+        #: family-years resting on an assumption rather than a syllabus record
+        "assumed_family_years": assumed,
         "config": {
             "version": DEFAULT_CONFIG.version,
+            "base_curve": DEFAULT_CONFIG.base_curve,
             "base_by_share": DEFAULT_CONFIG.base_by_share,
             "tight_range": DEFAULT_CONFIG.tight_range,
             "wide_range": DEFAULT_CONFIG.wide_range,

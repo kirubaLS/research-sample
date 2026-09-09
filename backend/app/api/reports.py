@@ -230,9 +230,9 @@ def _board_urgency(db: Session, assessment: Assessment, rows: list[MarkRow]) -> 
     subject nobody has loaded board papers for reports plain board weight -- never less.
     """
     from app.analysis.board_frequency import urgency
-    from app.curriculum.board_frequency import multipliers
+    from app.curriculum.board_frequency import CURRENT_VERSION, multipliers, stream_of
 
-    mults = multipliers(db, assessment.subject_code, assessment.curriculum_version)
+    mults = multipliers(db, assessment.subject_code, CURRENT_VERSION, stream_of(assessment))
     if not mults:
         return []
     weights = _board_weights(db, assessment)

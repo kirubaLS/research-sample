@@ -266,8 +266,9 @@ def place(
     frequency = None
     if a.paper_kind == "board" and settled:
         from app.curriculum.board_frequency import recompute as recompute_frequency
+        from app.curriculum.board_frequency import stream_of
 
-        frequency = recompute_frequency(db, a.subject_code, a.curriculum_version)
+        frequency = recompute_frequency(db, a.subject_code, stream=stream_of(a))
 
     return {
         "assessment_id": a.id,

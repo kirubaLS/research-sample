@@ -17,7 +17,16 @@ import uuid
 from datetime import UTC, datetime
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    File,
+    HTTPException,
+    Query,
+    UploadFile,
+    status,
+)
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
@@ -53,6 +62,7 @@ from app.models import (
     ChapterBoardUnit,
     ConceptFamilyProposal,
     IngestJob,
+    SyllabusVersion,
     TaxonomyNode,
 )
 
@@ -231,8 +241,20 @@ def _source(db: Session, subject: str, version: str) -> BookSource | None:
     )
 
 
+class OlderSyllabusIn(BaseModel):
+    """What was NOT in the syllabus under an older version, by family code."""
+
+    exclude_families: list[str] = Field(default_factory=list)
+    source_doc_url: str | None = Field(default=None, max_length=500)
+
+
 @router.post("/{subject}/curriculum", status_code=status.HTTP_201_CREATED)
-def setup_curriculum(subject: str, db: Session = Depends(get_session)) -> dict:
+def setup_curriculum(
+    subject: str,
+    version: str = Query(default="CBSE-2026-27", max_length=32),
+    body: OlderSyllabusIn | None = None,
+    db: Session = Depends(get_session),
+) -> dict:
     """Board units, their weightage, and the chapter mapping -- before any book.
 
     This layer does not come from the book: CBSE publishes weightage per unit, and a unit
@@ -240,7 +262,14 @@ def setup_curriculum(subject: str, db: Session = Depends(get_session)) -> dict:
     through `scripts.seed`, which a deployment without shell access cannot run -- so the
     console could load a book into a taxonomy that had nowhere to put it.
 
-    Idempotent: re-running adds only what is missing.
+    With ``version`` naming an OLDER syllabus ('CBSE-2021-22'), nothing is written to the
+    tree. What is recorded is the difference: the current families that did not exist
+    under that version (``exclude_families``), one row per revision and subject. That is
+    how the board-frequency layer learns a family was not in the syllabus in 2022, and it
+    is one call per revision rather than a date to maintain on every family. An empty
+    list is still worth recording -- it says the year was checked.
+
+    Idempotent: re-running adds only what is missing, or replaces the older record.
     """
     curriculum = CURRICULA.get(subject)
     if curriculum is None:
@@ -250,9 +279,42 @@ def setup_curriculum(subject: str, db: Session = Depends(get_session)) -> dict:
             f"Board weightage comes from the CBSE syllabus, not the book, so it has to be "
             f"defined before a book can be loaded.",
         )
+    if version != "CBSE-2026-27":
+        from datetime import UTC, datetime
+
+        exclude = sorted(set(body.exclude_families if body else []))
+        known = {
+            n.code for n in db.scalars(select(TaxonomyNode).where(
+                TaxonomyNode.kind == "concept_family",
+            )) if n.code.startswith(subject + ".")
+        }
+        unknown = set(exclude) - known
+        if unknown:
+            raise HTTPException(
+                422,
+                f"exclude_families names families the current syllabus does not have: "
+                f"{sorted(unknown)}",
+            )
+        record = db.scalar(select(SyllabusVersion).where(
+            SyllabusVersion.curriculum_version == version,
+            SyllabusVersion.subject_code == subject,
+        )) or SyllabusVersion(curriculum_version=version, subject_code=subject)
+        record.excluded_families = exclude
+        record.source_doc_url = (body.source_doc_url if body else None) or curriculum.source_doc_url
+        record.seeded_at = datetime.now(UTC).isoformat()
+        db.add(record)
+        db.commit()
+        return {
+            "subject": subject,
+            "version": version,
+            "label": curriculum.subject_label,
+            "excluded_families": exclude,
+            "next": f"POST /board-frequency/recompute?subject_code={subject} to use it.",
+        }
     created = apply_curriculum(db, curriculum)
     return {
         "subject": subject,
+        "version": version,
         "label": curriculum.subject_label,
         "board_units": len(curriculum.units),
         "chapters": len(curriculum.chapters),
