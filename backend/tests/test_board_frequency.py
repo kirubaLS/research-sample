@@ -372,3 +372,71 @@ def test_recompute_can_be_asked_for_the_square_curve(client, school, four_board_
                     headers=_auth(school))
     assert r.status_code == 200
     assert r.json()["config_version"] == "v1-square"
+
+
+# --- the report card ---------------------------------------------------------------------
+
+def test_the_report_card_puts_the_recurring_topic_first_and_says_why(client, school, four_board_years):
+    """A school test where the student lost the same share on Volume (Mensuration, 10%,
+    asked 3 of 4 years) and Irrationality (Number Systems, 6%). Volume leads the focus
+    list, and the line says how often the board has asked it."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import StudentProfile
+
+    client.post("/board-frequency/recompute?subject_code=X.MATH&window=4", headers=_auth(school))
+
+    tag = uuid.uuid4().hex[:6]
+    aid = client.post("/assessments", headers=_auth(school),
+                      json={"subject_code": "X.MATH", "title": f"Unit test {tag}", "total_marks": 8}
+                      ).json()["assessment_id"]
+    qs = []
+    for no, fam, unit in (("1", "X.MATH.CF.VOLUME", "X.MATH.U.MENSURATION"),
+                          ("2", "X.MATH.CF.VOLUME", "X.MATH.U.MENSURATION"),
+                          ("3", "X.MATH.CF.IRRATIONAL", "X.MATH.U.NUMBER"),
+                          ("4", "X.MATH.CF.IRRATIONAL", "X.MATH.U.NUMBER")):
+        qs.append({"section": "A", "question_no": no, "max_marks": 2, "stem_text": f"q{no} {tag}",
+                   "board_unit": unit, "concept_family": fam, "concept_variant": f"{no} {fam} {tag}"})
+    assert client.post(f"/assessments/{aid}/questions", headers=_auth(school),
+                       json={"questions": qs}).status_code == 200
+
+    db = SessionLocal()
+    try:
+        student = db.scalar(select(StudentProfile).where(
+            StudentProfile.section_id == school["section_id"], StudentProfile.roll_no == f"F{tag}",
+        ))
+        if student is None:
+            student = StudentProfile(school_id=school["school_id"], section_id=school["section_id"],
+                                     name="Frequency student", roll_no=f"F{tag}")
+            db.add(student)
+            db.commit()
+        sid = student.id
+    finally:
+        db.close()
+
+    # half marks on every question: both families fail equally
+    r = client.post(f"/assessments/{aid}/answers/{sid}/confirm", headers=_auth(school),
+                    json={"answers": [{"address": f"A/{n}//", "marks": 1} for n in "1234"],
+                          "by": "teacher"})
+    assert r.status_code == 200, r.json()
+
+    body = client.get(f"/reports/student/{sid}", headers=_auth(school),
+                      params={"assessment_id": aid}).json()
+    focus = body["focus"]
+    assert [f["key"] for f in focus][:2] == ["X.MATH.CF.VOLUME", "X.MATH.CF.IRRATIONAL"]
+    # the report's numbers are the table's numbers, whatever earlier syllabus records in
+    # this session made them (another test records 2022-23, which turns 3/4 into 3/3)
+    table = client.get("/board-frequency?subject_code=X.MATH", headers=_auth(school)).json()
+    stored = {row["concept_family"]: row for row in table["families"]}["X.MATH.CF.VOLUME"]
+    volume = focus[0]["board"]
+    assert volume["board_weight_pct"] == 10.0
+    assert volume["frequency_multiplier"] == stored["multiplier"] >= 1.5
+    assert volume["urgency"] == 10.0 * stored["multiplier"]
+    n, of = stored["years_appeared"], stored["years_eligible"]
+    assert volume["note"] == (
+        f"asked in every one of the last {of} board exams" if n == of
+        else f"asked in {n} of the last {of} board exams"
+    )
+    # the standalone urgency list agrees and is sorted the same way
+    assert body["board_urgency"][0]["key"] == "X.MATH.CF.VOLUME"

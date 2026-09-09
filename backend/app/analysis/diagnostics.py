@@ -290,10 +290,18 @@ def select_findings(
     board_weights: dict[str, float],
     cap: int = 5,
     floor: float = STRENGTH_FLOOR,
+    priority: dict[str, float] | None = None,
 ) -> list[Finding]:
-    """Rank by board weight x evidence strength x actionability, then cap.
+    """Rank by board priority x evidence strength x actionability, then cap.
 
     A report with fourteen findings changes no behaviour.
+
+    ``priority`` is keyed by the finding's own key (a concept family or sub-topic code)
+    and holds the board urgency for it: the unit's weight times the family's frequency
+    multiplier, in percent units like the weights. ``board_weights`` is keyed by board
+    UNIT and is the fallback -- which only ever matched a finding keyed on a unit, so a
+    family-keyed finding silently got the default and the weight never ranked anything.
+    The caller resolves each key to its unit and passes the result here.
 
     Anything at or above ``floor`` is dropped before ranking. Ranking alone put a topic
     scored 94% under "where to work next" whenever the paper had fewer than five topics --
@@ -302,7 +310,8 @@ def select_findings(
     def rank(f: Finding) -> float:
         if not f.sufficient or f.rate is None:
             return -1.0
-        weight = board_weights.get(f.key.split("|")[0], 5.0) / 100.0
+        key = f.key.split("|")[0]
+        weight = (priority or {}).get(key, board_weights.get(key, 5.0)) / 100.0
         evidence = min(f.available / 6.0, 1.0)
         actionability = 1.0 - f.rate
         return weight * evidence * actionability

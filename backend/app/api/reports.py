@@ -222,37 +222,61 @@ def _board_weights(db: Session, assessment: Assessment) -> dict[str, float]:
     return out
 
 
-def _board_urgency(db: Session, assessment: Assessment, rows: list[MarkRow]) -> list[dict]:
+def _board_urgency(
+    db: Session, assessment: Assessment, rows: list[MarkRow],
+) -> tuple[list[dict], dict[str, float]]:
     """Urgency per concept family this paper tested: board weight x frequency multiplier.
+
+    Returns the list a report shows, and the priority map the focus ranking uses: every
+    family AND sub-topic code on the paper, resolved to its unit's weight through the
+    question's own board unit, times the family's multiplier. That resolution is the
+    point -- the ranking used to look a family code up in a table keyed by unit code,
+    never match, and fall back to a flat default, so board weight ranked nothing.
 
     The multiplier comes from the materialised table built off real board papers
     (app.curriculum.board_frequency). A family with no row gets 1.0, the floor, so a
-    subject nobody has loaded board papers for reports plain board weight -- never less.
+    subject nobody has loaded board papers for ranks on plain board weight -- never less.
     """
     from app.analysis.board_frequency import urgency
-    from app.curriculum.board_frequency import CURRENT_VERSION, multipliers, stream_of
+    from app.curriculum.board_frequency import (
+        CURRENT_VERSION,
+        frequency_note,
+        frequency_rows,
+        stream_of,
+    )
 
-    mults = multipliers(db, assessment.subject_code, CURRENT_VERSION, stream_of(assessment))
-    if not mults:
-        return []
+    freq = frequency_rows(db, assessment.subject_code, CURRENT_VERSION, stream_of(assessment))
     weights = _board_weights(db, assessment)
     nodes = {n.code: n for n in db.scalars(select(TaxonomyNode))}
-    out: dict[str, dict] = {}
+    shown: dict[str, dict] = {}
+    priority: dict[str, float] = {}
     for r in rows:
-        if not r.counts or not r.concept_family or r.concept_family in out:
+        if not r.counts:
             continue
-        fam = nodes.get(r.concept_family)
         weight = weights.get(r.board_unit or "")
-        mult = mults.get(fam.id, 1.0) if fam else 1.0
-        out[r.concept_family] = {
-            "key": r.concept_family,
-            "label": fam.label if fam else r.concept_family,
-            "board_unit": r.board_unit,
-            "board_weight_pct": weight,
-            "frequency_multiplier": mult,
-            "urgency": urgency(weight, mult) if weight is not None else None,
-        }
-    return sorted(out.values(), key=lambda d: -(d["urgency"] or 0.0))
+        fam = nodes.get(r.concept_family) if r.concept_family else None
+        row = freq.get(fam.id) if fam else None
+        mult = float(row.multiplier) if row else 1.0
+        score = urgency(weight, mult) if weight is not None else None
+        if score is not None:
+            if r.concept_family:
+                priority[r.concept_family] = score
+            for sk in r.skills:
+                priority.setdefault(sk, score)
+        if r.concept_family and r.concept_family not in shown:
+            shown[r.concept_family] = {
+                "key": r.concept_family,
+                "label": fam.label if fam else r.concept_family,
+                "board_unit": r.board_unit,
+                "board_weight_pct": weight,
+                "frequency_multiplier": mult,
+                "urgency": score,
+                "years_appeared": row.years_appeared if row else None,
+                "years_eligible": row.years_eligible if row else None,
+                "note": frequency_note(row) if row else None,
+            }
+    ordered = sorted(shown.values(), key=lambda d: -(d["urgency"] or 0.0))
+    return ordered, priority
 
 
 def _topic_axis(rows: list[MarkRow]) -> tuple[str, list]:
@@ -332,6 +356,8 @@ def student_report(
     crosstab = skill_by_tier(rows)
     axis, topics = _topic_axis(rows)
     indicators, gaps = board_weighted_indicator(rows, weights)
+    board_urgency, priority = _board_urgency(db, a, rows)
+    by_family = {u["key"]: u for u in board_urgency}
 
     counted = [r for r in rows if r.counts]
     earned = sum(r.earned for r in counted)
@@ -342,11 +368,20 @@ def student_report(
     # name from a code, and never shows the code to a teacher.
     labels = {n.code: n.label for n in db.scalars(select(TaxonomyNode))}
 
-    def named(findings) -> list[dict]:
+    def named(findings, *, why: bool = False) -> list[dict]:
         out = []
         for f in findings:
             row = f.as_dict()
             row["label"] = labels.get(row["key"], row["key"])
+            if why:
+                # Why this topic is on the focus list, in the teacher's terms: the unit's
+                # weight, and how often the board has actually asked it.
+                u = by_family.get(row["key"].split("|")[0])
+                row["board"] = {
+                    "board_unit": u["board_unit"], "board_weight_pct": u["board_weight_pct"],
+                    "frequency_multiplier": u["frequency_multiplier"], "urgency": u["urgency"],
+                    "note": u["note"],
+                } if u else None
             out.append(row)
         return out
 
@@ -363,9 +398,11 @@ def student_report(
         "topic_axis": axis,
         "topics": named(topics),
         "strengths": named(select_strengths(topics)),
-        "focus": named(select_findings(topics, weights)),
+        # Ranked by board urgency: a topic the board asks every year outranks one it
+        # asked once, when the student lost the same share of marks on both.
+        "focus": named(select_findings(topics, weights, priority=priority), why=True),
         "tier_summary": named(by_tier(rows)),
-        "findings": named(select_findings(crosstab, weights)),
+        "findings": named(select_findings(crosstab, weights, priority=priority), why=True),
         "all_crosstab": named(crosstab),
         "board_weighted_indicators": [
             {**i, "label": labels.get(i["board_unit"], i["board_unit"])} for i in indicators
@@ -376,7 +413,7 @@ def student_report(
         # Board urgency per family: the unit's published weight times how often the
         # family has actually come up on real board papers. Empty until board papers
         # have been mapped for this subject, and never a number below the plain weight.
-        "board_urgency": _board_urgency(db, a, rows),
+        "board_urgency": board_urgency,
         "not_offered": [r.address for r in rows if r.state == "not_offered"],
     }
 

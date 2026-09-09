@@ -173,3 +173,20 @@ def test_a_topic_scored_well_is_never_listed_as_where_to_work_next():
     assert not ({f.key for f in focus} & {f.key for f in strengths}), (
         "one report cannot call the same topic both"
     )
+
+
+def test_focus_is_ranked_by_board_priority_not_a_flat_default():
+    """Two topics failed to the same degree: the one the board asks every year comes
+    first. The priority map is keyed by the finding's own key, which is what the old
+    unit-keyed lookup never matched."""
+    from app.analysis.diagnostics import MarkRow, by_concept_family, select_findings
+
+    rows = [
+        MarkRow("s", f"A/{i}//", 1.0, 4.0, "awarded", concept_family=fam)
+        for i, fam in enumerate(["RARE", "RARE", "EVERY_YEAR", "EVERY_YEAR"])
+    ]
+    topics = by_concept_family(rows)
+    flat = select_findings(topics, {})
+    ranked = select_findings(topics, {}, priority={"EVERY_YEAR": 20.0, "RARE": 10.0})
+    assert {f.key for f in flat} == {"RARE", "EVERY_YEAR"}
+    assert [f.key for f in ranked] == ["EVERY_YEAR", "RARE"]

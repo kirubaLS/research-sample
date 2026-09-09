@@ -256,3 +256,29 @@ def multipliers(
             FamilyBoardFrequency.stream == stream,
         ))
     }
+
+
+def frequency_rows(
+    db: Session, subject_code: str, curriculum_version: str, stream: str = "standard",
+) -> dict[str, FamilyBoardFrequency]:
+    """family node id -> its stored row, for a report that wants to say why."""
+    return {
+        row.concept_family_id: row
+        for row in db.scalars(select(FamilyBoardFrequency).where(
+            FamilyBoardFrequency.curriculum_version == curriculum_version,
+            FamilyBoardFrequency.subject_code == subject_code,
+            FamilyBoardFrequency.stream == stream,
+        ))
+    }
+
+
+def frequency_note(row: FamilyBoardFrequency) -> str:
+    """One line a teacher reads: 'asked in 4 of the last 5 board exams'."""
+    n, of = row.years_appeared, row.years_eligible
+    if of == 0:
+        return "no board-exam history for this topic yet"
+    if n == 0:
+        return f"not asked in any of the last {of} board exams"
+    if n == of:
+        return f"asked in every one of the last {of} board exams"
+    return f"asked in {n} of the last {of} board exams"
