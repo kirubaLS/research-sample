@@ -66,6 +66,16 @@ DEPENDENCY_VALUES = ("SINGLE_CONCEPT", "MULTI_CONCEPT")
 JUDGMENT_FIELDS = ("skill_required", "complexity", "dependency_level")
 
 
+#: What kind of paper this is, because the three are evidence of different things.
+#: 'school'  -- a test this school set and its students sat; the only kind that carries
+#:              marks and the only kind the variant-reuse guard applies to.
+#: 'board'   -- a real CBSE board exam paper for a named year. What actually happened, so
+#:              the only kind the board-frequency layer counts (app.analysis.board_frequency).
+#: 'sample'  -- CBSE's own sample paper: the board's guess about the next exam, real but
+#:              not a record. Kept apart from 'board' so it is never mixed into the count.
+PAPER_KINDS = ("school", "board", "sample")
+
+
 class Assessment(Base, PkMixin, TimestampMixin):
     __tablename__ = "assessment"
 
@@ -75,6 +85,11 @@ class Assessment(Base, PkMixin, TimestampMixin):
     title: Mapped[str] = mapped_column(String(200))
     paper_code: Mapped[str | None] = mapped_column(String(32), nullable=True)  # '30(B)', '2/7/3'
     total_marks: Mapped[float | None] = mapped_column(Numeric(6, 2), nullable=True)
+    paper_kind: Mapped[str] = mapped_column(String(16), default="school", index=True)
+    #: The year the board set this paper -- 2024 for the March 2024 exam. Required for a
+    #: board or sample paper, meaningless for a school test. It is what the frequency
+    #: layer groups by: "did this family appear in 2024" is a question about this column.
+    exam_year: Mapped[int | None] = mapped_column(Integer, nullable=True, index=True)
 
     # --- discovered at ingest (app.vision, app.extraction) ---
     source_sha256: Mapped[str | None] = mapped_column(String(64), index=True, nullable=True)

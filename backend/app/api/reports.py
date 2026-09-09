@@ -222,6 +222,39 @@ def _board_weights(db: Session, assessment: Assessment) -> dict[str, float]:
     return out
 
 
+def _board_urgency(db: Session, assessment: Assessment, rows: list[MarkRow]) -> list[dict]:
+    """Urgency per concept family this paper tested: board weight x frequency multiplier.
+
+    The multiplier comes from the materialised table built off real board papers
+    (app.curriculum.board_frequency). A family with no row gets 1.0, the floor, so a
+    subject nobody has loaded board papers for reports plain board weight -- never less.
+    """
+    from app.analysis.board_frequency import urgency
+    from app.curriculum.board_frequency import multipliers
+
+    mults = multipliers(db, assessment.subject_code, assessment.curriculum_version)
+    if not mults:
+        return []
+    weights = _board_weights(db, assessment)
+    nodes = {n.code: n for n in db.scalars(select(TaxonomyNode))}
+    out: dict[str, dict] = {}
+    for r in rows:
+        if not r.counts or not r.concept_family or r.concept_family in out:
+            continue
+        fam = nodes.get(r.concept_family)
+        weight = weights.get(r.board_unit or "")
+        mult = mults.get(fam.id, 1.0) if fam else 1.0
+        out[r.concept_family] = {
+            "key": r.concept_family,
+            "label": fam.label if fam else r.concept_family,
+            "board_unit": r.board_unit,
+            "board_weight_pct": weight,
+            "frequency_multiplier": mult,
+            "urgency": urgency(weight, mult) if weight is not None else None,
+        }
+    return sorted(out.values(), key=lambda d: -(d["urgency"] or 0.0))
+
+
 def _topic_axis(rows: list[MarkRow]) -> tuple[str, list]:
     """The finest axis this paper can actually support, named in the output.
 
@@ -340,6 +373,10 @@ def student_report(
         "coverage_gaps": [
             {**g.__dict__, "label": labels.get(g.board_unit, g.board_unit)} for g in gaps
         ],
+        # Board urgency per family: the unit's published weight times how often the
+        # family has actually come up on real board papers. Empty until board papers
+        # have been mapped for this subject, and never a number below the plain weight.
+        "board_urgency": _board_urgency(db, a, rows),
         "not_offered": [r.address for r in rows if r.state == "not_offered"],
     }
 

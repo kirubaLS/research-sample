@@ -261,9 +261,18 @@ def place(
         ))
     db.commit()
 
+    # The judge may have moved questions between families, and on a board paper that is
+    # a change to the evidence the frequency table rests on.
+    frequency = None
+    if a.paper_kind == "board" and settled:
+        from app.curriculum.board_frequency import recompute as recompute_frequency
+
+        frequency = recompute_frequency(db, a.subject_code, a.curriculum_version)
+
     return {
         "assessment_id": a.id,
         "placed": len(result.questions),
+        "board_frequency": frequency,
         #: questions whose chapter, topic and sub-topic the judge settled on the question
         #: itself, which is what every report reads
         "labelled": settled,

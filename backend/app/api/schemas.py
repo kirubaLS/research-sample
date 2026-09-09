@@ -98,6 +98,11 @@ class AssessmentIn(BaseModel):
     total_marks: float | None = None
     curriculum_version: str = "CBSE-2026-27"
     declared: dict | None = None
+    #: 'school' (default), 'board' or 'sample' -- see app.models.assessment.PAPER_KINDS.
+    #: POST /board-papers is the usual way to register a board paper; this is here so a
+    #: caller that already speaks this route can say what it is sending.
+    paper_kind: str = Field(default="school", pattern="^(school|board|sample)$")
+    exam_year: int | None = Field(default=None, ge=2000, le=2100)
 
 
 class QuestionIn(BaseModel):

@@ -68,10 +68,17 @@ def _get_assessment(db: Session, school: School, assessment_id: str) -> Assessme
 def create_assessment(
     body: AssessmentIn, school: School = Depends(require_scanner), db: Session = Depends(get_session)
 ) -> dict:
+    if body.paper_kind != "school" and body.exam_year is None:
+        raise HTTPException(
+            422,
+            f"a {body.paper_kind} paper needs exam_year: the frequency layer groups by "
+            f"the year the board set it, and a board paper of no year counts for nothing.",
+        )
     a = Assessment(
         school_id=school.id, subject_code=body.subject_code, title=body.title,
         paper_code=body.paper_code, total_marks=body.total_marks,
         curriculum_version=body.curriculum_version, declared=body.declared,
+        paper_kind=body.paper_kind, exam_year=body.exam_year,
     )
     db.add(a)
     db.flush()
@@ -257,17 +264,25 @@ def add_questions(
         for row, title in db.execute(
             select(Question, Assessment.title)
             .join(Assessment, Assessment.id == Question.assessment_id)
-            .where(Assessment.school_id == school.id, Assessment.id != a.id)
+            .where(
+                Assessment.school_id == school.id, Assessment.id != a.id,
+                # a board paper on file was never put in front of this class; it is a
+                # record of the exam, not a cycle the class sat
+                Assessment.paper_kind == "school",
+            )
         ).all()
     ]
     incoming = [
         (q.question_no, node_id(q.concept_family, "concept family"), variant_hash(q.concept_variant))
         for q in body.questions
     ]
-    try:
-        enforce(incoming, served)
-    except VariantReuseError as exc:
-        raise HTTPException(409, str(exc)) from exc
+    # The guard protects a class from seeing the same variant twice. A board paper is not
+    # served to a class, so registering one that overlaps a school test is not a reuse.
+    if a.paper_kind == "school":
+        try:
+            enforce(incoming, served)
+        except VariantReuseError as exc:
+            raise HTTPException(409, str(exc)) from exc
 
     rows: list[tuple[Address, float]] = []
     created = 0
@@ -1293,10 +1308,22 @@ def map_paper_to_book(
         mapped += 1
 
     db.commit()
+
+    # A mapped board paper is new evidence about the exam, so the frequency table for
+    # the subject is rebuilt now rather than left for someone to remember. The rebuild
+    # reads every mapped board paper on the curriculum, this one included.
+    frequency = None
+    if assessment.paper_kind == "board" and mapped:
+        from app.curriculum.board_frequency import recompute as recompute_frequency
+
+        frequency = recompute_frequency(db, assessment.subject_code, assessment.curriculum_version)
+
     return {
         "assessment_id": assessment.id,
         "retrieval": mode,
         "mapped": mapped,
+        #: set when this was a board paper: what the frequency table was rebuilt from
+        "board_frequency": frequency,
         "blocked": len(blocked),
         #: shared stems that were deliberately left unplaced, not failures
         "context_stems": context_kept,

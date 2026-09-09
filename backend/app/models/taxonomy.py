@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Integer,
     LargeBinary,
     Numeric,
     String,
@@ -278,3 +279,44 @@ class IngestJob(Base, PkMixin, TimestampMixin):
     error_status: Mapped[int | None] = mapped_column(nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class FamilyBoardFrequency(Base, PkMixin):
+    """How often, and how consistently, a concept family has appeared on real board papers.
+
+    Materialised rather than computed at read time, for the two reasons the design note
+    gives: the number is stored, never hand-typed, and every multiplier can show the
+    evidence it rests on when a principal asks why a family carries urgency.
+
+    One row per family per curriculum version. Rebuilt in full whenever a board paper is
+    mapped (app.curriculum.board_frequency.recompute), so a row is never older than the
+    last paper that could have changed it. The config version travels with the row: the
+    thresholds are a starting proposal, and a multiplier from an older set must be
+    distinguishable from one under the current set.
+    """
+
+    __tablename__ = "family_board_frequency"
+    __table_args__ = (
+        UniqueConstraint(
+            "curriculum_version", "concept_family_id", name="uq_family_board_frequency"
+        ),
+    )
+
+    curriculum_version: Mapped[str] = mapped_column(String(32), index=True)
+    subject_code: Mapped[str] = mapped_column(String(32), index=True)
+    concept_family_id: Mapped[str] = mapped_column(ForeignKey("taxonomy_node.id"), index=True)
+    #: the years the window covered, oldest first -- [2021, 2022, 2023, 2024, 2025]
+    window_years: Mapped[list] = mapped_column(JSON)
+    years_eligible: Mapped[int] = mapped_column(Integer)
+    years_appeared: Mapped[int] = mapped_column(Integer)
+    #: {"2022": 4.0, "2024": 3.0, "2025": 5.0} -- marks in each year it appeared, the
+    #: median across that year's sets
+    marks_by_year: Mapped[dict] = mapped_column(JSON)
+    marks_range: Mapped[float | None] = mapped_column(Float, nullable=True)
+    base_multiplier: Mapped[float] = mapped_column(Float)
+    multiplier: Mapped[float] = mapped_column(Float)
+    #: every step that moved the number from base to final, in words a person can check
+    adjustments: Mapped[list] = mapped_column(JSON)
+    papers_used: Mapped[int] = mapped_column(Integer)
+    config_version: Mapped[str] = mapped_column(String(16))
+    computed_at: Mapped[str] = mapped_column(String(40))
