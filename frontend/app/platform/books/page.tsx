@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import {
   api,
@@ -211,7 +212,8 @@ export default function BooksPage() {
         <p className="lede">
           The chapter tree, the taught content and the exercises come from the NCERT book.
           Upload the contents page first. Every chapter is checked against it, and one
-          that disagrees is refused rather than loaded.
+          that disagrees is refused rather than loaded. For Hindi, Tamil or any whole
+          folder of PDFs at once, use <Link href="/platform/books/bulk">Load a language</Link>.
         </p>
       </div>
 

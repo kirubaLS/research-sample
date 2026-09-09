@@ -37,6 +37,7 @@ const WORK: Item[] = [
 const PLATFORM: Item[] = [
   { href: "/platform", label: "Schools", glyph: "▣" },
   { href: "/platform/books", label: "Books", glyph: "▥" },
+  { href: "/platform/books/bulk", label: "Load a language", glyph: "▤" },
   { href: "/platform/probe", label: "Probe", glyph: "▩" },
 ];
 

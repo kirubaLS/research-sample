@@ -562,6 +562,9 @@ export interface BookStatus {
   /** Per chapter. A healthy whole-book total hides a chapter with nothing behind it. */
   coverage: ChapterCoverage[];
   chapters_with_nothing_behind_them: string[];
+  /** filename -> what was loaded from it; the chapter number is what a bulk load reads
+   *  to skip a file it already has */
+  files?: Record<string, { chapter?: number; chunks?: number; loaded_at?: string }>;
   next: string;
 }
 
