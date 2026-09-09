@@ -72,6 +72,52 @@ router = APIRouter(
     dependencies=[Depends(require_platform_admin)],
 )
 
+
+def _subjects_with_families(db: Session) -> list[str]:
+    """Every subject prefix that has at least one concept family: 'X.MATH.CF.X' -> 'X.MATH'."""
+    out: set[str] = set()
+    for n in db.scalars(select(TaxonomyNode).where(TaxonomyNode.kind == "concept_family")):
+        head, sep, _ = n.code.partition(".CF.")
+        if sep:
+            out.add(head)
+    return sorted(out)
+
+
+# Declared before the /{subject} routes so 'audit' is never read as a subject code.
+@router.get("/audit")
+def audit_all_families(db: Session = Depends(get_session)) -> dict:
+    """The family audit for every subject that has families, in one read."""
+    reports = [_audit_families(db, subject) for subject in _subjects_with_families(db)]
+    return {
+        "subjects": [
+            {
+                "subject": r["subject"], "families": r["families"],
+                "wrong_subject": len(r["wrong_subject"]), "empty_code": len(r["empty_code"]),
+                "duplicates": len(r["duplicates"]), "removable": r["removable"],
+                "kept_because_used": len(r["kept_because_used"]),
+            }
+            for r in reports
+        ],
+        "removable": sum(r["removable"] for r in reports),
+    }
+
+
+@router.post("/audit/apply")
+def apply_all_family_audits(db: Session = Depends(get_session)) -> dict:
+    """Apply the audit for every subject at once. Same rules as per subject: only
+    wrong-subject and empty-code families that no question references are removed;
+    duplicates are never touched."""
+    results = [apply_family_audit(subject, db) for subject in _subjects_with_families(db)]
+    return {
+        "subjects": [
+            {"subject": r["subject"], "removed": r["removed"],
+             "kept_because_used": len(r["kept_because_used"]),
+             "duplicates_left_for_review": r["duplicates_left_for_review"]}
+            for r in results
+        ],
+        "removed": sum(r["removed"] for r in results),
+    }
+
 #: Below this gap to the runner-up, the top chapter won by a hair. On the 30(B) set the
 #: single wrong answer had the smallest margin of any row, so this is where a question
 #: should go to a human rather than into a report.

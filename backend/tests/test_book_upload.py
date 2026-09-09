@@ -1012,3 +1012,34 @@ def test_the_audit_finds_and_removes_a_family_filed_under_the_wrong_subject(clie
         db.close()
     after = client.get("/platform/books/X.MATH/concept-families/audit", headers=HEAD).json()
     assert not any(f["code"] == "X.MATH.CF.LETTER_GOD" for f in after["wrong_subject"])
+
+
+def test_the_audit_runs_across_every_subject_in_one_call(client, school):
+    """'audit' is a literal path, never read as a subject code, and the all-subjects
+    apply removes what each per-subject apply would."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.SAV"))
+        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.ECO.CF.VOLUME_WRONG")) is None:
+            db.add(TaxonomyNode(kind="concept_family", code="X.ECO.CF.VOLUME_WRONG",
+                                label="Volume", parent_id=chapter.id, path="X.ECO.CF.VOLUME_WRONG"))
+            db.commit()
+    finally:
+        db.close()
+
+    everything = client.get("/platform/books/audit", headers=HEAD).json()
+    eco = next(s for s in everything["subjects"] if s["subject"] == "X.ECO")
+    assert eco["wrong_subject"] >= 1 and everything["removable"] >= 1
+
+    applied = client.post("/platform/books/audit/apply", headers=HEAD).json()
+    assert applied["removed"] >= 1
+    db = SessionLocal()
+    try:
+        assert db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.ECO.CF.VOLUME_WRONG")) is None
+    finally:
+        db.close()
