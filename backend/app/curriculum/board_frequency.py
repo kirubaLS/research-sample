@@ -135,6 +135,7 @@ def recompute(
     in_window = [a for a in papers if a.exam_year in years]
 
     all_nodes = list(db.scalars(select(TaxonomyNode)))
+    by_id = {n.id: n for n in all_nodes}
     code_of = {n.id: n.code for n in all_nodes}
     #: for each recorded older syllabus, the family codes it did not have
     excluded_by_version: dict[str, set[str]] = {
@@ -166,6 +167,10 @@ def recompute(
         if n.kind == "concept_family"
         and n.curriculum_version == curriculum_version
         and n.code.startswith(subject_code + ".")
+        # by its chapter, not just its code prefix: the proposal route once coded Science
+        # and English families X.MATH.CF.*, and those must not get a row in the Maths table
+        and n.parent_id in by_id
+        and by_id[n.parent_id].code.startswith(subject_code + ".")
     ]
 
     existing = {

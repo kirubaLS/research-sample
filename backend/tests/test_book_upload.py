@@ -410,7 +410,7 @@ def test_a_stored_proposal_carries_the_chapter_code_needed_to_apply_it(client):
     )
     assert applied.status_code == 201, applied.text
     assert applied.json() == {
-        "created": 1, "already_existed": 0, "unknown_chapters": [],
+        "created": 1, "already_existed": 0, "unknown_chapters": [], "wrong_subject": [],
         "note": "Existing families are left alone; a rename would break past comparisons.",
     }
 
@@ -919,3 +919,96 @@ def test_uploading_a_chapter_again_fills_in_the_sections_it_was_missing(client):
         assert filled, "the second read worked the sections out and stored none of them"
     finally:
         db.close()
+
+
+# --- families belong to one subject ---------------------------------------------------------
+
+def test_apparatus_headings_are_not_proposed_as_families():
+    """'Notes for the teacher' and 'Project work' are the book's furniture, not things a
+    student can be weak at. A Hindi heading whose slug is empty would give every such
+    family one code, so it is dropped rather than created as 'X.HIN.CF.'."""
+    from app.curriculum.families import not_a_learning_area, propose
+
+    assert not_a_learning_area("Notes for the teacher")
+    assert not_a_learning_area("Project work")
+    assert not_a_learning_area("Let's work these out")
+    assert not_a_learning_area("Government Publications")
+    assert not not_a_learning_area("Types of farming")
+    proposed = propose([
+        ("X.GEO.AGRICULTURE", "Agriculture", "4.1", "Types of farming", 3),
+        ("X.GEO.AGRICULTURE", "Agriculture", "4.9", "Project work", 0),
+        ("X.HIN.KR.MAIN", "मैं क्यों लिखता हूँ?", "1.1", "मैं क्यों लिखता हूँ?", 2),
+    ], "X.GEO")
+    assert [p.label for p in proposed] == ["Types of farming"]
+
+
+def test_proposals_and_creation_stay_inside_the_subject(client, school):
+    """Every chapter in the tree used to be proposed under whichever subject asked, so
+    Maths was offered 'A Letter to God' as X.MATH.CF.LETTER_GOD -- and could create it."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        subject = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH"))
+        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.ENG.FF.LETTERTOGOD")) is None:
+            db.add(TaxonomyNode(
+                kind="chapter", code="X.ENG.FF.LETTERTOGOD", label="A Letter to God",
+                parent_id=subject.id, path="X.ENG.FF.LETTERTOGOD",
+            ))
+            db.commit()
+    finally:
+        db.close()
+
+    proposed = client.get("/platform/books/X.MATH/concept-families", headers=HEAD).json()
+    assert all(f["chapter_code"].startswith("X.MATH.") for f in proposed["families"])
+    assert "possible_duplicates" in proposed
+
+    refused = client.post("/platform/books/X.MATH/concept-families", headers=HEAD, json={
+        "families": [{"code": "X.MATH.CF.LETTER_GOD", "label": "A Letter to God",
+                      "chapter_code": "X.ENG.FF.LETTERTOGOD"}],
+    }).json()
+    assert refused["created"] == 0
+    assert refused["wrong_subject"] == ["X.MATH.CF.LETTER_GOD -> X.ENG.FF.LETTERTOGOD"]
+
+
+def test_the_audit_finds_and_removes_a_family_filed_under_the_wrong_subject(client, school):
+    """A family created the old way, hanging off an English chapter with a Maths code, is
+    listed by the audit and removed by applying it -- unless a question points at it."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.ENG.FF.LETTERTOGOD"))
+        if chapter is None:
+            subject = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH"))
+            chapter = TaxonomyNode(kind="chapter", code="X.ENG.FF.LETTERTOGOD", label="A Letter to God",
+                                   parent_id=subject.id, path="X.ENG.FF.LETTERTOGOD")
+            db.add(chapter)
+            db.flush()
+        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.LETTER_GOD")) is None:
+            db.add(TaxonomyNode(kind="concept_family", code="X.MATH.CF.LETTER_GOD",
+                                label="A Letter to God", parent_id=chapter.id, path="X.MATH.CF.LETTER_GOD"))
+        db.commit()
+    finally:
+        db.close()
+
+    audit = client.get("/platform/books/X.MATH/concept-families/audit", headers=HEAD).json()
+    wrong = {f["code"]: f for f in audit["wrong_subject"]}
+    assert wrong["X.MATH.CF.LETTER_GOD"]["chapter_code"] == "X.ENG.FF.LETTERTOGOD"
+    assert wrong["X.MATH.CF.LETTER_GOD"]["questions"] == 0
+
+    applied = client.post("/platform/books/X.MATH/concept-families/audit/apply", headers=HEAD).json()
+    assert applied["removed"] >= 1
+    db = SessionLocal()
+    try:
+        assert db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.LETTER_GOD")) is None
+    finally:
+        db.close()
+    after = client.get("/platform/books/X.MATH/concept-families/audit", headers=HEAD).json()
+    assert not any(f["code"] == "X.MATH.CF.LETTER_GOD" for f in after["wrong_subject"])

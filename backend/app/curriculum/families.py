@@ -28,6 +28,25 @@ from dataclasses import dataclass
 
 #: Section headings that are not learning areas. A student is not weak at "Introduction".
 NOT_A_FAMILY = frozenset({"introduction", "summary"})
+#: ...nor at "Notes for the teacher", "Project work" or "Let's work these out". These are
+#: the book's apparatus -- exercises, activities, boxes, reading lists -- and a Social
+#: Science chapter has more of them than it has sections. Matched on the whole heading.
+NOT_A_FAMILY_PATTERN = re.compile(
+    r"^\s*(?:"
+    r"notes?\s+for\s+(?:the\s+)?teachers?|project(?:\s+work)?|additional\s+activity.*|"
+    r"activit(?:y|ies)|exercises?|questions?|let.?s\s+work\s+(?:this|these)\s+out|"
+    r"books?|government\s+publications?|(?:further|suggested)\s+readings?|references?|"
+    r"glossary|sources?|quiz(?:\s+drive)?|do\s+you\s+know\??|discuss|answers?|"
+    r"map\s+work|things\s+to\s+do|things\s+to\s+remember|key\s*words?"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+
+def not_a_learning_area(label: str) -> bool:
+    """Whether a heading is the book's apparatus rather than something a student learns."""
+    text = (label or "").strip().lower()
+    return text in NOT_A_FAMILY or NOT_A_FAMILY_PATTERN.match(text) is not None
 
 
 @dataclass(frozen=True)
@@ -123,9 +142,14 @@ def propose(
     seen: set[str] = set()
     for chapter_code, chapter_label, section_number, section_label, chunks in sections:
         label = readable(section_label.strip())
-        if label.lower() in NOT_A_FAMILY:
+        if not_a_learning_area(label):
             continue
-        code = f"{subject_code}.CF.{slugify(label)}"
+        slug = slugify(label)
+        if not slug:
+            # a heading in a script the slug cannot carry (Hindi, Tamil) would produce the
+            # code "X.HIN.CF." for every chapter -- one code for many families
+            continue
+        code = f"{subject_code}.CF.{slug}"
         if code in seen:
             continue
         seen.add(code)

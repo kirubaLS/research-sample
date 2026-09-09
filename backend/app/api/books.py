@@ -945,6 +945,53 @@ def clean_sections(values) -> list[str]:
     return out
 
 
+#: two labels under one chapter at least this alike are probably one idea twice
+DUPLICATE_LABEL_SCORE = 0.8
+#: words that make two labels differ without making them different ideas
+_LABEL_FILLER = re.compile(
+    r"\b(?:finding|find|solving|solve|calculating|calculate|computing|compute|determining|"
+    r"determine|using|use|understanding|understand|the|a|an|of|for|to|and|in|with|by)\b",
+    re.IGNORECASE,
+)
+
+
+def _label_key(label: str) -> str:
+    return " ".join(_LABEL_FILLER.sub(" ", label or "").lower().split())
+
+
+def _dedupe_and_flag(proposals: list[dict]) -> list[dict]:
+    """One entry per code, and a ``similar_to`` on any label that reads as another
+    proposal's idea under the same chapter -- 'Area of a sector' beside 'Finding the area
+    of a sector'. Nothing is merged: which of two names survives is a person's call, and
+    the flag is what puts it in front of them."""
+    from app.extraction.names import similarity
+
+    by_code: dict[str, dict] = {}
+    for p in proposals:
+        if not p.get("code") or p["code"].endswith("."):
+            continue
+        if p["code"] in by_code:
+            have = by_code[p["code"]]
+            have["from_sections"] = sorted(
+                set(have.get("from_sections") or []) | set(p.get("from_sections") or [])
+            )
+            continue
+        by_code[p["code"]] = dict(p)
+    out = list(by_code.values())
+    by_chapter: dict[str, list[dict]] = {}
+    for p in out:
+        by_chapter.setdefault(p["chapter_code"], []).append(p)
+    for group in by_chapter.values():
+        for i, p in enumerate(group):
+            a = _label_key(p["label"])
+            for q in group[:i]:
+                b = _label_key(q["label"])
+                if a == b or similarity(a, b) >= DUPLICATE_LABEL_SCORE:
+                    p["similar_to"] = q["code"]
+                    break
+    return out
+
+
 class FamiliesIn(BaseModel):
     """The families to create. Reviewed, not accepted wholesale."""
 
@@ -962,7 +1009,13 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
     from app.curriculum.families import propose
 
     nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
-    chapters = {n.id: n for n in nodes.values() if n.kind == "chapter"}
+    # This subject's chapters only. Taking every chapter in the tree proposed English
+    # stories and Science sections as Maths families, coded X.MATH.CF.*, and some were
+    # created that way -- a Maths frequency table then carried "A Letter to God".
+    chapters = {
+        n.id: n for n in nodes.values()
+        if n.kind == "chapter" and n.code.startswith(f"{subject}.")
+    }
 
     counts: dict[str, int] = {}
     for chunk in db.scalars(
@@ -988,7 +1041,10 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
     ]
     rows.sort(key=lambda r: (r[0], r[2]))
 
-    existing = {n.code for n in nodes.values() if n.kind == "concept_family"}
+    existing = {
+        n.code for n in nodes.values()
+        if n.kind == "concept_family" and n.parent_id in chapters
+    }
 
     # What a proposal run has already worked out, which is better than a bare heading: it
     # names the learning area rather than the section it sits in, and it says which
@@ -1028,11 +1084,14 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
         for p in propose(rows, subject)
         if p.chapter_code not in covered
     ]
+    proposals = _dedupe_and_flag(proposals)
     proposals.sort(key=lambda r: (r["chapter_label"], r["label"]))
     return {
         "subject": subject,
         "existing": len(existing),
         "proposed": len(proposals),
+        #: proposals whose label reads as the same idea as another under the same chapter
+        "possible_duplicates": sum(1 for p in proposals if p.get("similar_to")),
         #: proposals that name no section a question could be matched against. They can
         #: still be created; they just cannot be chosen by section afterwards.
         "without_a_section": sum(1 for p in proposals if not p["from_sections"]),
@@ -1065,7 +1124,7 @@ def create_families(
             )
         )
     }
-    created, skipped, unknown = 0, 0, []
+    created, skipped, unknown, wrong_subject = 0, 0, [], []
     run_id = uuid.uuid4().hex
     now = datetime.now(UTC).isoformat()
 
@@ -1078,6 +1137,12 @@ def create_families(
         chapter = nodes.get(chapter_code)
         if chapter is None or chapter.kind != "chapter":
             unknown.append(chapter_code)
+            continue
+        if not chapter.code.startswith(f"{subject}.") or code.endswith("."):
+            # A Science chapter's family coded X.MATH.CF.* would sit in the Maths
+            # frequency table and every Maths report. Filed under the wrong subject is
+            # not a family; it is a mistake with a stable identifier.
+            wrong_subject.append(f"{code} -> {chapter_code}")
             continue
         if code in nodes:
             # Never rename: a family is held constant across cycles, and changing one
@@ -1114,7 +1179,113 @@ def create_families(
         "created": created,
         "already_existed": skipped,
         "unknown_chapters": sorted(set(unknown)),
+        #: refused: the chapter belongs to another subject, or the code is empty
+        "wrong_subject": wrong_subject,
         "note": "Existing families are left alone; a rename would break past comparisons.",
+    }
+
+
+def _audit_families(db: Session, subject: str) -> dict:
+    """What is wrong with the families that exist under this subject's prefix."""
+    from app.models import Question
+
+    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+    families = [
+        n for n in nodes.values()
+        if n.kind == "concept_family" and n.code.startswith(f"{subject}.CF.")
+    ]
+    used = dict(db.execute(
+        select(Question.concept_family_id, func.count(Question.id))
+        .where(Question.concept_family_id.in_([f.id for f in families]))
+        .group_by(Question.concept_family_id)
+    ).all()) if families else {}
+
+    def view(n: TaxonomyNode, problem: str) -> dict:
+        chapter = nodes.get(n.parent_id) if n.parent_id else None
+        return {
+            "code": n.code, "label": n.label,
+            "chapter_code": chapter.code if chapter else None,
+            "questions": used.get(n.id, 0),
+            "problem": problem,
+        }
+
+    wrong_subject, empty_code, duplicates = [], [], []
+    seen_labels: dict[tuple[str, str], TaxonomyNode] = {}
+    for n in sorted(families, key=lambda f: f.code):
+        chapter = nodes.get(n.parent_id) if n.parent_id else None
+        if chapter is None or not chapter.code.startswith(f"{subject}."):
+            wrong_subject.append(
+                view(n, f"chapter belongs to {chapter.code if chapter else 'nothing'}")
+            )
+            continue
+        if n.code.endswith("."):
+            empty_code.append(view(n, "empty code: the label's script cannot be slugified"))
+            continue
+        key = (chapter.id, _label_key(n.label))
+        if key in seen_labels:
+            duplicates.append(view(n, f"same idea as {seen_labels[key].code}"))
+        else:
+            seen_labels[key] = n
+    removable = [f for f in wrong_subject + empty_code if f["questions"] == 0]
+    return {
+        "subject": subject,
+        "families": len(families),
+        "wrong_subject": wrong_subject,
+        "empty_code": empty_code,
+        "duplicates": duplicates,
+        "removable": len(removable),
+        "kept_because_used": [
+            f for f in wrong_subject + empty_code if f["questions"] > 0
+        ],
+    }
+
+
+@router.get("/{subject}/concept-families/audit")
+def audit_families(subject: str, db: Session = Depends(get_session)) -> dict:
+    """Families under this subject's prefix that should not be there, and what applying
+    the audit would remove. Read-only.
+
+    Three findings. ``wrong_subject``: coded X.MATH.CF.* but hanging off a Science or
+    English chapter, which the proposal route used to produce for every chapter in the
+    tree. ``empty_code``: a Hindi or Tamil heading whose slug is empty, so every such
+    family shares one code. ``duplicates``: two families under one chapter whose labels
+    read as one idea -- listed for a person, never removed here, because which name
+    survives and which questions move is their call.
+    """
+    return _audit_families(db, subject)
+
+
+@router.post("/{subject}/concept-families/audit/apply")
+def apply_family_audit(subject: str, db: Session = Depends(get_session)) -> dict:
+    """Remove the wrong-subject and empty-code families that no question references.
+
+    A family any question points at is kept and named in the response: removing it would
+    orphan marks. Duplicates are never touched here. Proposals for a removed family go
+    with it, so the proposal screen stops offering it as already existing.
+    """
+    audit = _audit_families(db, subject)
+    codes = {
+        f["code"] for f in audit["wrong_subject"] + audit["empty_code"] if f["questions"] == 0
+    }
+    removed = 0
+    if codes:
+        for n in db.scalars(select(TaxonomyNode).where(TaxonomyNode.code.in_(codes))):
+            for p in db.scalars(
+                select(ConceptFamilyProposal).where(ConceptFamilyProposal.code == n.code)
+            ):
+                db.delete(p)
+            db.delete(n)
+            removed += 1
+    db.commit()
+    return {
+        "subject": subject,
+        "removed": removed,
+        "kept_because_used": audit["kept_because_used"],
+        "duplicates_left_for_review": len(audit["duplicates"]),
+        "next": (
+            f"POST /board-frequency/recompute?subject_code={subject} so the table drops "
+            f"the removed rows." if removed else "nothing to remove"
+        ),
     }
 
 
