@@ -63,6 +63,7 @@ from app.models import (
     ConceptFamilyProposal,
     IngestJob,
     SyllabusVersion,
+    TaxonomyAlias,
     TaxonomyNode,
 )
 
@@ -1285,6 +1286,81 @@ def apply_family_audit(subject: str, db: Session = Depends(get_session)) -> dict
         "next": (
             f"POST /board-frequency/recompute?subject_code={subject} so the table drops "
             f"the removed rows." if removed else "nothing to remove"
+        ),
+    }
+
+
+class MergeFamiliesIn(BaseModel):
+    """Fold one or more duplicate families into the one that survives."""
+
+    keep: str = Field(max_length=80)
+    remove: list[str] = Field(min_length=1, max_length=20)
+
+
+@router.post("/{subject}/concept-families/merge")
+def merge_families(subject: str, body: MergeFamiliesIn, db: Session = Depends(get_session)) -> dict:
+    """Merge duplicate families: every question, placement and proposal on a removed
+    family is re-pointed at ``keep``, then the removed family is deleted.
+
+    The survivor is a person's choice, which is why this is not part of the audit. A
+    removed family's questions keep every mark they carry; only the family they roll up
+    to changes, so a trend keyed on the survivor now sees both histories as one -- which
+    is the point of merging.
+
+    Refused unless every family named is under this subject and hangs off the same
+    chapter as ``keep``: merging across chapters would file a question's marks under a
+    chapter it was never about.
+    """
+    from app.models import Question, QuestionPlacement
+
+    nodes = {n.code: n for n in db.scalars(select(TaxonomyNode).where(
+        TaxonomyNode.kind == "concept_family"
+    ))}
+    keep = nodes.get(body.keep)
+    if keep is None or not keep.code.startswith(f"{subject}.CF."):
+        raise HTTPException(422, f"{body.keep!r} is not a concept family of {subject}")
+    losers = []
+    for code in body.remove:
+        n = nodes.get(code)
+        if n is None or not n.code.startswith(f"{subject}.CF."):
+            raise HTTPException(422, f"{code!r} is not a concept family of {subject}")
+        if n.id == keep.id:
+            raise HTTPException(422, f"{code!r} is the family being kept")
+        if n.parent_id != keep.parent_id:
+            raise HTTPException(
+                422,
+                f"{code!r} is under a different chapter from {body.keep!r}; a merge across "
+                f"chapters would file questions under a chapter they were never about",
+            )
+        losers.append(n)
+
+    moved_questions = moved_placements = 0
+    for n in losers:
+        for q in db.scalars(select(Question).where(Question.concept_family_id == n.id)):
+            q.concept_family_id = keep.id
+            moved_questions += 1
+        for p in db.scalars(select(QuestionPlacement).where(
+            QuestionPlacement.chapter_id == n.id
+        )):
+            p.chapter_id = keep.id
+            moved_placements += 1
+        for prop in db.scalars(select(ConceptFamilyProposal).where(
+            ConceptFamilyProposal.code == n.code
+        )):
+            db.delete(prop)
+        for row in db.scalars(select(TaxonomyAlias).where(TaxonomyAlias.node_id == n.id)):
+            row.node_id = keep.id
+        db.add(TaxonomyAlias(node_id=keep.id, alias=n.label, locale="en"))
+        db.delete(n)
+    db.commit()
+    return {
+        "kept": keep.code,
+        "removed": [n.code for n in losers],
+        "questions_moved": moved_questions,
+        "placements_moved": moved_placements,
+        "next": (
+            f"POST /board-frequency/recompute?subject_code={subject} if any board paper "
+            f"was mapped to a removed family."
         ),
     }
 
