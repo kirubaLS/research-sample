@@ -203,6 +203,12 @@ class GridSheetRow(Base, PkMixin, TimestampMixin):
     #: reading the image again
     cells: Mapped[list] = mapped_column(JSON, default=list)
     note: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    #: For an unmatched roll only: the one student whose roster name fits the name
+    #: written on the sheet, when exactly one does (app.extraction.names). A suggestion
+    #: for a person to accept, never a match -- student_id stays null until they do.
+    suggested_student_id: Mapped[str | None] = mapped_column(
+        ForeignKey("student_profile.id", ondelete="SET NULL"), nullable=True
+    )
 
     document: Mapped[ScanDocument] = relationship(back_populates="grid_rows")
 

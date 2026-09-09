@@ -415,3 +415,85 @@ def test_a_photo_of_several_students_is_refused_on_the_single_script_endpoint(
         assert "2 different students" in job.text
     finally:
         settings.anthropic_api_key = before
+
+
+@pytest.fixture
+def stub_grid_with_a_misread_roll(monkeypatch):
+    """One row whose roll is unknown but whose written name is plainly roll 2's, one
+    whose roll is unknown and whose name fits nobody."""
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+    reading = GridReading(rows=[
+        GridRow(roll_no="7", name_as_written="Abinaya M", cells=[
+            GridCell("A/1", "2"), GridCell("B/2", "3"),
+        ]),
+        GridRow(roll_no="9", name_as_written="Not On Roster", cells=[
+            GridCell("A/1", "1"), GridCell("B/2", "1"),
+        ]),
+    ])
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return reading
+
+    monkeypatch.setattr("app.extraction.gridsheet.AnthropicGridReader", StubReader)
+    yield
+    settings.anthropic_api_key = before
+
+
+def test_an_unknown_roll_with_a_known_name_is_suggested_not_matched(
+    client, school, paper, roster, stub_grid_with_a_misread_roll,
+):
+    """The name says roll 2. The row still waits for a person -- but the person now sees
+    the suggestion, and accepts it with one call."""
+    from app.db import SessionLocal
+    from app.models import StudentProfile
+
+    out = _upload(client, school, paper, school["section_id"])
+    assert out.status_code == 202, out.text
+    job = client.get(
+        f"/assessments/{paper}/gridsheet/jobs/{out.json()['job_id']}", headers=_auth(school)
+    ).json()
+    assert job["status"] == "succeeded", job
+    document_id = job["document_id"]
+    assert job["unmatched"] == 2                            # a suggestion is not a match
+
+    review = client.get(f"/assessments/{paper}/gridsheet/{document_id}", headers=_auth(school)).json()
+    rows = {r["roll_no"]: r for r in review["rows"]}
+    suggested = rows["7"]
+    assert suggested["status"] == "unmatched" and suggested["student"] is None
+    assert suggested["suggested_student"]["id"] == roster["2"]
+    assert suggested["suggested_student"]["roll_no"] == "2"
+    assert "misread" in suggested["note"]
+    assert rows["9"]["suggested_student"] is None
+    assert "no student" in rows["9"]["note"]
+
+    accepted = client.post(
+        f"/assessments/{paper}/gridsheet/{document_id}/rows/{suggested['row_id']}/resolve",
+        headers=_auth(school), json={"accept_suggestion": True},
+    )
+    assert accepted.status_code == 200, accepted.text
+    assert accepted.json()["student_id"] == roster["2"]
+
+    review = client.get(f"/assessments/{paper}/gridsheet/{document_id}", headers=_auth(school)).json()
+    row = next(r for r in review["rows"] if r["roll_no"] == "7")
+    assert row["status"] == "clean" and row["student"]["id"] == roster["2"]
+    assert "not '2'" in row["note"]                          # the disagreement is kept, not erased
+    assert row["can_confirm"] is True
+
+    # accepting a row that has nothing to accept is refused, not guessed
+    nothing = client.post(
+        f"/assessments/{paper}/gridsheet/{document_id}/rows/{rows['9']['row_id']}/resolve",
+        headers=_auth(school), json={"accept_suggestion": True},
+    )
+    assert nothing.status_code == 422
+
+    db = SessionLocal()
+    try:
+        assert db.get(StudentProfile, roster["2"]).roll_no == "2"   # the roster is untouched
+    finally:
+        db.close()

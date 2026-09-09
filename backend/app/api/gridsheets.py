@@ -39,6 +39,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.extraction.gridsheet import read_grid, read_single_script
 from app.extraction.marksheet import parse_address, read_any, read_pdf
+from app.extraction.names import suggest
 from app.models import (
     Assessment,
     GridSheetJob,
@@ -86,6 +87,19 @@ def _name_matches(written: str, roster: str) -> bool:
     if not written_words or not roster_words:
         return True
     return bool(written_words & roster_words)
+
+
+def _suggest_for(row: GridSheetRow, roster: list[StudentProfile]) -> None:
+    """For an unmatched roll, what the written name says about who it might be.
+
+    Sets the row's suggestion and a note the review screen shows. The row's own student
+    stays unset: a name is a hint about a misread roll, never a key to write marks by.
+    """
+    if row.status != "unmatched":
+        return
+    found = suggest(row.name_as_written, roster)
+    row.suggested_student_id = found.student.id if found.student else None
+    row.note = found.reason[:300]
 
 
 def _write_proposed_marks(
@@ -304,6 +318,7 @@ def _run_gridsheet_job(job_id: str) -> None:
                     for c in parsed.cells
                 ],
             )
+            _suggest_for(grid_row, roster)
             db.add(grid_row)
             db.flush()
             if student is not None:
@@ -497,6 +512,10 @@ def review_gridsheet(
                 }
                 for p in proposals
             ]
+        suggested = (
+            db.get(StudentProfile, row.suggested_student_id)
+            if row.status == "unmatched" and row.suggested_student_id else None
+        )
         out.append({
             "row_id": row.id,
             "roll_no": row.roll_no,
@@ -504,6 +523,11 @@ def review_gridsheet(
             "status": row.status,
             "note": row.note,
             "student": {"id": student.id, "name": student.name} if student else None,
+            #: for an unmatched roll: the one roster student the written name fits, to
+            #: accept with resolve {"accept_suggestion": true}. Never acted on by itself.
+            "suggested_student": {
+                "id": suggested.id, "name": suggested.name, "roll_no": suggested.roll_no,
+            } if suggested else None,
             "marks": marks,
             "can_confirm": row.status == "clean" and not blocked and bool(marks),
         })
@@ -521,6 +545,8 @@ class ResolveIn(BaseModel):
     student_id: str | None = None
     #: or create one from the sheet's own name and roll
     create: StudentCreateIn | None = None
+    #: or take the student the written name suggested (review shows suggested_student)
+    accept_suggestion: bool = False
 
 
 @router.post("/{assessment_id}/gridsheet/{document_id}/rows/{row_id}/resolve")
@@ -540,10 +566,19 @@ def resolve_row(
     """
     assessment = _assessment(db, school, assessment_id)
     row = _row_in_scope(db, assessment, document_id, row_id)
-    if body.student_id and body.create:
-        raise HTTPException(422, "pick an existing student or create one, not both")
+    chosen = sum(1 for x in (body.student_id, body.create, body.accept_suggestion) if x)
+    if chosen > 1:
+        raise HTTPException(
+            422, "pick an existing student, create one, or accept the suggestion -- one of the three"
+        )
 
-    if body.create is not None:
+    if body.accept_suggestion:
+        if not row.suggested_student_id:
+            raise HTTPException(422, "this row has no suggested student to accept")
+        student = db.get(StudentProfile, row.suggested_student_id)
+        if student is None or student.school_id != school.id:
+            raise HTTPException(404, "the suggested student no longer exists")
+    elif body.create is not None:
         clash = db.scalar(
             select(StudentProfile).where(
                 StudentProfile.section_id == row.section_id,
@@ -564,11 +599,19 @@ def resolve_row(
         if student is None or student.school_id != school.id:
             raise HTTPException(404, "no such student")
     else:
-        raise HTTPException(422, "give a student_id, or create a new student from this row")
+        raise HTTPException(
+            422, "give a student_id, accept the suggestion, or create a new student from this row"
+        )
 
     row.student_id = student.id
     row.status = "clean"
-    row.note = None
+    # An accepted suggestion keeps the disagreement on record: the sheet said one roll
+    # and the marks went to another. A person chose that; the row says so.
+    row.note = (
+        f"resolved from the name on the sheet; the sheet's roll {row.roll_no!r} is not {student.roll_no!r}"
+        if body.accept_suggestion and row.roll_no != student.roll_no else None
+    )
+    row.suggested_student_id = None
     db.flush()
 
     questions = list(db.scalars(select(Question).where(Question.assessment_id == assessment.id)))
@@ -723,6 +766,9 @@ async def upload_gridsheet_file(
     )
 
     roster = list(db.scalars(select(StudentProfile).where(StudentProfile.section_id == section.id)))
+    #: a spreadsheet's name column is not read today, so an unknown roll from a file gets
+    #: no name-based suggestion -- only the note saying so
+    names_by_roll: dict[str, str] = {}
     by_roll = {s.roll_no: s for s in roster}
 
     by_student_roll: dict[str, list] = {}
@@ -753,11 +799,13 @@ async def upload_gridsheet_file(
 
         grid_row = GridSheetRow(
             school_id=school.id, assessment_id=assessment.id, section_id=section.id,
-            document_id=document.id, roll_no=roll_no, name_as_written="",
+            document_id=document.id, roll_no=roll_no,
+            name_as_written=(names_by_roll.get(roll_no) or "")[:200],
             student_id=student.id if student else None,
             status="clean" if student else "unmatched",
             cells=cells,
         )
+        _suggest_for(grid_row, roster)
         db.add(grid_row)
         db.flush()
         if student is not None:
