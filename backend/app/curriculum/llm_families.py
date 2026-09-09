@@ -105,6 +105,41 @@ def tag(index: int) -> str:
     return f"P{index}"
 
 
+#: What one call may carry, in estimated tokens, under the model's 200k limit with room
+#: for the system prompt and the answer. Reached on a real chapter: Sanchayan's "Sapnon
+#: ke-se din", read by OCR into hundreds of small chunks, came to 295k tokens and the
+#: whole book's pass lost that chapter.
+PROMPT_TOKEN_BUDGET = 150_000
+
+
+def estimated_tokens(text: str) -> int:
+    """A deliberately pessimistic count. English runs near four characters a token;
+    Devanagari and Tamil are tokenised byte-wise and can come close to one character a
+    token, so every non-ASCII character is counted as one."""
+    ascii_chars = sum(1 for ch in text if ord(ch) < 128)
+    return ascii_chars // 4 + (len(text) - ascii_chars)
+
+
+def fit(
+    passages: list[tuple[str, str, str]], budget: int = PROMPT_TOKEN_BUDGET,
+) -> list[tuple[str, str, str]]:
+    """The passages a single call can carry, spread evenly over the chapter.
+
+    Taking the first N would show the model the opening pages and nothing of the end, and
+    the families it proposed would cover half the chapter. Every k-th passage keeps the
+    whole chapter in view; at CHUNK_CHARS a passage the sampling rarely bites for a Maths
+    chapter and only thins a long OCR'd story.
+    """
+    cost = [estimated_tokens(text[:CHUNK_CHARS]) + 20 for _, _, text in passages]
+    total = sum(cost)
+    if total <= budget or not passages:
+        return passages
+    keep = max(1, int(len(passages) * budget / total))
+    step = len(passages) / keep
+    picked = sorted({int(i * step) for i in range(keep)})
+    return [passages[i] for i in picked]
+
+
 def build_prompt(chapter_label: str, passages: list[tuple[str, str, str]]) -> str:
     """``passages`` is (reference, section number, text).
 
@@ -262,6 +297,15 @@ class AnthropicFamilyProposer:
 
     def propose(self, chapter_label: str, passages: list[tuple[str, str, str]]) -> list[FamilyProposal]:
         extra = {"output_config": self.output_config} if self.output_config else {}
+        # The same subset goes to the prompt and to the grounding check: a citation of a
+        # passage that was sampled out must read as "not shown", because it was not.
+        shown = fit(passages)
+        if len(shown) < len(passages):
+            self.violations.append((chapter_label, [
+                f"chapter too long for one call: {len(shown)} of {len(passages)} passages "
+                f"shown, spread evenly over the chapter"
+            ]))
+        passages = shown
         response = self.client.messages.parse(
             model=self.model,
             #: sized for the reasoning as well as the answer -- see AnthropicJudge

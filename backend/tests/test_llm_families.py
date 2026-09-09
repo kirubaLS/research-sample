@@ -282,3 +282,21 @@ def test_the_english_code_label_wins_over_the_hindi_label():
     out = ground(ChapterFamilies(families=[fam]), passages)
     assert len(out.families) == 1
     assert slugify(out.families[0].code_label) == "NETAJI_KA_CHASHMA_CHARACTER_CAPTAIN"
+
+
+def test_a_chapter_over_the_token_budget_is_thinned_evenly_not_cut_at_the_front():
+    """Sanchayan's 'Sapnon ke-se din' came to 295k tokens and the call was refused. The
+    fix keeps the whole chapter in view rather than its first pages."""
+    from app.curriculum.llm_families import estimated_tokens, fit
+
+    hindi = "सपनों के-से दिन " * 60  # 780 non-ASCII chars -> at least 780 tokens
+    passages = [(f"p.{i}", "", hindi) for i in range(400)]
+    assert estimated_tokens("abcd" * 100) == 100
+    assert estimated_tokens(hindi) >= 780
+    kept = fit(passages, budget=50_000)
+    assert len(kept) < 100
+    assert sum(estimated_tokens(t) + 20 for _, _, t in kept) <= 50_000
+    refs = [r for r, _, _ in kept]
+    assert refs[0] == "p.0" and int(refs[-1].split(".")[1]) > 380
+    # nothing to do when it fits
+    assert fit(passages[:10], budget=50_000) == passages[:10]
