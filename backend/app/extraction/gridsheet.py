@@ -22,7 +22,7 @@ import base64
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 
 
 @dataclass
@@ -127,18 +127,24 @@ class AnthropicGridReader:
             "type": "text",
             "text": "Read every student row on this mark-entry sheet.",
         })
-        response = self.client.messages.parse(
+        # A full class sheet can run to 40+ students x several questions each, and the
+        # structured JSON repeats every field name per cell -- 8000 tokens truncated
+        # mid-response on an ordinary-sized class, failing Pydantic's json_invalid check
+        # on a well-formed answer that simply hadn't finished yet. But the SDK itself
+        # refuses any *non-streaming* call above ~20k max_tokens ("Streaming is required
+        # for operations that may take longer than 10 minutes") -- so this has to stream
+        # and validate the accumulated text after, rather than use the messages.parse()
+        # shortcut, which only supports the non-streaming path.
+        with self.client.messages.stream(
             model=self.model,
-            # A full class sheet can run to 40+ students x several questions each, and the
-            # structured JSON repeats every field name per cell -- 8000 tokens truncated
-            # mid-response on an ordinary-sized class, failing Pydantic's json_invalid
-            # check on a well-formed answer that simply hadn't finished yet.
             max_tokens=32000,
             system=self.system,
             messages=[{"role": "user", "content": content}],
             output_format=_SheetOut,
-        )
-        parsed: _SheetOut = response.parsed_output
+        ) as stream:
+            final_message = stream.get_final_message()
+        text = final_message.content[0].text
+        parsed: _SheetOut = TypeAdapter(_SheetOut).validate_json(text)
         out = GridReading()
         for row in parsed.rows:
             roll = row.roll_no.strip()
