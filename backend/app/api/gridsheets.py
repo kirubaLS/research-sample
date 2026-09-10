@@ -262,11 +262,13 @@ def _run_gridsheet_job(job_id: str) -> None:
     finally:
         db.close()  # released BEFORE the slow vision call below, not held across it
 
-    api_key = get_settings().anthropic_api_key
+    settings = get_settings()
+    api_key = settings.anthropic_api_key
     try:
         reading = (
-            read_grid(pages, api_key=api_key) if job_kind == "class_photo"
-            else read_single_script(pages, api_key=api_key)
+            read_grid(pages, api_key=api_key, model=settings.model_high_stakes)
+            if job_kind == "class_photo"
+            else read_single_script(pages, api_key=api_key, model=settings.model_high_stakes)
         )
     except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
         # A malformed or truncated response from the vision call (e.g. a Pydantic

@@ -646,7 +646,10 @@ def _run_paper_scan_job(job_id: str) -> None:
         finally:
             path.unlink(missing_ok=True)
 
-        reading = read_paper_vision(pages, api_key=get_settings().anthropic_api_key)
+        settings = get_settings()
+        reading = read_paper_vision(
+            pages, api_key=settings.anthropic_api_key, model=settings.model_high_stakes
+        )
         if reading.refused:
             _finish_paper_scan_job(
                 job_id, status_value="failed", error_status=422, error_detail=reading.refused,
