@@ -1130,11 +1130,20 @@ def test_the_judge_settles_the_chapter_topic_and_sub_topic_on_the_question(
     # The judge disagrees with retrieval: it says the mode section, not the mean section.
     settings, before = _place_with(monkeypatch, "Statistics", "13.3", "Applying")
     try:
+        # Placement now queues a job rather than answering directly (a classifier call
+        # per question would otherwise outrun a real request's timeout) -- but TestClient
+        # runs the background task inline before handing back the 202, so a single poll
+        # right after already sees "succeeded".
         out = client.post(f"/assessments/{aid}/place", headers=h)
+        assert out.status_code == 202, out.text
+        job = client.get(
+            f"/assessments/{aid}/place/jobs/{out.json()['job_id']}", headers=h
+        )
     finally:
         settings.anthropic_api_key = before
-    assert out.status_code == 200, out.text
-    body = out.json()
+    assert job.status_code == 200, job.text
+    body = job.json()
+    assert body["status"] == "succeeded"
     assert body["labelled"] == 1
     assert body["tiers"] == 1
 
@@ -1185,10 +1194,14 @@ def test_a_judge_that_abstains_on_the_tier_leaves_it_unset(
     settings, before = _place_with(monkeypatch, "Statistics", "13.2", None)
     try:
         out = client.post(f"/assessments/{aid}/place", headers=h)
+        assert out.status_code == 202, out.text
+        job = client.get(
+            f"/assessments/{aid}/place/jobs/{out.json()['job_id']}", headers=h
+        )
     finally:
         settings.anthropic_api_key = before
-    assert out.status_code == 200, out.text
-    assert out.json()["tiers"] == 0
+    assert job.status_code == 200, job.text
+    assert job.json()["tiers"] == 0
 
     placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
     assert placed["mapped_to"]["tier"] is None

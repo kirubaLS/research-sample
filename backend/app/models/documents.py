@@ -273,3 +273,30 @@ class PaperScanJob(Base, PkMixin, TimestampMixin):
     error_status: Mapped[int | None] = mapped_column(nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PlacementJob(Base, PkMixin, TimestampMixin):
+    """Placing a paper's questions cannot finish inside one HTTP request either, for the
+    same reason GridSheetJob and PaperScanJob exist: this is not one vision call but a
+    classifier call per question -- around forty for an ordinary paper -- and the sum of
+    forty round trips runs past a reverse proxy's request timeout long before the model
+    itself is done, even though every individual call succeeds. A synchronous handler
+    here returned nothing (the request simply never completed), which looked from the
+    browser like the classify step had silently done nothing at all and left the paper
+    sitting on "mapped".
+
+    No extra payload column: unlike a scan or a grid sheet, the input this job reads
+    (the paper's own Question rows, already scanned and mapped) is already durable in
+    the database by the time this job is queued, so there is nothing else to store here.
+    """
+
+    __tablename__ = "placement_job"
+
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    #: whatever the synchronous handler used to return as its response body
+    result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    error_status: Mapped[int | None] = mapped_column(nullable=True)
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

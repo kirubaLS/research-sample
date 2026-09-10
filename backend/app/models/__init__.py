@@ -29,6 +29,7 @@ from app.models.documents import (
     GridSheetJob,
     GridSheetRow,
     PaperScanJob,
+    PlacementJob,
     ProposedMark,
     ScanDocument,
     ScanPage,
@@ -72,6 +73,7 @@ __all__ = [
     "STAFF_ROLES", "StaffKey",
     "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport", "ProposedMark",
     "GRID_ROW_STATUSES", "GridSheetRow", "GridSheetJob", "GRID_JOB_KINDS", "PaperScanJob",
+    "PlacementJob",
     "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
     "CaptureAsset", "Crop", "Prediction", "HumanLabel", "Disagreement",
 ]

@@ -417,7 +417,10 @@ export default function PaperPage() {
     const key = getApiKey();
     if (!key || !assessmentId) return;
     setError(null);
-    setBusy("Reading each question against the passages it matched…");
+    // A call per question, around forty for an ordinary paper -- this now polls a
+    // background job rather than blocking on one request, so it can genuinely take a
+    // while; the busy message says so rather than reading like something is stuck.
+    setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
     try {
       setPlaced(await api.placePaper(key, assessmentId));
       await refresh(assessmentId);

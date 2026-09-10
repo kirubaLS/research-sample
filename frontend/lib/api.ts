@@ -675,6 +675,32 @@ export async function pollJob<T>(
   }
 }
 
+/**
+ * A plain POST (no file body) that may answer 202 + job_id instead of the result
+ * directly -- the placement endpoint's shape, distinct from upload()/uploadMany() only in
+ * having nothing to attach as multipart form data.
+ */
+async function postAndPoll<T>(
+  path: string, key: string, onJobQueued?: (jobId: string) => void,
+): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: { "X-API-Key": key, ...scopeHeader() },
+    });
+  } catch {
+    throw new ApiUnreachable(BASE);
+  }
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  const data = (await res.json()) as Record<string, unknown>;
+  if (data.status === "pending" && typeof data.job_id === "string") {
+    onJobQueued?.(data.job_id);
+    return pollJob<T>(path, key, data.job_id, "X-API-Key");
+  }
+  return data as T;
+}
+
 async function upload<T>(
   path: string,
   key: string,
@@ -1129,9 +1155,21 @@ export const api = {
     authed<MapResult>(`/assessments/${assessmentId}/map`, key, { method: "POST" }),
 
   /** The judge reads the passages retrieval found and settles chapter, topic, sub-topic
-   *  and the cognitive category. Needs the classifier key on the API service. */
-  placePaper: (key: string, assessmentId: string) =>
-    authed<PlaceResult>(`/assessments/${assessmentId}/place`, key, { method: "POST" }),
+   *  and the cognitive category. Needs the classifier key on the API service.
+   *
+   *  A call per question -- around forty for an ordinary paper -- so this always answers
+   *  202 with a job to poll rather than the result directly: the sum of those calls runs
+   *  past a reverse proxy's request timeout long before the model itself is done, the same
+   *  reason scanPaper() and uploadGridSheet() poll instead of blocking. onJobQueued fires
+   *  the instant it's queued, for the same reason scanPaper's does: so a lost connection
+   *  resumes watching the job already running server-side, rather than reclassifying the
+   *  whole paper a second time. */
+  placePaper: (key: string, assessmentId: string, onJobQueued?: (jobId: string) => void) =>
+    postAndPoll<PlaceResult>(`/assessments/${assessmentId}/place`, key, onJobQueued),
+
+  /** Resume watching a placement job already queued on the server -- see resumeScanJob. */
+  resumePlacementJob: (key: string, assessmentId: string, jobId: string) =>
+    pollJob<PlaceResult>(`/assessments/${assessmentId}/place`, key, jobId, "X-API-Key"),
 
   uploadContents: (key: string, subject: string, file: File, edition: string) =>
     upload<{ chapters_expected: number; sections_expected: number; next: string }>(

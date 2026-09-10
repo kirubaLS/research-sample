@@ -8,7 +8,10 @@ wrong, but from one that is never confidently wrong and hands the rest over.
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from datetime import UTC, datetime
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -24,6 +27,7 @@ from app.models import (
     Assessment,
     BookChunk,
     ConceptFamilyProposal,
+    PlacementJob,
     Question,
     QuestionPlacement,
     QuestionTier,
@@ -89,29 +93,344 @@ def set_scope(
     return {"assessment_id": a.id, "scope": a.syllabus_scope, "chapters": len(known)}
 
 
-@router.post("/{assessment_id}/place")
+def _finish_placement_job(
+    job_id: str, *, status_value: str, result: dict | None = None,
+    error_status: int | None = None, error_detail: str | None = None,
+) -> None:
+    """Write a job's outcome in its own short-lived session -- see _run_placement_job's
+    docstring for why a session is never held open across the classifier calls
+    themselves."""
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        job = db.get(PlacementJob, job_id)
+        if job is None:
+            return
+        job.status = status_value
+        job.result = result
+        job.error_status = error_status
+        job.error_detail = error_detail
+        job.finished_at = datetime.now(UTC)
+        db.commit()
+    finally:
+        db.close()
+
+
+def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run, not worth splitting
+    """The slow part of placement, run after the request that queued it has already
+    returned.
+
+    Two short-lived sessions, never one held open across the classifier calls: the same
+    lesson GridSheetJob's own docstring gives -- a session kept open while ~40 sequential
+    Anthropic calls run sits idle-in-transaction for however long that takes, and Postgres
+    enforces its own idle-in-transaction timeout regardless of what this process is doing.
+    Unlike a grid sheet's clean split, placement needs the database again afterwards (to
+    write every QuestionPlacement and QuestionTier row), so this is three phases, not two:
+    read what the classifier needs, close the session, call it, then a fresh session to
+    write what it decided.
+
+    Never raises: every failure is caught and written to the job row, because that row is
+    the only place left a failure can be seen once the request that would have shown it
+    has already returned.
+    """
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        job = db.get(PlacementJob, job_id)
+        if job is None:
+            return
+        a = db.get(Assessment, job.assessment_id)
+        if a is None:
+            _finish_placement_job(
+                job_id, status_value="failed", error_status=404,
+                error_detail="the paper this job belonged to was removed",
+            )
+            return
+        settings = get_settings()
+
+        questions = db.scalars(
+            select(Question).where(Question.assessment_id == a.id).order_by(Question.address)
+        ).all()
+        stems = [(q.id, q.stem_text or "", float(q.max_marks)) for q in questions if q.stem_text]
+        if not stems:
+            _finish_placement_job(
+                job_id, status_value="failed", error_status=409,
+                error_detail=(
+                    "no question text to work from. Placement reads the stems; add them "
+                    "with the questions, or run the paper through recognition first."
+                ),
+            )
+            return
+        if not settings.anthropic_api_key:
+            _finish_placement_job(
+                job_id, status_value="failed", error_status=409,
+                error_detail=(
+                    "no classifier key configured. Set YAADHUM_ANTHROPIC_API_KEY. "
+                    "Retrieval alone cannot tell a question about a theorem from the "
+                    "theorem, so placement without it would need reviewing question by "
+                    "question."
+                ),
+            )
+            return
+
+        chunks = db.scalars(
+            select(BookChunk).where(BookChunk.subject_code == a.subject_code)
+        ).all()
+        if not chunks:
+            _finish_placement_job(
+                job_id, status_value="failed", error_status=409,
+                error_detail=f"no book loaded for {a.subject_code}",
+            )
+            return
+
+        nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+        by_label = {n.label: n for n in nodes.values() if n.kind == "chapter"}
+        unit_by_chapter = _chapter_to_unit(db, nodes)
+
+        indexes: list = [LexicalIndex(chunks)]
+        if settings.jina_api_key and any(c.embedding for c in chunks):
+            from app.ingest.jina import JinaEmbedder
+
+            indexes.append(SemanticIndex(chunks, JinaEmbedder(
+                settings.jina_api_key, model=settings.embedding_model,
+                dimensions=settings.embedding_dimensions,
+            )))
+
+        # The sections the book ingest actually extracted, so an invented "12.9" is
+        # caught rather than stored. Without this the section is unverifiable and gets
+        # dropped -- an unverified value must never read as a verified one.
+        known_sections: dict[str, set[str]] = {}
+        for node in nodes.values():
+            if node.kind != "subtopic":
+                continue
+            parent = nodes.get(node.parent_id)
+            if parent is None or parent.kind != "chapter":
+                continue
+            # codes look like X.MATH.SAV.S12_2 -- the section number is the tail
+            tail = node.code.rsplit(".", 1)[-1]
+            if tail.startswith("S") and "_" in tail:
+                known_sections.setdefault(parent.label, set()).add(tail[1:].replace("_", "."))
+
+        from app.classify.anthropic_judge import AnthropicJudge
+
+        judge = AnthropicJudge(
+            settings.anthropic_api_key,
+            model=settings.model_classifier,
+            known_sections=known_sections or None,
+            effort=settings.model_effort,
+            passage_chars=settings.classifier_passage_chars,
+        )
+
+        scope = None
+        if a.syllabus_scope:
+            scope = {nodes[n.id].label for n in by_label.values() if n.code in a.syllabus_scope}
+
+        families: dict[str, list[TaxonomyNode]] = {}
+        for node in nodes.values():
+            if node.kind == "concept_family" and node.parent_id:
+                families.setdefault(node.parent_id, []).append(node)
+        sections_of = {
+            row.code: set(clean_sections(row.from_sections))
+            for row in db.scalars(select(ConceptFamilyProposal).where(
+                ConceptFamilyProposal.subject_code == a.subject_code
+            ))
+        }
+        declared = (a.declared or {}).get("board_units")
+        paper_kind, subject_code, assessment_id = a.paper_kind, a.subject_code, a.id
+    finally:
+        db.close()  # released BEFORE the slow classifier calls below, not held across it
+
+    try:
+        result = place_paper(
+            stems, indexes, judge,
+            # What the reader is shown, and so what the run costs. Both from settings.
+            evidence_passages=settings.classifier_evidence_passages,
+            evidence_chapters=settings.classifier_evidence_chapters,
+            chapter_of=lambda nid: nodes[nid].label if nid in nodes else None,
+            unit_of=lambda label: unit_by_chapter.get(label),
+            section_of=lambda ref: None,
+            declared=declared,
+            scope=scope,
+        )
+    except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
+        _finish_placement_job(
+            job_id, status_value="failed", error_status=502,
+            error_detail=f"classification failed ({type(exc).__name__}: {exc})",
+        )
+        return
+
+    db = SessionLocal()
+    try:
+        settled, unsettled, refused = 0, 0, []
+        for placed in result.questions:
+            chapter = by_label.get(placed.chapter)
+            unit_id = _unit_node_id(db, nodes, placed.board_unit)
+            question = db.get(Question, placed.question_id)
+
+            # The judge reads the passages retrieval found and can tell a question ABOUT
+            # a theorem from the theorem, which is the whole reason it exists. Its answer
+            # used to be written only as a placement, while every report prefers what the
+            # question itself carries -- so the correction was recorded and then ignored.
+            # It settles the question now, exactly as a teacher's correction does, and the
+            # mapping step's attempt stays in the placement history.
+            choice = Choice(None)
+            if question is not None and chapter is not None:
+                choice = choose_family(
+                    families.get(chapter.id, []), sections_of,
+                    placed.curriculum_section, chapter.label,
+                )
+                if choice.family is not None:
+                    question.chapter_id = chapter.id
+                    question.curriculum_section = placed.curriculum_section
+                    question.concept_family_id = choice.family.id
+                    if unit_id:
+                        question.board_unit_id = unit_id
+                    settled += 1
+                    if choice.unsettled:
+                        unsettled += 1
+                else:
+                    # The chapter changed to one whose families cannot place this
+                    # question. Leaving the old family in place would file the marks
+                    # under a chapter the judge has just said is the wrong one.
+                    refused.append(placed.question_id)
+                if placed.skill_required:
+                    question.skill_required = placed.skill_required
+
+            db.add(QuestionPlacement(
+                question_id=placed.question_id,
+                chapter_id=chapter.id if chapter else None,
+                board_unit_id=unit_id,
+                curriculum_section=placed.curriculum_section,
+                tier=placed.tier,
+                skill_required=placed.skill_required,
+                confidence=placed.confidence,
+                source="blueprint" if placed.overruled else "model",
+                needs_review=(
+                    placed.needs_review
+                    or choice.unsettled is not None
+                    or choice.blocked is not None
+                ),
+                reasoning=" ".join(filter(None, [
+                    placed.reasoning, choice.unsettled, choice.blocked,
+                ])),
+                evidence=placed.evidence,
+                candidates=[placed.chapter],
+            ))
+            # The tier belongs on its own append-only row too. Reports read it from
+            # there, so writing it only onto the placement meant the judge decided the
+            # cognitive tier of every question and no report ever saw one.
+            db.add(QuestionTier(
+                question_id=placed.question_id,
+                tier=tier_code(placed.tier),
+                confidence=placed.confidence,
+                source="ensemble",
+                model_version=settings.model_classifier,
+                rationale=placed.reasoning,
+            ))
+        db.commit()
+
+        # The judge may have moved questions between families, and on a board paper that
+        # is a change to the evidence the frequency table rests on.
+        frequency = None
+        if paper_kind == "board" and settled:
+            from app.curriculum.board_frequency import recompute as recompute_frequency
+            from app.curriculum.board_frequency import stream_of
+
+            a = db.get(Assessment, assessment_id)
+            frequency = recompute_frequency(db, subject_code, stream=stream_of(a))
+
+        response = {
+            "assessment_id": assessment_id,
+            "placed": len(result.questions),
+            "board_frequency": frequency,
+            #: questions whose chapter, topic and sub-topic the judge settled on the
+            #: question itself, which is what every report reads
+            "labelled": settled,
+            #: settled, but more than one family had an equal claim on the section
+            "unsettled_family": unsettled,
+            #: the judge moved the question to a chapter whose families cannot place it,
+            #: so the old family was left rather than filed under a chapter it was just
+            #: told is the wrong one
+            "family_refused": len(refused),
+            "tiers": sum(1 for q in result.questions if tier_code(q.tier)),
+            #: What this run actually cost, in tokens, read back off the responses. Not
+            #: an estimate: every figure anybody has quoted for a paper so far was
+            #: arithmetic on a guess about the prompt, and the two differed by more than
+            #: double.
+            "spend": {
+                "model": settings.model_classifier,
+                "effort": settings.model_effort,
+                "calls": getattr(judge, "calls", 0),
+                "input_tokens": getattr(judge, "input_tokens", 0),
+                "output_tokens": getattr(judge, "output_tokens", 0),
+                "passages_shown": settings.classifier_evidence_passages,
+                "chapters_shown": settings.classifier_evidence_chapters,
+            },
+            "settled": result.settled,
+            "needs_review": result.reviewed_count,
+            "blueprint_feasible": result.feasible,
+            "note": result.note,
+            # How often the knowledge base had to correct the model. A rising number is
+            # the signal that the next paper cannot be trusted to it unattended.
+            "grounding_violations": [
+                {"question": q, "problems": v} for q, v in getattr(judge, "violations", [])
+            ],
+            "scope_source": result.scope_source,
+            "scope": {
+                "chapters": sorted(result.scope.chapters),
+                "rejected": result.scope.rejected,
+                "tally": result.scope.tally,
+                "confident": result.scope.confident,
+                "note": result.scope.note,
+            } if result.scope else None,
+        }
+    except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
+        _finish_placement_job(
+            job_id, status_value="failed", error_status=500,
+            error_detail=f"{type(exc).__name__}: {exc}",
+        )
+        return
+    finally:
+        db.close()
+
+    _finish_placement_job(job_id, status_value="succeeded", result=response)
+
+
+@router.post("/{assessment_id}/place", status_code=status.HTTP_202_ACCEPTED)
 def place(
     assessment_id: str,
+    background_tasks: BackgroundTasks,
     # The same permission as reading a paper and mapping it: this is a step of that flow,
     # and an admin-only step in the middle of it is a wall a principal cannot get past.
     school: School = Depends(require_scanner),
     db: Session = Depends(get_session),
-) -> dict:
-    """Run retrieval, the judge and the constraints over every question in the paper."""
+) -> JSONResponse:
+    """Queue retrieval, the judge and the constraints over every question in the paper.
+
+    A classifier call per question -- around forty for an ordinary paper -- is a request
+    this cannot answer synchronously (see PlacementJob's docstring), so this only queues
+    the work and returns a job id; poll GET .../place/jobs/{job_id} for the result this
+    endpoint used to return directly. The quick checks below (question text exists, a
+    classifier key is configured, a book is loaded) still run inline: each is a fast,
+    local read, and failing them here means the person who clicked Classify learns why in
+    the same second, rather than after a job that was doomed from the start.
+    """
     settings = get_settings()
     a = _assessment(db, school, assessment_id)
 
-    questions = db.scalars(
-        select(Question).where(Question.assessment_id == a.id).order_by(Question.address)
-    ).all()
-    stems = [(q.id, q.stem_text or "", float(q.max_marks)) for q in questions if q.stem_text]
-    if not stems:
+    has_stems = db.scalar(
+        select(Question.id).where(
+            Question.assessment_id == a.id, Question.stem_text.is_not(None)
+        ).limit(1)
+    )
+    if not has_stems:
         raise HTTPException(
             409,
             "no question text to work from. Placement reads the stems; add them with the "
             "questions, or run the paper through recognition first.",
         )
-
     if not settings.anthropic_api_key:
         raise HTTPException(
             409,
@@ -119,204 +438,44 @@ def place(
             "cannot tell a question about a theorem from the theorem, so placement without "
             "it would need reviewing question by question.",
         )
-    from app.classify.anthropic_judge import AnthropicJudge
-
-    chunks = db.scalars(
-        select(BookChunk).where(BookChunk.subject_code == a.subject_code)
-    ).all()
-    if not chunks:
+    has_book = db.scalar(
+        select(BookChunk.id).where(BookChunk.subject_code == a.subject_code).limit(1)
+    )
+    if not has_book:
         raise HTTPException(409, f"no book loaded for {a.subject_code}")
 
-    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
-    by_label = {n.label: n for n in nodes.values() if n.kind == "chapter"}
-    unit_by_chapter = _chapter_to_unit(db, nodes)
-
-    indexes: list = [LexicalIndex(chunks)]
-    if settings.jina_api_key and any(c.embedding for c in chunks):
-        from app.ingest.jina import JinaEmbedder
-
-        indexes.append(SemanticIndex(chunks, JinaEmbedder(
-            settings.jina_api_key, model=settings.embedding_model,
-            dimensions=settings.embedding_dimensions,
-        )))
-
-    # The sections the book ingest actually extracted, so an invented "12.9" is caught
-    # rather than stored. Without this the section is unverifiable and gets dropped -- an
-    # unverified value must never read as a verified one.
-    known_sections: dict[str, set[str]] = {}
-    for node in nodes.values():
-        if node.kind != "subtopic":
-            continue
-        parent = nodes.get(node.parent_id)
-        if parent is None or parent.kind != "chapter":
-            continue
-        # codes look like X.MATH.SAV.S12_2 -- the section number is the tail
-        tail = node.code.rsplit(".", 1)[-1]
-        if tail.startswith("S") and "_" in tail:
-            known_sections.setdefault(parent.label, set()).add(tail[1:].replace("_", "."))
-
-    judge = AnthropicJudge(
-        settings.anthropic_api_key,
-        model=settings.model_classifier,
-        known_sections=known_sections or None,
-        effort=settings.model_effort,
-        passage_chars=settings.classifier_passage_chars,
-    )
-
-    scope = None
-    if a.syllabus_scope:
-        scope = {nodes[n.id].label for n in by_label.values() if n.code in a.syllabus_scope}
-
-    result = place_paper(
-        stems, indexes, judge,
-        # What the reader is shown, and so what the run costs. Both from settings.
-        evidence_passages=settings.classifier_evidence_passages,
-        evidence_chapters=settings.classifier_evidence_chapters,
-        chapter_of=lambda nid: nodes[nid].label if nid in nodes else None,
-        unit_of=lambda label: unit_by_chapter.get(label),
-        section_of=lambda ref: None,
-        declared=(a.declared or {}).get("board_units"),
-        scope=scope,
-    )
-
-    # Which families each chapter has, and which sections each of those draws on. Read
-    # from the book's own record, so a judgement lands in the same family the mapping step
-    # would have chosen for the same section -- one rule, in app.mapping.family.
-    families: dict[str, list[TaxonomyNode]] = {}
-    for node in nodes.values():
-        if node.kind == "concept_family" and node.parent_id:
-            families.setdefault(node.parent_id, []).append(node)
-    sections_of = {
-        row.code: set(clean_sections(row.from_sections))
-        for row in db.scalars(select(ConceptFamilyProposal).where(
-            ConceptFamilyProposal.subject_code == a.subject_code
-        ))
-    }
-
-    settled, unsettled, refused = 0, 0, []
-    for placed in result.questions:
-        chapter = by_label.get(placed.chapter)
-        unit_id = _unit_node_id(db, nodes, placed.board_unit)
-        question = db.get(Question, placed.question_id)
-
-        # The judge reads the passages retrieval found and can tell a question ABOUT a
-        # theorem from the theorem, which is the whole reason it exists. Its answer used to
-        # be written only as a placement, while every report prefers what the question
-        # itself carries -- so the correction was recorded and then ignored. It settles the
-        # question now, exactly as a teacher's correction does, and the mapping step's
-        # attempt stays in the placement history.
-        choice = Choice(None)
-        if question is not None and chapter is not None:
-            choice = choose_family(
-                families.get(chapter.id, []), sections_of,
-                placed.curriculum_section, chapter.label,
-            )
-            if choice.family is not None:
-                question.chapter_id = chapter.id
-                question.curriculum_section = placed.curriculum_section
-                question.concept_family_id = choice.family.id
-                if unit_id:
-                    question.board_unit_id = unit_id
-                settled += 1
-                if choice.unsettled:
-                    unsettled += 1
-            else:
-                # The chapter changed to one whose families cannot place this question.
-                # Leaving the old family in place would file the marks under a chapter the
-                # judge has just said is the wrong one.
-                refused.append(placed.question_id)
-            if placed.skill_required:
-                question.skill_required = placed.skill_required
-
-        db.add(QuestionPlacement(
-            question_id=placed.question_id,
-            chapter_id=chapter.id if chapter else None,
-            board_unit_id=unit_id,
-            curriculum_section=placed.curriculum_section,
-            tier=placed.tier,
-            skill_required=placed.skill_required,
-            confidence=placed.confidence,
-            source="blueprint" if placed.overruled else "model",
-            needs_review=(
-                placed.needs_review
-                or choice.unsettled is not None
-                or choice.blocked is not None
-            ),
-            reasoning=" ".join(filter(None, [
-                placed.reasoning, choice.unsettled, choice.blocked,
-            ])),
-            evidence=placed.evidence,
-            candidates=[placed.chapter],
-        ))
-        # The tier belongs on its own append-only row too. Reports read it from there, so
-        # writing it only onto the placement meant the judge decided the cognitive tier of
-        # every question and no report ever saw one.
-        db.add(QuestionTier(
-            question_id=placed.question_id,
-            tier=tier_code(placed.tier),
-            confidence=placed.confidence,
-            source="ensemble",
-            model_version=settings.model_classifier,
-            rationale=placed.reasoning,
-        ))
+    job = PlacementJob(school_id=school.id, assessment_id=a.id)
+    db.add(job)
     db.commit()
+    background_tasks.add_task(_run_placement_job, job.id)
 
-    # The judge may have moved questions between families, and on a board paper that is
-    # a change to the evidence the frequency table rests on.
-    frequency = None
-    if a.paper_kind == "board" and settled:
-        from app.curriculum.board_frequency import recompute as recompute_frequency
-        from app.curriculum.board_frequency import stream_of
-
-        frequency = recompute_frequency(db, a.subject_code, stream=stream_of(a))
-
-    return {
-        "assessment_id": a.id,
-        "placed": len(result.questions),
-        "board_frequency": frequency,
-        #: questions whose chapter, topic and sub-topic the judge settled on the question
-        #: itself, which is what every report reads
-        "labelled": settled,
-        #: settled, but more than one family had an equal claim on the section
-        "unsettled_family": unsettled,
-        #: the judge moved the question to a chapter whose families cannot place it, so
-        #: the old family was left rather than filed under a chapter it was just told is
-        #: the wrong one
-        "family_refused": len(refused),
-        "tiers": sum(1 for q in result.questions if tier_code(q.tier)),
-        #: What this run actually cost, in tokens, read back off the responses. Not an
-        #: estimate: every figure anybody has quoted for a paper so far was arithmetic on
-        #: a guess about the prompt, and the two differed by more than double.
-        "spend": {
-            "model": settings.model_classifier,
-            "effort": settings.model_effort,
-            "calls": getattr(judge, "calls", 0),
-            "input_tokens": getattr(judge, "input_tokens", 0),
-            "output_tokens": getattr(judge, "output_tokens", 0),
-            "passages_shown": settings.classifier_evidence_passages,
-            "chapters_shown": settings.classifier_evidence_chapters,
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "job_id": job.id, "status": "pending",
+            "next": f"Poll GET /assessments/{a.id}/place/jobs/{job.id} for the result.",
         },
-        "settled": result.settled,
-        "needs_review": result.reviewed_count,
-        "blueprint_feasible": result.feasible,
-        "note": result.note,
-        # Confirming a scope is one glance; confirming thirty-eight placements is an
-        # afternoon. Getting the scope right constrains every question, so it is the thing
-        # worth putting in front of a person first.
-        # How often the knowledge base had to correct the model. A rising number is the
-        # signal that the next paper cannot be trusted to it unattended.
-        "grounding_violations": [
-            {"question": q, "problems": v} for q, v in getattr(judge, "violations", [])
-        ],
-        "scope_source": result.scope_source,
-        "scope": {
-            "chapters": sorted(result.scope.chapters),
-            "rejected": result.scope.rejected,
-            "tally": result.scope.tally,
-            "confident": result.scope.confident,
-            "note": result.scope.note,
-        } if result.scope else None,
-    }
+    )
+
+
+@router.get("/{assessment_id}/place/jobs/{job_id}")
+def get_placement_job(
+    assessment_id: str,
+    job_id: str,
+    school: School = Depends(require_scanner),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Poll for the result of a queued placement run -- see place() and PlacementJob. A
+    failed job carries the same status code and detail a synchronous run would have
+    raised, not a bare 'failed'."""
+    job = db.get(PlacementJob, job_id)
+    if job is None or job.assessment_id != assessment_id or job.school_id != school.id:
+        raise HTTPException(404, f"no job {job_id!r} for this paper")
+    if job.status == "failed":
+        raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
+    if job.status != "succeeded":
+        return {"job_id": job.id, "status": job.status}
+    return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
 
 
 def _chapter_to_unit(db: Session, nodes: dict) -> dict[str, str]:
