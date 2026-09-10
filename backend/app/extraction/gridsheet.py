@@ -22,7 +22,7 @@ import base64
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from pydantic import BaseModel, TypeAdapter
+from pydantic import BaseModel
 
 
 @dataclass
@@ -143,8 +143,15 @@ class AnthropicGridReader:
             output_format=_SheetOut,
         ) as stream:
             final_message = stream.get_final_message()
-        text = final_message.content[0].text
-        parsed: _SheetOut = TypeAdapter(_SheetOut).validate_json(text)
+        # Not content[0]: opus-5's response can open with a ThinkingBlock (no .text
+        # attribute at all) ahead of the actual text block, so indexing by position broke
+        # with an AttributeError the moment the model used extended thinking. .parsed_output
+        # is the SDK's own accumulator, already set by the stream (at content_block_stop,
+        # per anthropic.lib.streaming._messages) from whichever block is actually type
+        # "text" -- the same lookup TypeAdapter(...).validate_json(text) was standing in for.
+        parsed = final_message.parsed_output
+        if parsed is None:
+            raise ValueError("the model's response carried no readable text content")
         out = GridReading()
         for row in parsed.rows:
             roll = row.roll_no.strip()

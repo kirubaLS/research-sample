@@ -22,6 +22,7 @@ Four acts:
 
 from __future__ import annotations
 
+import logging
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
@@ -53,6 +54,7 @@ from app.models import (
     StudentProfile,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/assessments", tags=["marks-engine"])
 
 MAX_SHEET_BYTES = 15 * 1024 * 1024
@@ -272,11 +274,19 @@ def _run_gridsheet_job(job_id: str) -> None:
         # propagate past this function uncaught, which would strand the job at "pending"
         # forever -- the same failure mode the DB-write block below is already guarded
         # against.
+        #
+        # logger.exception, not just the bare type name in error_detail: three separate
+        # bugs in this one call (SDK's non-streaming max_tokens ceiling, then a ThinkingBlock
+        # breaking a content[0] assumption) each took a fresh round of pulling container
+        # logs by hand to even see *what* had gone wrong, because only type(exc).__name__
+        # reached anywhere -- str(exc) is the difference between those two failures at a
+        # glance and another blind SSH round-trip.
+        logger.exception("gridsheet job %s: vision read failed", job_id)
         _finish_gridsheet_job(
             job_id, status_value="failed", error_status=502,
             error_detail=(
-                f"reading this sheet failed ({type(exc).__name__}) -- please try again, or "
-                f"retake the photo if it keeps happening"
+                f"reading this sheet failed ({type(exc).__name__}: {exc}) -- please try "
+                f"again, or retake the photo if it keeps happening"
             ),
         )
         return
