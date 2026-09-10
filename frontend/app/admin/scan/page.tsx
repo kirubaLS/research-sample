@@ -5,6 +5,7 @@ import { Scanner } from "@/components/Scanner";
 import type { ScannedPage } from "@/lib/pageStore";
 import { api, ApiError, ApiUnreachable, PaperSummary, RosterRow, SectionSummary } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
+import { newSessionId } from "@/lib/id";
 
 function explain(err: unknown): string {
   if (err instanceof ApiUnreachable) return "Could not reach the server.";
@@ -21,7 +22,7 @@ function toFiles(pages: ScannedPage[]): File[] {
 }
 
 export default function ScanPage() {
-  const [sessionId] = useState(() => crypto.randomUUID());
+  const [sessionId] = useState(() => newSessionId());
   const [mode, setMode] = useState<"cover" | "script">("cover");
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

@@ -26,6 +26,7 @@ import {
   type ScannedPage,
 } from "@/lib/pageStore";
 import { getApiKey } from "@/lib/session";
+import { newSessionId } from "@/lib/id";
 
 /** The same conversion the single-student script scanner already uses: a captured page's
  * blob, in capture order, as a real File -- nothing downstream needs to know a camera was
@@ -85,7 +86,7 @@ export default function PaperPage() {
   const [showCamera, setShowCamera] = useState(false);
   // One id per paper, not per mount: switching subject/paper before Complete would
   // otherwise lose a half-shot paper's pages to a fresh, disconnected session.
-  const [scanSessionId] = useState(() => crypto.randomUUID());
+  const [scanSessionId] = useState(() => newSessionId());
   // A capture whose pages reached this device but never reached the server -- the
   // backend was unreachable, not that anything was wrong with the scan. Checked for on
   // mount (any tab's leftover, not just this one's) and set the moment an upload fails
