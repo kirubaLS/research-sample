@@ -181,6 +181,27 @@ export default function GridSheetPage() {
     }
   }
 
+  async function editMark(
+    row: GridSheetRowView, address: string, marks: number | null, state: string,
+  ) {
+    const key = getApiKey();
+    if (!key || !row.student) return;
+    if (!by.trim()) {
+      setError("Put your name in the box above before editing a mark -- a correction is recorded against who made it.");
+      return;
+    }
+    setBusy(`Saving ${address}`);
+    setError(null);
+    try {
+      await api.editReading(key, paperId, row.student.id, address, { marks, state, by });
+      await loadReview(documentId);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function confirmAll() {
     const key = getApiKey();
     if (!key || !documentId) return;
@@ -352,6 +373,7 @@ export default function GridSheetPage() {
                 busy={!!busy}
                 onPick={(studentId) => void resolveWithStudent(row, studentId)}
                 onCreate={(name, rollNo) => void resolveWithNewStudent(row, name, rollNo)}
+                onEditMark={(address, marks, state) => void editMark(row, address, marks, state)}
               />
             ))}
           </ol>
@@ -395,16 +417,22 @@ function GridRow({
   busy,
   onPick,
   onCreate,
+  onEditMark,
 }: {
   row: GridSheetRowView;
   students: RosterRow[];
   busy: boolean;
   onPick: (studentId: string) => void;
   onCreate: (name: string, rollNo: string) => void;
+  onEditMark: (address: string, marks: number | null, state: string) => void;
 }) {
   const [picked, setPicked] = useState("");
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState(row.name_as_written);
+  // Which mark is mid-edit, if any -- one at a time, so a half-typed correction on one
+  // cell is never lost by tapping into another before saving it.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [editValue, setEditValue] = useState("");
 
   const blocked = row.marks.filter((m) => m.problem);
 
@@ -428,11 +456,57 @@ function GridRow({
 
       {row.marks.length > 0 && (
         <div className="marks">
-          {row.marks.map((m) => (
-            <span key={m.address} className={m.problem ? "mark mark-bad" : "mark"} title={m.problem ?? undefined}>
-              {m.address}: {m.marks ?? (m.raw_value || "—")}
-            </span>
-          ))}
+          {row.marks.map((m) =>
+            editing === m.address ? (
+              <span key={m.address} className="mark mark-editing">
+                <input
+                  value={editValue}
+                  onChange={(e) => setEditValue(e.target.value)}
+                  placeholder="marks"
+                  inputMode="decimal"
+                  autoFocus
+                  style={{ width: 56 }}
+                />
+                <button
+                  type="button"
+                  className="tiny"
+                  disabled={busy}
+                  onClick={() => {
+                    const trimmed = editValue.trim();
+                    onEditMark(m.address, trimmed === "" ? null : Number(trimmed), trimmed === "" ? "not_offered" : "awarded");
+                    setEditing(null);
+                  }}
+                >
+                  Save
+                </button>
+                <button type="button" className="tiny ghost" disabled={busy} onClick={() => setEditing(null)}>
+                  Cancel
+                </button>
+              </span>
+            ) : (
+              <span
+                key={m.address}
+                className={m.problem ? "mark mark-bad" : "mark"}
+                title={row.student ? "Tap to correct this mark" : "Resolve this row to a student before editing its marks"}
+              >
+                {m.address}: {m.marks ?? (m.raw_value || "—")}
+                {row.student && (
+                  <button
+                    type="button"
+                    className="editbtn"
+                    aria-label={`Edit ${m.address}`}
+                    disabled={busy}
+                    onClick={() => {
+                      setEditValue(m.marks != null ? String(m.marks) : "");
+                      setEditing(m.address);
+                    }}
+                  >
+                    ✎
+                  </button>
+                )}
+              </span>
+            ),
+          )}
         </div>
       )}
       {blocked.length > 0 && (
@@ -504,8 +578,17 @@ function GridRow({
         .note { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; }
         .note.bad { color: var(--mark); }
         .marks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
-        .mark { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
-        .mark-bad { background: var(--mark-soft); color: var(--mark); }
+        .mark { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 6px 3px 10px; color: var(--ink-2); }
+        .mark-bad { background: var(--risk-soft, var(--mark-soft)); color: var(--risk, var(--mark)); }
+        .mark-editing { background: var(--surface); border: 1px solid var(--rule-2); padding: 3px 4px 3px 8px; }
+        .mark-editing input { padding: 3px 6px; font-size: 12px; border-radius: 6px; }
+        .editbtn {
+          all: unset; cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 5px;
+          border-radius: 999px; color: inherit; opacity: 0.6;
+        }
+        .editbtn:hover { opacity: 1; background: var(--surface); }
+        button.tiny { padding: 4px 8px; font-size: 12px; }
+        button.tiny.ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
         .resolve { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
         select, input { padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 14px; background: var(--surface); }
         button { padding: 8px 14px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 14px; transition: transform .16s var(--ease-spring, ease); }
