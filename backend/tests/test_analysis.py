@@ -8,7 +8,12 @@ from app.analysis.diagnostics import (
     skill_by_tier,
     wilson_interval,
 )
-from app.analysis.paper_quality import cronbach_alpha, item_analysis, typology_alignment
+from app.analysis.paper_quality import (
+    cronbach_alpha,
+    diagnostic_strength_tier,
+    item_analysis,
+    typology_alignment,
+)
 
 #: board unit and concept family, kept short so the fixtures stay readable
 MENS, VOL = "U.MENSURATION", "CF.VOLUME"
@@ -112,6 +117,20 @@ def test_typology_alignment_passes_a_balanced_paper():
     rep = typology_alignment({"R&U": 43.2, "AP": 19.2, "AEC": 17.6})
     assert rep.alignment_score > 0.95
     assert "well aligned" in rep.verdict
+
+
+def test_diagnostic_strength_is_strong_only_when_aligned_and_coherent():
+    assert diagnostic_strength_tier(alignment_score=0.9, alpha=0.8) == "STRONG"
+    assert diagnostic_strength_tier(alignment_score=0.9, alpha=None) == "STRONG"
+
+
+def test_diagnostic_strength_is_limited_on_either_axis_alone():
+    assert diagnostic_strength_tier(alignment_score=0.3, alpha=0.9) == "LIMITED"
+    assert diagnostic_strength_tier(alignment_score=0.9, alpha=0.3) == "LIMITED"
+
+
+def test_diagnostic_strength_is_moderate_between_the_two():
+    assert diagnostic_strength_tier(alignment_score=0.7, alpha=0.8) == "MODERATE"
 
 
 def test_strengths_rank_on_the_interval_not_the_point_estimate():

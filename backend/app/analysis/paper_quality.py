@@ -139,6 +139,30 @@ def typology_alignment(
     return AlignmentReport(observed, tgt, chi, alignment, verdict)
 
 
+#: STRONG/MODERATE/LIMITED are what a principal reads; alignment_score and cronbach_alpha
+#: are what the two numbers underneath it actually are. Kept as one function, not a
+#: threshold copied wherever this is shown, for the same reason confidence_tier and
+#: urgency_tier are single functions: the badge and the numbers it summarises must never
+#: be able to disagree with each other.
+def diagnostic_strength_tier(alignment_score: float, alpha: float | None) -> str:
+    """How much a principal should trust this paper to diagnose Board readiness.
+
+    Two different questions, both folded in: does the paper's own tier mix (recall vs
+    application vs higher-order) resemble what the Board actually sets (alignment_score),
+    and did the paper's items behave as one coherent test rather than measuring
+    unrelated things (cronbach's alpha). A paper can fail on either axis -- a
+    recall-heavy paper with perfectly consistent items still under-tests application
+    readiness, and a well-balanced paper with incoherent items is not trustworthy either.
+    ``alpha`` is None below 3 students or 2 items (see cronbach_alpha) -- too little
+    evidence to judge reliability at all, so it is simply not held against the paper.
+    """
+    if alignment_score >= 0.85 and (alpha is None or alpha >= 0.7):
+        return "STRONG"
+    if alignment_score < 0.5 or (alpha is not None and alpha < 0.5):
+        return "LIMITED"
+    return "MODERATE"
+
+
 def board_unit_coverage(
     marks_by_unit: dict[str, float],
     board_weights: dict[str, float],

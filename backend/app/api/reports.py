@@ -21,7 +21,12 @@ from app.analysis.diagnostics import (
     select_strengths,
     skill_by_tier,
 )
-from app.analysis.paper_quality import cronbach_alpha, item_analysis, typology_alignment
+from app.analysis.paper_quality import (
+    cronbach_alpha,
+    diagnostic_strength_tier,
+    item_analysis,
+    typology_alignment,
+)
 from app.analysis.report_pdf import render_student_report_pdf
 from app.api.deps import require_reader
 from app.db import get_session
@@ -567,13 +572,22 @@ def paper_report(
             marks_by_tier[r.tier] = marks_by_tier.get(r.tier, 0.0) + r.max_marks
 
     stats = item_analysis(scores, maxes)
+    alpha = cronbach_alpha(scores, sorted(maxes))
+    alignment = typology_alignment(marks_by_tier)
     return {
         "assessment_id": a.id,
         "students": len(scores),
         "items": [s.__dict__ for s in stats],
         "flagged_items": [s.address for s in stats if s.flag],
-        "cronbach_alpha": cronbach_alpha(scores, sorted(maxes)),
-        "typology_alignment": typology_alignment(marks_by_tier).as_dict(),
+        "cronbach_alpha": alpha,
+        "typology_alignment": alignment.as_dict(),
+        #: STRONG/MODERATE/LIMITED, and the two application/higher-order shares a
+        #: principal actually asks for -- both read straight off typology_alignment's own
+        #: `observed` tier shares (AP = Applying, AEC = Analysing/Evaluating/Creating), so
+        #: this can never disagree with the verdict text sitting right next to it.
+        "diagnostic_strength": diagnostic_strength_tier(alignment.alignment_score, alpha),
+        "application_share": alignment.observed.get("AP"),
+        "higher_order_share": alignment.observed.get("AEC"),
     }
 
 

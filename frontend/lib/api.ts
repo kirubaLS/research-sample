@@ -248,8 +248,35 @@ export interface Finding {
   rate: number | null;
   ci: [number, number] | null;
   sufficient: boolean;
+  /** HIGH / MEDIUM / EMERGING -- never derive this yourself from `sufficient`/`ci`,
+   * the backend's confidence_tier is the one place that boundary is allowed to live. */
+  confidence: "HIGH" | "MEDIUM" | "EMERGING";
   message: string | null;
   evidence: Proof[];
+  /** Only present on `focus`/`findings` entries -- how much this topic matters for the
+   * Board, resolved through the question's own board unit. */
+  board?: {
+    board_unit: string | null;
+    board_weight_pct: number | null;
+    frequency_multiplier: number;
+    urgency: number | null;
+    note: string | null;
+  };
+}
+
+export interface BoardUrgencyRow {
+  key: string;
+  label: string;
+  board_unit: string | null;
+  board_weight_pct: number | null;
+  frequency_multiplier: number;
+  urgency: number | null;
+  /** VERY HIGH / HIGH / MEDIUM / LOW -- null only when there are no eligible board
+   * years to judge yet, which is a different state from LOW and should read that way. */
+  urgency_tier: "VERY HIGH" | "HIGH" | "MEDIUM" | "LOW" | null;
+  years_appeared: number | null;
+  years_eligible: number | null;
+  note: string | null;
 }
 
 export interface StudentDiagnosis {
@@ -264,6 +291,7 @@ export interface StudentDiagnosis {
   tier_summary: Finding[];
   findings: Finding[];
   all_crosstab: Finding[];
+  board_urgency: BoardUrgencyRow[];
   board_weighted_indicators: {
     board_unit: string;
     label: string;
@@ -280,6 +308,37 @@ export interface StudentDiagnosis {
     message: string;
   }[];
   not_offered: string[];
+}
+
+export interface PaperReport {
+  assessment_id: string;
+  students: number;
+  items: {
+    address: string;
+    difficulty: number | null;
+    discrimination: number | null;
+    negative_discrimination: boolean;
+    low_discrimination: boolean;
+    no_variance: boolean;
+    flag: boolean;
+  }[];
+  flagged_items: string[];
+  cronbach_alpha: number | null;
+  typology_alignment: {
+    observed: Record<string, number>;
+    target: Record<string, number>;
+    chi_square: number;
+    alignment_score: number;
+    verdict: string;
+  };
+  /** STRONG / MODERATE / LIMITED -- read this and the verdict text together, never the
+   * alignment_score alone: the spec is explicit that a bare percentage with no
+   * interpretation is not the point. */
+  diagnostic_strength: "STRONG" | "MODERATE" | "LIMITED";
+  /** Share of this paper's marks that were Applying-tier / Analysing-Evaluating-Creating
+   * tier -- null only when the paper carried no tier-tagged marks at all. */
+  application_share: number | null;
+  higher_order_share: number | null;
 }
 
 export interface ScanPageRef {
@@ -1262,4 +1321,9 @@ export const api = {
 
   interestReport: (key: string, studentId: string) =>
     authed<InterestReport>(`/reports/interest/${studentId}`, key),
+
+  // --- board intelligence ---
+
+  paperReport: (key: string, assessmentId: string) =>
+    authed<PaperReport>(`/reports/paper/${assessmentId}`, key),
 };

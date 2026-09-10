@@ -32,6 +32,7 @@ const WORK: Item[] = [
   { href: "/admin/answers", label: "Answer sheet", glyph: "▧" },
   { href: "/admin/gridsheet", label: "Class mark sheet", glyph: "▥" },
   { href: "/admin/scan", label: "Scan scripts", glyph: "▨" },
+  { href: "/admin/boardx", label: "Board intelligence", glyph: "◈" },
 ];
 
 const PLATFORM: Item[] = [
