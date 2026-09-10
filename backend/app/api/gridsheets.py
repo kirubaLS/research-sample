@@ -261,10 +261,25 @@ def _run_gridsheet_job(job_id: str) -> None:
         db.close()  # released BEFORE the slow vision call below, not held across it
 
     api_key = get_settings().anthropic_api_key
-    reading = (
-        read_grid(pages, api_key=api_key) if job_kind == "class_photo"
-        else read_single_script(pages, api_key=api_key)
-    )
+    try:
+        reading = (
+            read_grid(pages, api_key=api_key) if job_kind == "class_photo"
+            else read_single_script(pages, api_key=api_key)
+        )
+    except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
+        # A malformed or truncated response from the vision call (e.g. a Pydantic
+        # ValidationError when the model's JSON was cut off) must land here rather than
+        # propagate past this function uncaught, which would strand the job at "pending"
+        # forever -- the same failure mode the DB-write block below is already guarded
+        # against.
+        _finish_gridsheet_job(
+            job_id, status_value="failed", error_status=502,
+            error_detail=(
+                f"reading this sheet failed ({type(exc).__name__}) -- please try again, or "
+                f"retake the photo if it keeps happening"
+            ),
+        )
+        return
     if reading.refused:
         _finish_gridsheet_job(job_id, status_value="failed", error_status=422, error_detail=reading.refused)
         return

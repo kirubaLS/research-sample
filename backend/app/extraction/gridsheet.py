@@ -129,7 +129,11 @@ class AnthropicGridReader:
         })
         response = self.client.messages.parse(
             model=self.model,
-            max_tokens=8000,
+            # A full class sheet can run to 40+ students x several questions each, and the
+            # structured JSON repeats every field name per cell -- 8000 tokens truncated
+            # mid-response on an ordinary-sized class, failing Pydantic's json_invalid
+            # check on a well-formed answer that simply hadn't finished yet.
+            max_tokens=32000,
             system=self.system,
             messages=[{"role": "user", "content": content}],
             output_format=_SheetOut,
