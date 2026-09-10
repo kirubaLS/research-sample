@@ -57,15 +57,13 @@ export function SideNav() {
 
   useEffect(() => {
     setSignedIn(Boolean(getApiKey()));
-    // A known role is authoritative and wins outright, in either direction: a principal
-    // who once ran the operator console on this same browser must not still see it after
-    // signing in as a principal, and a signed-in admin must see it even before anything
-    // else has touched the platform key. The raw platform key is a fallback only for the
-    // one case with no role opinion at all -- a pure /platform visit that never went
-    // through the admin sign-in, so getRole() has nothing cached to say either way.
-    const r = getRole();
-    setRole(r);
-    setConsole(r ? Boolean(r.can.manage_schools) : Boolean(getPlatformKey()));
+    setRole(getRole());
+    // The Platform group (Schools, Books, Load a language, Probe) is the operator
+    // console, not a school console -- it belongs to whoever runs the deployment, never
+    // to a school's own admin or principal key, even though an admin key with no school
+    // could technically call those endpoints too. Gated on the real platform key alone,
+    // so signing in with a school's admin key never surfaces it.
+    setConsole(Boolean(getPlatformKey()));
   }, [pathname]);
 
   if (!signedIn && !console_) return null;

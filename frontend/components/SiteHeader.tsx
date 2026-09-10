@@ -3,50 +3,30 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { getActiveSchool, getApiKey, getPlatformKey, getRole } from "@/lib/session";
+import { getApiKey, getPlatformKey } from "@/lib/session";
 
 /**
  * The navigation that was missing. A student following a class link sees only the brand —
  * no route into the staff side is offered to someone taking the test.
+ *
+ * The front door ("/", "/t", "/t/thanks" -- anywhere outside /admin and /platform, which
+ * carry the standing SideNav instead) is a page a student reaches as often as staff do, so
+ * it draws no operational tabs at all: no Dashboard, no Question paper, no Schools. Once
+ * inside /admin the SideNav already names exactly what that signed-in key may do; a second,
+ * looser copy of the same links up here duplicated the promise without the per-tab
+ * permission check SideNav now does, so it is a sign-in affordance only, not a shortcut
+ * rail.
  */
 export function SiteHeader() {
   const pathname = usePathname() ?? "";
-  const isStudentFlow = pathname.startsWith("/t/");
-  // On the staff screens the standing side navigation already carries these, and a second
-  // copy of the same four links in the bar above it is noise, doubly so on a phone where
-  // both rows scroll sideways.
   const hasSideNav = pathname.startsWith("/admin") || pathname.startsWith("/platform");
+  // /t and everything under it (the class-code entry, the test itself, the thank-you
+  // page) is the student's whole path through the product -- no staff sign-in prompt
+  // belongs anywhere on it, not even the single link the front door keeps.
+  const isStudentFlow = pathname.startsWith("/t");
 
-  // The console is for whoever runs the deployment, not for a school, so the link only
-  // appears once an operator has signed in here. Read after mount: localStorage does not
-  // exist during the server render, and reading it inline would mismatch on hydration.
-  const [isOperator, setIsOperator] = useState(false);
-  useEffect(() => setIsOperator(Boolean(getPlatformKey())), [pathname]);
-
-  // A principal reads results; they do not run the scanners. Offering links that lead to
-  // a refusal is worse than not offering them, so the nav follows the role. Read after
-  // mount for the same reason as the operator key above.
-  // Nothing on the staff side is offered until somebody is actually signed in, and then
-  // only what their key opens. Offering a link that leads to a sign-in page or a refusal
-  // is worse than not offering it. Read after mount, like the operator key above.
-  const [canScan, setCanScan] = useState(false);
-  const [canEnterMarks, setCanEnterMarks] = useState(false);
-  const [canManageSchools, setCanManageSchools] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
-  useEffect(() => {
-    const role = getRole();
-    const staffKey = Boolean(getApiKey());
-    setSignedIn(staffKey);
-    setCanManageSchools(Boolean(role?.can.manage_schools) || Boolean(getPlatformKey()));
-    // An admin who has not chosen a school yet has nothing for these screens to act on.
-    // Scanning a question paper and entering marks are two different permissions on
-    // /admin/me's own `can` object -- one link per capability, not one "canRun" flag
-    // standing in for both, so a role that can do one but not the other only ever sees
-    // the link it actually opens.
-    const hasSchool = Boolean(getActiveSchool() || role?.scope === "one_school");
-    setCanScan(staffKey && Boolean(role?.can.scan_papers) && hasSchool);
-    setCanEnterMarks(staffKey && Boolean(role?.can.enter_marks) && hasSchool);
-  }, [pathname]);
+  useEffect(() => setSignedIn(Boolean(getApiKey()) || Boolean(getPlatformKey())), [pathname]);
 
   return (
     <header className="siteheader">
@@ -62,61 +42,9 @@ export function SiteHeader() {
           </span>
         </Link>
 
-        {!isStudentFlow && !hasSideNav && (
+        {!hasSideNav && !isStudentFlow && (
           <nav className="navlinks">
-            {signedIn && (
-              <Link href="/admin" aria-current={pathname === "/admin" ? "page" : undefined}>
-                Dashboard
-              </Link>
-            )}
-            {canScan && (
-              <Link
-                href="/admin/paper"
-                aria-current={pathname === "/admin/paper" ? "page" : undefined}
-              >
-                Question paper
-              </Link>
-            )}
-            {canEnterMarks && (
-              <Link
-                href="/admin/answers"
-                aria-current={pathname === "/admin/answers" ? "page" : undefined}
-              >
-                Answer sheet
-              </Link>
-            )}
-            {canScan && (
-              <Link
-                href="/admin/scan"
-                aria-current={pathname === "/admin/scan" ? "page" : undefined}
-              >
-                Scan scripts
-              </Link>
-            )}
-            {(isOperator || canManageSchools || pathname.startsWith("/platform")) && (
-              <Link
-                href="/platform"
-                aria-current={pathname.startsWith("/platform") ? "page" : undefined}
-              >
-                Schools
-              </Link>
-            )}
-            {(isOperator || canManageSchools || pathname.startsWith("/platform")) && (
-              <Link
-                href="/platform/books"
-                aria-current={pathname === "/platform/books" ? "page" : undefined}
-              >
-                Books
-              </Link>
-            )}
-            {(isOperator || canManageSchools || pathname.startsWith("/platform")) && (
-              <Link
-                href="/platform/probe"
-                aria-current={pathname === "/platform/probe" ? "page" : undefined}
-              >
-                Probe
-              </Link>
-            )}
+            <Link href="/admin">{signedIn ? "Continue to dashboard" : "Staff sign in"}</Link>
           </nav>
         )}
       </div>
