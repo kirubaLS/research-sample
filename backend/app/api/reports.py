@@ -243,6 +243,7 @@ def _board_urgency(
         frequency_note,
         frequency_rows,
         stream_of,
+        urgency_tier,
     )
 
     freq = frequency_rows(db, assessment.subject_code, CURRENT_VERSION, stream_of(assessment))
@@ -271,6 +272,10 @@ def _board_urgency(
                 "board_weight_pct": weight,
                 "frequency_multiplier": mult,
                 "urgency": score,
+                #: same VERY HIGH/HIGH/MEDIUM/LOW badge as GET /board-frequency, keyed to
+                #: the same share-of-eligible-years the multiplier itself came from -- a
+                #: family with no row (row is None) has nothing to badge, same as note.
+                "urgency_tier": urgency_tier(row.years_appeared, row.years_eligible) if row else None,
                 "years_appeared": row.years_appeared if row else None,
                 "years_eligible": row.years_eligible if row else None,
                 "note": frequency_note(row) if row else None,

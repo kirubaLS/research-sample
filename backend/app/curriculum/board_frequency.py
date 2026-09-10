@@ -287,3 +287,33 @@ def frequency_note(row: FamilyBoardFrequency) -> str:
     if n == of:
         return f"asked in every one of the last {of} board exams"
     return f"asked in {n} of the last {of} board exams"
+
+
+def urgency_tier(
+    years_appeared: int, years_eligible: int, config: FrequencyConfig = DEFAULT_CONFIG,
+) -> str | None:
+    """VERY HIGH / HIGH / MEDIUM / LOW, for a principal reading a badge rather than a
+    multiplier.
+
+    Deliberately keyed to the same share-of-eligible-years boundaries as
+    ``base_multiplier`` (config.base_by_share), not a second set of cut points invented
+    for display -- the badge and the number underneath it must always agree, or "VERY
+    HIGH" next to a 1.25x multiplier is the kind of thing that quietly breaks trust in
+    the whole page the first time someone checks the two against each other.
+
+    None, not a string, when there is nothing to judge: zero eligible years is "no
+    board-exam history for this topic yet" (frequency_note's own case), not "LOW" -- LOW
+    is a real judgement about a family that keeps failing to reappear, and a topic with no
+    eligible years at all has never had the chance to.
+    """
+    if years_eligible <= 0:
+        return None
+    share = years_appeared / years_eligible
+    # The share cut points, not the multiplier values they produce: base_curve='square'
+    # turns the same shares into 2.0/1.56/1.25 rather than table's 2.0/1.5/1.25, and the
+    # tier has to track the shares either way, not a multiplier value that moves under it.
+    labels = ["VERY HIGH", "HIGH", "MEDIUM"]
+    for (minimum, _base), label in zip(config.base_by_share, labels, strict=False):
+        if share >= minimum:
+            return label
+    return "LOW"

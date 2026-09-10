@@ -22,8 +22,10 @@ from app.api.deps import require_reader, require_scanner
 from app.curriculum.board_frequency import (
     DEFAULT_WINDOW,
     board_papers,
+    frequency_note,
     recompute,
     stream_of,
+    urgency_tier,
     version_for_year,
 )
 from app.db import get_session
@@ -235,6 +237,11 @@ def frequency_table(
             "board_weight_pct": weight,
             "multiplier": row.multiplier,
             "urgency": urgency(weight, row.multiplier) if weight is not None else None,
+            #: VERY HIGH/HIGH/MEDIUM/LOW, keyed to the same share-of-eligible-years
+            #: boundaries as the multiplier itself -- see urgency_tier's own docstring for
+            #: why this is never derived separately from the number sitting beside it.
+            "urgency_tier": urgency_tier(row.years_appeared, row.years_eligible),
+            "note": frequency_note(row),
             "base_multiplier": row.base_multiplier,
             "years_eligible": row.years_eligible,
             "years_appeared": row.years_appeared,

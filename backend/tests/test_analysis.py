@@ -4,6 +4,7 @@ from app.analysis.diagnostics import (
     MarkRow,
     board_weighted_indicator,
     by_tier,
+    confidence_tier,
     skill_by_tier,
     wilson_interval,
 )
@@ -36,6 +37,22 @@ def test_evidence_floor_suppresses_a_number_it_cannot_support():
     f = by_tier(thin)[0]
     assert not f.sufficient and f.rate is None
     assert "Insufficient evidence" in f.message
+    assert f.confidence == "EMERGING"
+
+
+def test_confidence_is_emerging_below_the_evidence_floor():
+    assert confidence_tier(sufficient=False, ci=(0.1, 0.9)) == "EMERGING"
+    assert confidence_tier(sufficient=True, ci=None) == "EMERGING"
+
+
+def test_confidence_is_high_only_once_the_interval_is_tight():
+    assert confidence_tier(sufficient=True, ci=(0.55, 0.65)) == "HIGH"      # width 0.10
+    assert confidence_tier(sufficient=True, ci=(0.40, 0.80)) == "MEDIUM"    # width 0.40
+
+
+def test_a_finding_reports_its_own_confidence_in_as_dict():
+    f = by_tier(_rows())[0]
+    assert f.as_dict()["confidence"] == f.confidence
 
 
 def test_the_crosstab_is_the_diagnosis():

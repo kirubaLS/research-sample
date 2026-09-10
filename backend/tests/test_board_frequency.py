@@ -61,6 +61,18 @@ def test_urgency_is_weight_times_multiplier():
     assert urgency(8, 1.5) == 12.0
 
 
+def test_urgency_tier_matches_the_same_share_boundaries_the_multiplier_uses():
+    """VERY HIGH/HIGH/MEDIUM/LOW has to agree with base_multiplier's own table, or a
+    badge could say VERY HIGH next to a 1.25x multiplier the first time someone checks."""
+    from app.curriculum.board_frequency import urgency_tier
+
+    assert urgency_tier(4, 4) == "VERY HIGH"    # every eligible year
+    assert urgency_tier(3, 4) == "HIGH"         # 0.75
+    assert urgency_tier(2, 4) == "MEDIUM"       # 0.5
+    assert urgency_tier(1, 4) == "LOW"          # 0.25
+    assert urgency_tier(0, 0) is None           # nothing to judge, not "LOW"
+
+
 # --- the stability check and the floor -------------------------------------------------
 
 def test_a_wide_range_caps_the_multiplier_however_often_it_appears():

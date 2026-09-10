@@ -20,6 +20,29 @@ from app.config import get_settings
 
 Z = 1.959963984540054  # 95%
 
+#: A Wilson interval this wide or wider is too uncertain to call HIGH confidence even
+#: though it cleared the evidence floor -- the floor only says "not nothing", not "tight".
+#: Chosen the same way STRENGTH_FLOOR was: a documented starting cut point, not a fitted
+#: constant, and every Finding carries its own ci so a reader can re-judge this by eye.
+CONFIDENCE_NARROW_CI = 0.20
+
+
+def confidence_tier(sufficient: bool, ci: tuple[float, float] | None) -> str:
+    """HIGH / MEDIUM / EMERGING, for a principal reading one finding rather than the raw
+    Wilson interval underneath it.
+
+    Deliberately three states, not two: 'sufficient' from the evidence floor already
+    separates a real finding from noise, but a finding that only just cleared the floor
+    (a wide interval) still deserves a softer label than one backed by a tight one -- the
+    same distinction the design spec draws between 'Strong Evidence' and 'Moderate
+    Evidence'. EMERGING is reserved for what summarise() would already refuse to give a
+    percentage to at all.
+    """
+    if not sufficient or ci is None:
+        return "EMERGING"
+    lo, hi = ci
+    return "HIGH" if (hi - lo) <= CONFIDENCE_NARROW_CI else "MEDIUM"
+
 
 def wilson_interval(successes: float, trials: float, z: float = Z) -> tuple[float, float]:
     """Wilson score interval — behaves sensibly at the tiny denominators this product has."""
@@ -72,6 +95,13 @@ class Finding:
     #: report shows: a line nobody can check is not a finding, it is an assertion.
     evidence: tuple[dict, ...] = ()
 
+    @property
+    def confidence(self) -> str:
+        """HIGH / MEDIUM / EMERGING -- see confidence_tier's own docstring for why this is
+        three states rather than the plain sufficient/insufficient the evidence floor
+        already gives."""
+        return confidence_tier(self.sufficient, self.ci)
+
     def as_dict(self) -> dict:
         return {
             "kind": self.kind, "scope": self.scope, "key": self.key,
@@ -79,7 +109,8 @@ class Finding:
             "questions": self.questions,
             "rate": None if self.rate is None else round(self.rate, 4),
             "ci": None if self.ci is None else [round(self.ci[0], 4), round(self.ci[1], 4)],
-            "sufficient": self.sufficient, "message": self.message,
+            "sufficient": self.sufficient, "confidence": self.confidence,
+            "message": self.message,
             "evidence": list(self.evidence),
         }
 
