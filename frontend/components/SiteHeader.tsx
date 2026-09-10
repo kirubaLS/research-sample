@@ -29,7 +29,8 @@ export function SiteHeader() {
   // Nothing on the staff side is offered until somebody is actually signed in, and then
   // only what their key opens. Offering a link that leads to a sign-in page or a refusal
   // is worse than not offering it. Read after mount, like the operator key above.
-  const [canRun, setCanRun] = useState(false);
+  const [canScan, setCanScan] = useState(false);
+  const [canEnterMarks, setCanEnterMarks] = useState(false);
   const [canManageSchools, setCanManageSchools] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => {
@@ -38,7 +39,13 @@ export function SiteHeader() {
     setSignedIn(staffKey);
     setCanManageSchools(Boolean(role?.can.manage_schools) || Boolean(getPlatformKey()));
     // An admin who has not chosen a school yet has nothing for these screens to act on.
-    setCanRun(staffKey && Boolean(role?.can.scan_papers) && Boolean(getActiveSchool() || role?.scope === "one_school"));
+    // Scanning a question paper and entering marks are two different permissions on
+    // /admin/me's own `can` object -- one link per capability, not one "canRun" flag
+    // standing in for both, so a role that can do one but not the other only ever sees
+    // the link it actually opens.
+    const hasSchool = Boolean(getActiveSchool() || role?.scope === "one_school");
+    setCanScan(staffKey && Boolean(role?.can.scan_papers) && hasSchool);
+    setCanEnterMarks(staffKey && Boolean(role?.can.enter_marks) && hasSchool);
   }, [pathname]);
 
   return (
@@ -62,7 +69,7 @@ export function SiteHeader() {
                 Dashboard
               </Link>
             )}
-            {canRun && (
+            {canScan && (
               <Link
                 href="/admin/paper"
                 aria-current={pathname === "/admin/paper" ? "page" : undefined}
@@ -70,7 +77,7 @@ export function SiteHeader() {
                 Question paper
               </Link>
             )}
-            {canRun && (
+            {canEnterMarks && (
               <Link
                 href="/admin/answers"
                 aria-current={pathname === "/admin/answers" ? "page" : undefined}
@@ -78,7 +85,7 @@ export function SiteHeader() {
                 Answer sheet
               </Link>
             )}
-            {canRun && (
+            {canScan && (
               <Link
                 href="/admin/scan"
                 aria-current={pathname === "/admin/scan" ? "page" : undefined}
