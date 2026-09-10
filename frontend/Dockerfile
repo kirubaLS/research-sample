@@ -21,7 +21,8 @@ FROM node:22-slim AS run
 WORKDIR /srv
 ENV NODE_ENV=production
 RUN useradd --create-home --uid 10001 yaadhum
-COPY --from=build /srv/public ./public
+# No public/ in this project (no static assets served that way) -- next build's own
+# standalone output already carries everything else needed, nothing to copy here.
 COPY --from=build --chown=yaadhum:yaadhum /srv/.next/standalone ./
 COPY --from=build --chown=yaadhum:yaadhum /srv/.next/static ./.next/static
 USER yaadhum
