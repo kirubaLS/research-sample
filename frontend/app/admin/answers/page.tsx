@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarksReader } from "@/components/MarksReader";
+import { Scanner } from "@/components/Scanner";
+import { newSessionId } from "@/lib/id";
+import type { ScannedPage } from "@/lib/pageStore";
 import {
   AnswerRow,
   AnswerSheet,
@@ -14,6 +17,16 @@ import {
   SectionSummary,
 } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
+
+/** The camera hands back a Blob per page; the upload route wants a File per page, in
+ *  order -- the same conversion the standalone scan screen used to do before its
+ *  camera-capture flow moved in here as an option alongside the file picker. */
+function pagesToFiles(pages: ScannedPage[]): File[] {
+  return pages
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((p, i) => new File([p.blob], `page-${i + 1}.jpg`, { type: p.blob.type || "image/jpeg" }));
+}
 
 /**
  * Entering one student's marks against a paper that has already been read and mapped.
@@ -576,8 +589,14 @@ function ScriptPanel({
 }) {
   const [busy, setBusy] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  // A stable id per mount, not per capture: the scanner's own IndexedDB-backed session
+  // is what lets a page mid-capture survive a lost connection, so it must not churn
+  // every time the cover/script mode below flips.
+  const [sessionId] = useState(() => newSessionId());
+  const [cameraMode, setCameraMode] = useState<"cover" | "script">("cover");
 
-  async function send(files: FileList | null) {
+  async function send(files: File[] | FileList | null) {
     const key = getApiKey();
     if (!key || !files || files.length === 0) return;
     setBusy(true);
@@ -589,6 +608,20 @@ function ScriptPanel({
       setBusy(false);
       if (input.current) input.current.value = "";
     }
+  }
+
+  // Two frames before the pages that count: a clear cover (question numbers and marks)
+  // steadies the person's hands and the camera's focus before the pages that are actually
+  // stored -- the same two-step the standalone scan screen used, folded in here so a
+  // teacher who wants the camera never has to leave this screen for it.
+  async function captured(pages: ScannedPage[]) {
+    if (cameraMode === "cover") {
+      setCameraMode("script");
+      return;
+    }
+    await send(pagesToFiles(pages));
+    setCameraMode("cover");
+    setShowCamera(false);
   }
 
   async function remove() {
@@ -625,8 +658,16 @@ function ScriptPanel({
             multiple
             accept="image/*,application/pdf"
             onChange={(e) => send(e.target.files)}
-            disabled={busy}
+            disabled={busy || showCamera}
           />
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={() => { setShowCamera((v) => !v); setCameraMode("cover"); }}
+          >
+            {showCamera ? "Close camera" : "Use camera instead"}
+          </button>
           {script && (
             <button type="button" className="danger" onClick={remove} disabled={busy}>
               Delete
@@ -634,6 +675,16 @@ function ScriptPanel({
           )}
         </div>
       </div>
+      {showCamera && (
+        <div className="camerawrap">
+          <p className="muted">
+            {cameraMode === "cover"
+              ? "The cover carries the question numbers and marks. One clear frame is enough."
+              : "Capture each page in order. Retake replaces a single page and keeps its position."}
+          </p>
+          <Scanner sessionId={sessionId} mode={cameraMode} onComplete={captured} />
+        </div>
+      )}
       {script && (
         <div className="thumbs">
           {script.pages.map((p) => (
@@ -657,6 +708,7 @@ function ScriptPanel({
         .muted { color: var(--ink-3); margin: 4px 0 0; font-size: 13px; max-width: 60ch; }
         .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
         .thumb { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
+        .camerawrap { margin-top: 12px; }
       `}</style>
     </section>
   );

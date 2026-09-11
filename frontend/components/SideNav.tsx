@@ -39,7 +39,6 @@ const WORK: Item[] = [
   { href: "/admin/paper", label: "Question paper", glyph: "▦", needs: "scan_papers" },
   { href: "/admin/answers", label: "Answer sheet", glyph: "▧", needs: "enter_marks" },
   { href: "/admin/gridsheet", label: "Class mark sheet", glyph: "▥", needs: "enter_marks" },
-  { href: "/admin/scan", label: "Scan scripts", glyph: "▨", needs: "scan_papers" },
   { href: "/admin/boardx", label: "Board intelligence", glyph: "◈", needs: "read_results" },
 ];
 
