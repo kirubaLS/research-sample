@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Manrope, Source_Sans_3 } from "next/font/google";
+import { DecorativeBackground } from "@/components/DecorativeBackground";
 import { SiteHeader } from "@/components/SiteHeader";
 import "./globals.css";
 
@@ -34,6 +35,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
+        <DecorativeBackground />
         <div className="shell">
           <SiteHeader />
           {children}
