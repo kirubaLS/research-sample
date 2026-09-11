@@ -253,6 +253,11 @@ export interface Finding {
   confidence: "HIGH" | "MEDIUM" | "EMERGING";
   message: string | null;
   evidence: Proof[];
+  /** Which chapter this topic/concept/sub-topic lives in, e.g. "Statistics" for "Finding
+   *  the mean of ungrouped data" -- null only when the taxonomy has nothing above it
+   *  (the finding is itself a chapter-level row). Always show this: a concept name on its
+   *  own is unplaceable to a parent who has never seen the book's own chapter titles. */
+  chapter: string | null;
   /** Only present on `focus`/`findings` entries -- how much this topic matters for the
    * Board, resolved through the question's own board unit. */
   board?: {
@@ -260,6 +265,9 @@ export interface Finding {
     board_weight_pct: number | null;
     frequency_multiplier: number;
     urgency: number | null;
+    /** VERY HIGH / HIGH / MEDIUM / LOW -- the badge a screen shows; `urgency` above is
+     *  the raw score it was computed from, never itself a label to display. */
+    urgency_tier: "VERY HIGH" | "HIGH" | "MEDIUM" | "LOW" | null;
     note: string | null;
   };
 }

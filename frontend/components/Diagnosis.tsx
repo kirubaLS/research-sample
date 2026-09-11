@@ -38,6 +38,18 @@ function pct(rate: number | null): string {
   return rate === null ? "not scored" : `${Math.round(rate * 100)}%`;
 }
 
+function confidenceBadgeClass(confidence: Finding["confidence"]): string {
+  if (confidence === "HIGH") return "badge green";
+  if (confidence === "MEDIUM") return "badge amber";
+  return "badge";
+}
+
+function urgencyBadgeClass(tier: string | null | undefined): string {
+  if (tier === "VERY HIGH" || tier === "HIGH") return "badge red";
+  if (tier === "MEDIUM") return "badge amber";
+  return "badge green";
+}
+
 /** Tier keys are short codes with no label of their own; everything else arrives named. */
 function readable(f: Finding): string {
   return TIER_LABEL[f.key] ?? f.label ?? f.key;
@@ -152,14 +164,18 @@ export function Diagnosis({
         .diag { margin-top: 26px; }
         .diaghead {
           display: flex; align-items: flex-start; justify-content: space-between;
-          gap: 14px; flex-wrap: wrap; padding-bottom: 12px;
-          border-bottom: 2px solid var(--ink);
+          gap: 14px; flex-wrap: wrap; padding: 20px 22px; margin-bottom: 6px;
+          background: var(--surface); border: 1px solid var(--rule);
+          border-radius: var(--radius); box-shadow: var(--shadow-sm);
         }
         .diaghead h2 { margin: 0; font-size: 22px; }
         .who { margin: 2px 0 0; color: var(--ink-2); }
         .score { text-align: right; }
-        .score strong { display: block; font-size: 26px; }
-        .score span { font-size: 13px; }
+        .score strong {
+          display: block; font-size: 32px; font-weight: 800;
+          font-family: var(--font-display), sans-serif; letter-spacing: -0.02em;
+        }
+        .score span { font-size: 13px; color: var(--ink-3); }
         .axisnote, .note { color: var(--ink-2); font-size: 14px; max-width: 68ch; }
         h3 { margin: 26px 0 6px; font-size: 17px; }
         .rows { display: grid; gap: 8px; }
@@ -227,7 +243,12 @@ function Row({
   return (
     <div className={`row ${tone ?? ""}${finding.sufficient ? "" : " thin"}`}>
       <div className="top">
-        <span className="label">{label}</span>
+        <div className="labelwrap">
+          {/* A concept or sub-topic name means little on its own -- "Finding the mean of
+              ungrouped data" is unplaceable without "Statistics" in front of it. */}
+          {finding.chapter && <span className="chapter">{finding.chapter}</span>}
+          <span className="label">{label}</span>
+        </div>
         <span className="figure">
           {finding.sufficient ? (
             <>
@@ -245,6 +266,27 @@ function Row({
           )}
         </span>
       </div>
+
+      {(finding.sufficient || finding.board?.urgency_tier) && (
+        <div className="badges">
+          {finding.sufficient && (
+            <span className={confidenceBadgeClass(finding.confidence)}>
+              {finding.confidence} confidence
+            </span>
+          )}
+          {finding.board?.urgency_tier && (
+            <span className={urgencyBadgeClass(finding.board.urgency_tier)}>
+              Board urgency: {finding.board.urgency_tier}
+            </span>
+          )}
+          {finding.board?.board_weight_pct != null && (
+            <span className="badge blue">
+              {Math.round(finding.board.board_weight_pct)}% of board marks
+            </span>
+          )}
+        </div>
+      )}
+      {finding.board?.note && <p className="boardnote">{finding.board.note}</p>}
 
       {finding.sufficient && (
         <>
@@ -281,15 +323,23 @@ function Row({
       <style jsx>{`
         .row {
           border: 1px solid var(--rule); border-left: 4px solid var(--rule-2);
-          border-radius: 10px; padding: 10px 12px; background: var(--surface);
+          border-radius: var(--radius-sm); padding: 12px 14px; background: var(--surface);
+          box-shadow: var(--shadow-xs);
         }
         .row.good { border-left-color: var(--verify); }
         .row.focus { border-left-color: var(--warn); }
         .row.thin { border-left-color: var(--rule-2); background: var(--surface-2); }
         .top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+        .labelwrap { display: flex; flex-direction: column; gap: 1px; }
+        .chapter {
+          font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+          color: var(--mark);
+        }
         .label { font-weight: 600; }
         .figure { font-size: 14px; }
         .thintext { color: var(--ink-3); font-style: italic; }
+        .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+        .boardnote { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-2); }
         .track { height: 6px; background: var(--surface-2); border-radius: 999px; margin-top: 8px; }
         .fill { height: 6px; background: var(--mark); border-radius: 999px; }
         .ci { margin: 6px 0 0; font-size: 12px; color: var(--ink-3); }

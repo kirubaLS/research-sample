@@ -556,13 +556,32 @@ def student_report(
     # A finding is keyed by a taxonomy code, which is what makes it stable across cycles
     # and useless to a reader. The label travels with it so a screen never has to guess a
     # name from a code, and never shows the code to a teacher.
-    labels = {n.code: n.label for n in db.scalars(select(TaxonomyNode))}
+    all_nodes = list(db.scalars(select(TaxonomyNode)))
+    labels = {n.code: n.label for n in all_nodes}
+    nodes_by_code = {n.code: n for n in all_nodes}
+    nodes_by_id = {n.id: n for n in all_nodes}
+
+    def _chapter_of(code: str) -> str | None:
+        """Which chapter a topic/concept-family/sub-topic belongs to, so a finding never
+        names a concept with no book context to place it in -- "Finding the mean of
+        ungrouped data" means nothing to a parent without "Statistics" in front of it.
+        Walks the taxonomy's own parent chain rather than guessing from the code's
+        dotted prefix, which is the codes' internal shape, not a promise about depth."""
+        node = nodes_by_code.get(code.split("|")[0])
+        seen = set()
+        while node is not None and node.id not in seen:
+            if node.kind == "chapter":
+                return node.label
+            seen.add(node.id)
+            node = nodes_by_id.get(node.parent_id) if node.parent_id else None
+        return None
 
     def named(findings, *, why: bool = False) -> list[dict]:
         out = []
         for f in findings:
             row = f.as_dict()
             row["label"] = labels.get(row["key"], row["key"])
+            row["chapter"] = _chapter_of(row["key"])
             if why:
                 # Why this topic is on the focus list, in the teacher's terms: the unit's
                 # weight, and how often the board has actually asked it.
@@ -570,7 +589,10 @@ def student_report(
                 row["board"] = {
                     "board_unit": u["board_unit"], "board_weight_pct": u["board_weight_pct"],
                     "frequency_multiplier": u["frequency_multiplier"], "urgency": u["urgency"],
-                    "note": u["note"],
+                    #: VERY HIGH/HIGH/MEDIUM/LOW, the same badge GET /board-frequency and
+                    #: the cohort report already show -- the raw `urgency` score above is
+                    #: not itself a label a principal should read off a screen.
+                    "urgency_tier": u["urgency_tier"], "note": u["note"],
                 } if u else None
             out.append(row)
         return out

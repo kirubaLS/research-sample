@@ -218,10 +218,18 @@ def test_student_report_reads_the_curriculum_columns(client, school):
     # Every question carries a concept family, so that is the axis the report groups by.
     assert body["topic_axis"] == "concept_family"
     assert [t["key"] for t in body["topics"]] == ["X.MATH.CF.VOLUME"]
+    # A concept family means nothing to a parent with no chapter in front of it --
+    # "Volume of Composite Solids" on its own says less than "Surface Areas and Volumes
+    # -- Volume of Composite Solids".
+    assert body["topics"][0]["chapter"], body["topics"][0]
 
     # 60% is not a strength and must not be claimed as one.
     assert body["strengths"] == []
     assert [f["key"] for f in body["focus"]] == ["X.MATH.CF.VOLUME"]
+    # focus entries carry board urgency as a tier a screen can badge directly (VERY
+    # HIGH/HIGH/MEDIUM/LOW), not only the raw numeric score it is computed from.
+    assert body["focus"][0]["chapter"], body["focus"][0]
+    assert "urgency_tier" in (body["focus"][0]["board"] or {}), body["focus"][0]
 
 
 def test_every_number_in_the_report_carries_its_proof(client, school):
