@@ -40,4 +40,12 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/healthz').status==200 else 1)"
 
-CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+# UVICORN_WORKERS defaults to 2, matching a 2-vCPU Lightsail box -- one worker per core,
+# so an incoming request (PDF rasterization, JSON handling) is never queued behind another
+# worker's CPU-bound work the way a single process forces it to be. Set to 1 on a box with
+# less headroom: each extra worker duplicates its own process memory (PyMuPDF, the
+# Anthropic SDK, SQLAlchemy all loaded again), and a 2GB VM already runs Postgres, this,
+# the frontend and Caddy in the same budget -- watch `docker stats` after raising this and
+# drop back to 1 if the backend container is swapping or near its limit.
+ENV UVICORN_WORKERS=2
+CMD ["sh", "-c", "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --workers ${UVICORN_WORKERS}"]
