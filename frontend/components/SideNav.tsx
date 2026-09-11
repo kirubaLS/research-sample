@@ -18,6 +18,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
+import { GrowthIllustration } from "@/components/GrowthIllustration";
 import { getApiKey, getPlatformKey, getRole, type StaffRole } from "@/lib/session";
 
 interface Item {
@@ -105,6 +106,14 @@ export function SideNav() {
     <nav className="sidenav" aria-label="Sections">
       {signedIn && group("Assessment", WORK)}
       {console_ && group("Platform", PLATFORM)}
+      {/* Desktop only (hidden by .sidenav's own <=900px rule turning this into a
+          horizontal scroll row, where a footer illustration has nowhere to sit) -- the
+          same "turning assessments into a path forward" idea the front door's
+          illustration carries, here as the standing reminder of why the nav exists. */}
+      <div className="navfooter">
+        <GrowthIllustration />
+        <p className="navfooter-line">Turning assessments into brighter futures.</p>
+      </div>
     </nav>
   );
 }

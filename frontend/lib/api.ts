@@ -341,6 +341,33 @@ export interface PaperReport {
   higher_order_share: number | null;
 }
 
+/** How the whole class did on one paper -- every field a real aggregation over every
+ *  student's marks (see GET /reports/cohort/{id}'s own docstring), never an estimate. */
+export interface CohortReport {
+  assessment_id: string;
+  assessment_title: string;
+  students_analysed: number;
+  band_counts: {
+    full_mastery: number; band_80_89: number; band_60_79: number; below_60: number;
+  };
+  band_pct: {
+    full_mastery: number; band_80_89: number; band_60_79: number; below_60: number;
+  };
+  section_bars: { section_id: string; label: string; pct: number; students: number }[];
+  /** Each subject's own most recent graded assessment for the same section(s) -- see
+   *  subject_bars_note; there is no shared "test occasion" across subjects in this schema. */
+  subject_bars: { subject_code: string; assessment_title: string; pct: number }[];
+  subject_bars_note: string;
+  top_losses: {
+    concept_family: string;
+    label: string;
+    students_affected: number;
+    avg_marks_lost: number;
+    board_urgency: string | null;
+    confidence: "HIGH" | "MEDIUM" | "EMERGING";
+  }[];
+}
+
 export interface ScanPageRef {
   index: number;
   content_type: string;
@@ -1364,4 +1391,7 @@ export const api = {
 
   paperReport: (key: string, assessmentId: string) =>
     authed<PaperReport>(`/reports/paper/${assessmentId}`, key),
+
+  cohortReport: (key: string, assessmentId: string) =>
+    authed<CohortReport>(`/reports/cohort/${assessmentId}`, key),
 };

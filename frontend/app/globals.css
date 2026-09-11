@@ -750,6 +750,8 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   padding: 18px 12px;
   min-width: 224px;
   align-self: stretch;
+  display: flex;
+  flex-direction: column;
 }
 .sidenav .group { margin-bottom: 22px; }
 .sidenav .grouplabel {
@@ -781,6 +783,20 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 .sidenav .glyph { color: var(--mark); font-size: 13px; transition: transform var(--dur) var(--ease-spring); }
 .sidenav .item:hover .glyph { transform: scale(1.15); }
 
+.sidenav .navfooter {
+  margin-top: auto;
+  padding: 18px 10px 4px;
+  text-align: center;
+}
+.sidenav .navfooter-line {
+  margin: 10px 0 0;
+  font-family: var(--font-display), sans-serif;
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--ink-2);
+  line-height: 1.3;
+}
+
 @media (max-width: 900px) {
   .sidenav {
     min-width: 0;
@@ -797,6 +813,7 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   .sidenav .grouplabel { display: none; }
   .sidenav .item { white-space: nowrap; padding: 7px 11px; }
   .sidenav .item.on { box-shadow: inset 0 -3px 0 var(--mark); }
+  .sidenav .navfooter { display: none; }
 }
 
 
