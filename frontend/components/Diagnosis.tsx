@@ -153,17 +153,17 @@ export function Diagnosis({
         .diaghead {
           display: flex; align-items: flex-start; justify-content: space-between;
           gap: 14px; flex-wrap: wrap; padding-bottom: 12px;
-          border-bottom: 2px solid var(--ink, #16324f);
+          border-bottom: 2px solid var(--ink);
         }
         .diaghead h2 { margin: 0; font-size: 22px; }
-        .who { margin: 2px 0 0; color: #555; }
+        .who { margin: 2px 0 0; color: var(--ink-2); }
         .score { text-align: right; }
         .score strong { display: block; font-size: 26px; }
         .score span { font-size: 13px; }
-        .axisnote, .note { color: #555; font-size: 14px; max-width: 68ch; }
+        .axisnote, .note { color: var(--ink-2); font-size: 14px; max-width: 68ch; }
         h3 { margin: 26px 0 6px; font-size: 17px; }
         .rows { display: grid; gap: 8px; }
-        .gaps { padding-left: 18px; color: #444; font-size: 14px; }
+        .gaps { padding-left: 18px; color: var(--ink-2); font-size: 14px; }
         .gaps li { margin-bottom: 4px; }
         .printbtn { align-self: center; }
         @media print {
@@ -201,7 +201,7 @@ function Band({
       )}
       <style jsx>{`
         h3 { margin: 26px 0 6px; font-size: 17px; }
-        .note { color: #555; font-size: 14px; max-width: 68ch; }
+        .note { color: var(--ink-2); font-size: 14px; max-width: 68ch; }
         .rows { display: grid; gap: 8px; }
       `}</style>
     </>
@@ -280,22 +280,22 @@ function Row({
 
       <style jsx>{`
         .row {
-          border: 1px solid #e3e3e6; border-left: 4px solid #9aa3ad;
-          border-radius: 10px; padding: 10px 12px; background: #fff;
+          border: 1px solid var(--rule); border-left: 4px solid var(--rule-2);
+          border-radius: 10px; padding: 10px 12px; background: var(--surface);
         }
-        .row.good { border-left-color: #196b2c; }
-        .row.focus { border-left-color: #a8571b; }
-        .row.thin { border-left-color: #c9cdd2; background: #fbfbfc; }
+        .row.good { border-left-color: var(--verify); }
+        .row.focus { border-left-color: var(--warn); }
+        .row.thin { border-left-color: var(--rule-2); background: var(--surface-2); }
         .top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
         .label { font-weight: 600; }
         .figure { font-size: 14px; }
-        .thintext { color: #6b6b6b; font-style: italic; }
-        .track { height: 6px; background: #eceef1; border-radius: 999px; margin-top: 8px; }
-        .fill { height: 6px; background: #16324f; border-radius: 999px; }
-        .ci { margin: 6px 0 0; font-size: 12px; color: #666; }
+        .thintext { color: var(--ink-3); font-style: italic; }
+        .track { height: 6px; background: var(--surface-2); border-radius: 999px; margin-top: 8px; }
+        .fill { height: 6px; background: var(--mark); border-radius: 999px; }
+        .ci { margin: 6px 0 0; font-size: 12px; color: var(--ink-3); }
         .proofwrap { margin-top: 8px; }
         .link {
-          background: none; border: 0; padding: 0; color: #16324f;
+          background: none; border: 0; padding: 0; color: var(--mark);
           text-decoration: underline; font-size: 13px; cursor: pointer;
         }
         .proof { margin: 8px 0 0; padding-left: 16px; display: grid; gap: 8px; }
@@ -356,12 +356,12 @@ function ProofRow({ proof }: { proof: Proof }) {
       ) : null}
 
       <style jsx>{`
-        .p { font-size: 13px; color: #333; }
+        .p { font-size: 13px; color: var(--ink-2); }
         .q { font-weight: 600; }
-        .sep { color: #b8bcc2; margin: 0 6px; }
-        .marks { color: #555; }
-        .stem { margin: 3px 0; color: #444; }
-        .meta { margin: 2px 0; color: #666; font-size: 12px; }
+        .sep { color: var(--rule-2); margin: 0 6px; }
+        .marks { color: var(--ink-2); }
+        .stem { margin: 3px 0; color: var(--ink-2); }
+        .meta { margin: 2px 0; color: var(--ink-3); font-size: 12px; }
       `}</style>
     </li>
   );

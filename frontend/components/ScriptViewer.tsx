@@ -92,13 +92,13 @@ export function ScriptViewer({ doc }: { doc: ScanDoc }) {
       <style jsx>{`
         .bar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
         .frame {
-          border: 1px solid #e3e3e6; border-radius: 10px; background: #f7f7f8;
+          border: 1px solid var(--rule); border-radius: var(--radius-sm); background: var(--surface-2);
           min-height: 220px; display: grid; place-items: center; padding: 10px;
         }
         .frame img { max-width: 100%; height: auto; border-radius: 6px; }
         .pdf { width: 100%; height: 70vh; border: 0; }
-        .muted { color: #666; }
-        .error { color: #a11; }
+        .muted { color: var(--ink-3); }
+        .error { color: var(--risk); }
       `}</style>
     </div>
   );

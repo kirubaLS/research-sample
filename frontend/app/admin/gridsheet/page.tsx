@@ -388,7 +388,7 @@ export default function GridSheetPage() {
         .sticky { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
         .picks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
         .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
-        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
+        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; background: var(--surface); }
         .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
         .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
         .confirmrow label { flex: 1 1 180px; display: flex; }
@@ -581,7 +581,7 @@ function GridRow({
         .mark { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 6px 3px 10px; color: var(--ink-2); }
         .mark-bad { background: var(--risk-soft, var(--mark-soft)); color: var(--risk, var(--mark)); }
         .mark-editing { background: var(--surface); border: 1px solid var(--rule-2); padding: 3px 4px 3px 8px; }
-        .mark-editing input { padding: 3px 6px; font-size: 12px; border-radius: 6px; }
+        .mark-editing input { padding: 3px 6px; font-size: 12px; border-radius: var(--radius-sm); }
         .editbtn {
           all: unset; cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 5px;
           border-radius: 999px; color: inherit; opacity: 0.6;
@@ -590,7 +590,7 @@ function GridRow({
         button.tiny { padding: 4px 8px; font-size: 12px; }
         button.tiny.ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
         .resolve { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
-        select, input { padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 14px; background: var(--surface); }
+        select, input { padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 14px; background: var(--surface); }
         button { padding: 8px 14px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 14px; transition: transform .16s var(--ease-spring, ease); }
         button:hover:not([disabled]) { transform: translateY(-1px); }
         button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }

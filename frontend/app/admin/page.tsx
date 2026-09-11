@@ -356,8 +356,8 @@ export default function DashboardPage() {
           font-size: 11.5px; padding: 2px 9px; border-radius: 999px;
           background: var(--surface-2); color: var(--ink-2); white-space: nowrap;
         }
-        .pill.good { background: #e7f2ea; color: #1c6b33; }
-        .pill.warn { background: #fdf1de; color: #8a5b00; }
+        .pill.good { background: var(--verify-soft); color: var(--verify); }
+        .pill.warn { background: var(--warn-soft); color: var(--warn); }
 
         @media (max-width: 900px) { .two { grid-template-columns: 1fr; } }
       `}</style>

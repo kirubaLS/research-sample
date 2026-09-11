@@ -217,21 +217,21 @@ export function MarksReader({
            component, so borrowing the page's .panel class gave this a class with no rules
            behind it -- a dashed line with no padding, cutting through its own text. */
         .reader {
-          border: 1px dashed #c7ccd2;
+          border: 1px dashed var(--rule-2);
           border-radius: 12px;
           padding: 14px;
           margin-bottom: 16px;
-          background: #fff;
+          background: var(--surface);
         }
         .head { display: flex; gap: 14px; justify-content: space-between; flex-wrap: wrap; align-items: flex-start; }
-        .muted { color: #666; margin: 4px 0 0; font-size: 13px; max-width: 62ch; }
-        .error { color: #a11; }
-        .warnish { color: #8a5b00; font-size: 13px; }
-        .bad { color: #a11; }
+        .muted { color: var(--ink-3); margin: 4px 0 0; font-size: 13px; max-width: 62ch; }
+        .error { color: var(--risk); }
+        .warnish { color: var(--warn); font-size: 13px; }
+        .bad { color: var(--risk); }
         .summary { margin-top: 12px; font-size: 14px; }
-        .unmatched { font-size: 13px; padding-left: 18px; color: #444; }
+        .unmatched { font-size: 13px; padding-left: 18px; color: var(--ink-2); }
         .tally { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; margin: 14px 0 8px; font-size: 14px; }
-        button { padding: 9px 15px; border-radius: 8px; border: 0; background: #16324f; color: #fff; font-size: 15px; }
+        button { padding: 9px 15px; border-radius: 8px; border: 0; background: var(--mark); color: #fff; font-size: 15px; }
         button[disabled] { opacity: 0.5; }
         .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
         .mono { font-family: ui-monospace, monospace; font-size: 12px; }
@@ -325,23 +325,23 @@ function ReadingRow({
       )}
 
       <style jsx>{`
-        li { border: 1px solid #e3e3e6; border-left: 4px solid #16324f; border-radius: 10px; padding: 10px 12px; background: #fff; }
-        li.bad { border-left-color: #a11; background: #fff7f7; }
-        li.missing { border-left-color: #d9a441; }
+        li { border: 1px solid var(--rule); border-left: 4px solid var(--mark); border-radius: 10px; padding: 10px 12px; background: var(--surface); }
+        li.bad { border-left-color: var(--risk); background: var(--risk-soft); }
+        li.missing { border-left-color: var(--warn); }
         .top { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
         .no { font-weight: 600; }
-        .worth { color: #666; font-size: 13px; }
+        .worth { color: var(--ink-3); font-size: 13px; }
         .entry { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-        input { width: 120px; padding: 9px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; }
-        input[disabled] { background: #f4f4f5; color: #999; }
-        select { flex: 1 1 160px; padding: 9px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px; background: #fff; }
-        .from { margin: 8px 0 0; font-size: 12px; color: #666; }
-        .problem { margin: 4px 0 0; font-size: 13px; color: #a11; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        input { width: 120px; padding: 9px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; }
+        input[disabled] { background: var(--surface-2); color: var(--ink-3); }
+        select { flex: 1 1 160px; padding: 9px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
+        .from { margin: 8px 0 0; font-size: 12px; color: var(--ink-3); }
+        .problem { margin: 4px 0 0; font-size: 13px; color: var(--risk); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
         .accept {
-          background: #fff; border: 1px solid #a11; color: #a11; border-radius: 999px;
+          background: var(--surface); border: 1px solid var(--risk); color: var(--risk); border-radius: 999px;
           padding: 3px 12px; font-size: 12px; cursor: pointer;
         }
-        .accept:hover { background: #a11; color: #fff; }
+        .accept:hover { background: var(--risk); color: #fff; }
       `}</style>
     </li>
   );

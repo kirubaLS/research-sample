@@ -435,7 +435,7 @@ export default function AnswersPage() {
         .sticky { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
         .picks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
         .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
-        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
+        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; background: var(--surface); }
         .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
         .classconfirm { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
         .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
@@ -540,8 +540,8 @@ function Row({
         .chip.strong { background: var(--ink); color: var(--surface); }
         .entry { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
         .entry label { display: flex; }
-        input { width: 110px; padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; }
-        select { flex: 1 1 180px; padding: 10px; border: 1px solid var(--rule-2); border-radius: 8px; font-size: 16px; background: var(--surface); }
+        input { width: 110px; padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; }
+        select { flex: 1 1 180px; padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; background: var(--surface); }
         input[disabled] { background: var(--surface-2); color: var(--ink-3); }
         .rej { color: var(--mark); font-size: 13px; margin: 8px 0 0; }
         .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

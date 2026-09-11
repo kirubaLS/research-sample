@@ -1,12 +1,11 @@
 /* ---------------------------------------------------------------------------------------
-   Yaadhum design system.
-
-   The palette and type still come from the project's own documents -- a paper ground, ink
-   text, marking-red as the accent a teacher already associates with a corrected script --
-   but the surface language is modern: soft elevation, glass, motion that responds to a
-   hand rather than motion that plays at it. Everything here rides two custom properties,
-   --ease and --ease-spring, so the whole app moves with one signature rather than a dozen
-   slightly different timings nobody chose on purpose.
+   Yaadhum design system: a soft-pastel EdTech palette (violet primary, blue/mint/amber/
+   pink accents), solid surfaces rather than glass, generous corner radii and low-elevation
+   shadows -- see the token comments in :root below for what each one is for. --mark is the
+   violet brand accent; --risk (pink) is the separate "this is wrong/blocked/an error"
+   color, split out once the brand color stopped being red (see git history). Everything
+   here rides two custom properties, --ease and --ease-spring, so the whole app moves with
+   one signature rather than a dozen slightly different timings nobody chose on purpose.
 --------------------------------------------------------------------------------------- */
 
 :root {
@@ -210,7 +209,7 @@ main.narrow { max-width: 680px; }
   transition: transform var(--dur) var(--ease-spring);
 }
 .brand:hover .glyph { transform: scale(1.08); }
-.brand .name { font-family: var(--font-display), serif; font-size: 19px; font-weight: 600; }
+.brand .name { font-family: var(--font-display), sans-serif; font-size: 19px; font-weight: 600; }
 .brand .sub { font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-3); }
 .navlinks { margin-left: auto; display: flex; gap: 6px; align-items: center; }
 .navlinks a {
@@ -412,7 +411,7 @@ td.num { font-variant-numeric: tabular-nums; }
 .notice strong { color: var(--ink); }
 
 .empty { text-align: center; padding: 46px 20px; color: var(--ink-3); }
-.empty .big { font-family: var(--font-display), serif; font-size: 21px; color: var(--ink-2); margin-bottom: 6px; }
+.empty .big { font-family: var(--font-display), sans-serif; font-size: 21px; color: var(--ink-2); margin-bottom: 6px; }
 
 /* --- scanner -------------------------------------------------------------------------- */
 video, canvas.preview { width: 100%; background: #0c0f12; display: block; border-radius: var(--radius); }
