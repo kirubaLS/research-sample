@@ -17,9 +17,11 @@ from app.analysis.diagnostics import (
     by_concept_family,
     by_skill,
     by_tier,
+    confidence_tier,
     select_findings,
     select_strengths,
     skill_by_tier,
+    wilson_interval,
 )
 from app.analysis.paper_quality import (
     cronbach_alpha,
@@ -41,6 +43,7 @@ from app.models import (
     QuestionTier,
     ScaleScore,
     School,
+    Section,
     StudentProfile,
     StudentReport,
     TaxonomyNode,
@@ -304,6 +307,183 @@ def _topic_axis(rows: list[MarkRow]) -> tuple[str, list]:
     if counted and all(r.skills for r in counted):
         return "subtopic", by_skill(rows)
     return "chapter", by_chapter(rows)
+
+
+@router.get("/cohort/{assessment_id}")
+def cohort_report(
+    assessment_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """How the whole class did on one paper, not just one student.
+
+    ``_rows`` already reads every (student, question) mark on this assessment in one
+    call -- the per-student report just happened to filter it down to one student before
+    now. Every figure below is that same data, grouped differently: never a fabricated
+    cohort number standing in for one this deployment cannot actually compute.
+
+    Three real aggregations, one honest approximation:
+      * performance bands and section averages -- exact, from this paper's own marks
+      * marks lost per concept family, reusing the same board-urgency scoring a
+        per-student report already computes -- exact
+      * "Performance by Subject" -- there is no schema concept of several subjects'
+        papers belonging to one shared "test occasion" (a Unit Test spanning Maths,
+        Physics, Chemistry...), so this compares each subject's own *most recent* graded
+        assessment for the same section(s) instead, and says so in the response rather
+        than implying a shared sitting that was never recorded.
+    """
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != school.id:
+        raise HTTPException(404, "not found")
+
+    rows = _rows(db, assessment)
+    if not rows:
+        raise HTTPException(404, "no marks entered for this assessment yet")
+
+    by_student: dict[str, list[MarkRow]] = {}
+    for r in rows:
+        by_student.setdefault(r.student_id, []).append(r)
+
+    section_of = dict(db.execute(
+        select(StudentProfile.id, StudentProfile.section_id)
+        .where(StudentProfile.id.in_(by_student))
+    ).all())
+    sections = {
+        s.id: s for s in db.scalars(
+            select(Section).where(Section.id.in_(set(section_of.values())))
+        )
+    }
+
+    band_counts = {"full_mastery": 0, "band_80_89": 0, "band_60_79": 0, "below_60": 0}
+    section_totals: dict[str, list[float]] = {}
+    student_pct: dict[str, float] = {}
+    for sid, srows in by_student.items():
+        counted = [r for r in srows if r.counts]
+        total_max = sum(r.max_marks for r in counted)
+        if total_max <= 0:
+            continue
+        pct = sum(r.earned for r in counted) / total_max * 100
+        student_pct[sid] = pct
+        if pct >= 90:
+            band_counts["full_mastery"] += 1
+        elif pct >= 80:
+            band_counts["band_80_89"] += 1
+        elif pct >= 60:
+            band_counts["band_60_79"] += 1
+        else:
+            band_counts["below_60"] += 1
+        sec_id = section_of.get(sid)
+        if sec_id:
+            section_totals.setdefault(sec_id, []).append(pct)
+
+    students_analysed = len(student_pct)
+    band_pct = {
+        k: round(v / students_analysed * 100) if students_analysed else 0
+        for k, v in band_counts.items()
+    }
+
+    section_bars = sorted(
+        (
+            {
+                "section_id": sec_id,
+                "label": f"{sections[sec_id].grade}-{sections[sec_id].name}" if sec_id in sections else "?",
+                "pct": round(sum(vals) / len(vals), 1),
+                "students": len(vals),
+            }
+            for sec_id, vals in section_totals.items()
+        ),
+        key=lambda r: r["label"],
+    )
+
+    # Marks lost per concept family, across every student who sat this paper -- the same
+    # board-urgency scoring _board_urgency already gives a single student's report, here
+    # summed across the whole cohort instead of read for one.
+    nodes_by_code = {n.code: n for n in db.scalars(select(TaxonomyNode))}
+    lost_by_family: dict[str, dict] = {}
+    for r in rows:
+        if not r.counts or not r.concept_family:
+            continue
+        lost = r.max_marks - r.earned
+        entry = lost_by_family.setdefault(
+            r.concept_family, {"lost": 0.0, "students": set(), "board_unit": r.board_unit}
+        )
+        entry["lost"] += lost
+        if lost > 0:
+            entry["students"].add(r.student_id)
+
+    urgency_by_family = {row["key"]: row for row in _board_urgency(db, assessment, rows)[0]}
+
+    def _loss_confidence(affected: int, analysed: int) -> str:
+        # Same evidence floor and Wilson interval this module already uses for a single
+        # student's own findings (see confidence_tier's own docstring): under 2 students
+        # affected is "insufficient evidence in this paper", never a percentage dressed up
+        # as a tier.
+        sufficient = affected >= 2 and analysed > 0
+        ci = wilson_interval(affected, analysed) if sufficient else None
+        return confidence_tier(sufficient, ci)
+
+    top_losses = sorted(
+        (
+            {
+                "concept_family": fam_code,
+                "label": nodes_by_code[fam_code].label if fam_code in nodes_by_code else fam_code,
+                "students_affected": len(entry["students"]),
+                "avg_marks_lost": round(entry["lost"] / len(entry["students"]), 1),
+                "board_urgency": (urgency_by_family.get(fam_code) or {}).get("urgency_tier"),
+                "confidence": _loss_confidence(len(entry["students"]), students_analysed),
+            }
+            for fam_code, entry in lost_by_family.items() if entry["students"]
+        ),
+        key=lambda d: -(d["avg_marks_lost"] * d["students_affected"]),
+    )
+
+    # "Performance by Subject": no shared "test occasion" exists in this schema linking
+    # several subjects' papers as one sitting, so this is each subject's own most recent
+    # graded assessment for the same section(s) -- a real number, just not the same thing
+    # a school's own internal "Unit Test 2" label would mean.
+    subject_bars = [{
+        "subject_code": assessment.subject_code, "assessment_title": assessment.title,
+        "pct": round(sum(student_pct.values()) / students_analysed, 1) if students_analysed else 0,
+    }]
+    if section_totals:
+        cohort_ids = set(db.scalars(
+            select(StudentProfile.id).where(StudentProfile.section_id.in_(section_totals))
+        ))
+        seen_subjects = {assessment.subject_code}
+        for sibling in db.scalars(
+            select(Assessment)
+            .where(Assessment.school_id == school.id, Assessment.id != assessment.id)
+            .order_by(Assessment.created_at.desc())
+        ):
+            if sibling.subject_code in seen_subjects:
+                continue
+            sibling_rows = [
+                r for r in _rows(db, sibling) if r.student_id in cohort_ids and r.counts
+            ]
+            total_max = sum(r.max_marks for r in sibling_rows)
+            if total_max <= 0:
+                continue
+            subject_bars.append({
+                "subject_code": sibling.subject_code, "assessment_title": sibling.title,
+                "pct": round(sum(r.earned for r in sibling_rows) / total_max * 100, 1),
+            })
+            seen_subjects.add(sibling.subject_code)
+    subject_bars.sort(key=lambda d: d["subject_code"])
+
+    return {
+        "assessment_id": assessment.id,
+        "assessment_title": assessment.title,
+        "students_analysed": students_analysed,
+        "band_counts": band_counts,
+        "band_pct": band_pct,
+        "section_bars": section_bars,
+        "subject_bars": subject_bars,
+        "top_losses": top_losses[:5],
+        "subject_bars_note": (
+            "Each subject's own most recent graded assessment for the same section(s) -- "
+            "this schema has no concept of several subjects sharing one test occasion."
+        ),
+    }
 
 
 @router.get("/student/{student_id}/assessments")
