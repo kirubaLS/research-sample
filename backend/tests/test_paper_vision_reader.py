@@ -1,17 +1,23 @@
-"""AnthropicPaperVisionReader.read() itself -- one Claude call per page, merged into one
-PaperVisionReading -- rather than the whole-paper-in-one-request shape it replaced (see
-paper_vision.py's own docstring for why: an unbounded request size was what produced
-'RequestTooLargeError: Error code: 413' in production).
+"""AnthropicPaperVisionReader.read() itself -- every page's Claude call fired
+concurrently, merged into one PaperVisionReading afterwards in page order -- rather than
+either the whole-paper-in-one-request shape it originally replaced (see paper_vision.py's
+own docstring for why: an unbounded request size was what produced 'RequestTooLargeError:
+Error code: 413' in production) or the later fully-sequential one-call-after-another shape
+(replaced because a 20-page paper cost 20 round trips end to end for no reason a page's
+own content required).
 
 The real ``anthropic`` package is not installed in this sandbox (a genuine, if not fully
 enforced dependency -- see pyproject.toml), so a small fake stands in for it: just enough
 of ``anthropic.Anthropic`` and ``anthropic.APIStatusError`` for AnthropicPaperVisionReader
-to run against, with ``messages.parse`` scripted per call to test the merge and
-per-page-failure logic these tests are actually about.
+to run against. The fake is keyed by each page's own image bytes, not by call order --
+pages are read concurrently now, so nothing guarantees which page's call reaches the fake
+first, and a fake keyed by order would silently mismatch a scripted response to the wrong
+page under real concurrency the same way a bug in production could.
 """
 
 from __future__ import annotations
 
+import base64
 import sys
 import types
 
@@ -31,11 +37,13 @@ class _FakeResponse:
 
 
 class _FakeMessages:
-    def __init__(self, scripted) -> None:
-        self._scripted = list(scripted)  # one entry consumed per call, in order
+    def __init__(self, scripted: dict[bytes, object]) -> None:
+        self._scripted = dict(scripted)  # keyed by the page's own raw image bytes
 
     def parse(self, **kwargs):
-        outcome = self._scripted.pop(0)
+        content = kwargs["messages"][0]["content"]
+        raw = base64.b64decode(content[0]["source"]["data"])
+        outcome = self._scripted[raw]
         if isinstance(outcome, Exception):
             raise outcome
         return _FakeResponse(outcome)
@@ -57,12 +65,13 @@ def fake_anthropic(monkeypatch):
     return fake
 
 
-def _reader(monkeypatch, fake_anthropic, scripted):
+def _reader(monkeypatch, fake_anthropic, scripted: dict[bytes, object]):
     from app.extraction import paper_vision
 
     reader = paper_vision.AnthropicPaperVisionReader.__new__(paper_vision.AnthropicPaperVisionReader)
     reader.client = types.SimpleNamespace(messages=_FakeMessages(scripted))
     reader.model = "claude-opus-5"
+    reader.page_concurrency = 4
     return reader
 
 
@@ -78,12 +87,12 @@ def _out(*, sections=None, count=None, total=None, questions=()):
 def test_declared_totals_are_taken_from_whichever_page_states_them_first(monkeypatch, fake_anthropic):
     """The cover page usually carries these, later pages usually do not -- the first
     non-null value seen wins rather than a later blank page silently erasing it."""
-    reader = _reader(monkeypatch, fake_anthropic, scripted=[
-        _out(sections={"a": 20.0}, count=38, total=80.0, questions=[
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"page1": _out(sections={"a": 20.0}, count=38, total=80.0, questions=[
             {"question_no": "1", "max_marks": 2.0, "stem_text": "First question"},
         ]),
-        _out(questions=[{"question_no": "2", "max_marks": 3.0, "stem_text": "Second question"}]),
-    ])
+        b"page2": _out(questions=[{"question_no": "2", "max_marks": 3.0, "stem_text": "Second question"}]),
+    })
 
     out = reader.read([(b"page1", "image/jpeg"), (b"page2", "image/jpeg")])
 
@@ -95,11 +104,15 @@ def test_declared_totals_are_taken_from_whichever_page_states_them_first(monkeyp
 
 def test_a_page_with_no_section_header_inherits_the_last_one_seen(monkeypatch, fake_anthropic):
     """A section letter is often printed once and left implicit on every later page --
-    reading one page per call means a later page has nothing else to infer it from."""
-    reader = _reader(monkeypatch, fake_anthropic, scripted=[
-        _out(questions=[{"section": "B", "question_no": "5", "stem_text": "In section B"}]),
-        _out(questions=[{"question_no": "6", "stem_text": "Still in section B, unmarked"}]),
-    ])
+    reading one page per call means a later page has nothing else to infer it from. This
+    is the merge step's own job now (the Python-level 'or last_section' fallback), not
+    something a prompt hint tells the model before it even sees the previous page's
+    answer -- pages are read concurrently, so nothing here could know the prior page's
+    section at call time anyway."""
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"page1": _out(questions=[{"section": "B", "question_no": "5", "stem_text": "In section B"}]),
+        b"page2": _out(questions=[{"question_no": "6", "stem_text": "Still in section B, unmarked"}]),
+    })
 
     out = reader.read([(b"page1", "image/jpeg"), (b"page2", "image/jpeg")])
 
@@ -109,11 +122,11 @@ def test_a_page_with_no_section_header_inherits_the_last_one_seen(monkeypatch, f
 def test_each_questions_page_is_the_page_it_was_actually_read_from(monkeypatch, fake_anthropic):
     """One call per page means the page number is known outright, not a value the model
     has to guess -- overriding whatever (if anything) the model itself reported."""
-    reader = _reader(monkeypatch, fake_anthropic, scripted=[
-        _out(questions=[{"question_no": "1", "stem_text": "p1", "logical_page": 99}]),
-        _out(questions=[{"question_no": "2", "stem_text": "p2", "logical_page": 1}]),
-        _out(questions=[{"question_no": "3", "stem_text": "p3"}]),
-    ])
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"p1": _out(questions=[{"question_no": "1", "stem_text": "p1", "logical_page": 99}]),
+        b"p2": _out(questions=[{"question_no": "2", "stem_text": "p2", "logical_page": 1}]),
+        b"p3": _out(questions=[{"question_no": "3", "stem_text": "p3"}]),
+    })
 
     out = reader.read([(b"p1", "image/jpeg"), (b"p2", "image/jpeg"), (b"p3", "image/jpeg")])
 
@@ -125,11 +138,11 @@ def test_one_bad_page_is_recorded_as_a_problem_without_losing_the_rest_of_the_pa
 ):
     """The whole point of reading page-by-page: a page ruined by glare, or one that hits
     a transient API error, used to take the entire paper's read down with it."""
-    reader = _reader(monkeypatch, fake_anthropic, scripted=[
-        _out(questions=[{"question_no": "1", "stem_text": "fine"}]),
-        _FakeAPIStatusError(500, "internal error"),
-        _out(questions=[{"question_no": "3", "stem_text": "also fine"}]),
-    ])
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"p1": _out(questions=[{"question_no": "1", "stem_text": "fine"}]),
+        b"p2": _FakeAPIStatusError(500, "internal error"),
+        b"p3": _out(questions=[{"question_no": "3", "stem_text": "also fine"}]),
+    })
 
     out = reader.read([(b"p1", "image/jpeg"), (b"p2", "image/jpeg"), (b"p3", "image/jpeg")])
 
@@ -140,13 +153,44 @@ def test_one_bad_page_is_recorded_as_a_problem_without_losing_the_rest_of_the_pa
 
 
 def test_every_page_failing_is_a_refusal_naming_each_pages_own_problem(monkeypatch, fake_anthropic):
-    reader = _reader(monkeypatch, fake_anthropic, scripted=[
-        _FakeAPIStatusError(413, "Request exceeds the maximum size"),
-        _FakeAPIStatusError(429, "rate limited"),
-    ])
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"p1": _FakeAPIStatusError(413, "Request exceeds the maximum size"),
+        b"p2": _FakeAPIStatusError(429, "rate limited"),
+    })
 
     out = reader.read([(b"p1", "image/jpeg"), (b"p2", "image/jpeg")])
 
     assert out.questions == []
     assert out.refused is not None
     assert "page 1" in out.refused and "page 2" in out.refused
+
+
+def test_pages_are_read_concurrently_not_one_after_another(monkeypatch, fake_anthropic):
+    """The whole point of this change: wall-clock cost bounded by the slowest page, not
+    the sum of every page -- proven here by having every page block until every other
+    page has also started, which only resolves if they are genuinely running at once."""
+    import threading
+
+    n = 5
+    barrier = threading.Barrier(n, timeout=5)
+
+    class _BlockingMessages:
+        def parse(self, **kwargs):
+            barrier.wait()  # deadlocks (and the test times out) if calls are sequential
+            content = kwargs["messages"][0]["content"]
+            raw = base64.b64decode(content[0]["source"]["data"])
+            return _FakeResponse(_out(questions=[
+                {"question_no": raw.decode(), "stem_text": "concurrent"},
+            ]))
+
+    from app.extraction import paper_vision
+
+    reader = paper_vision.AnthropicPaperVisionReader.__new__(paper_vision.AnthropicPaperVisionReader)
+    reader.client = types.SimpleNamespace(messages=_BlockingMessages())
+    reader.model = "claude-opus-5"
+    reader.page_concurrency = n
+
+    pages = [(str(i).encode(), "image/jpeg") for i in range(n)]
+    out = reader.read(pages)
+
+    assert sorted(q.question_no for q in out.questions) == [str(i) for i in range(n)]

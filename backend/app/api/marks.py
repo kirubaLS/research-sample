@@ -648,7 +648,8 @@ def _run_paper_scan_job(job_id: str) -> None:
 
         settings = get_settings()
         reading = read_paper_vision(
-            pages, api_key=settings.anthropic_api_key, model=settings.model_high_stakes
+            pages, api_key=settings.anthropic_api_key, model=settings.model_high_stakes,
+            page_concurrency=settings.vision_page_concurrency,
         )
         if reading.refused:
             _finish_paper_scan_job(

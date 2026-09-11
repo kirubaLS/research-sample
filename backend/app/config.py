@@ -81,6 +81,16 @@ class Settings(BaseSettings):
     # --- models ---
     model_high_stakes: str = "claude-opus-5"
     model_high_volume: str = "claude-haiku-4-5"
+    #: A multi-page question paper used to read one page per sequential Claude call --
+    #: a 20-page paper cost 20 round trips end to end. Pages don't depend on each
+    #: other's content to be read (see paper_vision.py's own read() docstring), so this
+    #: many run concurrently instead. Bounded, not unbounded: every concurrent call here
+    #: is a concurrent call against the same Anthropic rate limit every other paper or
+    #: grid sheet this deployment is reading at that same moment also draws from, so
+    #: raising it trades a faster single paper for less headroom under real concurrent
+    #: load -- a knob to tune against your organization's actual Anthropic tier, not a
+    #: code change.
+    vision_page_concurrency: int = 4
     #: the classifier's judge. Without it, placement falls back to nearest-neighbour
     #: retrieval, which cannot tell a question about a theorem from the theorem.
     anthropic_api_key: str | None = None

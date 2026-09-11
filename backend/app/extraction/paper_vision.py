@@ -16,6 +16,7 @@ mark or a question directly.
 from __future__ import annotations
 
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
 from pydantic import BaseModel
@@ -125,7 +126,9 @@ class AnthropicPaperVisionReader:
     of a person reviewing before anything counts.
     """
 
-    def __init__(self, api_key: str, model: str = "claude-opus-5") -> None:
+    def __init__(
+        self, api_key: str, model: str = "claude-opus-5", *, page_concurrency: int = 4,
+    ) -> None:
         if not api_key:
             raise ValueError(
                 "no Anthropic API key. Set YAADHUM_ANTHROPIC_API_KEY. Without it a "
@@ -136,6 +139,7 @@ class AnthropicPaperVisionReader:
 
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
+        self.page_concurrency = max(1, page_concurrency)
 
     def _read_page(self, data: bytes, content_type: str, prompt: str) -> _PaperOut | None:
         """One page's worth of the call this reader makes. Returns None, with the
@@ -170,27 +174,65 @@ class AnthropicPaperVisionReader:
             raise RuntimeError(f"({exc.status_code}) {exc.message}") from exc
         return response.parsed_output
 
+    def _read_all(self, pages: list[tuple[bytes, str]]) -> list[_PaperOut | RuntimeError]:
+        """Every page's Claude call fired concurrently, not one after another.
+
+        A page does not need any other page's *content* to be read -- the ordering
+        this class still guarantees is in the merge step afterwards (read()'s own
+        last_section comment), not in when each network call goes out. A 20-page paper
+        used to be 20 sequential round trips (tens of seconds to a few minutes); this
+        makes it bounded by however long the *slowest* page takes, not their sum.
+
+        Bounded by page_concurrency, not fully unbounded: every concurrent call here is
+        a concurrent draw against the same Anthropic rate limit every other paper or
+        grid sheet this deployment is reading at that same moment also draws from.
+
+        One prompt for every page now, not the page-specific "you are still in section
+        X" hint the sequential version could give once it actually knew the prior
+        page's section: that hint only ever assisted the model's own parsing of an
+        unlabelled continuation page, and the Python-level fallback two lines below
+        (``section = q.section.strip() or last_section``) already backfills the same
+        answer regardless of whether the model was told -- the guarantee that survives
+        this change is the *data's* section, not what the model was reminded of before
+        producing it.
+        """
+        if not pages:
+            return []
+        prompt = "Read every question on this page, in order."
+        results: list[_PaperOut | RuntimeError] = [
+            RuntimeError("not read") for _ in pages
+        ]
+        with ThreadPoolExecutor(max_workers=min(len(pages), self.page_concurrency)) as pool:
+            future_to_index = {
+                pool.submit(self._read_page, data, content_type, prompt): i
+                for i, (data, content_type) in enumerate(pages)
+            }
+            for future in as_completed(future_to_index):
+                i = future_to_index[future]
+                try:
+                    results[i] = future.result()
+                except RuntimeError as exc:
+                    results[i] = exc
+        return results
+
     def read(self, pages: list[tuple[bytes, str]]) -> PaperVisionReading:
         out = PaperVisionReading()
         # Carried across pages, not reset per page: a section header is often printed
         # once and left implicit on every page after it, and a page read on its own (no
         # longer seeing the whole paper in one call) has nothing else to infer it from.
+        # This still runs strictly in page order -- only the network calls that feed it
+        # are parallel (see _read_all above) -- so a section named on page 3 still
+        # carries onto an unlabelled page 4 exactly as it did in the fully sequential
+        # version.
         last_section: str | None = None
+        results = self._read_all(pages)
 
-        for index, (data, content_type) in enumerate(pages, start=1):
-            prompt = "Read every question on this page, in order."
-            if last_section:
-                prompt = (
-                    f"This is page {index} of a multi-page question paper. If it "
-                    f"continues without printing a new section header, this page is "
-                    f"still in section '{last_section}' (the last one printed on an "
-                    "earlier page). " + prompt
-                )
-            try:
-                parsed = self._read_page(data, content_type, prompt)
-            except RuntimeError as exc:
-                out.problems.append(f"page {index}: the vision read failed {exc}")
+        for index in range(1, len(pages) + 1):
+            outcome = results[index - 1]
+            if isinstance(outcome, RuntimeError):
+                out.problems.append(f"page {index}: the vision read failed {outcome}")
                 continue
+            parsed = outcome
 
             for key, value in parsed.declared.sections.items():
                 out.declared_sections.setdefault(key.upper(), value)
@@ -267,6 +309,7 @@ def read_paper_vision(
     *,
     api_key: str | None,
     model: str = "claude-opus-5",
+    page_concurrency: int = 4,
 ) -> PaperVisionReading:
     """Dispatch to the vision reader, or refuse by name when there is none configured."""
     if not api_key:
@@ -276,4 +319,6 @@ def read_paper_vision(
             "read. Upload a PDF that carries a text layer instead."
         )
         return out
-    return AnthropicPaperVisionReader(api_key, model).read(pages)
+    return AnthropicPaperVisionReader(
+        api_key, model, page_concurrency=page_concurrency
+    ).read(pages)
