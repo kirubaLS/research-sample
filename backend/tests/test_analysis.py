@@ -41,7 +41,7 @@ def test_evidence_floor_suppresses_a_number_it_cannot_support():
     thin = [MarkRow("s1", "A/1//", 0, 1, "awarded", ("cone",), "R&U", "SAV", MENS, VOL)]
     f = by_tier(thin)[0]
     assert not f.sufficient and f.rate is None
-    assert "Insufficient evidence" in f.message
+    assert "not enough" in f.message.lower()
     assert f.confidence == "EMERGING"
 
 

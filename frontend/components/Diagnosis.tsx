@@ -50,6 +50,18 @@ function urgencyBadgeClass(tier: string | null | undefined): string {
   return "badge green";
 }
 
+/** Plain words for what a Wilson interval is really saying -- a teacher or a parent has
+ *  no reason to know what "95% interval" or "Wilson" means, and shouldn't need to. Only
+ *  ever called where `finding.sufficient` is true, so confidence is always HIGH or MEDIUM
+ *  here (EMERGING only happens when insufficient, a different branch entirely). */
+function reliabilityNote(confidence: Finding["confidence"], questions: number): string {
+  if (confidence === "HIGH") {
+    return `Based on enough questions in this paper (${questions}) to trust this number.`;
+  }
+  return `Based on only ${questions} question${questions === 1 ? "" : "s"} in this paper -- ` +
+    "treat this as a rough signal, not an exact score.";
+}
+
 /** Tier keys are short codes with no label of their own; everything else arrives named. */
 function readable(f: Finding): string {
   return TIER_LABEL[f.key] ?? f.label ?? f.key;
@@ -294,11 +306,7 @@ function Row({
             <div className="fill" style={{ width: `${width}%` }} />
           </div>
           {finding.ci && (
-            <p className="ci">
-              95% interval {Math.round(finding.ci[0] * 100)}% to{" "}
-              {Math.round(finding.ci[1] * 100)}%. Wide intervals are honest at this number
-              of questions.
-            </p>
+            <p className="ci">{reliabilityNote(finding.confidence, finding.questions)}</p>
           )}
         </>
       )}

@@ -188,8 +188,9 @@ def summarise(
             out.append(
                 Finding(
                     kind, scope, key, earned, available, n, None, None, False,
-                    f"Insufficient evidence in this paper: only {available:g} mark(s) "
-                    f"across {n} question(s).",
+                    f"Not enough was tested here to give a reliable score -- only "
+                    f"{n} question{'' if n == 1 else 's'} in this paper "
+                    f"(worth {available:g} mark{'' if available == 1 else 's'}).",
                     evidence=proof,
                 )
             )
