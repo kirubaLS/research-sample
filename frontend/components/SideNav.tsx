@@ -40,18 +40,17 @@ interface Item {
 // "Operations" summary (see /admin/page.tsx), so it is intentionally not a peer item
 // here any more.
 //
-// "Manage Teachers" is NOT wired in here on purpose: per the Backend Dependency Index
-// (#1), the `teacher` role + `teacher_assignment` model don't exist in the backend yet,
-// so there is nothing real to route this item to. Rather than ship a nav entry that
-// opens a screen full of mocked teachers presented as real, it is left commented out --
-// wire it in once the backend work lands.
+// "Manage Teachers" (spec §5.11) is now wired in, but note it is demo/mock-backed: per
+// the Backend Dependency Index (#1), the `teacher` role + `teacher_assignment` model
+// don't exist in the backend yet, so the screen it opens manages in-memory fixture data,
+// not real rows. TODO(backend): once a real `teacher` StaffKey role and
+// `teacher_assignment` table exist, gate this on a real `manage_teachers` capability
+// instead of `needs: null`.
 const WORK: Item[] = [
   { href: "/admin/boardx", label: "BoardX", glyph: "◈", needs: "read_results" },
   { href: "/admin/paper", label: "Papers", glyph: "▦", needs: "scan_papers" },
   { href: "/admin/answers", label: "Enter Marks", glyph: "▧", needs: "enter_marks" },
-  // TODO(spec §5.11, Backend Dependency Index #1): once a `teacher` StaffKey role and
-  // `teacher_assignment` table exist, add Manage Teachers here, gated on a real
-  // `manage_teachers` capability -- not before.
+  { href: "/admin/teachers", label: "Manage Teachers", glyph: "☺", needs: null },
   { href: "/admin", label: "Settings", glyph: "▤", needs: null },
 ];
 
