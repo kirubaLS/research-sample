@@ -6,9 +6,9 @@
  *
  * framer-motion drives the entrance (a staggered rise, matching the timing the rest of the
  * app already commits to via --ease/--dur-slow) and the card hover lift; lucide-react gives
- * every card a crisp vector icon instead of a bare heading, and HeroIllustration is the
- * one hand-drawn scene, matching the same idea GrowthIllustration already carries on the
- * student side: a mark sheet becomes something actionable.
+ * every card a crisp vector icon instead of a bare heading, and the hero art is the real
+ * Avai brand banner (frontend/public/brand/hero-banner.png, cropped from the designer's
+ * reference sheet) rather than a hand-drawn placeholder.
  */
 
 import {
@@ -16,7 +16,6 @@ import {
 } from "lucide-react";
 import { motion } from "framer-motion";
 import Link from "next/link";
-import { HeroIllustration } from "@/components/HeroIllustration";
 
 const EASE = [0.16, 1, 0.3, 1] as const;
 
@@ -74,7 +73,12 @@ export default function Home() {
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
         >
-          <HeroIllustration />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/hero-banner.png"
+            alt="Avai mascot, standing on a stack of books labelled Higher Marks, New Opportunities, Brighter Futures, with a path leading toward Learn, Improve, Explore, Achieve"
+            style={{ width: "100%", height: "auto", display: "block", borderRadius: "var(--radius-lg)" }}
+          />
         </motion.div>
       </div>
 

@@ -855,3 +855,7 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 .famlist input { margin: 0; width: 16px; height: 16px; flex: none; }
 .fam-l { font-weight: 600; font-size: 15px; }
 .fam-m { display: block; margin-left: 26px; color: var(--ink-3); font-size: 13px; }
+
+@keyframes mascot-spin {
+  to { transform: rotate(360deg); }
+}
