@@ -9,39 +9,55 @@
 --------------------------------------------------------------------------------------- */
 
 :root {
-  /* Soft pastel EdTech palette -- solid surfaces throughout (no glass, no blur): the
-     softness comes from color, spacing, shadow and gradient, never from transparency.
-     --mark/--mark-2 keep their old names (many components key off them) but now carry
-     the brand's violet, not the old marking-red. */
-  --paper: #f6f4ff;
+  /* Avai brand palette -- solid surfaces throughout (no glass, no blur): the softness
+     comes from color, spacing, shadow and gradient, never from transparency.
+     --brand-ink/--brand-teal/--brand-gold/--brand-green/--brand-cream are the source
+     tokens (see §0 of the Avai design spec); --mark/--mark-2/--verify keep their old
+     names because most components still key off them, but they now resolve to the new
+     brand hues rather than the old violet/plain-green set, so every existing reference
+     rebrands automatically. --brand-gold is kept strictly separate from --warn: gold is
+     a celebration accent, --warn stays a muted caution amber, and the two must never be
+     merged into one token. */
+  --brand-ink: #14213d;
+  --brand-ink-2: #223260;
+  --brand-ink-soft: #e7e9f2;
+  --brand-teal: #2fb8c6;
+  --brand-teal-soft: #e3f6f8;
+  --brand-gold: #f2a93b;
+  --brand-gold-soft: #fdf0dc;
+  --brand-green: #1e9e7e;
+  --brand-green-soft: #e2f5f0;
+  --brand-cream: #fbf6ef;
+
+  --paper: var(--brand-cream);
   --surface: #ffffff;
-  --surface-2: #f4f2fd;
+  --surface-2: #f6f0e6;
   --surface-glass: #ffffff;
-  --ink: #201b3d;
-  --ink-2: #514b6e;
-  --ink-3: #8884a3;
-  --rule: #e8e4f7;
-  --rule-2: #d7d0f0;
-  --mark: #6d5be0;
-  --mark-2: #8a78ec;
-  --mark-soft: #eeecfd;
-  --verify: #0f9d72;
+  --ink: #201b2f;
+  --ink-2: #55524f;
+  --ink-3: #8d8880;
+  --rule: #ece3d6;
+  --rule-2: #ddd0ba;
+  --mark: var(--brand-ink);
+  --mark-2: var(--brand-ink-2);
+  --mark-soft: var(--brand-ink-soft);
+  --verify: var(--brand-green);
   --verify-2: #3fbf95;
-  --verify-soft: #e4f7ef;
+  --verify-soft: var(--brand-green-soft);
   --warn: #b8790a;
   --warn-soft: #fdf1de;
-  --violet: #6d5be0;
-  --violet-soft: #eeecfd;
+  --violet: var(--brand-teal);
+  --violet-soft: var(--brand-teal-soft);
   --info: #2f6fed;
   --info-soft: #e8f0fe;
   --risk: #d1447a;
   --risk-soft: #fce9f1;
 
-  --grad-brand: linear-gradient(135deg, #6d5be0 0%, #8a78ec 55%, #5a8ef0 100%);
+  --grad-brand: linear-gradient(135deg, #14213d 0%, #2fb8c6 100%);
   --grad-mesh:
-    radial-gradient(circle at 10% 6%, rgba(109, 91, 224, 0.10), transparent 44%),
-    radial-gradient(circle at 90% 2%, rgba(90, 142, 240, 0.10), transparent 46%),
-    radial-gradient(circle at 50% 100%, rgba(232, 96, 186, 0.07), transparent 52%);
+    radial-gradient(circle at 10% 6%, rgba(20, 33, 61, 0.08), transparent 44%),
+    radial-gradient(circle at 90% 2%, rgba(47, 184, 198, 0.10), transparent 46%),
+    radial-gradient(circle at 50% 100%, rgba(242, 169, 59, 0.07), transparent 52%);
 
   --shadow-xs: 0 1px 2px rgba(32, 27, 61, 0.04);
   --shadow-sm: 0 2px 8px rgba(32, 27, 61, 0.05);
@@ -63,6 +79,16 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
+    --brand-ink: #b9c3e0;
+    --brand-ink-2: #dbe1f2;
+    --brand-ink-soft: rgba(185, 195, 224, 0.14);
+    --brand-teal: #52d3e0;
+    --brand-teal-soft: rgba(82, 211, 224, 0.14);
+    --brand-gold: #f2b95e;
+    --brand-gold-soft: rgba(242, 185, 94, 0.14);
+    --brand-green: #4fceac;
+    --brand-green-soft: rgba(79, 206, 172, 0.12);
+    --brand-cream: #181425;
     --paper: #14111f;
     --surface: #1c1830;
     --surface-2: #241f3b;
@@ -72,16 +98,16 @@
     --ink-3: #948fb5;
     --rule: #322a4d;
     --rule-2: #423a60;
-    --mark: #a596f2;
-    --mark-2: #bcb0f7;
-    --mark-soft: rgba(165, 150, 242, 0.14);
-    --verify: #58d6b4;
+    --mark: var(--brand-ink);
+    --mark-2: var(--brand-ink-2);
+    --mark-soft: var(--brand-ink-soft);
+    --verify: var(--brand-green);
     --verify-2: #7fe6c6;
-    --verify-soft: rgba(88, 214, 180, 0.12);
+    --verify-soft: var(--brand-green-soft);
     --warn: #e8b955;
     --warn-soft: rgba(232, 185, 85, 0.12);
-    --violet: #a596f2;
-    --violet-soft: rgba(165, 150, 242, 0.14);
+    --violet: var(--brand-teal);
+    --violet-soft: var(--brand-teal-soft);
     --info: #7aa4f7;
     --info-soft: rgba(122, 164, 247, 0.14);
     --risk: #ef8fb6;
