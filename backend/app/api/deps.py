@@ -10,7 +10,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.models import School, StaffKey
+from app.models import Assessment, School, StaffKey, TeacherAssignment
 
 
 @dataclass(frozen=True)
@@ -19,15 +19,72 @@ class Staff:
 
     ``home`` is the school the key itself names. A principal has one and it is the only
     school they can ever reach. An admin has none, because an admin works across schools
-    and says which one per request.
+    and says which one per request. A teacher also has one, exactly like a principal --
+    what makes a teacher's authority narrower is not the school but ``staff_key_id``,
+    which is looked up against TeacherAssignment by the helpers below.
     """
 
     role: str
     home: School | None
+    staff_key_id: str | None = None
 
     @property
     def is_admin(self) -> bool:
         return self.role == "admin"
+
+    @property
+    def is_teacher(self) -> bool:
+        return self.role == "teacher"
+
+
+def teacher_assignments(staff: Staff, db: Session) -> list[TeacherAssignment]:
+    """Every row naming what this teacher key may touch. Empty for any other role."""
+    if not staff.is_teacher or staff.staff_key_id is None:
+        return []
+    return list(
+        db.scalars(
+            select(TeacherAssignment).where(TeacherAssignment.staff_key_id == staff.staff_key_id)
+        )
+    )
+
+
+def teacher_can_read(staff: Staff, db: Session, section_id: str, subject_code: str | None = None) -> bool:
+    """Read access to a section's roster/marks: a class assignment for it (any subject),
+    or, when ``subject_code`` is given, a subject assignment naming both."""
+    for a in teacher_assignments(staff, db):
+        if a.section_id != section_id:
+            continue
+        if a.type == "class":
+            return True
+        if a.type == "subject" and subject_code is not None and a.subject_code == subject_code:
+            return True
+    return False
+
+
+def teacher_can_enter_marks(staff: Staff, db: Session, section_id: str, subject_code: str) -> bool:
+    """Marks-entry rights: only a subject assignment naming this exact section and
+    subject. A class assignment is read-only outside the class teacher's own subject
+    (spec §10.2's default) -- it never reaches this far."""
+    return any(
+        a.type == "subject" and a.section_id == section_id and a.subject_code == subject_code
+        for a in teacher_assignments(staff, db)
+    )
+
+
+def require_teacher_read_scope(
+    staff: Staff, db: Session, section_id: str, subject_code: str | None = None
+) -> None:
+    if staff.is_teacher and not teacher_can_read(staff, db, section_id, subject_code):
+        # 404, not 403: a teacher must not learn that a section/subject they don't hold
+        # exists at all, matching this file's convention for every other scope check.
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+
+
+def require_teacher_marks_scope(
+    staff: Staff, db: Session, section_id: str, subject_code: str
+) -> None:
+    if staff.is_teacher and not teacher_can_enter_marks(staff, db, section_id, subject_code):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
 
 
 def current_staff(
@@ -59,7 +116,7 @@ def current_staff(
     # would tell whoever kept it that it was once real.
     if staff is None or staff.revoked_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-    return Staff(role=staff.role, home=staff.school)
+    return Staff(role=staff.role, home=staff.school, staff_key_id=staff.id)
 
 
 def school_in_scope(staff: Staff, requested: str | None, db: Session) -> School:
@@ -113,8 +170,44 @@ def require_scanner(
 
     What stays admin-only is the roster and the school itself: who the students are, and
     which credentials exist.
+
+    A teacher key never reaches this generic surface -- it has no notion of section or
+    subject, and every one of these routes touches a whole school's roster/marks engine.
+    Teachers act through their own scoped routes instead (see admin.py's
+    ``/admin/teacher/...`` surface and gridsheets.py's per-section, per-subject checks).
     """
+    if staff.is_teacher:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "a teacher key acts through its own scoped routes, not this one",
+        )
     return school_in_scope(staff, x_school_id, db)
+
+
+def require_scanner_or_teacher(
+    assessment_id: str,
+    section_id: str,
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Reading a class mark-entry sheet for one section of one paper.
+
+    Everyone require_scanner already allowed keeps working exactly as before. A teacher
+    key is additionally let through here -- and only here, and only as far as
+    TeacherAssignment says -- because this is the one gridsheet route shaped around a
+    single section and a single assessment (hence a single subject), which is precisely
+    what a subject assignment is scoped to. A class assignment does not reach this: spec
+    §10.2 makes a class teacher read-only outside their own subject by default.
+    """
+    if not staff.is_teacher:
+        return school_in_scope(staff, x_school_id, db)
+    assert staff.home is not None, "a teacher key always names its school"
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != staff.home.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    require_teacher_marks_scope(staff, db, section_id, assessment.subject_code)
+    return staff.home
 
 
 def require_admin_staff(staff: Staff = Depends(current_staff)) -> Staff:
@@ -159,7 +252,18 @@ def require_reader(
     x_school_id: str | None = Header(default=None, alias="X-School-Id"),
     db: Session = Depends(get_session),
 ) -> School:
-    """The school a read is about -- an admin's chosen one, or a principal's only one."""
+    """The school a read is about -- an admin's chosen one, or a principal's only one.
+
+    A teacher key is refused here too, for the same reason as require_scanner: this
+    surface has no section/subject filter, and a teacher must never see a subject or
+    section outside their own TeacherAssignment rows, including in a list. Their reads
+    go through admin.py's teacher-scoped roster/cohort routes instead.
+    """
+    if staff.is_teacher:
+        raise HTTPException(
+            status.HTTP_403_FORBIDDEN,
+            "a teacher key acts through its own scoped routes, not this one",
+        )
     return school_in_scope(staff, x_school_id, db)
 
 

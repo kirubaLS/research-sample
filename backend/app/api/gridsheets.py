@@ -31,7 +31,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_scanner
+from app.api.deps import require_scanner, require_scanner_or_teacher
 from app.api.documents import content_type_for, store_document
 from app.api.matching import match_address
 from app.api.schemas import StudentCreateIn
@@ -446,7 +446,7 @@ async def upload_gridsheet(
     section_id: str,
     files: list[UploadFile] = File(...),
     background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_scanner_or_teacher),
     db: Session = Depends(get_session),
 ) -> JSONResponse:
     """A whole class's mark-entry sheet: one photo, many students' rows expected."""
@@ -461,7 +461,7 @@ async def upload_single_script(
     section_id: str,
     files: list[UploadFile] = File(...),
     background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_scanner_or_teacher),
     db: Session = Depends(get_session),
 ) -> JSONResponse:
     """One student's own answer script: their name and roll are read off the page itself,
