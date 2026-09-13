@@ -14,7 +14,15 @@ from app.models.assessment import (
     ScannedQuestion,
 )
 from app.models.base import Base, new_id, utcnow
-from app.models.core import STAFF_ROLES, School, Section, StaffKey, StudentProfile
+from app.models.core import (
+    STAFF_ROLES,
+    TEACHER_ASSIGNMENT_TYPES,
+    School,
+    Section,
+    StaffKey,
+    StudentProfile,
+    TeacherAssignment,
+)
 from app.models.corpus import (
     CaptureAsset,
     Crop,
@@ -70,7 +78,7 @@ __all__ = [
     "QuestionTier",
     "DataQualityFlag", "AnalysisRun", "TIERS", "CBSE_TIER_TARGET", "PAPER_KINDS",
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
-    "STAFF_ROLES", "StaffKey",
+    "STAFF_ROLES", "StaffKey", "TEACHER_ASSIGNMENT_TYPES", "TeacherAssignment",
     "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport", "ProposedMark",
     "GRID_ROW_STATUSES", "GridSheetRow", "GridSheetJob", "GRID_JOB_KINDS", "PaperScanJob",
     "PlacementJob",
