@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
 import Link from "next/link";
+import { Mascot } from "@/components/Mascot";
 import {
   clearActiveSchool,
   getActiveSchool,
@@ -129,7 +130,12 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   if (!ready) {
     return (
       <main className="narrow">
-        <p className="muted">Checking your session…</p>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Mascot pose="loading" size={28} />
+          <p className="muted" style={{ margin: 0 }}>
+            Checking your session…
+          </p>
+        </div>
       </main>
     );
   }
@@ -138,7 +144,12 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     return (
       <main className="narrow">
         <div className="hero">
-          <p className="eyebrow">Principal &amp; admin</p>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <Mascot pose="hello" size={40} />
+            <p className="eyebrow" style={{ margin: 0 }}>
+              Principal &amp; admin
+            </p>
+          </div>
           <h1>Sign in</h1>
           <p className="lede">
             The dashboard is for school staff. Students do not sign in; they open the class
@@ -172,7 +183,8 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
             </p>
           </div>
           {error && <p className="error">{error}</p>}
-          <button type="submit" disabled={busy}>
+          <button type="submit" disabled={busy} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
+            {busy && <Mascot pose="loading" size={18} />}
             {busy ? "Checking…" : "Sign in"}
           </button>
         </form>

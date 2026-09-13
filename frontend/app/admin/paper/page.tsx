@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Scanner } from "@/components/Scanner";
+import { Mascot } from "@/components/Mascot";
 import {
   api,
   ApiError,
@@ -697,7 +698,7 @@ export default function PaperPage() {
                 />
               </label>
               <button type="button" className="primary" onClick={onConfirm} disabled={!!busy}>
-                {busy ?? "These questions are correct"}
+                {busy && <Mascot pose="loading" size={16} />} {busy ?? "These questions are correct"}
               </button>
               <p className="muted">
                 Nothing is mapped until someone checks it. Correct any row below first;
@@ -709,7 +710,7 @@ export default function PaperPage() {
 
           {stage === "confirmed" && (
             <button type="button" className="primary" onClick={onMap} disabled={!!busy}>
-              {busy ?? "Map these questions onto the book"}
+              {busy && <Mascot pose="loading" size={16} />} {busy ?? "Map these questions onto the book"}
             </button>
           )}
         </section>
@@ -737,7 +738,7 @@ export default function PaperPage() {
                 question the reading cannot settle keeps what it has and says so.
               </p>
               <button type="button" className="primary" onClick={onClassify} disabled={!!busy}>
-                {busy ?? "Read and classify these questions"}
+                {busy && <Mascot pose="loading" size={16} />} {busy ?? "Read and classify these questions"}
               </button>
             </>
           )}
