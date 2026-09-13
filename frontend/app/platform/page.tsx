@@ -236,6 +236,19 @@ export default function PlatformConsole() {
     }
   }
 
+  async function toggleDirectoryVisibility(school: PlatformSchool) {
+    const key = getPlatformKey();
+    if (!key) return;
+    try {
+      const updated = await api.setDirectoryVisibility(
+        key, school.id, !school.hidden_from_directory,
+      );
+      setSchools((all) => all?.map((s) => (s.id === school.id ? updated : s)) ?? all);
+    } catch {
+      setError("Could not change this school's directory visibility.");
+    }
+  }
+
   async function addSection(school: PlatformSchool) {
     const key = getPlatformKey();
     if (!key) return;
@@ -450,6 +463,18 @@ export default function PlatformConsole() {
               {school.board}
               {school.state ? ` · ${school.state}` : ""} · {school.students} students ·{" "}
               {CONSENT_LABEL[school.training_consent] ?? school.training_consent}
+            </p>
+            <p className="small" style={{ marginTop: 4 }}>
+              Public directory:{" "}
+              <strong>{school.hidden_from_directory ? "Hidden" : "Visible"}</strong>
+              {" — "}
+              <button
+                type="button"
+                className="secondary tiny"
+                onClick={() => toggleDirectoryVisibility(school)}
+              >
+                {school.hidden_from_directory ? "Show on /t" : "Hide from /t"}
+              </button>
             </p>
 
             <p className="eyebrow" style={{ marginTop: 18 }}>
