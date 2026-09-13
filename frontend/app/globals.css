@@ -866,53 +866,74 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
    confirmed by inspecting the rendered DOM, where child <p>/<h1> tags carried the jsx-*
    scope class but the motion-wrapped elements around them did not, so page-scoped rules
    silently never matched and the section collapsed to its content's own tiny height. */
+/* v2: the source photo is only 776x376px -- stretched edge-to-edge with
+   background-size:cover on a >1800px-wide bleed section (the previous approach) upscales
+   it more than 2x and reads as visibly soft/blurry. Instead the bleed section supplies its
+   own full-width atmosphere (a brand-colored gradient mesh + two soft blurred "blob"
+   shapes, the same decorative language DecorativeBackground already uses elsewhere), and
+   the photo itself sits inside a framed card at a size close to its native resolution, so
+   it stays crisp. */
 .hero-bleed {
   position: relative;
   left: 50%; right: 50%;
   margin-left: -50vw; margin-right: -50vw;
   width: 100vw;
-  min-height: 440px;
-  display: flex; align-items: center;
   overflow: hidden;
   margin-top: -32px; margin-bottom: 40px;
+  padding: 64px max(5vw, calc((100vw - var(--max)) / 2 + 6px)) 56px;
 }
-.hero-bg {
+.hero-atmosphere {
   position: absolute; inset: 0;
-  background-image: url("/brand/hero-banner.png");
-  background-size: cover;
-  background-position: left center;
-  transform: scale(1.02);
-  transition: transform 1.2s var(--ease);
+  background:
+    radial-gradient(circle at 14% 20%, rgba(47, 184, 198, 0.16), transparent 42%),
+    radial-gradient(circle at 82% 12%, rgba(242, 169, 59, 0.18), transparent 46%),
+    radial-gradient(circle at 70% 90%, rgba(30, 158, 126, 0.12), transparent 50%),
+    var(--brand-cream);
 }
-.hero-bleed:hover .hero-bg { transform: scale(1.06); }
-.hero-scrim {
-  position: absolute; inset: 0;
-  background: linear-gradient(
-    100deg,
-    var(--brand-cream) 0%,
-    var(--brand-cream) 40%,
-    rgba(251, 246, 239, 0.75) 52%,
-    rgba(251, 246, 239, 0.2) 66%,
-    transparent 78%
-  );
+.hero-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(46px);
+  opacity: 0.5;
+  animation: hero-drift 14s var(--ease) infinite alternate;
 }
-.hero-copy {
+.hero-blob-a {
+  width: 340px; height: 340px; top: -80px; right: 8%;
+  background: linear-gradient(135deg, var(--brand-teal), var(--brand-gold));
+}
+.hero-blob-b {
+  width: 260px; height: 260px; bottom: -100px; left: 6%;
+  background: linear-gradient(135deg, var(--brand-gold), var(--brand-green));
+  animation-delay: -7s;
+}
+@keyframes hero-drift {
+  from { transform: translate(0, 0) scale(1); }
+  to { transform: translate(-18px, 16px) scale(1.08); }
+}
+.hero-inner {
   position: relative;
   z-index: 1;
-  max-width: 560px;
-  padding: 56px 5vw 56px max(5vw, calc((100vw - var(--max)) / 2 + 6px));
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 44px;
+  flex-wrap: wrap;
 }
+.hero-copy { flex: 1 1 380px; min-width: 0; max-width: 540px; }
+.hero-frame {
+  flex: 0 1 460px;
+  min-width: 260px;
+  max-width: 460px;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid rgba(255, 255, 255, 0.5);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.hero-frame img { display: block; width: 100%; height: auto; }
+.hero-frame:hover { box-shadow: 0 28px 60px -18px rgba(20, 33, 61, 0.28); }
 @media (max-width: 760px) {
-  .hero-bleed { min-height: 0; }
-  .hero-bg { background-position: 82% center; }
-  .hero-scrim {
-    background: linear-gradient(
-      180deg,
-      var(--brand-cream) 0%,
-      var(--brand-cream) 44%,
-      rgba(251, 246, 239, 0.6) 62%,
-      transparent 84%
-    );
-  }
-  .hero-copy { max-width: none; padding: 28px 22px 230px; }
+  .hero-bleed { padding: 36px 22px 32px; }
+  .hero-inner { flex-direction: column-reverse; gap: 24px; }
+  .hero-frame { max-width: 100%; flex-basis: auto; }
 }

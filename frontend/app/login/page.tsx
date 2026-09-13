@@ -45,6 +45,10 @@ function LoginForm() {
         <Mascot pose="hello" size={34} />
       </div>
 
+      <p className="login-sub">
+        Pick the one that&rsquo;s you — the sign-in fields are different for each.
+      </p>
+
       <div className="tabbar" role="tablist" aria-label="Sign in as">
         <button
           type="button"
@@ -53,7 +57,8 @@ function LoginForm() {
           className={`tabbtn${tab === "staff" ? " on" : ""}`}
           onClick={() => setTab("staff")}
         >
-          School Staff
+          <span className="tabtitle">School Staff</span>
+          <span className="tabhint">Principal or teacher — sign in with your key</span>
         </button>
         <button
           type="button"
@@ -62,7 +67,8 @@ function LoginForm() {
           className={`tabbtn${tab === "student" ? " on" : ""}`}
           onClick={() => setTab("student")}
         >
-          Student
+          <span className="tabtitle">Student</span>
+          <span className="tabhint">Viewing a report your teacher shared</span>
         </button>
       </div>
 
@@ -80,15 +86,22 @@ function LoginForm() {
           display: flex; align-items: center; justify-content: center; gap: 12px;
           margin-bottom: 22px;
         }
+        .login-sub {
+          text-align: center; color: var(--ink-3); font-size: 13.5px; margin: 0 0 16px;
+        }
         .tabbar {
           display: flex; gap: 6px; background: var(--surface-2); border-radius: var(--radius-sm);
           padding: 4px; margin-bottom: 16px;
         }
         .tabbtn {
-          flex: 1; border: 0; background: transparent; padding: 9px 12px; border-radius: 8px;
-          font-weight: 600; font-size: 14.5px; color: var(--ink-3); cursor: pointer;
+          flex: 1; border: 0; background: transparent; padding: 10px 12px; border-radius: 8px;
+          cursor: pointer; display: flex; flex-direction: column; gap: 2px; text-align: left;
         }
-        .tabbtn.on { background: var(--surface); color: var(--brand-ink); box-shadow: var(--shadow-xs); }
+        .tabtitle { font-weight: 700; font-size: 14.5px; color: var(--ink-3); }
+        .tabhint { font-size: 11.5px; color: var(--ink-3); opacity: 0.8; }
+        .tabbtn.on { background: var(--surface); box-shadow: var(--shadow-xs); }
+        .tabbtn.on .tabtitle { color: var(--brand-ink); }
+        .tabbtn.on .tabhint { color: var(--ink-2); }
         .login-card { padding: 22px; }
         .subtabbar {
           display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--rule);
@@ -142,7 +155,10 @@ function StaffSignIn() {
         <label htmlFor="key">Sign-in key</label>
         <input id="key" name="key" type="password" autoComplete="current-password" required
           placeholder="zozx6r94sEf1KWs7fRdXTNJNYXKEteuW" />
-        <p className="hint">Your school&rsquo;s own key, issued by whoever set up this deployment.</p>
+        <p className="hint">
+          The key you were personally issued — a principal&rsquo;s school key, or a
+          teacher&rsquo;s own sign-in key. Not sure which you have? Ask your school office.
+        </p>
       </div>
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy} style={{ width: "100%", display: "inline-flex", justifyContent: "center", gap: 8 }}>

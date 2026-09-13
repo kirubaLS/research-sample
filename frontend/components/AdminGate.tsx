@@ -1,16 +1,15 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
+import { useRouter } from "next/navigation";
+import { api, ApiError } from "@/lib/api";
 import Link from "next/link";
 import { Mascot } from "@/components/Mascot";
 import {
   clearActiveSchool,
-  getActiveSchool,
   getApiKey,
   getSchoolName,
   setActiveSchool,
-  setApiKey,
   setRole,
   signOut,
   signOutPlatform,
@@ -40,14 +39,13 @@ const ADMIN_CAN = {
  * this — they arrive on a class link and have no account at all.
  */
 export function AdminGate({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
   const [staff, setStaff] = useState<StaffRole | null>(null);
   const [needsSchool, setNeedsSchool] = useState(false);
   const [stale, setStale] = useState<string | null>(null);
   const [school, setSchool] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     const key = getApiKey();
@@ -90,105 +88,24 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
       .finally(() => setReady(true));
   }, []);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setBusy(true);
-    const key = String(new FormData(event.currentTarget).get("key") ?? "").trim();
-    try {
-      const me = await api.whoami(key);
-      setApiKey(key, me.name);
-      setRole({ role: me.role, can: me.can, scope: me.scope });
-      setStaff({ role: me.role, can: me.can, scope: me.scope });
-      forgetPlatformAccessUnlessAdmin(me.role);
-      setSchool(me.name);
-      setSignedIn(true);
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 400) {
-        // An admin key. It is valid; it just has not said which school yet.
-        setApiKey(key, "");
-        clearActiveSchool();
-        setStaff({ role: "admin", scope: "all_schools", can: ADMIN_CAN });
-        setRole({ role: "admin", scope: "all_schools", can: ADMIN_CAN });
-        setNeedsSchool(true);
-        setSignedIn(true);
-        setBusy(false);
-        return;
-      }
-      setError(
-        err instanceof ApiUnreachable
-          ? "Could not reach the server. It may be starting up, or this site may be pointed at the wrong address. Try again in a minute, and tell whoever set up this deployment if it keeps happening."
-          : err instanceof ApiError && err.status === 404
-            ? "That key was not recognised. This box takes a school's own key, which is not the same as the key that runs the deployment."
-            : "Something went wrong signing in.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Not signed in: there is exactly one sign-in screen in the product, /login (§4 of the
+  // brand spec -- "School Staff"/"Student" tabs). This component used to render a second,
+  // differently-styled form of its own right here, which is the duplicate-login confusion
+  // reported live -- landing on /admin with no session now hands off to /login instead of
+  // drawing a competing form.
+  useEffect(() => {
+    if (ready && !signedIn) router.replace("/login");
+  }, [ready, signedIn, router]);
 
-  if (!ready) {
+  if (!ready || !signedIn) {
     return (
       <main className="narrow">
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Mascot pose="loading" size={28} />
           <p className="muted" style={{ margin: 0 }}>
-            Checking your session…
+            {ready ? "Taking you to sign in…" : "Checking your session…"}
           </p>
         </div>
-      </main>
-    );
-  }
-
-  if (!signedIn) {
-    return (
-      <main className="narrow">
-        <div className="hero">
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <Mascot pose="hello" size={40} />
-            <p className="eyebrow" style={{ margin: 0 }}>
-              Principal &amp; admin
-            </p>
-          </div>
-          <h1>Sign in</h1>
-          <p className="lede">
-            The dashboard is for school staff. Students do not sign in; they open the class
-            link their teacher gives them.
-          </p>
-        </div>
-
-        {apiBaseIsDefault() && (
-          <div className="notice warn" style={{ marginTop: 18 }}>
-            This site has not been told where its server is, so it is asking your own
-            computer and nothing will load. Whoever set up this deployment needs to point
-            it at the server and publish it again. Restarting will not fix it on its own.
-          </div>
-        )}
-
-        <form onSubmit={submit} className="card" style={{ marginTop: 22 }}>
-          <div className="field">
-            <label htmlFor="key">Your key</label>
-            <input
-              id="key"
-              name="key"
-              type="password"
-              autoComplete="current-password"
-              placeholder="zozx6r94sEf1KWs7fRdXTNJNYXKEteuW"
-              required
-            />
-            <p className="hint">
-              A <strong>school&rsquo;s</strong> key, one per school, held by the principal.
-              If it has been lost, a new one can be issued, and the old one stops working
-              the moment it is.
-            </p>
-          </div>
-          {error && <p className="error">{error}</p>}
-          <button type="submit" disabled={busy} style={{ display: "inline-flex", alignItems: "center", gap: 8 }}>
-            {busy && <Mascot pose="loading" size={18} />}
-            {busy ? "Checking…" : "Sign in"}
-          </button>
-        </form>
-
       </main>
     );
   }

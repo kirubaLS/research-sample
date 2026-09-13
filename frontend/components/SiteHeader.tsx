@@ -46,7 +46,9 @@ export function SiteHeader() {
 
         {!hasSideNav && !isStudentFlow && (
           <nav className="navlinks">
-            <Link href="/admin">{signedIn ? "Continue to dashboard" : "Staff sign in"}</Link>
+            <Link href={signedIn ? "/admin" : "/login"}>
+              {signedIn ? "Continue to dashboard" : "Sign in"}
+            </Link>
           </nav>
         )}
       </div>

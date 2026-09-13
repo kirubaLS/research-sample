@@ -54,30 +54,42 @@ export default function Home() {
         animate={{ opacity: 1 }}
         transition={{ duration: 0.7, ease: EASE }}
       >
-        <div
-          className="hero-bg"
-          role="img"
-          aria-label="Avai mascot, standing on a stack of books labelled Higher Marks, New Opportunities, Brighter Futures, with a path leading toward Learn, Improve, Explore, Achieve"
-        />
-        <div className="hero-scrim" />
-        <motion.div
-          className="hero-copy"
-          initial="hidden"
-          animate="show"
-          variants={rise}
-        >
-          <p className="eyebrow">CBSE Class X · Tamil Nadu</p>
-          <h1>
-            Turn a mark sheet into
-            <br />
-            something a teacher can act on.
-          </h1>
-          <p className="lede">
-            Avai reads question-level performance and says where marks were lost, whether
-            the gap is recall or application, and which concepts need reteaching, plus an
-            interest profile that helps a student choose a stream.
-          </p>
-        </motion.div>
+        <div className="hero-atmosphere" aria-hidden />
+        <div className="hero-blob hero-blob-a" aria-hidden />
+        <div className="hero-blob hero-blob-b" aria-hidden />
+        <div className="hero-inner">
+          <motion.div
+            className="hero-copy"
+            initial="hidden"
+            animate="show"
+            variants={rise}
+          >
+            <p className="eyebrow">CBSE Class X · Tamil Nadu</p>
+            <h1>
+              Turn a mark sheet into
+              <br />
+              something a teacher can act on.
+            </h1>
+            <p className="lede">
+              Avai reads question-level performance and says where marks were lost, whether
+              the gap is recall or application, and which concepts need reteaching, plus an
+              interest profile that helps a student choose a stream.
+            </p>
+          </motion.div>
+          <motion.div
+            className="hero-frame"
+            initial={{ opacity: 0, y: 18, scale: 0.97 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
+            whileHover={{ y: -4 }}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src="/brand/hero-banner.png"
+              alt="Avai mascot, standing on a stack of books labelled Higher Marks, New Opportunities, Brighter Futures, with a path leading toward Learn, Improve, Explore, Achieve"
+            />
+          </motion.div>
+        </div>
       </motion.section>
 
       <div className="grid two" style={{ marginTop: 30 }}>
