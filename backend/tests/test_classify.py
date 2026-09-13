@@ -460,17 +460,55 @@ def test_the_science_units_carry_the_boards_own_marks():
     assert len(X_SCIENCE.units) == 5
 
 
-def test_science_declares_no_chapters_until_its_book_is_read():
-    """The rationalised syllabus renumbered the book and secondary sources disagree. A
-    chapter mapped to the wrong unit sends a student's marks to the wrong place in the
-    report, so the contents page decides -- as it already does for sections."""
+def test_science_chapters_come_from_the_contents_page_in_book_order():
+    """The rationalised syllabus renumbered the book and secondary sources disagree, so the
+    contents page of Reprint 2026-27 decides -- thirteen chapters, page xi.
+
+    Order is load-bearing: chapter_title() resolves jesc108.pdf by position, so a row
+    inserted or moved silently retitles a chapter, and every question placed in it lands
+    under the wrong heading in the report.
+    """
+    from app.curriculum import X_SCIENCE, chapter_title
+
+    assert len(X_SCIENCE.chapters) == 13
+    assert chapter_title("X.SCI", 1) == "Chemical Reactions and Equations"
+    assert chapter_title("X.SCI", 8) == "Heredity"
+    assert chapter_title("X.SCI", 9) == "Light \u2013 Reflection and Refraction"
+    assert chapter_title("X.SCI", 13) == "Our Environment"
+    assert chapter_title("X.SCI", 14) is None
+
+
+def test_every_science_chapter_maps_to_a_unit_the_board_actually_weights():
+    """A chapter pointing at a unit that does not exist drops its marks out of the
+    board-impact figure entirely, and the figure still renders -- which is the dangerous
+    part. Both directions are checked: no orphan chapter, and no unit left untested."""
     from app.curriculum import X_SCIENCE
 
-    assert X_SCIENCE.chapters == []
+    units = {u.code for u in X_SCIENCE.units}
+    assert {c.board_unit for c in X_SCIENCE.chapters} == units
+    assert all(c.board_unit in units for c in X_SCIENCE.chapters)
+    assert len({c.code for c in X_SCIENCE.chapters}) == 13
+
+    by_unit: dict[str, int] = {}
+    for c in X_SCIENCE.chapters:
+        by_unit[c.board_unit] = by_unit.get(c.board_unit, 0) + 1
+    assert by_unit == {
+        "X.SCI.U.CHEMICAL": 4, "X.SCI.U.LIVING": 4,
+        "X.SCI.U.PHENOMENA": 2, "X.SCI.U.CURRENT": 2, "X.SCI.U.RESOURCES": 1,
+    }
 
 
-def test_applying_a_curriculum_with_no_chapters_still_sets_up_its_units(tmp_path):
-    """The intermediate state has to be usable: units first, chapters when the book lands."""
+def test_science_declares_no_concept_families_until_its_book_is_read():
+    """Families are proposed from the book's own section headings once the chapters are
+    embedded, then reviewed. Inventing them ahead of the text is the creativity this
+    pipeline is built to refuse."""
+    from app.curriculum import X_SCIENCE
+
+    assert X_SCIENCE.concept_families == []
+
+
+def test_applying_the_science_curriculum_sets_up_its_units_and_chapters(tmp_path):
+    """Units carry the board's marks; chapters carry the mapping into them."""
     from sqlalchemy import create_engine, func, select
     from sqlalchemy.orm import Session
 
@@ -483,7 +521,7 @@ def test_applying_a_curriculum_with_no_chapters_still_sets_up_its_units(tmp_path
     with Session(engine) as db:
         created = apply(db, X_SCIENCE)
         assert created["units"] == 5
-        assert created["chapters"] == 0
+        assert created["chapters"] == 13
         assert db.scalar(
             select(func.count(TaxonomyNode.id)).where(TaxonomyNode.kind == "board_unit")
         ) == 5
@@ -492,3 +530,213 @@ def test_applying_a_curriculum_with_no_chapters_still_sets_up_its_units(tmp_path
             w.source_doc_url
             for w in db.scalars(select(BoardUnitWeight))
         )
+
+
+def test_a_heading_the_book_shouts_is_not_a_family_name():
+    """Science prints its section headings in full capitals. Carried through, the report
+    would say the student is weak at 'HOW DO OUR ACTIVITIES AFFECT THE ENVIRONMENT?'."""
+    from app.curriculum.families import propose, readable
+
+    assert readable("HOW DO OUR ACTIVITIES AFFECT THE ENVIRONMENT?") == (
+        "How do our activities affect the environment?"
+    )
+    assert readable("OHM’S LAW") == "Ohm’s law"
+    assert readable("ECO-SYSTEM — WHAT ARE ITS COMPONENTS?") == (
+        "Eco-system — what are its components?"
+    )
+    # Maths already sets its headings properly and must come through untouched.
+    assert readable("Volume of a Combination of Solids") == "Volume of a Combination of Solids"
+
+    [p] = propose(
+        [("X.SCI.ELECTRICITY", "Electricity", "12.5", "ELECTRIC POWER", 3)], "X.SCI"
+    )
+    assert p.label == "Electric power"
+    # The code is derived from the words, so it is unaffected by the casing fix.
+    assert p.code == "X.SCI.CF.ELECTRIC_POWER"
+
+
+def test_a_long_label_is_cut_at_a_word_and_kept_unique():
+    """Codes are never renamed, so a bad one is permanent. A plain character cut severed
+    words -- 'Trigonometric ratios of standard angles (0 deg, 30 deg, ...)' ended
+    ...ANGLES_0_3, which reads as nought point three."""
+    from app.curriculum.families import CODE_CHARS, slugify
+
+    code = slugify("Trigonometric ratios of standard angles (0°, 30°, 45°, 60°, 90°)")
+    assert len(code) <= CODE_CHARS
+    assert not code.endswith("_")
+    assert code.startswith("TRIGONOMETRIC_RATIOS_STANDARD_")
+
+
+def test_two_labels_sharing_a_long_prefix_do_not_become_one_code():
+    """The dangerous case: one code for two families silently merges two trends into one
+    report row, and nothing downstream can tell."""
+    from app.curriculum.families import slugify
+
+    a = slugify("Finding heights and distances using angles of elevation from a tower")
+    b = slugify("Finding heights and distances using angles of elevation from a cliff")
+    assert a != b
+    assert a.startswith("FINDING_HEIGHTS_DISTANCES_USING_")
+
+
+def test_a_label_that_fits_is_left_exactly_as_it_was():
+    """Most labels fit, including every family created so far. Adding a digest to those
+    would change codes already applied, which is the one thing this must never do."""
+    from app.curriculum.families import slugify
+
+    assert slugify("Volume of composite solids") == "VOLUME_COMPOSITE_SOLIDS"
+    assert slugify("Area of a sector") == "AREA_SECTOR"
+    assert slugify("Corrosion") == "CORROSION"
+
+
+def test_the_digest_is_stable_across_runs():
+    """A code that changed between runs would fork the trend it exists to hold together."""
+    from app.curriculum.families import slugify
+
+    label = "Mean for grouped data using step-deviation method"
+    assert slugify(label) == slugify(label) == "MEAN_FOR_GROUPED_DATA_USING_STEP_1010A8"
+
+
+def test_a_proposed_family_records_the_section_number_not_its_heading():
+    """The number is what a question's section is matched against.
+
+    Recording the heading instead made that comparison one that could never succeed, so a
+    chapter with two families blocked every question in it for want of a choice.
+    """
+    from app.curriculum.families import propose
+
+    [p] = propose(
+        [("X.MATH.STATS", "Statistics", "13.2", "Mean of Grouped Data", 7)], "X.MATH"
+    )
+    assert p.from_section == "13.2"
+    assert p.label == "Mean of Grouped Data"
+
+
+def test_the_classifier_request_is_one_its_configured_model_accepts():
+    """The settings and the call have to agree, or the paper fails on a paid request.
+
+    Two ways they can disagree, both silent until the money is spent: an effort level sent
+    to a model that rejects it, and a token ceiling sized for the answer alone on a model
+    that thinks before answering -- thinking counts against the same ceiling, so the reply
+    is truncated mid-thought.
+    """
+    import inspect
+
+    from app.classify.anthropic_judge import AnthropicJudge
+    from app.config import get_settings
+    from app.llm import output_config
+
+    settings = get_settings()
+    judge = AnthropicJudge.__new__(AnthropicJudge)
+    judge.output_config = output_config(settings.model_classifier, settings.model_effort)
+
+    # Either the model takes effort and gets it, or it does not and the keyword is dropped
+    # entirely -- never sent empty.
+    assert judge.output_config in (None, {"effort": settings.model_effort})
+
+    source = inspect.getsource(AnthropicJudge.classify)
+    ceiling = int(
+        source.split("max_tokens=")[1].split(",")[0].replace("_", "")
+    )
+    assert ceiling >= 8000, "leaves no room for the reasoning the model does first"
+    # Sampling parameters and a fixed thinking budget are rejected outright by the current
+    # models. Neither has any business in a structured-output call anyway.
+    for rejected in ("temperature", "top_p", "top_k", "budget_tokens"):
+        assert rejected not in source
+
+
+def test_the_reader_is_shown_the_chapters_that_were_in_contention():
+    """It is asked to choose one chapter from the candidates it is given.
+
+    It was given one: the passages all came from the chapter retrieval had already picked,
+    so the reading could never correct it. Correcting it is the whole reason the step
+    exists -- similarity picks the chapter full of right triangles for a cone, and only a
+    reader shown both can say otherwise.
+    """
+    from app.classify.judge import Evidence, build_prompt
+    from app.ingest.probe import LexicalIndex, locate
+
+    class Chunk:
+        def __init__(self, cid, text, node):
+            self.chunk_id = self.id = cid
+            self.text = self.reference = text if len(text) < 40 else cid
+            self.text = text
+            self.node_id = node
+            self.bucket = "T"
+            self.embedding = None
+            self.section_number = None
+
+    chunks = [
+        Chunk("m1", "cone slant height radius volume of a solid combination", "SAV"),
+        Chunk("m2", "surface area of a combination of solids cone hemisphere", "SAV"),
+        Chunk("t1", "tower height angle of elevation observer slant", "APPTRIG"),
+        Chunk("t2", "line of sight horizontal angle of elevation height", "APPTRIG"),
+    ]
+    chunks += [Chunk(f"p{i}", f"unrelated topic {i}", f"P{i}") for i in range(20)]
+
+    # A query both chapters score on, which is the case the reading exists to settle:
+    # "slant height" is a cone, "angle of elevation" is trigonometry, and similarity alone
+    # sees a right triangle in both.
+    verdict = locate(
+        "slant height angle of elevation", [LexicalIndex(chunks)],
+        evidence_passages=6, evidence_chapters=3,
+    )
+    shown = {c.node_id for c in verdict.evidence}
+    assert len(shown) > 1, "only the winner's passages were shown"
+    assert "APPTRIG" in shown, "the rival chapter never reached the reader"
+
+    # And the prompt says so, which is what the model is choosing between.
+    names = {"SAV": "Surface Areas and Volumes", "APPTRIG": "Applications of Trigonometry"}
+    prompt = build_prompt("slant height angle of elevation", [
+        Evidence(chapter=names[c.node_id], section="", reference=c.reference, text=c.text)
+        for c in verdict.evidence
+    ])
+    line = next(l for l in prompt.splitlines() if l.startswith("CANDIDATE CHAPTERS"))
+    assert "Surface Areas and Volumes" in line and "Applications of Trigonometry" in line
+
+    # And the passages are actually in it. They were not: the candidate carried a
+    # reference and a score and no text, so the prompt said "PASSAGES FROM THE BOOK" with
+    # nothing under it and the reading was a guess from two chapter names.
+    assert "angle of elevation" in prompt
+    assert "volume of a solid combination" in prompt
+
+
+def test_how_much_of_a_passage_the_reader_sees_is_a_setting_not_a_constant():
+    """It is the price of the call and the quality of the answer at once."""
+    from app.classify.judge import Evidence, build_prompt
+
+    long_passage = "a" * 5000
+    ev = [Evidence(chapter="Statistics", section="13.2", reference="Section 13.2",
+                   text=long_passage)]
+    assert len(build_prompt("q", ev, 400)) < len(build_prompt("q", ev, 1200))
+
+
+def test_every_setting_the_deployment_declares_is_one_the_app_reads():
+    """A name without the prefix is read by nothing.
+
+    The blueprint declared ANTHROPIC_API_KEY. Settings read YAADHUM_ANTHROPIC_API_KEY, so
+    the key would have sat in the dashboard looking present while classification refused
+    for want of one -- a failure with no symptom except the refusal it causes.
+    """
+    from pathlib import Path
+
+    import yaml
+
+    from app.config import Settings
+
+    blueprint = Path(__file__).resolve().parents[2] / "render.yaml"
+    if not blueprint.exists():                      # not every checkout ships it
+        return
+
+    prefix = Settings.model_config["env_prefix"]
+    known = {f"{prefix}{name}".upper() for name in Settings.model_fields}
+
+    declared = [
+        entry["key"]
+        for service in yaml.safe_load(blueprint.read_text())["services"]
+        for entry in service.get("envVars", [])
+        if entry["key"].upper().startswith(prefix)
+        or "ANTHROPIC" in entry["key"].upper()
+        or "JINA" in entry["key"].upper()
+    ]
+    unread = [key for key in declared if key.upper() not in known]
+    assert not unread, f"declared to the deployment and read by nothing: {unread}"

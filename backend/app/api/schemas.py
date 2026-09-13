@@ -26,6 +26,45 @@ class ProfileIn(BaseModel):
         return v.lower()
 
 
+class StudentCreateIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    roll_no: str = Field(min_length=1, max_length=16)
+    age: int | None = Field(default=None, ge=8, le=25)
+    gender: str | None = None
+    dob: str | None = None
+
+    @field_validator("gender")
+    @classmethod
+    def _gender(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        allowed = {"female", "male", "other", "prefer_not_to_say"}
+        if v.lower() not in allowed:
+            raise ValueError(f"gender must be one of {sorted(allowed)}")
+        return v.lower()
+
+
+class StudentUpdateIn(BaseModel):
+    """Every field optional: a caller sends only what changed, the same shape
+    AssessmentEditIn already uses for a paper's own rename/correct fields."""
+
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    roll_no: str | None = Field(default=None, min_length=1, max_length=16)
+    age: int | None = Field(default=None, ge=8, le=25)
+    gender: str | None = None
+    dob: str | None = None
+
+    @field_validator("gender")
+    @classmethod
+    def _gender(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        allowed = {"female", "male", "other", "prefer_not_to_say"}
+        if v.lower() not in allowed:
+            raise ValueError(f"gender must be one of {sorted(allowed)}")
+        return v.lower()
+
+
 class SessionOut(BaseModel):
     session_id: str
     locale: str
@@ -59,6 +98,11 @@ class AssessmentIn(BaseModel):
     total_marks: float | None = None
     curriculum_version: str = "CBSE-2026-27"
     declared: dict | None = None
+    #: 'school' (default), 'board' or 'sample' -- see app.models.assessment.PAPER_KINDS.
+    #: POST /board-papers is the usual way to register a board paper; this is here so a
+    #: caller that already speaks this route can say what it is sending.
+    paper_kind: str = Field(default="school", pattern="^(school|board|sample)$")
+    exam_year: int | None = Field(default=None, ge=2000, le=2100)
 
 
 class QuestionIn(BaseModel):

@@ -88,7 +88,9 @@ chapter in alternative_chapter. An abstention costs a minute of a teacher's time
 confident wrong answer goes into a report and is acted on."""
 
 
-def build_prompt(question: str, evidence: list[Evidence]) -> str:
+def build_prompt(
+    question: str, evidence: list[Evidence], passage_chars: int = 1200
+) -> str:
     """The question, and the book passages retrieval found for it."""
     chapters = sorted({e.chapter for e in evidence})
     lines = [
@@ -103,5 +105,7 @@ def build_prompt(question: str, evidence: list[Evidence]) -> str:
         section = f" (section {e.section})" if e.section else ""
         # truncated: a whole exercise runs to 8500 characters and the useful signal is at
         # the start, while the tail is later questions that would pull the judge off
-        lines.append(f"\n[{i}] {e.chapter} -- {e.reference}{section}\n{e.text[:1200]}")
+        lines.append(
+            f"\n[{i}] {e.chapter} -- {e.reference}{section}\n{e.text[:passage_chars]}"
+        )
     return "\n".join(lines)

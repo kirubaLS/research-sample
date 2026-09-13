@@ -14,7 +14,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from sqlalchemy import text
 
-from app.api import admin, books, interest, marks, placement, platform, reports
+from app.api import (
+    admin,
+    books,
+    documents,
+    gridsheets,
+    interest,
+    marks,
+    placement,
+    platform,
+    reading,
+    reports,
+    board,
+)
 from app.config import get_settings
 from app.db import engine, init_db
 
@@ -47,8 +59,14 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "OPTIONS"],
-    allow_headers=["Content-Type", "X-API-Key", "X-Platform-Key"],
+    # PATCH is here because correcting a scanned question uses it, PUT because the
+    # syllabus scope does, and DELETE because removing a paper, a document, or a student
+    # does. A method missing from this list fails in the browser only -- every
+    # server-side test passes (TestClient calls the route directly, no preflight), which
+    # is exactly how this one went unnoticed until a real Delete button 400'd on its
+    # OPTIONS preflight in production.
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-API-Key", "X-Platform-Key", "X-School-Id"],
     max_age=600,
 )
 
@@ -92,6 +110,10 @@ app.include_router(books.router)
 app.include_router(placement.router)
 app.include_router(platform.router)
 app.include_router(reports.router)
+app.include_router(documents.router)
+app.include_router(reading.router)
+app.include_router(gridsheets.router)
+app.include_router(board.router)
 
 
 @app.get("/healthz", tags=["ops"])

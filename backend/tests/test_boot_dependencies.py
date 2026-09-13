@@ -20,7 +20,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 #: [project.dependencies] in pyproject.toml, by import name
 BASE = {
     "fastapi", "uvicorn", "sqlalchemy", "alembic", "pydantic", "pydantic_settings",
-    "psycopg", "numpy", "scipy", "multipart", "httpx", "pymupdf", "anthropic",
+    "psycopg", "numpy", "scipy", "multipart", "httpx", "pymupdf", "anthropic", "sarvamai",
 }
 
 

@@ -4,10 +4,16 @@ from app.analysis.diagnostics import (
     MarkRow,
     board_weighted_indicator,
     by_tier,
+    confidence_tier,
     skill_by_tier,
     wilson_interval,
 )
-from app.analysis.paper_quality import cronbach_alpha, item_analysis, typology_alignment
+from app.analysis.paper_quality import (
+    cronbach_alpha,
+    diagnostic_strength_tier,
+    item_analysis,
+    typology_alignment,
+)
 
 #: board unit and concept family, kept short so the fixtures stay readable
 MENS, VOL = "U.MENSURATION", "CF.VOLUME"
@@ -35,7 +41,23 @@ def test_evidence_floor_suppresses_a_number_it_cannot_support():
     thin = [MarkRow("s1", "A/1//", 0, 1, "awarded", ("cone",), "R&U", "SAV", MENS, VOL)]
     f = by_tier(thin)[0]
     assert not f.sufficient and f.rate is None
-    assert "Insufficient evidence" in f.message
+    assert "not enough" in f.message.lower()
+    assert f.confidence == "EMERGING"
+
+
+def test_confidence_is_emerging_below_the_evidence_floor():
+    assert confidence_tier(sufficient=False, ci=(0.1, 0.9)) == "EMERGING"
+    assert confidence_tier(sufficient=True, ci=None) == "EMERGING"
+
+
+def test_confidence_is_high_only_once_the_interval_is_tight():
+    assert confidence_tier(sufficient=True, ci=(0.55, 0.65)) == "HIGH"      # width 0.10
+    assert confidence_tier(sufficient=True, ci=(0.40, 0.80)) == "MEDIUM"    # width 0.40
+
+
+def test_a_finding_reports_its_own_confidence_in_as_dict():
+    f = by_tier(_rows())[0]
+    assert f.as_dict()["confidence"] == f.confidence
 
 
 def test_the_crosstab_is_the_diagnosis():
@@ -50,7 +72,7 @@ def test_a_board_unit_with_no_marks_is_a_coverage_gap_not_a_zero():
         _rows(), {"U.MENSURATION": 10.0, "U.TRIG": 12.0}
     )
     assert [g.board_unit for g in gaps] == ["U.TRIG"]
-    assert "no information" in gaps[0].message
+    assert "says nothing about it" in gaps[0].message
 
 
 def test_indicator_carries_an_interval_and_a_share():
@@ -95,3 +117,112 @@ def test_typology_alignment_passes_a_balanced_paper():
     rep = typology_alignment({"R&U": 43.2, "AP": 19.2, "AEC": 17.6})
     assert rep.alignment_score > 0.95
     assert "well aligned" in rep.verdict
+
+
+def test_diagnostic_strength_is_strong_only_when_aligned_and_coherent():
+    assert diagnostic_strength_tier(alignment_score=0.9, alpha=0.8) == "STRONG"
+    assert diagnostic_strength_tier(alignment_score=0.9, alpha=None) == "STRONG"
+
+
+def test_diagnostic_strength_is_limited_on_either_axis_alone():
+    assert diagnostic_strength_tier(alignment_score=0.3, alpha=0.9) == "LIMITED"
+    assert diagnostic_strength_tier(alignment_score=0.9, alpha=0.3) == "LIMITED"
+
+
+def test_diagnostic_strength_is_moderate_between_the_two():
+    assert diagnostic_strength_tier(alignment_score=0.7, alpha=0.8) == "MODERATE"
+
+
+def test_strengths_rank_on_the_interval_not_the_point_estimate():
+    """2/2 on one question is not stronger evidence than 11/12, and must not outrank it."""
+    from app.analysis.diagnostics import MarkRow, by_concept_family, select_strengths
+
+    rows = [
+        MarkRow("s", "1", 2.0, 2.0, concept_family="TINY"),
+        MarkRow("s", "2", 2.0, 2.0, concept_family="TINY"),
+        *[MarkRow("s", f"{i}", 1.0, 1.0, concept_family="SOLID") for i in range(3, 14)],
+        MarkRow("s", "14", 0.0, 1.0, concept_family="SOLID"),
+        *[MarkRow("s", f"{i}", 1.0, 4.0, concept_family="WEAK") for i in range(15, 19)],
+    ]
+    strengths = [f.key for f in select_strengths(by_concept_family(rows))]
+    assert strengths == ["SOLID", "TINY"]
+    assert "WEAK" not in strengths
+
+
+def test_proof_distinguishes_a_confirmed_placement_from_a_guessed_one():
+    """Same chapter label, very different standing -- the report must not hide that."""
+    from types import SimpleNamespace as NS
+
+    from app.api.reports import _proof
+
+    q = NS(question_no="17", section="C", sub_part=None, choice_alt=None,
+           question_type="LA", stem_text="A cone surmounted on a hemisphere...",
+           logical_page=3, curriculum_section="12.2",
+           curriculum_section_title="Volume of a Combination of Solids",
+           concept_variant="cone on hemisphere r=3.5", chapter_id="ch-sav",
+           verified_against="NCERT Reprint 2026-27", verified_at="2026-08-30")
+    ev = NS(source="scan")
+    codes = {"ch-sav": "X.MATH.SAV"}
+
+    guessed = _proof(q, NS(source="model", confidence=0.41, needs_review=True,
+                           reviewed_by=None, reasoning="closest match",
+                           evidence=["Example 4"], candidates=["X.MATH.SAV", "X.MATH.AOT"],
+                           chapter_id="ch-sav"), ev, codes)
+    confirmed = _proof(q, NS(source="human", confidence=1.0, needs_review=False,
+                             reviewed_by="teacher-7", reasoning=None,
+                             evidence=["Example 4"], candidates=[],
+                             chapter_id="ch-sav"), ev, codes)
+
+    assert guessed["placement"]["chapter"] == confirmed["placement"]["chapter"]
+    assert guessed["placement"]["needs_review"] is True
+    assert guessed["placement"]["candidates"] == ["X.MATH.SAV", "X.MATH.AOT"]
+    assert confirmed["placement"]["reviewed_by"] == "teacher-7"
+    # The book passage the decision rested on travels with the finding, both times.
+    assert guessed["placement"]["book_evidence"] == ["Example 4"]
+
+
+def test_a_topic_scored_well_is_never_listed_as_where_to_work_next():
+    """Ranking by actionability alone put a 94% topic under "where to work next" whenever
+    the paper had fewer than five topics: the list was right about the number and wrong
+    about what it meant, which is the kind of error a teacher acts on."""
+    from app.analysis.diagnostics import (
+        MarkRow,
+        by_concept_family,
+        select_findings,
+        select_strengths,
+    )
+
+    rows = [
+        MarkRow(student_id="s", address=f"A/{i}//", earned=e, max_marks=m,
+                concept_family=fam, state="awarded")
+        for i, (fam, e, m) in enumerate([
+            ("STRONG", 4.0, 4.0), ("STRONG", 3.5, 4.0),
+            ("WEAK", 1.0, 4.0), ("WEAK", 1.0, 4.0),
+        ])
+    ]
+    topics = by_concept_family(rows)
+    focus = select_findings(topics, {})
+    strengths = select_strengths(topics)
+
+    assert {f.key for f in strengths} == {"STRONG"}
+    assert {f.key for f in focus} == {"WEAK"}
+    assert not ({f.key for f in focus} & {f.key for f in strengths}), (
+        "one report cannot call the same topic both"
+    )
+
+
+def test_focus_is_ranked_by_board_priority_not_a_flat_default():
+    """Two topics failed to the same degree: the one the board asks every year comes
+    first. The priority map is keyed by the finding's own key, which is what the old
+    unit-keyed lookup never matched."""
+    from app.analysis.diagnostics import MarkRow, by_concept_family, select_findings
+
+    rows = [
+        MarkRow("s", f"A/{i}//", 1.0, 4.0, "awarded", concept_family=fam)
+        for i, fam in enumerate(["RARE", "RARE", "EVERY_YEAR", "EVERY_YEAR"])
+    ]
+    topics = by_concept_family(rows)
+    flat = select_findings(topics, {})
+    ranked = select_findings(topics, {}, priority={"EVERY_YEAR": 20.0, "RARE": 10.0})
+    assert {f.key for f in flat} == {"RARE", "EVERY_YEAR"}
+    assert [f.key for f in ranked] == ["EVERY_YEAR", "RARE"]

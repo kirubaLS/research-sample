@@ -1,0 +1,209 @@
+"""parse_toc_chapters against every NCERT contents-page convention seen so far.
+
+Six conventions, one function: Science says 'Chapter N' with the title on the next line;
+Geography gives just 'N.' on its own line; First Flight and Footprints without Feet put
+the number, dot AND title on the one line ('1. A Letter to God'); the Workbook says
+'Unit N' with the title on the next line; History numbers in Roman numerals and never
+says 'Chapter' at all; Economics lays chapter numbers and titles out as a table whose
+columns linear text reads as two unrelated blocks.
+"""
+
+from __future__ import annotations
+
+import pymupdf
+
+from app.ingest.book import parse_toc_chapters
+
+
+def _page(doc, lines: list[tuple[float, float, str]]) -> None:
+    page = doc.new_page(width=595, height=842)
+    for x, y, text in lines:
+        page.insert_text((x, y), text, fontsize=11)
+
+
+def test_chapter_word_convention(tmp_path):
+    doc = pymupdf.open()
+    _page(doc, [
+        (60, 60, "Contents"),
+        (60, 90, "Chapter 1"),
+        (60, 105, "Chemical Reactions and Equations"),
+        (60, 130, "Chapter 2"),
+        (60, 145, "Acids, Bases and Salts"),
+    ])
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {
+        1: "Chemical Reactions and Equations",
+        2: "Acids, Bases and Salts",
+    }
+
+
+def test_dotted_number_convention(tmp_path):
+    doc = pymupdf.open()
+    _page(doc, [
+        (60, 60, "Contents"),
+        (60, 90, "1."),
+        (60, 105, "Resources and Development"),
+        (60, 118, "1"),
+        (60, 140, "2."),
+        (60, 155, "Forest and Wildlife Resources"),
+        (60, 168, "13"),
+    ])
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {
+        1: "Resources and Development",
+        2: "Forest and Wildlife Resources",
+    }
+
+
+def test_numbered_title_on_the_same_line_convention(tmp_path):
+    """First Flight/Footprints without Feet: unlike Geography's bare '1.' on its own
+    line, the title shares the number's line. A poem or story title following a chapter
+    with no leading number of its own ('Dust of Snow') must never be read as chapter 2."""
+    doc = pymupdf.open()
+    _page(doc, [
+        (60, 60, "Contents"),
+        (60, 90, "1. A Letter to God"),
+        (60, 105, "1"),
+        (60, 118, "G.L.FUENTES"),
+        (60, 140, "Dust of Snow"),
+        (60, 155, "14"),
+        (60, 168, "ROBERT FROST"),
+        (60, 190, "2. Nelson Mandela: Long Walk to Freedom"),
+        (60, 205, "16"),
+    ])
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {
+        1: "A Letter to God",
+        2: "Nelson Mandela: Long Walk to Freedom",
+    }
+
+
+def test_unit_word_convention(tmp_path):
+    """The Workbook's own word for a chapter is 'Unit', not 'Chapter' -- same shape as
+    the Science convention otherwise, number-then-title on separate lines."""
+    doc = pymupdf.open()
+    _page(doc, [
+        (60, 60, "Contents"),
+        (60, 90, "Unit 1"),
+        (60, 105, "A Letter to God"),
+        (60, 118, "1"),
+        (60, 140, "Unit 2"),
+        (60, 155, "Nelson Mandela: Long Walk to Freedom"),
+        (60, 168, "17"),
+    ])
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {
+        1: "A Letter to God",
+        2: "Nelson Mandela: Long Walk to Freedom",
+    }
+
+
+def test_devanagari_convention_recovers_a_missing_first_chapter_number():
+    """Built from the real Kritika contents page, OCR'd with Tesseract at PSM 6 (see
+    app.ingest.hindi_ocr): '2.' and '3.' both came back with their number intact, but
+    chapter 1's own leading digit was dropped entirely -- its line OCR'd as a bare '.'
+    with no number, its trailing page number as a stray '।' rather than a digit. Text is
+    passed directly (the `text=` override every parse_toc_chapters caller can use, not a
+    rendered PDF) since this is testing the OCR-recovery logic itself, not PDF rendering."""
+    from app.ingest.book import parse_toc_chapters
+
+    text = (
+        "आमुख गा\n"
+        "पाठ्यपुस्तकों में पाठ्य सामग्री का पुनर्सयोजन ४\n"
+        "भूमिका हर ।\n"
+        ". माता का अआँचल ।\n"
+        "८ शिवपूजन सहाय\n"
+        "2. साना-साना हाथ जोडि 0\n"
+        "मधु काकरिया\n"
+        "3. मैं क्यों लिखता हँ? 24\n"
+        "अज्ञेय\n"
+        "लेखक-परिचय 29\n"
+    )
+    chapters = parse_toc_chapters("x", text=text)
+    assert chapters[1] == "माता का अआँचल ।"
+    assert chapters[2] == "साना-साना हाथ जोडि"
+    assert "यों लिखता" in chapters[3]
+
+
+def test_a_bare_dot_line_with_no_following_chapter_2_is_left_alone():
+    """The recovery only fires when it can confirm the shape it exists for -- a bare '.'
+    line elsewhere on a page, with no '2.' anywhere after it, is not chapter 1's missing
+    number and must not be rewritten into one."""
+    from app.ingest.book import _recover_hindi_first_chapter_number
+
+    text = "भूमिका\n. एक असंबंधित पंक्ति\nऔर कुछ नहीं\n"
+    assert _recover_hindi_first_chapter_number(text) == text
+
+
+def test_roman_numeral_convention(tmp_path):
+    doc = pymupdf.open()
+    _page(doc, [
+        (60, 60, "Contents"),
+        (60, 90, "I. The Rise of Nationalism in Europe"),
+        (60, 103, "3"),
+        (60, 130, "II. Nationalism in India"),
+        (60, 143, "29"),
+    ])
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {
+        1: "The Rise of Nationalism in Europe",
+        2: "Nationalism in India",
+    }
+
+
+def test_table_convention_where_labels_and_titles_are_two_separate_blocks(tmp_path):
+    """The Economics prelims: every 'Chapter N' label first, then every title, in an order
+    that pairs none of them correctly by text alone -- only their position on the page
+    does. Built with real coordinates lifted from the actual NCERT file, since the whole
+    point of the fallback is what linear reading order gets wrong.
+    """
+    doc = pymupdf.open()
+    page = doc.new_page(width=612, height=842)
+    for x, y, text in [
+        (85, 208, "Chapter"), (139, 208, "1"),
+        (91, 289, "Chapter"), (145, 289, "2"),
+        (91, 368, "Chapter"), (145, 368, "3"),
+        (91, 447, "Chapter"), (145, 447, "4"),
+        (91, 528, "Chapter"), (145, 528, "5"),
+        (85, 592, "Appendix"), (477, 592, "90"),
+    ]:
+        page.insert_text((x, y), text, fontsize=11)
+    for x, y, text in [
+        (91, 230, "DEVELOPMENT"), (472, 228, "2"),
+        (91, 309, "SECTORS"), (171, 309, "OF"), (199, 309, "THE"),
+        (234, 309, "INDIAN"), (297, 309, "ECONOMY"), (472, 307, "18"),
+        (91, 388, "MONEY"), (155, 388, "AND"), (195, 388, "CREDIT"), (472, 387, "38"),
+        (91, 468, "GLOBALISATION"), (225, 468, "AND"), (266, 468, "THE"),
+        (302, 468, "INDIAN"), (365, 468, "ECONOMY"), (472, 466, "54"),
+        (92, 548, "CONSUMER"), (192, 548, "RIGHTS"), (472, 546, "74"),
+    ]:
+        page.insert_text((x, y), text, fontsize=11)
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {
+        1: "Development",
+        2: "Sectors Of The Indian Economy",
+        3: "Money And Credit",
+        4: "Globalisation And The Indian Economy",
+        5: "Consumer Rights",
+    }
+
+
+def test_no_recognisable_convention_is_an_empty_answer_not_a_guess(tmp_path):
+    doc = pymupdf.open()
+    _page(doc, [(60, 60, "Some unrelated prelims text with no chapter listing at all.")])
+    path = tmp_path / "toc.pdf"
+    doc.save(path)
+    doc.close()
+    assert parse_toc_chapters(path) == {}

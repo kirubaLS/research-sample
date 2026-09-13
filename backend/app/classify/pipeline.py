@@ -29,8 +29,8 @@ from app.classify.reconcile import (
 from app.classify.scope import InferredScope, Vote, infer_scope
 from app.ingest.probe import locate
 
-#: candidate passages shown to the judge. Enough to cover the right chapter and a rival,
-#: few enough that the prompt stays about this question.
+#: how deep retrieval searches before the chapters are voted on. Not the number of
+#: passages the reader is shown -- that is a setting, because it is the price of the call.
 EVIDENCE_DEPTH = 8
 
 
@@ -75,6 +75,8 @@ def _pass(
     unit_of,
     section_of,
     scope: set[str] | None,
+    evidence_passages: int,
+    evidence_chapters: int,
 ) -> tuple[list[QuestionSlot], dict[str, Classification]]:
     """One classification pass over every question."""
     slots: list[QuestionSlot] = []
@@ -82,20 +84,24 @@ def _pass(
 
     for question_id, stem, marks in questions:
         verdict = locate(
-            stem, indexes, depth=EVIDENCE_DEPTH, scope=scope, chapter_of=chapter_of
+            stem, indexes, depth=EVIDENCE_DEPTH, scope=scope, chapter_of=chapter_of,
+            evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
         )
         # Retrieval applies the scope itself, so a question with nothing in scope comes
         # back empty. Retry without it rather than lose the question: one missing from the
         # report is worse than one visibly in the wrong place.
         out_of_scope = scope is not None and not verdict.evidence
         if out_of_scope:
-            verdict = locate(stem, indexes, depth=EVIDENCE_DEPTH)
+            verdict = locate(
+                stem, indexes, depth=EVIDENCE_DEPTH,
+                evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
+            )
         evidence = [
             Evidence(
                 chapter=chapter_of(c.node_id) or "?",
                 reference=c.reference,
                 section=section_of(c.reference) or "",
-                text=c.text if hasattr(c, "text") else "",
+                text=c.text,
             )
             for c in verdict.evidence
         ]
@@ -156,6 +162,8 @@ def place_paper(
     declared: dict[str, float] | None = None,
     scope: set[str] | None = None,
     infer_scope_when_undeclared: bool = True,
+    evidence_passages: int = EVIDENCE_DEPTH,
+    evidence_chapters: int = 1,
 ) -> PaperPlacement:
     """Place every question in a paper.
 
@@ -174,7 +182,8 @@ def place_paper(
     scope_source = "declared" if scope is not None else "none"
 
     slots, judged = _pass(
-        questions, indexes, judge, chapter_of, unit_of, section_of, scope
+        questions, indexes, judge, chapter_of, unit_of, section_of, scope,
+        evidence_passages, evidence_chapters,
     )
 
     if scope is None and infer_scope_when_undeclared and slots:
@@ -194,7 +203,7 @@ def place_paper(
         if inferred.confident:
             slots, judged = _pass(
                 questions, indexes, judge, chapter_of, unit_of, section_of,
-                inferred.chapters,
+                inferred.chapters, evidence_passages, evidence_chapters,
             )
             scope_source = "inferred"
 

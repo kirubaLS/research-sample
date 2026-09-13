@@ -1,0 +1,1028 @@
+"use client";
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { Scanner } from "@/components/Scanner";
+import { Mascot } from "@/components/Mascot";
+import {
+  api,
+  ApiError,
+  ApiUnreachable,
+  ConfirmResult,
+  MapResult,
+  PaperSummary,
+  PlaceResult,
+  ScanResult,
+  ScanReview,
+  StagedQuestion,
+  type Subject,
+} from "@/lib/api";
+import {
+  clearPending,
+  clearSession,
+  getPending,
+  listAllPending,
+  listPages,
+  setPending,
+  type PendingSubmission,
+  type ScannedPage,
+} from "@/lib/pageStore";
+import { getApiKey } from "@/lib/session";
+import { newSessionId } from "@/lib/id";
+
+/** The same conversion the single-student script scanner already uses: a captured page's
+ * blob, in capture order, as a real File -- nothing downstream needs to know a camera was
+ * involved rather than a file picker. */
+function toFiles(pages: ScannedPage[]): File[] {
+  return pages
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((p, i) => new File([p.blob], `page-${i + 1}.jpg`, { type: p.blob.type || "image/jpeg" }));
+}
+
+/**
+ * Reading a question paper, and watching the book make sense of it.
+ *
+ * The layout is the argument. A question and what the book made of it sit on one row,
+ * because the only thing a teacher is really checking is whether those two belong
+ * together -- and that judgement is impossible when the paper is on one screen and the
+ * classification on another.
+ *
+ * Nothing here hides a gap. A question the pipeline could not place keeps its row and
+ * states the reason, because an unplaceable question is a fact about the paper, and a
+ * screen that quietly showed 34 of 39 rows would be lying by omission.
+ */
+
+type Stage = "start" | "scanned" | "confirmed" | "mapped" | "classified";
+
+export default function PaperPage() {
+  // The subjects come from the deployment, not from a list written here. A school that
+  // loads a third book must see it offered without anybody editing this screen.
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subject, setSubject] = useState<string>("");
+  const [title, setTitle] = useState("Cycle Test I");
+  const [assessmentId, setAssessmentId] = useState<string | null>(null);
+  const [scan, setScan] = useState<ScanResult | null>(null);
+  const [review, setReview] = useState<ScanReview | null>(null);
+  const [mapped, setMapped] = useState<MapResult | null>(null);
+  const [placed, setPlaced] = useState<PlaceResult | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [filter, setFilter] = useState<"all" | "mapped" | "blocked">("all");
+  const [confirmedBy, setConfirmedBy] = useState("");
+  const [confirmation, setConfirmation] = useState<ConfirmResult | null>(null);
+  const [renaming, setRenaming] = useState(false);
+  const [deleted, setDeleted] = useState(false);
+  // Every paper already created for this school, so an existing one can be opened rather
+  // than this screen only ever being able to start a new one. Without this, assessmentId
+  // never became non-null except right after creating a paper in this same browser
+  // session -- Rename and Delete (gated on assessmentId, below) were unreachable for any
+  // paper opened later, from the dashboard or a fresh page load.
+  const [papers, setPapers] = useState<PaperSummary[]>([]);
+  // Seeded from an opened paper's own already-known stage (PaperSummary.stage), so the
+  // wizard resumes near the right step instead of dropping back to "start" and offering
+  // to upload a duplicate scan. Real actions taken in this session (scan/mapped/placed
+  // below) still take priority once they happen.
+  const [openedStage, setOpenedStage] = useState<Stage | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [showCamera, setShowCamera] = useState(false);
+  // One id per paper, not per mount: switching subject/paper before Complete would
+  // otherwise lose a half-shot paper's pages to a fresh, disconnected session.
+  const [scanSessionId] = useState(() => newSessionId());
+  // A capture whose pages reached this device but never reached the server -- the
+  // backend was unreachable, not that anything was wrong with the scan. Checked for on
+  // mount (any tab's leftover, not just this one's) and set the moment an upload fails
+  // that way; cleared the moment a retry lands.
+  const [pendingResume, setPendingResume] = useState<PendingSubmission | null>(null);
+  const [pendingPageCount, setPendingPageCount] = useState(0);
+  const [retrying, setRetrying] = useState(false);
+
+  const loadPapers = useCallback(async () => {
+    const key = getApiKey();
+    if (!key) return;
+    try {
+      const { assessments } = await api.listPapers(key);
+      setPapers(assessments);
+    } catch {
+      /* the rest of the screen still works; an existing-papers list that failed to load
+         just means starting a new one is the only option shown */
+    }
+  }, []);
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key) return;
+    api
+      .subjects(key)
+      .then(({ subjects: found }) => {
+        setSubjects(found);
+        // A subject with no book loaded cannot map a question, so it is not the one to
+        // land on. If none is loaded the first is still offered, and the map step says why
+        // it cannot run rather than this screen pretending there is nothing to choose.
+        setSubject((current) =>
+          current || found.find((s) => s.book_loaded)?.subject_code
+            || found[0]?.subject_code || "",
+        );
+      })
+      .catch(() => setSubjects([]));
+    void loadPapers();
+  }, [loadPapers]);
+
+  async function openPaper(p: PaperSummary) {
+    const key = getApiKey();
+    if (!key) return;
+    setError(null);
+    setDeleted(false);
+    setScan(null);
+    setMapped(null);
+    setPlaced(null);
+    setConfirmation(null);
+    setAssessmentId(p.id);
+    setSubject(p.subject_code);
+    setTitle(p.title);
+    setOpenedStage(p.stage === "empty" ? "start" : p.stage);
+    try {
+      await refresh(p.id);
+    } catch (err) {
+      setError(explain(err));
+    }
+  }
+
+  const confirmed = !!(confirmation || review?.confirmed_at);
+  const stage: Stage = placed
+    ? "classified"
+    : mapped
+      ? "mapped"
+      : confirmed
+        ? "confirmed"
+        : scan
+          ? "scanned"
+          : openedStage ?? "start";
+
+  function explain(err: unknown): string {
+    if (err instanceof ApiUnreachable) return "Could not reach the API.";
+    if (!(err instanceof ApiError)) return "Something went wrong.";
+    try {
+      const body = JSON.parse(err.message) as { detail?: string };
+      if (body.detail) return body.detail;
+    } catch {
+      /* the body was not JSON; fall through to the status */
+    }
+    if (err.status === 404) return "That key was not recognised. Please sign in again.";
+    return `The API returned ${err.status}.`;
+  }
+
+  async function onRename() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    const next = window.prompt("Rename this paper", title);
+    if (next === null || next.trim() === "" || next === title) return;
+    setRenaming(true);
+    setError(null);
+    try {
+      await api.editAssessment(key, assessmentId, { title: next.trim() });
+      setTitle(next.trim());
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setRenaming(false);
+    }
+  }
+
+  async function onDelete() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    if (!window.confirm(
+      "Delete this paper? Every scanned question, mapping and mark recorded against it " +
+        "goes with it, and none of it can be brought back.",
+    )) return;
+    setBusy("Deleting the paper…");
+    setError(null);
+    try {
+      await api.deleteAssessment(key, assessmentId);
+      setDeleted(true);
+      setAssessmentId(null);
+      setScan(null);
+      setReview(null);
+      setMapped(null);
+      setPlaced(null);
+      setConfirmation(null);
+      setTitle("Cycle Test I");
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const refresh = useCallback(async (id: string) => {
+    const key = getApiKey();
+    if (!key) return;
+    setReview(await api.readScan(key, id));
+  }, []);
+
+  // The one submission path, used whether the pages just came off the camera, a file
+  // picker, or a retry of a capture that could not reach the server last time. A
+  // sessionId is passed only for a camera capture (pages backed by IndexedDB, so there
+  // is something to resume from); a file-picker upload that fails the same way is
+  // reported the ordinary way, because a File the browser handed to a form field cannot
+  // be recovered once the request that held it is gone.
+  //
+  // resumeJobId matters more than it looks: a scan that is a vision read is queued
+  // server-side (202 + job id) and then polled -- losing the connection can happen
+  // *after* the server already has the job, while only the polling is failing. Retrying
+  // by calling scanPaper() again would queue a second, separately-billed vision read on
+  // top of one the server is already running or has already finished. Resuming by job
+  // id instead just watches the one that already exists.
+  async function submitScan(
+    scanSubject: string,
+    scanTitle: string,
+    existingId: string | null,
+    files: File[],
+    sessionId: string | null,
+    resumeJobId?: string,
+  ) {
+    const key = getApiKey();
+    if (!key) {
+      setError("Sign in first.");
+      return;
+    }
+    setError(null);
+    setBusy(sessionId && pendingResume ? "Retrying…" : "Reading the paper…");
+    let id = existingId;
+    try {
+      if (resumeJobId && id) {
+        setScan(await api.resumeScanJob(key, id, resumeJobId));
+      } else {
+        if (!id) {
+          const created = await api.createAssessment(key, { subject_code: scanSubject, title: scanTitle });
+          id = created.assessment_id;
+          setAssessmentId(id);
+        }
+        const capturedId = id;
+        setScan(await api.scanPaper(key, id, files, (jobId) => {
+          // Fired the instant the server has queued the read -- persisted right away,
+          // before this function has even finished, so a disconnect one line from now
+          // still has somewhere to resume from rather than re-uploading.
+          if (sessionId) {
+            void setPending({
+              sessionId, subject: scanSubject, title: scanTitle, assessmentId: capturedId,
+              savedAt: Date.now(), jobId,
+            });
+            setPendingResume((prev) =>
+              prev && prev.sessionId === sessionId ? { ...prev, assessmentId: capturedId, jobId } : prev,
+            );
+          }
+        }));
+      }
+      setMapped(null);
+      setConfirmation(null);
+      await refresh(id);
+      if (sessionId) {
+        await clearPending(sessionId);
+        setPendingResume(null);
+      }
+    } catch (err) {
+      if (err instanceof ApiUnreachable && sessionId) {
+        // The pages are already safe on this device (Scanner wrote them before this
+        // ever ran) -- what failed is only the request, and only because the server
+        // could not be reached. Keep the id if one was already created, and the job id
+        // if the server had already queued one, so a retry resumes rather than repeats.
+        const existing = await getPending(sessionId);
+        const pending: PendingSubmission = {
+          sessionId, subject: scanSubject, title: scanTitle, assessmentId: id,
+          savedAt: Date.now(), lastError: explain(err), jobId: existing?.jobId ?? resumeJobId,
+        };
+        await setPending(pending);
+        setPendingResume(pending);
+        setPendingPageCount(files.length);
+      } else {
+        // A real refusal, not a dropped connection -- retrying would only repeat it
+        // (most often now: the job the caller was resuming was declared stale server-
+        // side, because the worker that was reading it died mid-scan). Nothing left to
+        // resume, so drop the pending record rather than let the 20-second retry loop
+        // poll a job that is never coming back.
+        if (sessionId) {
+          await clearPending(sessionId);
+          setPendingResume(null);
+        }
+        setError(explain(err));
+      }
+    } finally {
+      setBusy(null);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
+
+  async function onFiles(files: File[]) {
+    if (!subject) {
+      setError("Choose a subject before reading the paper.");
+      return;
+    }
+    await submitScan(subject, title, assessmentId, files, null);
+  }
+
+  // On mount, pick up any capture left waiting from a previous visit -- a tab closed, a
+  // page reload, the same "the backend was down" reason -- not only one from this
+  // session. Runs once; the pages themselves are still exactly where Scanner put them.
+  useEffect(() => {
+    (async () => {
+      const [pending] = await listAllPending();
+      if (!pending) return;
+      const pages = await listPages(pending.sessionId);
+      if (!pages.length) {
+        await clearPending(pending.sessionId);
+        return;
+      }
+      setPendingResume(pending);
+      setPendingPageCount(pages.length);
+    })();
+  }, []);
+
+  // Retried automatically, not just offered: a principal who pressed Complete and got
+  // "could not reach the API" should not have to remember to come back and try again.
+  useEffect(() => {
+    if (!pendingResume) return;
+    const sessionId = pendingResume.sessionId;
+    const timer = window.setInterval(() => {
+      void (async () => {
+        // Read the pending record fresh from IndexedDB rather than trusting this
+        // closure's copy: a prior retry in this same loop may have already created the
+        // assessment and persisted its id, and using a stale assessmentId here would
+        // create a second paper instead of resuming the first.
+        const current = await getPending(sessionId);
+        if (!current) return;
+        const pages = await listPages(sessionId);
+        if (!pages.length) {
+          await clearPending(sessionId);
+          setPendingResume(null);
+          return;
+        }
+        setRetrying(true);
+        try {
+          await submitScan(
+            current.subject, current.title, current.assessmentId, toFiles(pages), sessionId,
+            current.jobId,
+          );
+        } finally {
+          setRetrying(false);
+        }
+      })();
+    }, 20000);
+    return () => window.clearInterval(timer);
+  }, [pendingResume?.sessionId]);
+
+  async function onEdit(address: string, patch: Record<string, unknown>) {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    setError(null);
+    try {
+      await api.editScanned(key, assessmentId, address, { ...patch, by: confirmedBy || "teacher" });
+      await refresh(assessmentId);
+    } catch (err) {
+      setError(explain(err));
+    }
+  }
+
+  async function onConfirm() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    setError(null);
+    setBusy("Recording your confirmation…");
+    try {
+      setConfirmation(await api.confirmScan(key, assessmentId, confirmedBy || "teacher"));
+      await refresh(assessmentId);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onMap() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    setError(null);
+    setBusy("Matching every question against the book…");
+    try {
+      setMapped(await api.mapPaper(key, assessmentId));
+      setPlaced(null);
+      await refresh(assessmentId);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function onClassify() {
+    const key = getApiKey();
+    if (!key || !assessmentId) return;
+    setError(null);
+    // A call per question, around forty for an ordinary paper -- this now polls a
+    // background job rather than blocking on one request, so it can genuinely take a
+    // while; the busy message says so rather than reading like something is stuck.
+    setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
+    try {
+      setPlaced(await api.placePaper(key, assessmentId));
+      await refresh(assessmentId);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const rows = (review?.questions ?? []).filter((q) =>
+    filter === "all" ? true : filter === "mapped" ? !!q.mapped_to : !q.mapped_to,
+  );
+  const blockedCount = (review?.questions ?? []).filter((q) => !q.mapped_to).length;
+
+  return (
+    <main className="paper-page">
+      <header className="ph">
+        <div>
+          <p className="eyebrow">Question paper</p>
+          <h1>Read a paper, and map it onto the book</h1>
+          <p className="lede">
+            Every question is matched to a chapter, a section and a concept family, all of
+            them from the textbook you loaded, none of them from memory. A question that
+            cannot be matched keeps its place here and says why.
+          </p>
+        </div>
+        {assessmentId && (
+          <div className="ph-actions">
+            <button type="button" className="secondary" onClick={onRename} disabled={renaming || !!busy}>
+              {renaming ? "Renaming…" : "Rename"}
+            </button>
+            <button type="button" className="danger" onClick={onDelete} disabled={!!busy}>
+              Delete
+            </button>
+          </div>
+        )}
+      </header>
+
+      {pendingResume && (
+        <section className="notice warn" style={{ marginBottom: 18 }}>
+          <p style={{ margin: 0 }}>
+            <strong>
+              {pendingPageCount} page{pendingPageCount === 1 ? "" : "s"} of &ldquo;{pendingResume.title}&rdquo;
+            </strong>{" "}
+            {pendingResume.assessmentId ? "were captured but a re-scan" : "were captured but the paper"} could
+            not reach the server last time -- nothing was lost, they are still on this device.
+            {retrying ? " Trying again now…" : " Retrying automatically every 20 seconds."}
+          </p>
+          <div className="row" style={{ marginTop: 10 }}>
+            <button
+              type="button"
+              className="secondary"
+              disabled={retrying || !!busy}
+              onClick={async () => {
+                const current = await getPending(pendingResume.sessionId);
+                if (!current) return;
+                const pages = await listPages(pendingResume.sessionId);
+                setRetrying(true);
+                try {
+                  await submitScan(
+                    current.subject, current.title, current.assessmentId,
+                    toFiles(pages), current.sessionId, current.jobId,
+                  );
+                } finally {
+                  setRetrying(false);
+                }
+              }}
+            >
+              Retry now
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={retrying}
+              onClick={async () => {
+                if (!window.confirm(`Discard the ${pendingPageCount} captured page(s)? They cannot be brought back.`)) return;
+                await clearSession(pendingResume.sessionId);
+                setPendingResume(null);
+              }}
+            >
+              Discard
+            </button>
+          </div>
+        </section>
+      )}
+
+      {deleted && (
+        <p className="notice" style={{ marginBottom: 18 }}>
+          The paper was deleted. Start a new one below.
+        </p>
+      )}
+
+      {papers.length > 0 && (
+        <section className="card" style={{ marginBottom: 18 }}>
+          <h2>Existing papers</h2>
+          <p className="lede">Open one to check it, map it, rename it, or delete it.</p>
+          <ul className="paper-list">
+            {papers.map((p) => (
+              <li key={p.id}>
+                <button
+                  type="button"
+                  className={p.id === assessmentId ? "paper-row active" : "paper-row"}
+                  onClick={() => void openPaper(p)}
+                >
+                  <span className="name">{p.title}</span>
+                  <span className="meta">{p.subject_code} · {p.stage}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
+      <ol className="steps" aria-label="Progress">
+        {(
+          [
+            ["Upload", "the paper as a PDF"],
+            ["Check", "correct anything the reader got wrong"],
+            ["Confirm", "put your name to these questions"],
+            ["Map", "each question onto the book"],
+            ["Classify", "chapter, topic, sub topic and category"],
+          ] as const
+        ).map(([label, hint], i) => {
+          const reached = ["start", "scanned", "confirmed", "mapped", "classified"].indexOf(stage);
+          const state = i < reached ? "done" : i === reached ? "now" : "todo";
+          return (
+            <li key={label} className={`step step-${state}`}>
+              <span className="step-n">{i + 1}</span>
+              <span className="step-b">
+                <strong>{label}</strong>
+                <em>{hint}</em>
+              </span>
+            </li>
+          );
+        })}
+      </ol>
+
+      {stage === "start" && (
+        <section className="card">
+          <div className="grid-2">
+            <label className="field">
+              <span>Subject</span>
+              <select value={subject} onChange={(e) => setSubject(e.target.value)}>
+                {subjects.map(({ subject_code: code, label: name }) => (
+                  <option key={code} value={code}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="field">
+              <span>What is this test called?</span>
+              <input value={title} onChange={(e) => setTitle(e.target.value)} />
+            </label>
+          </div>
+
+          <div
+            className="drop"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const dropped = Array.from(e.dataTransfer.files ?? []);
+              if (dropped.length) onFiles(dropped);
+            }}
+          >
+            <p className="drop-title">Drop the question paper here</p>
+            <p className="drop-hint">
+              One page or many, as PDFs or photographs, in the order you add them. A paper
+              with selectable text is read now; a photographed one is reported plainly
+              rather than returned as an empty result.
+            </p>
+            <button type="button" onClick={() => fileInput.current?.click()} disabled={!!busy}>
+              {busy ?? "Choose pages"}
+            </button>
+            <input
+              ref={fileInput}
+              type="file"
+              accept="application/pdf,image/*"
+              multiple
+              // Hidden with CSS, not the `hidden` attribute: `hidden` removes the input
+              // from the accessibility tree, so assistive technology and automated tests
+              // cannot reach the only control that accepts a file.
+              className="visually-hidden"
+              onChange={(e) => {
+                const chosen = Array.from(e.target.files ?? []);
+                if (chosen.length) onFiles(chosen);
+              }}
+            />
+          </div>
+
+          <div className="row" style={{ marginTop: 12 }}>
+            <button type="button" className="secondary" onClick={() => setShowCamera((v) => !v)}>
+              {showCamera ? "Close camera" : "Use camera instead"}
+            </button>
+          </div>
+          {showCamera && (
+            <div style={{ marginTop: 10 }}>
+              <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
+                Captured pages are kept on this device until you press Complete, even with
+                no signal -- pick up where you left off if the connection drops mid-scan.
+              </p>
+              <Scanner
+                sessionId={scanSessionId}
+                mode="script"
+                onComplete={async (pages) => {
+                  if (!subject) {
+                    setError("Choose a subject before reading the paper.");
+                    return;
+                  }
+                  await submitScan(subject, title, assessmentId, toFiles(pages), scanSessionId);
+                  setShowCamera(false);
+                }}
+              />
+            </div>
+          )}
+        </section>
+      )}
+
+      {error && (
+        <p className="alert" role="alert">
+          {error}
+        </p>
+      )}
+
+      {scan && (
+        <section className="card">
+          <div className="tiles">
+            <Tile n={scan.questions} label="questions read" />
+            <Tile n={scan.sub_parts} label="sub parts" />
+            <Tile n={scan.choice_alternatives} label="choice alternatives" />
+            <Tile n={scan.pages} label="pages" />
+            {scan.declared.questions != null && (
+              <Tile
+                n={scan.declared.questions}
+                label="the paper declares"
+                tone={scan.declared.questions === scan.questions ? "good" : "warn"}
+              />
+            )}
+          </div>
+
+          {/* The marks total, on its own and in words. A sub part whose label was missed
+              takes its marks with it and leaves nothing behind to notice: every row still
+              on screen looks right, and only this line shows the paper is short. */}
+          <MarksCheck read={scan.total_marks} declared={scan.declared.total_marks} />
+
+          {scan.problems.length === 0 ? (
+            <p className="verdict good">
+              What was read agrees with everything the paper says about itself.
+            </p>
+          ) : (
+            <div className="verdict warn">
+              <p>
+                <strong>The paper disagrees with what was read.</strong> Nothing is wrong
+                with storing it, but these are the gaps a person has to close.
+              </p>
+              <ul>
+                {scan.problems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {stage === "scanned" && (
+            <div className="confirmbar">
+              <label className="field">
+                <span>Who checked this paper?</span>
+                <input
+                  value={confirmedBy}
+                  onChange={(e) => setConfirmedBy(e.target.value)}
+                  placeholder="Your name"
+                  autoComplete="name"
+                />
+              </label>
+              <button type="button" className="primary" onClick={onConfirm} disabled={!!busy}>
+                {busy && <Mascot pose="loading" size={16} />} {busy ?? "These questions are correct"}
+              </button>
+              <p className="muted">
+                Nothing is mapped until someone checks it. Correct any row below first;
+                after you confirm, the rows are locked and re-reading the paper is the only
+                way to change them.
+              </p>
+            </div>
+          )}
+
+          {stage === "confirmed" && (
+            <button type="button" className="primary" onClick={onMap} disabled={!!busy}>
+              {busy && <Mascot pose="loading" size={16} />} {busy ?? "Map these questions onto the book"}
+            </button>
+          )}
+        </section>
+      )}
+
+      {mapped && (
+        <section className="card">
+          <div className="tiles">
+            <Tile n={mapped.mapped} label="mapped to the book" tone="good" />
+            <Tile n={mapped.blocked} label="could not be mapped" tone={mapped.blocked ? "warn" : undefined} />
+            <Tile n={mapped.needs_review} label="want a second look" />
+          </div>
+          <p className="muted">
+            Matched by {mapped.retrieval === "hybrid" ? "keyword and meaning search together" : "keyword search alone"}.
+          </p>
+
+          {/* Retrieval finds the passages; it does not judge what a question asks a
+              student to do. That is a separate reading, and it is the only thing that
+              produces a category. */}
+          {!placed && mapped.mapped > 0 && (
+            <>
+              <p className="note">
+                Every question now sits in a chapter. Reading each one against the passages
+                it matched settles its topic and sub topic, and gives it a category. A
+                question the reading cannot settle keeps what it has and says so.
+              </p>
+              <button type="button" className="primary" onClick={onClassify} disabled={!!busy}>
+                {busy && <Mascot pose="loading" size={16} />} {busy ?? "Read and classify these questions"}
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
+      {placed && (
+        <section className="card">
+          <div className="tiles">
+            <Tile n={placed.labelled} label="chapter, topic and sub topic settled" tone="good" />
+            <Tile
+              n={placed.tiers}
+              label="given a category"
+              tone={placed.tiers === placed.placed ? "good" : "warn"}
+            />
+            <Tile
+              n={placed.unsettled_family}
+              label="sub topic wants a second look"
+              tone={placed.unsettled_family ? "warn" : undefined}
+            />
+            <Tile
+              n={placed.family_refused}
+              label="left as they were"
+              tone={placed.family_refused ? "warn" : undefined}
+            />
+          </div>
+
+          {placed.tiers < placed.placed && (
+            <p className="note">
+              {placed.placed - placed.tiers} question
+              {placed.placed - placed.tiers === 1 ? "" : "s"} came back without a category.
+              That is an answer, not a gap: where the passages do not settle which kind of
+              thinking a question asks for, nothing is recorded rather than a letter
+              nobody can stand behind.
+            </p>
+          )}
+
+          {/* Measured, not estimated. A model choice is a cost decision, and it should be
+              made on the figure this run produced rather than on arithmetic about a
+              prompt nobody had looked at. */}
+          <p className="small muted">
+            {placed.spend.calls} reading{placed.spend.calls === 1 ? "" : "s"} by{" "}
+            {placed.spend.model} at {placed.spend.effort} effort, each shown{" "}
+            {placed.spend.passages_shown} passages from up to{" "}
+            {placed.spend.chapters_shown} chapters.{" "}
+            {(placed.spend.input_tokens / 1000).toFixed(1)}k in,{" "}
+            {(placed.spend.output_tokens / 1000).toFixed(1)}k out.
+          </p>
+
+          {placed.grounding_violations.length > 0 && (
+            <div className="verdict warn">
+              <p>
+                <strong>
+                  The book had to correct the reading on{" "}
+                  {placed.grounding_violations.length} question
+                  {placed.grounding_violations.length === 1 ? "" : "s"}.
+                </strong>{" "}
+                Every corrected field was dropped rather than stored. How often this
+                happens is the measure of whether the next paper can be left to it.
+              </p>
+              <ul>
+                {placed.grounding_violations.slice(0, 6).map((v) => (
+                  <li key={v.question}>
+                    {v.question} &middot; {v.problems.join("; ")}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </section>
+      )}
+
+      {review && review.questions.length > 0 && (
+        <section className="card">
+          <div className="toolbar">
+            <h2>The paper, question by question</h2>
+            <div className="filters" role="group" aria-label="Filter questions">
+              {(
+                [
+                  ["all", `All ${review.questions.length}`],
+                  ["mapped", `Mapped ${review.mapped}`],
+                  ["blocked", `Unmapped ${blockedCount}`],
+                ] as const
+              ).map(([value, label]) => (
+                <button
+                  key={value}
+                  type="button"
+                  className={filter === value ? "on" : ""}
+                  onClick={() => setFilter(value)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {review.confirmed_at && (
+            <p className="verdict good">
+              Confirmed by {review.confirmed_by ?? "someone"}
+              {review.edited > 0 && ` · ${review.edited} row(s) corrected first`}. These
+              rows are locked; re-read the paper to change them.
+            </p>
+          )}
+
+          <ul className="qlist">
+            {rows.map((q) => (
+              <QuestionRow
+                key={q.address}
+                q={q}
+                editable={!confirmed && !q.mapped_to}
+                onEdit={onEdit}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function MarksCheck({ read, declared }: { read: number; declared: number | null }) {
+  if (declared == null) {
+    return (
+      <p className="markscheck">
+        <strong>{read} marks</strong> were read. This paper does not print a total of its
+        own, so there is nothing to check the reading against.
+      </p>
+    );
+  }
+  const short = Math.round((declared - read) * 100) / 100;
+  if (short === 0) {
+    return (
+      <p className="markscheck good">
+        <strong>
+          {read} of {declared} marks
+        </strong>{" "}
+        were read. The paper adds up to what it says it is worth.
+      </p>
+    );
+  }
+  return (
+    <div className="markscheck warn">
+      <p>
+        <strong>
+          {read} of {declared} marks
+        </strong>{" "}
+        were read, so {Math.abs(short)}{" "}
+        {short > 0 ? "are missing" : "are counted twice"}.
+      </p>
+      <p className="small">
+        {short > 0
+          ? "A question whose parts are worth different marks is the usual cause. Open the ones with parts (i), (ii) and (iii) and check that each part carries its own marks."
+          : "A question with an internal choice is the usual cause. Only one half of a choice counts towards the total."}
+      </p>
+    </div>
+  );
+}
+
+function Tile({ n, label, tone }: { n: number; label: string; tone?: "good" | "warn" }) {
+  return (
+    <div className={`tile${tone ? ` tile-${tone}` : ""}`}>
+      <span className="tile-n">{n}</span>
+      <span className="tile-l">{label}</span>
+    </div>
+  );
+}
+
+function QuestionRow({
+  q,
+  editable,
+  onEdit,
+}: {
+  q: StagedQuestion;
+  editable: boolean;
+  onEdit: (address: string, patch: Record<string, unknown>) => void;
+}) {
+  const placed = q.mapped_to;
+  // A case study opens with a paragraph its parts share. It is worth nothing on its own,
+  // and showing it as a question with no marks sends a person hunting for a mark that was
+  // never printed.
+  const missing = q.max_marks == null && !q.is_context;
+  return (
+    <li className={`qrow${placed || q.is_context ? "" : " qrow-blocked"}${missing ? " qrow-missing" : ""}`}>
+      <div className="qhead">
+        <span className="qno">
+          {q.section ? `${q.section} · ` : ""}
+          {q.question_no}
+          {q.sub_part ? ` (${q.sub_part})` : ""}
+          {q.choice_alt ? ` (${q.choice_alt})` : ""}
+          {/* A choice is answered instead of its other half, never as well as it. Saying
+              so on the row is what stops the pair being read as two questions. */}
+          {q.choice_alt === "b" && <span className="editedby">instead of (a)</span>}
+          {q.edited_by && <span className="editedby">corrected by {q.edited_by}</span>}
+        </span>
+        {q.is_context ? (
+          <span className="qmarks">
+            <em className="muted">the stem its parts share</em>
+          </span>
+        ) : editable ? (
+          <span className="qedit">
+            <label>
+              <span className="sr">Marks for question {q.question_no}</span>
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step={0.5}
+                defaultValue={q.max_marks ?? ""}
+                placeholder="marks"
+                onBlur={(e) => {
+                  const value = e.target.value.trim();
+                  if (value === "" || Number(value) === q.max_marks) return;
+                  onEdit(q.address, { max_marks: Number(value) });
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              className="remove"
+              onClick={() => onEdit(q.address, { remove: true })}
+              aria-label={`Remove question ${q.question_no}, it is not a question`}
+            >
+              Not a question
+            </button>
+          </span>
+        ) : (
+          <span className="qmarks">
+            {missing ? <em className="warnish">no marks read</em> : `${q.max_marks} marks`}
+          </span>
+        )}
+      </div>
+
+      <p className="qstem">{q.stem_text || <em>no text was extracted for this question</em>}</p>
+
+      {placed ? (
+        <div className="qmap">
+          <Chip label="Chapter" value={placed.chapter} />
+          {/* The topic is the book's own heading for the section the passages came from,
+              so it is shown in the book's words with the number beside it. */}
+          {placed.topic && (
+            <Chip
+              label="Topic"
+              value={
+                placed.curriculum_section
+                  ? `${placed.curriculum_section} ${placed.topic}`
+                  : placed.topic
+              }
+            />
+          )}
+          {!placed.topic && placed.curriculum_section && (
+            <Chip label="Topic" value={placed.curriculum_section} />
+          )}
+          <Chip label="Sub topic" value={placed.concept_family} strong />
+          <Chip label="Board unit" value={placed.board_unit} />
+          {/* A tier nobody has worked out must not read as one that was. */}
+          <Chip
+            label="Category"
+            value={placed.tier ?? "not classified yet"}
+            title={placed.tier_label ?? undefined}
+          />
+        </div>
+      ) : (
+        <p className="qblocked">{q.blocked_reason ?? "not mapped"}</p>
+      )}
+    </li>
+  );
+}
+
+function Chip({
+  label,
+  value,
+  strong,
+  title,
+}: {
+  label: string;
+  value: string | null;
+  strong?: boolean;
+  title?: string;
+}) {
+  if (!value) return null;
+  return (
+    <span className={`chip${strong ? " chip-strong" : ""}`} title={title}>
+      <span className="chip-l">{label}</span>
+      {value}
+    </span>
+  );
+}
