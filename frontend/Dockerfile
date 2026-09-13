@@ -21,10 +21,12 @@ FROM node:22-slim AS run
 WORKDIR /srv
 ENV NODE_ENV=production
 RUN useradd --create-home --uid 10001 yaadhum
-# No public/ in this project (no static assets served that way) -- next build's own
-# standalone output already carries everything else needed, nothing to copy here.
+# `output: "standalone"` traces only the server bundle -- it does NOT copy public/ or
+# .next/static on its own (both are documented, easy-to-miss manual steps), so every
+# brand image under frontend/public/brand/ 404'd in production until this line existed.
 COPY --from=build --chown=yaadhum:yaadhum /srv/.next/standalone ./
 COPY --from=build --chown=yaadhum:yaadhum /srv/.next/static ./.next/static
+COPY --from=build --chown=yaadhum:yaadhum /srv/public ./public
 USER yaadhum
 
 EXPOSE 3000
