@@ -2,29 +2,34 @@
  * The Avai bird mascot -- inline SVG, no external asset host, matching the style of
  * HeroIllustration/GrowthIllustration (hand-drawn shapes riding the same CSS custom
  * properties everything else uses, so it rebrands for free if the tokens ever move).
+ * Recreated from the brand reference image: cream body, a sweeping teal-to-gold
+ * gradient wing, round dark eye, orange beak -- no image asset exists in this project,
+ * so this is a faithful redraw rather than an embed.
  *
  * Per §0 of the Avai design spec, the mascot is a student-facing / transitional-moment
  * device, not a dashboard decoration -- see the placement table there for exactly where
  * it is and isn't allowed to appear (never on BoardX, rosters, or mark-entry grids).
  *
  * `pose` maps to the poses named in the brand sheet:
- *   - "hello"   : login screen, student empty states -- calm, neutral accent color.
+ *   - "hello"   : login screen, student empty states -- calm, wing at rest.
  *   - "loading" : any async job-wait state (scan/gridsheet/placement/report polling) --
  *                 adds a small spinning ring around the bird instead of a bare spinner.
  *   - "improve" : student report screen when this attempt beats the last one on file.
- *   - "achieve" : student report screen for a standout result -- gold accent + sparkle.
+ *   - "achieve" : student report screen for a standout result -- gold sparkle, wing up.
  *   - "explore" : roadmap pathway/stream-exploration surfaces (not wired anywhere yet).
  */
 
 type Pose = "hello" | "loading" | "improve" | "achieve" | "explore";
 
-const ACCENT: Record<Pose, string> = {
-  hello: "var(--brand-teal)",
-  loading: "var(--brand-teal)",
-  improve: "var(--brand-teal)",
-  achieve: "var(--brand-gold)",
-  explore: "var(--brand-teal)",
+const WING_UP: Record<Pose, boolean> = {
+  hello: false,
+  loading: false,
+  improve: true,
+  achieve: true,
+  explore: true,
 };
+
+let gradId = 0;
 
 export function Mascot({
   pose = "hello",
@@ -35,8 +40,8 @@ export function Mascot({
   size?: number;
   className?: string;
 }) {
-  const accent = ACCENT[pose];
-  const wingUp = pose === "improve" || pose === "achieve" || pose === "explore";
+  const wingUp = WING_UP[pose];
+  const id = `mascot-wing-${gradId++}`;
 
   return (
     <span
@@ -67,7 +72,7 @@ export function Mascot({
             cy="50"
             r="44"
             fill="none"
-            stroke={accent}
+            stroke="var(--brand-teal)"
             strokeWidth="6"
             strokeLinecap="round"
             strokeDasharray="70 200"
@@ -77,41 +82,60 @@ export function Mascot({
       )}
 
       <svg viewBox="0 0 100 100" width="100%" height="100%">
-        {/* body */}
-        <ellipse cx="50" cy="58" rx="30" ry="28" fill="var(--brand-ink)" />
-        {/* belly */}
-        <ellipse cx="50" cy="66" rx="18" ry="16" fill="var(--brand-cream)" />
-        {/* wing, angled up for the "improve/achieve/explore" poses */}
+        <defs>
+          <linearGradient id={id} x1="0" y1="1" x2="1" y2="0">
+            <stop offset="0%" stopColor="var(--brand-teal)" />
+            <stop offset="100%" stopColor="var(--brand-gold)" />
+          </linearGradient>
+        </defs>
+
+        {/* tail feather, behind the body */}
         <path
           d={
             wingUp
-              ? "M30 56 C 14 48, 8 30, 14 18 C 22 30, 30 40, 36 52 Z"
-              : "M28 58 C 12 58, 6 70, 14 82 C 22 74, 30 66, 36 60 Z"
+              ? "M40 68 C 20 80, 8 92, 4 100 C 16 96, 30 88, 44 76 Z"
+              : "M42 66 C 24 74, 10 82, 2 92 C 16 90, 32 84, 46 74 Z"
           }
-          fill={accent}
+          fill={`url(#${id})`}
+          opacity="0.9"
         />
+
+        {/* main wing -- the sweeping gradient shape from the reference art */}
+        <path
+          d={
+            wingUp
+              ? "M52 54 C 34 42, 22 18, 26 2 C 40 18, 52 30, 62 48 C 58 50, 54 52, 52 54 Z"
+              : "M50 56 C 30 54, 12 62, 6 78 C 22 76, 40 70, 54 62 C 52 60, 51 58, 50 56 Z"
+          }
+          fill={`url(#${id})`}
+        />
+
+        {/* body */}
+        <ellipse cx="52" cy="62" rx="26" ry="24" fill="var(--brand-cream)" stroke="var(--rule)" strokeWidth="1" />
+
         {/* head */}
-        <circle cx="50" cy="30" r="20" fill="var(--brand-ink)" />
+        <circle cx="58" cy="34" r="19" fill="var(--brand-cream)" stroke="var(--rule)" strokeWidth="1" />
+        {/* crest feathers */}
+        <path d="M50 18 C 47 8, 56 4, 61 10 C 55 10, 51 13, 50 18 Z" fill="var(--brand-gold)" />
+        <path d="M58 15 C 58 6, 68 5, 70 13 C 64 11, 60 12, 58 15 Z" fill="var(--brand-teal)" />
         {/* eye */}
-        <circle cx="57" cy="27" r="4.2" fill="var(--brand-cream)" />
-        <circle cx="58.3" cy="26" r="2" fill="var(--brand-ink)" />
+        <circle cx="66" cy="33" r="5" fill="var(--brand-ink)" />
+        <circle cx="67.6" cy="31.4" r="1.6" fill="#fff" />
         {/* beak */}
-        <path d="M68 29 L80 33 L68 37 Z" fill={accent} />
-        {/* small crest feather */}
-        <path d="M46 12 C 44 4, 52 2, 56 8 C 51 8, 48 10, 46 12 Z" fill={accent} />
+        <path d="M76 35 L88 39 L76 43 Z" fill="var(--brand-gold)" />
+        {/* feet */}
+        <path d="M42 84 L38 92 M50 86 L48 94" stroke="var(--brand-gold)" strokeWidth="3" strokeLinecap="round" />
 
         {(pose === "achieve" || pose === "improve") && (
-          <g>
-            <path
-              d="M80 14 L82 20 L88 22 L82 24 L80 30 L78 24 L72 22 L78 20 Z"
-              fill="var(--brand-gold)"
-            />
-          </g>
+          <path
+            d="M84 10 L86.5 17 L94 19.5 L86.5 22 L84 29 L81.5 22 L74 19.5 L81.5 17 Z"
+            fill="var(--brand-gold)"
+          />
         )}
         {pose === "explore" && (
           <g stroke="var(--brand-ink)" strokeWidth="3" strokeLinecap="round">
-            <line x1="78" y1="70" x2="78" y2="94" />
-            <path d="M78 70 L94 76 L78 82 Z" fill={accent} stroke="none" />
+            <line x1="82" y1="68" x2="82" y2="96" />
+            <path d="M82 68 L96 74 L82 80 Z" fill="var(--brand-teal)" stroke="none" />
           </g>
         )}
       </svg>

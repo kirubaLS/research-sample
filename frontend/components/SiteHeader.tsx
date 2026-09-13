@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { getApiKey, getPlatformKey } from "@/lib/session";
+import { AvaiLogo } from "@/components/AvaiLogo";
 
 /**
  * The navigation that was missing. A student following a class link sees only the brand —
@@ -32,14 +33,8 @@ export function SiteHeader() {
     <header className="siteheader">
       <div className="inner">
         <Link href="/" className="brand">
-          <span className="glyph" aria-hidden>
-            A
-          </span>
-          <span>
-            <span className="name">Avai</span>
-            <br />
-            <span className="sub">Assessment diagnostics</span>
-          </span>
+          <AvaiLogo height={26} />
+          <span className="sub">Assessment diagnostics</span>
         </Link>
 
         {!hasSideNav && !isStudentFlow && (
