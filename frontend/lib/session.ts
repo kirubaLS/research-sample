@@ -97,3 +97,42 @@ export function setPlatformKey(key: string): void {
 export function signOutPlatform(): void {
   window.localStorage.removeItem(PLATFORM);
 }
+
+// --- mocked teacher / student sessions ------------------------------------------------
+// TODO(backend): Dependency Index #1 (teacher) / #2 (student) -- `GET /admin/me` never
+// returns `role: "teacher"` today, and there is no student-auth endpoint at all. These two
+// helpers hold a purely local, clearly-labeled demo session so the mocked Teacher and
+// Student shells (frontend/app/teacher, frontend/app/student) have something to read
+// without pretending either round-tripped through a real backend. Never read by AdminGate
+// or by any code path that also holds a real StaffKey/api key.
+
+const MOCK_TEACHER = "yaadhum:mockTeacher";
+const MOCK_STUDENT = "yaadhum:mockStudent";
+
+/** Marks that the current browser is previewing the mocked Teacher shell (demo data). */
+export function enterMockTeacherPreview(): void {
+  window.localStorage.setItem(MOCK_TEACHER, "1");
+}
+
+export function isMockTeacherPreview(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(MOCK_TEACHER) === "1";
+}
+
+export function exitMockTeacherPreview(): void {
+  window.localStorage.removeItem(MOCK_TEACHER);
+}
+
+/** Marks that the current browser "signed in" via the mocked student roll-no/PIN form. */
+export function enterMockStudentSession(): void {
+  window.localStorage.setItem(MOCK_STUDENT, "1");
+}
+
+export function isMockStudentSession(): boolean {
+  if (typeof window === "undefined") return false;
+  return window.localStorage.getItem(MOCK_STUDENT) === "1";
+}
+
+export function exitMockStudentSession(): void {
+  window.localStorage.removeItem(MOCK_STUDENT);
+}

@@ -95,19 +95,19 @@ export default function Home() {
         </motion.div>
 
         <motion.div className="mo" initial="hidden" whileInView="show" viewport={{ once: true }} custom={1} variants={rise}>
-          <Link href="/admin" className="card accentbar verify doorcard">
+          <Link href="/login" className="card accentbar verify doorcard">
             <span className="dooricon staff" aria-hidden>
               <LayoutDashboard size={22} />
             </span>
             <p className="eyebrow" style={{ color: "var(--verify)" }}>
-              For principals and staff
+              For principals, staff and students
             </p>
-            <h2>Open the dashboard</h2>
+            <h2>Sign in</h2>
             <p className="cardnote" style={{ marginBottom: 16 }}>
-              Class links to hand out, who has finished, each student&apos;s interest profile,
-              and the answer-script scanner.
+              Class links, marks entry and BoardX for staff; roll number + PIN for a
+              student viewing a report their teacher has shared.
             </p>
-            <span className="arrow">Sign in with your school key →</span>
+            <span className="arrow">Sign in →</span>
           </Link>
         </motion.div>
       </div>
