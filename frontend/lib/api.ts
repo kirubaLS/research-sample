@@ -1402,4 +1402,31 @@ export const api = {
 
   cohortReport: (key: string, assessmentId: string) =>
     authed<CohortReport>(`/reports/cohort/${assessmentId}`, key),
+
+  /** Every concept family's board multiplier/urgency for one subject -- GET /board-frequency.
+   *  Used by BoardX to enrich a cohort finding with "X/4 recent years" (years_appeared /
+   *  years_eligible), which GET /reports/cohort/{id} itself does not carry per family.
+   *  Best-effort: a school whose curriculum_version/stream differ from the defaults below
+   *  simply gets no match, and callers fall back to showing the urgency tier alone. */
+  boardFrequency: (key: string, subjectCode: string) =>
+    authed<{ families: BoardFrequencyRow[] }>(
+      `/board-frequency?subject_code=${encodeURIComponent(subjectCode)}`,
+      key,
+    )
+      .then((r) => r.families)
+      .catch(() => [] as BoardFrequencyRow[]),
 };
+
+export interface BoardFrequencyRow {
+  concept_family: string;
+  label: string;
+  chapter: string | null;
+  board_unit: string | null;
+  board_weight_pct: number | null;
+  multiplier: number;
+  urgency: number | null;
+  urgency_tier: "VERY HIGH" | "HIGH" | "MEDIUM" | "LOW" | null;
+  years_appeared: number;
+  years_eligible: number;
+  note: string | null;
+}
