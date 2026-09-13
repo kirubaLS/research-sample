@@ -48,9 +48,20 @@ const FEATURES = [
 export default function Home() {
   return (
     <main>
-      <div className="hero heroflex">
+      <motion.section
+        className="hero-bleed"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.7, ease: EASE }}
+      >
+        <div
+          className="hero-bg"
+          role="img"
+          aria-label="Avai mascot, standing on a stack of books labelled Higher Marks, New Opportunities, Brighter Futures, with a path leading toward Learn, Improve, Explore, Achieve"
+        />
+        <div className="hero-scrim" />
         <motion.div
-          className="herocopy"
+          className="hero-copy"
           initial="hidden"
           animate="show"
           variants={rise}
@@ -67,20 +78,7 @@ export default function Home() {
             interest profile that helps a student choose a stream.
           </p>
         </motion.div>
-        <motion.div
-          className="heroart"
-          initial={{ opacity: 0, scale: 0.94 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            src="/brand/hero-banner.png"
-            alt="Avai mascot, standing on a stack of books labelled Higher Marks, New Opportunities, Brighter Futures, with a path leading toward Learn, Improve, Explore, Achieve"
-            style={{ width: "100%", height: "auto", display: "block", borderRadius: "var(--radius-lg)" }}
-          />
-        </motion.div>
-      </div>
+      </motion.section>
 
       <div className="grid two" style={{ marginTop: 30 }}>
         <motion.div className="mo" initial="hidden" whileInView="show" viewport={{ once: true }} custom={0} variants={rise}>
@@ -146,11 +144,6 @@ export default function Home() {
            their own -- is switched off here to stop two animation systems fighting over
            the same transform/opacity on one element. */
         .grid > .mo { animation: none; }
-        .heroflex {
-          display: flex; align-items: center; gap: 36px; flex-wrap: wrap;
-        }
-        .herocopy { flex: 1 1 360px; min-width: 0; }
-        .heroart { flex: 1 1 280px; max-width: 380px; min-width: 220px; margin: 0 auto; }
         .doorcard { position: relative; }
         .dooricon {
           width: 40px; height: 40px; border-radius: var(--radius-sm);
@@ -163,10 +156,6 @@ export default function Home() {
           display: inline-grid; place-items: center; width: 36px; height: 36px;
           border-radius: var(--radius-sm); background: var(--info-soft); color: var(--info);
           margin-bottom: 10px;
-        }
-        @media (max-width: 760px) {
-          .heroflex { flex-direction: column; }
-          .heroart { max-width: 300px; }
         }
       `}</style>
     </main>

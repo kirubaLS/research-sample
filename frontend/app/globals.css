@@ -859,3 +859,60 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 @keyframes mascot-spin {
   to { transform: rotate(360deg); }
 }
+
+/* Front-door hero banner (app/page.tsx). Global, not page-scoped styled-jsx: the section
+   and its copy block are framer-motion elements (`motion.section`/`motion.div`), and
+   styled-jsx's scope class does not attach to those the way it does to a plain `<div>` --
+   confirmed by inspecting the rendered DOM, where child <p>/<h1> tags carried the jsx-*
+   scope class but the motion-wrapped elements around them did not, so page-scoped rules
+   silently never matched and the section collapsed to its content's own tiny height. */
+.hero-bleed {
+  position: relative;
+  left: 50%; right: 50%;
+  margin-left: -50vw; margin-right: -50vw;
+  width: 100vw;
+  min-height: 440px;
+  display: flex; align-items: center;
+  overflow: hidden;
+  margin-top: -32px; margin-bottom: 40px;
+}
+.hero-bg {
+  position: absolute; inset: 0;
+  background-image: url("/brand/hero-banner.png");
+  background-size: cover;
+  background-position: left center;
+  transform: scale(1.02);
+  transition: transform 1.2s var(--ease);
+}
+.hero-bleed:hover .hero-bg { transform: scale(1.06); }
+.hero-scrim {
+  position: absolute; inset: 0;
+  background: linear-gradient(
+    100deg,
+    var(--brand-cream) 0%,
+    var(--brand-cream) 40%,
+    rgba(251, 246, 239, 0.75) 52%,
+    rgba(251, 246, 239, 0.2) 66%,
+    transparent 78%
+  );
+}
+.hero-copy {
+  position: relative;
+  z-index: 1;
+  max-width: 560px;
+  padding: 56px 5vw 56px max(5vw, calc((100vw - var(--max)) / 2 + 6px));
+}
+@media (max-width: 760px) {
+  .hero-bleed { min-height: 0; }
+  .hero-bg { background-position: 82% center; }
+  .hero-scrim {
+    background: linear-gradient(
+      180deg,
+      var(--brand-cream) 0%,
+      var(--brand-cream) 44%,
+      rgba(251, 246, 239, 0.6) 62%,
+      transparent 84%
+    );
+  }
+  .hero-copy { max-width: none; padding: 28px 22px 230px; }
+}
