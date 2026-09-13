@@ -58,6 +58,11 @@ def classes(db: Session = Depends(get_session)) -> list[dict]:
     rows = db.execute(
         select(Section, School.name)
         .join(School, School.id == Section.school_id)
+        # A school the operator has not made visible must not appear here at all --
+        # this is the only public, unauthenticated route in the whole API, and the
+        # entire point of hiding a school is that another school's pilot never learns
+        # it exists by browsing this list.
+        .where(School.hidden_from_directory.is_(False))
         .order_by(School.name, Section.grade, Section.name)
     ).all()
     return [

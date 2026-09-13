@@ -42,7 +42,8 @@ def school(_tmp_db):
     init_db()
     db = SessionLocal()
     s = School(name="Bharath International Sr. Sec.", api_key="test-key-123",
-               state="Tamil Nadu", training_consent="training_permitted")
+               state="Tamil Nadu", training_consent="training_permitted",
+               hidden_from_directory=False)
     db.add(s)
     db.flush()
     sec = Section(school_id=s.id, grade=10, name="A")

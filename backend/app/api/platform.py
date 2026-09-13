@@ -111,6 +111,7 @@ def _school_view(db: Session, school: School) -> dict:
         "training_consent": school.training_consent,
         "students": students or 0,
         "sections": [_section_view(s) for s in sections],
+        "hidden_from_directory": school.hidden_from_directory,
     }
 
 
@@ -306,6 +307,27 @@ def revoke_admin_key(key_id: str, db: Session = Depends(get_session)) -> dict:
         key.revoked_at = datetime.now(UTC)
         db.commit()
     return _key_view(key)
+
+
+class DirectoryVisibilityIn(BaseModel):
+    hidden: bool
+
+
+@router.patch("/schools/{school_id}/directory-visibility")
+def set_directory_visibility(
+    school_id: str, body: DirectoryVisibilityIn, db: Session = Depends(get_session)
+) -> dict:
+    """Show or hide a school's classes on GET /t/classes, the public unauthenticated
+    student entry page. A school new on this deployment starts hidden (see School's own
+    docstring) -- this is the only way to switch it on, and the only way to switch it
+    back off if a pilot ends.
+    """
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+    school.hidden_from_directory = body.hidden
+    db.commit()
+    return _school_view(db, school)
 
 
 @router.get("/schools/{school_id}/keys")

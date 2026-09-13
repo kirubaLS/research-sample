@@ -66,6 +66,11 @@ def test_rotating_replaces_the_key_immediately(client):
     ).json()
     old = created["api_key"]
     section_id = created["sections"][0]["id"]
+    # a school is hidden from the public directory until an operator opts it in
+    client.patch(
+        f"/platform/schools/{created['id']}/directory-visibility",
+        headers=hdr(), json={"hidden": False},
+    )
 
     rotated = client.post(f"/platform/schools/{created['id']}/rotate-key", headers=hdr())
     assert rotated.status_code == 200
