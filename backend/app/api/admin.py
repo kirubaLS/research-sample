@@ -6,22 +6,30 @@ Without these there is no way to answer the two questions a principal opens the 
 
 from __future__ import annotations
 
+import secrets
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, Depends, Header, HTTPException
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import (
     Staff,
     current_staff,
+    require_admin,
     require_reader,
     require_scanner,
     require_staff,
+    require_teacher_read_scope,
     school_in_scope,
+    teacher_assignments,
 )
 from app.api.schemas import StudentCreateIn, StudentUpdateIn
 from app.curriculum import CURRICULA
 from app.db import get_session
 from app.models import (
+    TEACHER_ASSIGNMENT_TYPES,
     Assessment,
     BookChunk,
     DataQualityFlag,
@@ -37,6 +45,7 @@ from app.models import (
     StaffKey,
     StudentProfile,
     StudentReport,
+    TeacherAssignment,
     TestSession,
 )
 
@@ -56,7 +65,7 @@ def whoami(
     hiding the wrong one; this way the dashboard and the API cannot disagree.
     """
     school = school_in_scope(staff, x_school_id, db)
-    return {
+    out = {
         "school_id": school.id,
         "name": school.name,
         "board": school.board,
@@ -67,19 +76,42 @@ def whoami(
         #: them. A principal's key names one and the question does not arise.
         "scope": "all_schools" if staff.is_admin and staff.home is None else "one_school",
         "can": {
-            "read_results": True,
+            "read_results": not staff.is_teacher,
             # Scanning and marks entry are open to any staff. A principal produces marks
             # as well as reading them: a deliberate choice, not an oversight.
-            "scan_papers": True,
-            "enter_marks": True,
+            "scan_papers": not staff.is_teacher,
+            "enter_marks": not staff.is_teacher,
             # The roster is now open to a principal too (add/edit/remove a student in
             # their own school) -- the same widening require_scanner already made for
             # scanning and marks. The Q-matrix and the credentials still stay with the
             # admin: those act across a school's whole setup, not one student's record.
-            "manage_roster": True,
+            "manage_roster": not staff.is_teacher,
             "manage_schools": staff.is_admin,
         },
     }
+    # A teacher's response carries the same top-level keys principal/admin have always
+    # had (byte-identical for those two roles) plus one more: which sections/subjects
+    # this key may touch, which is what the frontend uses to pick the teacher shell and
+    # render only the classes/subjects this key actually holds.
+    if staff.is_teacher:
+        rows = teacher_assignments(staff, db)
+        section_ids = {a.section_id for a in rows}
+        sections = {
+            s.id: s for s in db.scalars(select(Section).where(Section.id.in_(section_ids)))
+        } if section_ids else {}
+        out["assignments"] = [
+            {
+                "type": a.type,
+                "section_id": a.section_id,
+                "section_label": (
+                    f"Class {sections[a.section_id].grade}-{sections[a.section_id].name}"
+                    if a.section_id in sections else None
+                ),
+                "subject_code": a.subject_code,
+            }
+            for a in rows
+        ]
+    return out
 
 
 @router.get("/staff")
@@ -319,12 +351,7 @@ def dashboard(
     }
 
 
-@router.get("/sections/{section_id}/students")
-def roster(
-    section_id: str,
-    school: School = Depends(require_reader),
-    db: Session = Depends(get_session),
-) -> dict:
+def _roster_payload(db: Session, school: School, section_id: str) -> dict:
     """The roster, each row carrying enough state to decide what to do next."""
     section = db.get(Section, section_id)
     if section is None or section.school_id != school.id:
@@ -401,6 +428,15 @@ def roster(
         },
         "students": rows,
     }
+
+
+@router.get("/sections/{section_id}/students")
+def roster(
+    section_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    return _roster_payload(db, school, section_id)
 
 
 def _student_in_scope(db: Session, school: School, student_id: str) -> StudentProfile:
@@ -508,12 +544,7 @@ def delete_student(
     db.commit()
 
 
-@router.get("/cohort/{section_id}")
-def cohort(
-    section_id: str,
-    school: School = Depends(require_reader),
-    db: Session = Depends(get_session),
-) -> dict:
+def _cohort_payload(db: Session, school: School, section_id: str) -> dict:
     """Class-level interest distribution — the view that helps plan section sizes."""
     section = db.get(Section, section_id)
     if section is None or section.school_id != school.id:
@@ -551,6 +582,15 @@ def cohort(
             streams[top] = streams.get(top, 0) + 1
 
     return {"holland": holland, "streams": streams, "counted": counted, "withheld": withheld}
+
+
+@router.get("/cohort/{section_id}")
+def cohort(
+    section_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    return _cohort_payload(db, school, section_id)
 
 
 @router.get("/subjects")
@@ -593,3 +633,239 @@ def list_subjects(
             "chunks_embedded": embedded,
         })
     return {"subjects": out}
+
+
+# ---------------------------------------------------------------------------------
+# Teacher: scoped reads (any signed-in teacher key, filtered to their own assignments)
+# ---------------------------------------------------------------------------------
+
+def _teacher_home(staff: Staff) -> School:
+    """A teacher key is school-scoped exactly like a principal key -- see Staff's own
+    docstring. Only routes that have already checked ``staff.is_teacher`` call this."""
+    assert staff.home is not None, "a teacher key always names its school"
+    return staff.home
+
+
+@router.get("/teacher/sections/{section_id}/students")
+def teacher_roster(
+    section_id: str,
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    """The same roster a principal sees for one class -- but only for a section this
+    teacher key holds a class or subject assignment on. Anyone else's key is refused
+    with 404, the same as a section outside their own school would be."""
+    if not staff.is_teacher:
+        raise HTTPException(403, "this route is for teacher keys; use /admin/sections/{id}/students")
+    require_teacher_read_scope(staff, db, section_id)
+    return _roster_payload(db, _teacher_home(staff), section_id)
+
+
+@router.get("/teacher/cohort/{section_id}")
+def teacher_cohort(
+    section_id: str,
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    if not staff.is_teacher:
+        raise HTTPException(403, "this route is for teacher keys; use /admin/cohort/{id}")
+    require_teacher_read_scope(staff, db, section_id)
+    return _cohort_payload(db, _teacher_home(staff), section_id)
+
+
+@router.get("/teacher/sections")
+def teacher_sections(
+    staff: Staff = Depends(current_staff), db: Session = Depends(get_session)
+) -> dict:
+    """Every section this teacher key may open at all, with what it may do there --
+    the menu the teacher shell renders instead of guessing from the assignment rows
+    itself."""
+    if not staff.is_teacher:
+        raise HTTPException(403, "this route is for teacher keys")
+    rows = teacher_assignments(staff, db)
+    by_section: dict[str, dict] = {}
+    for a in rows:
+        entry = by_section.setdefault(
+            a.section_id, {"section_id": a.section_id, "can_read_all_subjects": False, "subjects": []}
+        )
+        if a.type == "class":
+            entry["can_read_all_subjects"] = True
+        elif a.subject_code:
+            entry["subjects"].append(a.subject_code)
+    sections = {
+        s.id: s for s in db.scalars(select(Section).where(Section.id.in_(by_section.keys())))
+    } if by_section else {}
+    out = []
+    for section_id, entry in by_section.items():
+        section = sections.get(section_id)
+        out.append({
+            **entry,
+            "label": f"Class {section.grade}-{section.name}" if section else None,
+            "student_path": f"/t/{section_id}" if section else None,
+        })
+    return {"sections": out}
+
+
+# ---------------------------------------------------------------------------------
+# Teacher key issuance and assignment management -- principal-scoped (a principal
+# manages the teachers of their own school; issuing an admin or principal key is still
+# operator-only, in app.api.platform).
+# ---------------------------------------------------------------------------------
+
+class TeacherAssignmentIn(BaseModel):
+    type: str = Field(...)
+    section_id: str
+    subject_code: str | None = None
+
+    def _validate(self, db: Session, school: School) -> None:
+        if self.type not in TEACHER_ASSIGNMENT_TYPES:
+            raise HTTPException(422, f"type must be one of {', '.join(TEACHER_ASSIGNMENT_TYPES)}")
+        section = db.get(Section, self.section_id)
+        if section is None or section.school_id != school.id:
+            raise HTTPException(404, "no such class in this school")
+        if self.type == "subject" and not self.subject_code:
+            raise HTTPException(422, "a subject assignment needs subject_code")
+        if self.type == "class" and self.subject_code:
+            raise HTTPException(422, "a class assignment covers every subject; leave subject_code unset")
+
+
+class TeacherKeyIn(BaseModel):
+    label: str = Field(default="", max_length=120)
+    assignments: list[TeacherAssignmentIn] = Field(default_factory=list)
+
+
+def _assignment_view(a: TeacherAssignment, sections: dict[str, Section]) -> dict:
+    section = sections.get(a.section_id)
+    return {
+        "id": a.id,
+        "type": a.type,
+        "section_id": a.section_id,
+        "section_label": f"Class {section.grade}-{section.name}" if section else None,
+        "subject_code": a.subject_code,
+    }
+
+
+def _teacher_view(db: Session, key: StaffKey) -> dict:
+    rows = list(
+        db.scalars(select(TeacherAssignment).where(TeacherAssignment.staff_key_id == key.id))
+    )
+    section_ids = {a.section_id for a in rows}
+    sections = {
+        s.id: s for s in db.scalars(select(Section).where(Section.id.in_(section_ids)))
+    } if section_ids else {}
+    return {
+        "id": key.id,
+        "role": key.role,
+        "label": key.label,
+        "created_at": key.created_at.isoformat() if key.created_at else None,
+        "revoked_at": key.revoked_at.isoformat() if key.revoked_at else None,
+        "assignments": [_assignment_view(a, sections) for a in rows],
+    }
+
+
+@router.get("/teachers")
+def list_teachers(
+    school: School = Depends(require_admin), db: Session = Depends(get_session)
+) -> list[dict]:
+    """Every teacher key issued for this school, with their assignments. Never carries
+    ``api_key`` -- same rule as every other key listing in this codebase."""
+    keys = db.scalars(
+        select(StaffKey)
+        .where(StaffKey.school_id == school.id, StaffKey.role == "teacher")
+        .order_by(StaffKey.revoked_at.is_not(None), StaffKey.created_at)
+    ).all()
+    return [_teacher_view(db, k) for k in keys]
+
+
+@router.post("/teachers", status_code=201)
+def create_teacher(
+    body: TeacherKeyIn,
+    school: School = Depends(require_admin), db: Session = Depends(get_session),
+) -> dict:
+    """Issue a teacher key for this school, with an initial set of assignments.
+
+    Same "shown once" pattern as every other key this deployment issues: the raw key
+    comes back in this response and nowhere else.
+    """
+    for spec in body.assignments:
+        spec._validate(db, school)
+
+    key = StaffKey(
+        school_id=school.id, api_key=secrets.token_urlsafe(24),
+        role="teacher", label=body.label.strip(),
+    )
+    db.add(key)
+    db.flush()
+    for spec in body.assignments:
+        db.add(TeacherAssignment(
+            staff_key_id=key.id, type=spec.type,
+            section_id=spec.section_id, subject_code=spec.subject_code,
+        ))
+    db.commit()
+    db.refresh(key)
+    view = _teacher_view(db, key)
+    view["api_key"] = key.api_key
+    view["api_key_notice"] = (
+        "Shown once. Give it to the teacher named and store it somewhere safe -- there "
+        "is no route that reads it back, only revoke and re-issue."
+    )
+    return view
+
+
+@router.post("/teachers/{key_id}/assignments", status_code=201)
+def add_teacher_assignment(
+    key_id: str, body: TeacherAssignmentIn,
+    school: School = Depends(require_admin), db: Session = Depends(get_session),
+) -> dict:
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school.id or key.role != "teacher":
+        raise HTTPException(404, "no such teacher key")
+    body._validate(db, school)
+    existing = db.scalar(
+        select(TeacherAssignment).where(
+            TeacherAssignment.staff_key_id == key.id,
+            TeacherAssignment.type == body.type,
+            TeacherAssignment.section_id == body.section_id,
+            TeacherAssignment.subject_code == body.subject_code,
+        )
+    )
+    if existing is None:
+        db.add(TeacherAssignment(
+            staff_key_id=key.id, type=body.type,
+            section_id=body.section_id, subject_code=body.subject_code,
+        ))
+        db.commit()
+        db.refresh(key)
+    return _teacher_view(db, key)
+
+
+@router.delete("/teachers/{key_id}/assignments/{assignment_id}", status_code=204)
+def remove_teacher_assignment(
+    key_id: str, assignment_id: str,
+    school: School = Depends(require_admin), db: Session = Depends(get_session),
+) -> None:
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school.id or key.role != "teacher":
+        raise HTTPException(404, "no such teacher key")
+    row = db.get(TeacherAssignment, assignment_id)
+    if row is None or row.staff_key_id != key.id:
+        raise HTTPException(404, "no such assignment")
+    db.delete(row)
+    db.commit()
+
+
+@router.post("/teachers/{key_id}/revoke")
+def revoke_teacher(
+    key_id: str,
+    school: School = Depends(require_admin), db: Session = Depends(get_session),
+) -> dict:
+    """Stop a teacher key working. The row (and its assignments) stay -- who held access
+    to which class, and until when, is the first question asked after anything goes
+    wrong, same as every other key revocation in this codebase."""
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school.id or key.role != "teacher":
+        raise HTTPException(404, "no such teacher key")
+    if key.revoked_at is None:
+        key.revoked_at = datetime.now(UTC)
+        db.commit()
+    return _teacher_view(db, key)
