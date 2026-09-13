@@ -56,7 +56,12 @@ def teacher_can_read(staff: Staff, db: Session, section_id: str, subject_code: s
             continue
         if a.type == "class":
             return True
-        if a.type == "subject" and subject_code is not None and a.subject_code == subject_code:
+        # A subject assignment always covers reading the section it names; when the
+        # caller also names a subject (e.g. deciding whether to show one subject's
+        # marks), it must additionally match. With no subject_code given -- "may this
+        # teacher open this section at all" -- holding any subject assignment there is
+        # enough.
+        if a.type == "subject" and (subject_code is None or a.subject_code == subject_code):
             return True
     return False
 
