@@ -20,14 +20,21 @@ import { AvaiLogo } from "@/components/AvaiLogo";
  */
 export function SiteHeader() {
   const pathname = usePathname() ?? "";
-  const hasSideNav = pathname.startsWith("/admin") || pathname.startsWith("/platform");
+  const hasSideNav = pathname.startsWith("/admin") || pathname.startsWith("/platform")
+    || pathname.startsWith("/teacher") || pathname.startsWith("/student");
   // /t and everything under it (the class-code entry, the test itself, the thank-you
   // page) is the student's whole path through the product -- no staff sign-in prompt
   // belongs anywhere on it, not even the single link the front door keeps.
   const isStudentFlow = pathname.startsWith("/t");
+  // /login carries its own logo + mascot + "School Staff / Student" tabs -- a second,
+  // stacked copy of the brand plus a redundant "Staff sign in" link pointing at the very
+  // page already on screen was the bug reported here; this page draws no header at all.
+  const isLoginPage = pathname.startsWith("/login");
 
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => setSignedIn(Boolean(getApiKey()) || Boolean(getPlatformKey())), [pathname]);
+
+  if (isLoginPage) return null;
 
   return (
     <header className="siteheader">
