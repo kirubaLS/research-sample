@@ -27,7 +27,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Yaadhum",
+  title: "Avai",
   description: "Assessment diagnostics for CBSE schools",
 };
 
@@ -41,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <footer className="sitefooter">
             <div className="inner">
-              <span>Yaadhum · assessment diagnostics</span>
+              <span>Avai · assessment diagnostics</span>
               <span className="mono">CBSE Class X · Tamil Nadu</span>
             </div>
           </footer>

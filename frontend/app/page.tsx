@@ -63,7 +63,7 @@ export default function Home() {
             something a teacher can act on.
           </h1>
           <p className="lede">
-            Yaadhum reads question-level performance and says where marks were lost, whether
+            Avai reads question-level performance and says where marks were lost, whether
             the gap is recall or application, and which concepts need reteaching, plus an
             interest profile that helps a student choose a stream.
           </p>

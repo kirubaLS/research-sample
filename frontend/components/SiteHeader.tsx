@@ -33,10 +33,10 @@ export function SiteHeader() {
       <div className="inner">
         <Link href="/" className="brand">
           <span className="glyph" aria-hidden>
-            Y
+            A
           </span>
           <span>
-            <span className="name">Yaadhum</span>
+            <span className="name">Avai</span>
             <br />
             <span className="sub">Assessment diagnostics</span>
           </span>

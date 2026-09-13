@@ -34,12 +34,25 @@ interface Item {
   needs: keyof StaffRole["can"] | null;
 }
 
+// Avai nav restructure (design spec §5.1): BoardX is the principal's primary lens and
+// default landing page, followed by Papers, Enter Marks and Settings. The old flat
+// "Dashboard" counts screen doesn't disappear -- it folds into Settings as an
+// "Operations" summary (see /admin/page.tsx), so it is intentionally not a peer item
+// here any more.
+//
+// "Manage Teachers" is NOT wired in here on purpose: per the Backend Dependency Index
+// (#1), the `teacher` role + `teacher_assignment` model don't exist in the backend yet,
+// so there is nothing real to route this item to. Rather than ship a nav entry that
+// opens a screen full of mocked teachers presented as real, it is left commented out --
+// wire it in once the backend work lands.
 const WORK: Item[] = [
-  { href: "/admin", label: "Dashboard", glyph: "▤", needs: null },
-  { href: "/admin/paper", label: "Question paper", glyph: "▦", needs: "scan_papers" },
-  { href: "/admin/answers", label: "Answer sheet", glyph: "▧", needs: "enter_marks" },
-  { href: "/admin/gridsheet", label: "Class mark sheet", glyph: "▥", needs: "enter_marks" },
-  { href: "/admin/boardx", label: "Board intelligence", glyph: "◈", needs: "read_results" },
+  { href: "/admin/boardx", label: "BoardX", glyph: "◈", needs: "read_results" },
+  { href: "/admin/paper", label: "Papers", glyph: "▦", needs: "scan_papers" },
+  { href: "/admin/answers", label: "Enter Marks", glyph: "▧", needs: "enter_marks" },
+  // TODO(spec §5.11, Backend Dependency Index #1): once a `teacher` StaffKey role and
+  // `teacher_assignment` table exist, add Manage Teachers here, gated on a real
+  // `manage_teachers` capability -- not before.
+  { href: "/admin", label: "Settings", glyph: "▤", needs: null },
 ];
 
 const PLATFORM: Item[] = [
