@@ -23,9 +23,17 @@ export function clearActiveSchool(): void {
   if (typeof window !== "undefined") window.localStorage.removeItem(ACTIVE);
 }
 
+/** One class or subject a teacher key may touch. Mirrors GET /admin/me's `assignments`. */
+export interface TeacherAssignment {
+  type: "class" | "subject";
+  section_id: string;
+  section_label: string | null;
+  subject_code: string | null;
+}
+
 /** What a signed-in staff key may do. Mirrors /admin/me; the server is the authority. */
 export interface StaffRole {
-  role: "principal" | "admin";
+  role: "principal" | "admin" | "teacher";
   /** "all_schools" for an admin key, which belongs to none and must pick one. */
   scope: "all_schools" | "one_school";
   can: {
@@ -35,6 +43,8 @@ export interface StaffRole {
     manage_roster: boolean;
     manage_schools: boolean;
   };
+  /** Only present for a teacher key -- which sections/subjects it may touch. */
+  assignments?: TeacherAssignment[];
 }
 
 /**
@@ -98,30 +108,18 @@ export function signOutPlatform(): void {
   window.localStorage.removeItem(PLATFORM);
 }
 
-// --- mocked teacher / student sessions ------------------------------------------------
-// TODO(backend): Dependency Index #1 (teacher) / #2 (student) -- `GET /admin/me` never
-// returns `role: "teacher"` today, and there is no student-auth endpoint at all. These two
-// helpers hold a purely local, clearly-labeled demo session so the mocked Teacher and
-// Student shells (frontend/app/teacher, frontend/app/student) have something to read
-// without pretending either round-tripped through a real backend. Never read by AdminGate
-// or by any code path that also holds a real StaffKey/api key.
+// --- mocked student session -------------------------------------------------------
+// TODO(backend): Dependency Index #2 -- there is no student-auth endpoint. This helper
+// holds a purely local, clearly-labeled demo session so the mocked Student shell
+// (frontend/app/student) has something to read without pretending it round-tripped
+// through a real backend. Never read by AdminGate, the teacher shell, or any code path
+// that also holds a real StaffKey/api key.
+//
+// The teacher shell no longer has a mock preview: a teacher now signs in with a real
+// issued key exactly like a principal (see app/login/page.tsx), and GET /admin/me tells
+// the frontend which shell to render via `role`.
 
-const MOCK_TEACHER = "yaadhum:mockTeacher";
 const MOCK_STUDENT = "yaadhum:mockStudent";
-
-/** Marks that the current browser is previewing the mocked Teacher shell (demo data). */
-export function enterMockTeacherPreview(): void {
-  window.localStorage.setItem(MOCK_TEACHER, "1");
-}
-
-export function isMockTeacherPreview(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(MOCK_TEACHER) === "1";
-}
-
-export function exitMockTeacherPreview(): void {
-  window.localStorage.removeItem(MOCK_TEACHER);
-}
 
 /** Marks that the current browser "signed in" via the mocked student roll-no/PIN form. */
 export function enterMockStudentSession(): void {

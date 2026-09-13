@@ -5,12 +5,9 @@
  * students authenticate completely differently, so the split is visible up front rather
  * than one form with a role dropdown.
  *
- * - School Staff → Principal path: ✅ BUILDABLE NOW, the real `api.whoami` sign-in
- *   (identical to AdminGate's own flow) -- a school code + sign-in key that really checks
- *   against the backend.
- * - School Staff → Teacher path: 🔧 BACKEND REQUIRED (Dependency Index #1). There is no
- *   teacher auth today, so this is a clearly-labeled "Preview teacher view (demo data)"
- *   affordance, not a real sign-in.
+ * - School Staff: ✅ the real `api.whoami` sign-in (identical to AdminGate's own flow) --
+ *   a sign-in key that really checks against the backend. A principal, admin and teacher
+ *   key all use this same form; `GET /admin/me`'s `role` decides which shell to land on.
  * - Student tab: 🔧 BACKEND REQUIRED (Dependency Index #2). Roll number + school code +
  *   PIN, built and stateful, but any non-empty PIN "unlocks" a fixed set of mock reports --
  *   there is no backend to actually check it against.
@@ -24,16 +21,10 @@ import { Suspense, useState } from "react";
 import { AvaiLogo } from "@/components/AvaiLogo";
 import { Mascot } from "@/components/Mascot";
 import { api, ApiError, ApiUnreachable } from "@/lib/api";
-import {
-  enterMockStudentSession,
-  enterMockTeacherPreview,
-  setApiKey,
-  setRole,
-} from "@/lib/session";
+import { enterMockStudentSession, setApiKey, setRole } from "@/lib/session";
 import { MOCK_STUDENT_IDENTITY } from "@/lib/mocks/student";
 
 type Tab = "staff" | "student";
-type StaffPath = "principal" | "teacher";
 
 export default function LoginPage() {
   return (
@@ -46,7 +37,6 @@ export default function LoginPage() {
 function LoginForm() {
   const params = useSearchParams();
   const [tab, setTab] = useState<Tab>(params.get("tab") === "student" ? "student" : "staff");
-  const [staffPath, setStaffPath] = useState<StaffPath>("principal");
 
   return (
     <main className="narrow login-page">
@@ -77,29 +67,7 @@ function LoginForm() {
       </div>
 
       <div className="card login-card">
-        {tab === "staff" ? (
-          <>
-            <div className="subtabbar">
-              <button
-                type="button"
-                className={`subtab${staffPath === "principal" ? " on" : ""}`}
-                onClick={() => setStaffPath("principal")}
-              >
-                Principal / Admin
-              </button>
-              <button
-                type="button"
-                className={`subtab${staffPath === "teacher" ? " on" : ""}`}
-                onClick={() => setStaffPath("teacher")}
-              >
-                Teacher
-              </button>
-            </div>
-            {staffPath === "principal" ? <PrincipalSignIn /> : <TeacherPreview />}
-          </>
-        ) : (
-          <StudentSignIn />
-        )}
+        {tab === "staff" ? <StaffSignIn /> : <StudentSignIn />}
       </div>
 
       <p className="small muted" style={{ marginTop: 14, textAlign: "center" }}>
@@ -136,7 +104,7 @@ function LoginForm() {
   );
 }
 
-function PrincipalSignIn() {
+function StaffSignIn() {
   const router = useRouter();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -149,8 +117,8 @@ function PrincipalSignIn() {
     try {
       const me = await api.whoami(key);
       setApiKey(key, me.name);
-      setRole({ role: me.role, can: me.can, scope: me.scope });
-      router.push("/admin");
+      setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments });
+      router.push(me.role === "teacher" ? "/teacher" : "/admin");
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
         // Valid admin key, no school picked yet -- same as AdminGate: let /admin resolve it.
@@ -182,30 +150,6 @@ function PrincipalSignIn() {
         {busy ? "Checking…" : "Sign in"}
       </button>
     </form>
-  );
-}
-
-function TeacherPreview() {
-  const router = useRouter();
-  return (
-    <div>
-      <p className="cardnote" style={{ marginTop: 0 }}>
-        Teacher sign-in is not built yet — there is no <code>teacher</code> role on the
-        backend today.{" "}
-        <span className="small muted">(TODO(backend): Dependency Index #1.)</span> You can
-        preview the teacher experience against a fixed demo teacher instead.
-      </p>
-      <button
-        type="button"
-        style={{ width: "100%" }}
-        onClick={() => {
-          enterMockTeacherPreview();
-          router.push("/teacher");
-        }}
-      >
-        Preview teacher view (demo data)
-      </button>
-    </div>
   );
 }
 

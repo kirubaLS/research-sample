@@ -1,53 +1,73 @@
 "use client";
 
-/**
- * §5.11 -- Manage Teachers.
- *
- * TODO(backend): Dependency Index #1 -- this entire screen manages `teacher_assignment`
- * rows that don't exist in the backend yet. All state here is in-memory only (resets on
- * reload) standing in for what would be real `StaffKey`/assignment endpoints. The
- * [+ Add teacher] / [Edit] / [⋮ Revoke] flows are built to the real shape described in the
- * spec, but wired to nothing real -- see the demo banner below and per-action TODOs.
+/** §5.11 -- Manage Teachers: real StaffKey (role "teacher") issuance and
+ * TeacherAssignment management, principal-scoped exactly like every other roster route.
  */
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CopySecret } from "@/components/CopySecret";
 import {
-  MOCK_MANAGED_TEACHERS,
-  MOCK_SUBJECTS,
-  assignmentLabel,
-  mockGenerateKey,
-  type MockManagedTeacher,
-  type TeacherAssignment,
-} from "@/lib/mocks/teacher";
+  api,
+  type SectionSummary,
+  type Subject,
+  type TeacherAssignmentSpec,
+  type TeacherAssignmentView,
+  type TeacherKeyView,
+} from "@/lib/api";
+import { getApiKey } from "@/lib/session";
 
-const SECTIONS = ["10-A", "10-B", "10-C"];
+function assignmentLabel(a: TeacherAssignmentSpec | TeacherAssignmentView, sections: SectionSummary[]): string {
+  const section = sections.find((s) => s.section_id === a.section_id);
+  const label = section?.label ?? a.section_id;
+  return a.type === "class" ? `Class Teacher — ${label}` : `${a.subject_code} — ${label}`;
+}
 
 export default function ManageTeachers() {
-  const [teachers, setTeachers] = useState<MockManagedTeacher[]>(MOCK_MANAGED_TEACHERS);
+  const [teachers, setTeachers] = useState<TeacherKeyView[]>([]);
+  const [sections, setSections] = useState<SectionSummary[]>([]);
+  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
-  const [editing, setEditing] = useState<MockManagedTeacher | null>(null);
-  const [revoking, setRevoking] = useState<MockManagedTeacher | null>(null);
+  const [editing, setEditing] = useState<TeacherKeyView | null>(null);
+  const [revoking, setRevoking] = useState<TeacherKeyView | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
-  const active = teachers.filter((t) => !t.revoked);
+  async function refresh() {
+    const key = getApiKey();
+    if (!key) return;
+    try {
+      const [t, ov, subj] = await Promise.all([
+        api.listTeachers(key), api.overview(key), api.subjects(key),
+      ]);
+      setTeachers(t);
+      setSections(ov.sections);
+      setSubjects(subj.subjects);
+    } catch {
+      setError("Could not load teachers. Try again in a minute.");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const active = teachers.filter((t) => !t.revoked_at);
 
   return (
     <main className="narrow">
-      <div
-        className="notice"
-        style={{ borderLeftColor: "var(--info)", background: "var(--info-soft)", marginBottom: 18 }}
-      >
-        <strong>Demo data.</strong> Teacher logins and assignments aren&rsquo;t backed by a
-        real database yet (Dependency Index #1) — everything below resets on reload.
-      </div>
-
       <div className="hero row between" style={{ alignItems: "flex-end" }}>
         <h1 style={{ margin: 0 }}>Manage Teachers</h1>
         <button type="button" onClick={() => setAdding(true)}>+ Add teacher</button>
       </div>
 
-      {active.length === 0 ? (
+      {error && <p className="error">{error}</p>}
+      {loading && <p className="muted">Loading…</p>}
+
+      {!loading && active.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 0" }}>
           <p className="lede">No teacher logins yet</p>
           <button type="button" onClick={() => setAdding(true)} style={{ marginTop: 10 }}>
@@ -59,7 +79,7 @@ export default function ManageTeachers() {
           <table>
             <thead>
               <tr>
-                <th>Name</th>
+                <th>Label</th>
                 <th>Assignments</th>
                 <th />
               </tr>
@@ -67,12 +87,13 @@ export default function ManageTeachers() {
             <tbody>
               {active.map((t) => (
                 <tr key={t.id}>
-                  <td>{t.name}</td>
+                  <td>{t.label || "(unnamed)"}</td>
                   <td>
                     <div className="stack" style={{ gap: 3 }}>
-                      {t.assignments.map((a, i) => (
-                        <span className="small" key={i}>{assignmentLabel(a)}</span>
+                      {t.assignments.map((a) => (
+                        <span className="small" key={a.id}>{assignmentLabel(a, sections)}</span>
                       ))}
+                      {t.assignments.length === 0 && <span className="small muted">No assignments yet</span>}
                     </div>
                   </td>
                   <td style={{ position: "relative" }}>
@@ -112,10 +133,12 @@ export default function ManageTeachers() {
 
       {adding && (
         <AddTeacherModal
+          sections={sections}
+          subjects={subjects}
           onClose={() => setAdding(false)}
-          onCreate={(t) => {
-            setTeachers((all) => [...all, t]);
+          onCreated={() => {
             setAdding(false);
+            refresh();
           }}
         />
       )}
@@ -123,10 +146,12 @@ export default function ManageTeachers() {
       {editing && (
         <EditAssignmentsModal
           teacher={editing}
+          sections={sections}
+          subjects={subjects}
           onClose={() => setEditing(null)}
-          onSave={(updated) => {
-            setTeachers((all) => all.map((t) => (t.id === updated.id ? updated : t)));
+          onSaved={() => {
             setEditing(null);
+            refresh();
           }}
         />
       )}
@@ -135,11 +160,11 @@ export default function ManageTeachers() {
         <RevokeConfirmModal
           teacher={revoking}
           onClose={() => setRevoking(null)}
-          onConfirm={() => {
-            setTeachers((all) =>
-              all.map((t) => (t.id === revoking.id ? { ...t, revoked: true } : t)),
-            );
+          onConfirm={async () => {
+            const key = getApiKey();
+            if (key) await api.revokeTeacher(key, revoking.id);
             setRevoking(null);
+            refresh();
           }}
         />
       )}
@@ -180,16 +205,42 @@ function Overlay({ children, onClose }: { children: React.ReactNode; onClose: ()
 }
 
 function AddTeacherModal({
+  sections,
+  subjects,
   onClose,
-  onCreate,
+  onCreated,
 }: {
+  sections: SectionSummary[];
+  subjects: Subject[];
   onClose: () => void;
-  onCreate: (t: MockManagedTeacher) => void;
+  onCreated: () => void;
 }) {
   const [step, setStep] = useState<"name" | "key" | "assignments">("name");
-  const [name, setName] = useState("");
-  const [key] = useState(mockGenerateKey);
-  const [assignments, setAssignments] = useState<TeacherAssignment[]>([]);
+  const [label, setLabel] = useState("");
+  const [issued, setIssued] = useState<{ id: string; api_key: string } | null>(null);
+  const [assignments, setAssignments] = useState<TeacherAssignmentSpec[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  async function createKey() {
+    const key = getApiKey();
+    if (!key) return;
+    try {
+      const created = await api.createTeacher(key, { label, assignments: [] });
+      setIssued({ id: created.id, api_key: created.api_key });
+      setStep("key");
+    } catch {
+      setError("Could not create this teacher key.");
+    }
+  }
+
+  async function saveAssignments() {
+    const key = getApiKey();
+    if (!key || !issued) return onCreated();
+    for (const a of assignments) {
+      await api.addTeacherAssignment(key, issued.id, a);
+    }
+    onCreated();
+  }
 
   return (
     <Overlay onClose={onClose}>
@@ -197,28 +248,24 @@ function AddTeacherModal({
         <>
           <h3 style={{ marginTop: 0 }}>Add teacher</h3>
           <div className="field">
-            <label htmlFor="tname">Name</label>
-            <input id="tname" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Mr. Ravi" />
+            <label htmlFor="tname">Label (name)</label>
+            <input id="tname" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Mr. Ravi" />
           </div>
+          {error && <p className="error">{error}</p>}
           <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
             <button type="button" className="secondary" onClick={onClose}>Cancel</button>
-            <button type="button" disabled={!name.trim()} onClick={() => setStep("key")}>Next</button>
+            <button type="button" disabled={!label.trim()} onClick={createKey}>Next</button>
           </div>
         </>
       )}
 
-      {step === "key" && (
+      {step === "key" && issued && (
         <>
           <h3 style={{ marginTop: 0 }}>Sign-in key generated</h3>
           <p className="cardnote">
-            Give this key to {name}. It is shown once and cannot be retrieved again.
+            Give this key to {label}. It is shown once and cannot be retrieved again.
           </p>
-          <CopySecret value={key} />
-          <p className="small muted" style={{ marginTop: 10 }}>
-            TODO(backend): Dependency Index #1 — this key is generated in the browser only
-            and does not sign in to anything real; no <code>teacher</code> StaffKey role
-            exists yet.
-          </p>
+          <CopySecret value={issued.api_key} />
           <button type="button" style={{ marginTop: 12 }} onClick={() => setStep("assignments")}>
             Add assignments →
           </button>
@@ -227,17 +274,11 @@ function AddTeacherModal({
 
       {step === "assignments" && (
         <AssignmentEditor
+          sections={sections}
+          subjects={subjects}
           assignments={assignments}
           setAssignments={setAssignments}
-          onDone={() =>
-            onCreate({
-              id: `t-${Date.now()}`,
-              name,
-              assignments,
-              keyIssuedAt: new Date().toISOString().slice(0, 10),
-              revoked: false,
-            })
-          }
+          onDone={saveAssignments}
         />
       )}
     </Overlay>
@@ -246,21 +287,63 @@ function AddTeacherModal({
 
 function EditAssignmentsModal({
   teacher,
+  sections,
+  subjects,
   onClose,
-  onSave,
+  onSaved,
 }: {
-  teacher: MockManagedTeacher;
+  teacher: TeacherKeyView;
+  sections: SectionSummary[];
+  subjects: Subject[];
   onClose: () => void;
-  onSave: (t: MockManagedTeacher) => void;
+  onSaved: () => void;
 }) {
-  const [assignments, setAssignments] = useState<TeacherAssignment[]>(teacher.assignments);
+  const [existing, setExisting] = useState(teacher.assignments);
+  const [added, setAdded] = useState<TeacherAssignmentSpec[]>([]);
+
+  async function removeExisting(id: string) {
+    const key = getApiKey();
+    if (!key) return;
+    await api.removeTeacherAssignment(key, teacher.id, id);
+    setExisting((all) => all.filter((a) => a.id !== id));
+  }
+
+  async function save() {
+    const key = getApiKey();
+    if (!key) return onSaved();
+    for (const a of added) {
+      await api.addTeacherAssignment(key, teacher.id, a);
+    }
+    onSaved();
+  }
+
   return (
     <Overlay onClose={onClose}>
-      <h3 style={{ marginTop: 0 }}>Edit assignments — {teacher.name}</h3>
+      <h3 style={{ marginTop: 0 }}>Edit assignments — {teacher.label || "teacher"}</h3>
+      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+        {existing.map((a) => (
+          <span key={a.id} className="badge blue" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+            {assignmentLabel(a, sections)}
+            <button
+              type="button"
+              aria-label="Remove"
+              onClick={() => removeExisting(a.id)}
+              style={{ border: 0, background: "transparent", cursor: "pointer", color: "inherit", padding: 0 }}
+            >
+              ×
+            </button>
+          </span>
+        ))}
+        {existing.length === 0 && added.length === 0 && (
+          <p className="small muted">No assignments yet.</p>
+        )}
+      </div>
       <AssignmentEditor
-        assignments={assignments}
-        setAssignments={setAssignments}
-        onDone={() => onSave({ ...teacher, assignments })}
+        sections={sections}
+        subjects={subjects}
+        assignments={added}
+        setAssignments={setAdded}
+        onDone={save}
         doneLabel="Save"
       />
     </Overlay>
@@ -268,29 +351,31 @@ function EditAssignmentsModal({
 }
 
 function AssignmentEditor({
+  sections,
+  subjects,
   assignments,
   setAssignments,
   onDone,
   doneLabel = "Done",
 }: {
-  assignments: TeacherAssignment[];
-  setAssignments: (a: TeacherAssignment[]) => void;
+  sections: SectionSummary[];
+  subjects: Subject[];
+  assignments: TeacherAssignmentSpec[];
+  setAssignments: (a: TeacherAssignmentSpec[]) => void;
   onDone: () => void;
   doneLabel?: string;
 }) {
   const [type, setType] = useState<"class" | "subject">("class");
-  const [section, setSection] = useState(SECTIONS[0]);
-  const [subject, setSubject] = useState(MOCK_SUBJECTS[0].code);
+  const [sectionId, setSectionId] = useState(sections[0]?.section_id ?? "");
+  const [subjectCode, setSubjectCode] = useState(subjects[0]?.subject_code ?? "");
 
   function add() {
+    if (!sectionId) return;
     if (type === "class") {
-      setAssignments([...assignments, { type: "class", sectionId: section, sectionLabel: section, students: 30 }]);
+      setAssignments([...assignments, { type: "class", section_id: sectionId }]);
     } else {
-      const s = MOCK_SUBJECTS.find((s) => s.code === subject)!;
-      setAssignments([
-        ...assignments,
-        { type: "subject", subjectCode: s.code, subjectLabel: s.label, sectionId: section, sectionLabel: section, students: 30 },
-      ]);
+      if (!subjectCode) return;
+      setAssignments([...assignments, { type: "subject", section_id: sectionId, subject_code: subjectCode }]);
     }
   }
 
@@ -303,7 +388,7 @@ function AssignmentEditor({
       <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
         {assignments.map((a, i) => (
           <span key={i} className="badge blue" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
-            {assignmentLabel(a)}
+            {assignmentLabel(a, sections)}
             <button
               type="button"
               aria-label="Remove"
@@ -314,7 +399,6 @@ function AssignmentEditor({
             </button>
           </span>
         ))}
-        {assignments.length === 0 && <p className="small muted">No assignments yet.</p>}
       </div>
 
       <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
@@ -327,15 +411,15 @@ function AssignmentEditor({
         </div>
         <div className="field" style={{ marginBottom: 0 }}>
           <label>Section</label>
-          <select value={section} onChange={(e) => setSection(e.target.value)}>
-            {SECTIONS.map((s) => <option key={s} value={s}>{s}</option>)}
+          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
+            {sections.map((s) => <option key={s.section_id} value={s.section_id}>{s.label}</option>)}
           </select>
         </div>
         {type === "subject" && (
           <div className="field" style={{ marginBottom: 0 }}>
             <label>Subject</label>
-            <select value={subject} onChange={(e) => setSubject(e.target.value)}>
-              {MOCK_SUBJECTS.map((s) => <option key={s.code} value={s.code}>{s.label}</option>)}
+            <select value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)}>
+              {subjects.map((s) => <option key={s.subject_code} value={s.subject_code}>{s.label}</option>)}
             </select>
           </div>
         )}
@@ -354,16 +438,15 @@ function RevokeConfirmModal({
   onClose,
   onConfirm,
 }: {
-  teacher: MockManagedTeacher;
+  teacher: TeacherKeyView;
   onClose: () => void;
   onConfirm: () => void;
 }) {
   return (
     <Overlay onClose={onClose}>
-      <h3 style={{ marginTop: 0 }}>Revoke {teacher.name}&rsquo;s key?</h3>
+      <h3 style={{ marginTop: 0 }}>Revoke {teacher.label || "this teacher"}&rsquo;s key?</h3>
       <p className="cardnote">
-        This cannot be undone. {teacher.name} will no longer be able to sign in with this
-        key.
+        This cannot be undone. They will no longer be able to sign in with this key.
       </p>
       <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
         <button type="button" className="secondary" onClick={onClose}>Cancel</button>

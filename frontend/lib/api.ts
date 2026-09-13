@@ -3,7 +3,7 @@
 // deployment, which is why apiBaseIsDefault() exists -- an unset variable in production
 // makes the browser ask the *visitor's* machine for the API, and the resulting failure
 // looks like a dead backend rather than a missing setting.
-import { getActiveSchool } from "@/lib/session";
+import { getActiveSchool, TeacherAssignment } from "@/lib/session";
 
 const BASE = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:8000";
 
@@ -112,6 +112,38 @@ export interface SchoolStaffRow {
   label: string;
   created_at: string | null;
   revoked_at: string | null;
+}
+
+/** GET/POST /admin/teachers -- a teacher key, with its assignments. Never the secret. */
+export interface TeacherAssignmentView {
+  id: string;
+  type: "class" | "subject";
+  section_id: string;
+  section_label: string | null;
+  subject_code: string | null;
+}
+
+export interface TeacherKeyView {
+  id: string;
+  role: "teacher";
+  label: string;
+  created_at: string | null;
+  revoked_at: string | null;
+  assignments: TeacherAssignmentView[];
+}
+
+export interface TeacherAssignmentSpec {
+  type: "class" | "subject";
+  section_id: string;
+  subject_code?: string | null;
+}
+
+export interface TeacherSectionSummary {
+  section_id: string;
+  can_read_all_subjects: boolean;
+  subjects: string[];
+  label: string | null;
+  student_path: string | null;
 }
 
 // --- class mark-entry sheet: one photograph, many students ----------------------------
@@ -568,6 +600,7 @@ export interface PlatformSchool {
   training_consent: string;
   students: number;
   sections: PlatformSection[];
+  hidden_from_directory: boolean;
 }
 
 /** Only ever returned by create and rotate -- listing carries no key. */
@@ -970,7 +1003,7 @@ export const api = {
       name: string;
       state: string | null;
       school_id: string;
-      role: "principal" | "admin";
+      role: "principal" | "admin" | "teacher";
       scope: "all_schools" | "one_school";
       can: {
         read_results: boolean;
@@ -979,6 +1012,8 @@ export const api = {
         manage_roster: boolean;
         manage_schools: boolean;
       };
+      /** Only present for a teacher key. */
+      assignments?: TeacherAssignment[];
     }>("/admin/me", key),
 
   overview: (key: string) => authed<Overview>("/admin/overview", key),
@@ -1029,6 +1064,54 @@ export const api = {
   deleteStudent: (key: string, studentId: string) =>
     authed<void>(`/admin/students/${studentId}`, key, { method: "DELETE" }),
 
+  // --- teachers (principal-scoped management; teacher-scoped reads) ---
+
+  /** Every teacher key issued for this school, with their assignments. Principal/admin. */
+  listTeachers: (key: string) => authed<TeacherKeyView[]>("/admin/teachers", key),
+
+  /** Issue a teacher key -- the raw key comes back once, same as every other credential
+   * this deployment issues. */
+  createTeacher: (
+    key: string,
+    body: { label: string; assignments: TeacherAssignmentSpec[] },
+  ) =>
+    authed<TeacherKeyView & IssuedKey>("/admin/teachers", key, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  addTeacherAssignment: (key: string, teacherKeyId: string, spec: TeacherAssignmentSpec) =>
+    authed<TeacherKeyView>(`/admin/teachers/${teacherKeyId}/assignments`, key, {
+      method: "POST",
+      body: JSON.stringify(spec),
+    }),
+
+  removeTeacherAssignment: (key: string, teacherKeyId: string, assignmentId: string) =>
+    authed<void>(`/admin/teachers/${teacherKeyId}/assignments/${assignmentId}`, key, {
+      method: "DELETE",
+    }),
+
+  revokeTeacher: (key: string, teacherKeyId: string) =>
+    authed<TeacherKeyView>(`/admin/teachers/${teacherKeyId}/revoke`, key, { method: "POST" }),
+
+  /** Every section a teacher key may open, with what it may do there. */
+  teacherSections: (key: string) =>
+    authed<{ sections: TeacherSectionSummary[] }>("/admin/teacher/sections", key),
+
+  /** The roster for one class -- refused with 404 unless this teacher key holds a class
+   * or subject assignment there, same shape as `roster` above. */
+  teacherRoster: (key: string, sectionId: string) =>
+    authed<{ section: { id: string; label: string; student_path: string }; students: RosterRow[] }>(
+      `/admin/teacher/sections/${sectionId}/students`,
+      key,
+    ),
+
+  teacherCohort: (key: string, sectionId: string) =>
+    authed<{ holland: Record<string, number>; streams: Record<string, number>; counted: number; withheld: number }>(
+      `/admin/teacher/cohort/${sectionId}`,
+      key,
+    ),
+
   // --- operator console ---
   platformWhoami: (key: string) => operator<{ role: string }>("/platform/me", key),
 
@@ -1051,6 +1134,13 @@ export const api = {
     operator<PlatformSchool & IssuedKey>("/platform/schools", key, {
       method: "POST",
       body: JSON.stringify(body),
+    }),
+
+  /** Show or hide a school's classes on the public /t/classes directory. */
+  setDirectoryVisibility: (key: string, schoolId: string, hidden: boolean) =>
+    operator<PlatformSchool>(`/platform/schools/${schoolId}/directory-visibility`, key, {
+      method: "PATCH",
+      body: JSON.stringify({ hidden }),
     }),
 
   addSection: (key: string, schoolId: string, section: { grade: number; name: string }) =>
