@@ -930,7 +930,15 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   border: 1px solid rgba(255, 255, 255, 0.5);
   transition: box-shadow var(--dur) var(--ease);
 }
-.hero-frame img { display: block; width: 100%; height: auto; }
+.hero-frame img {
+  display: block; width: 100%; height: auto;
+  /* The source crop cuts the mascot's tail-swoop right at the left edge (the pixels just
+     beyond it are stray leftover text from the source sheet, so there was nowhere further
+     to crop) -- a soft fade there reads as an intentional vignette instead of a hard,
+     unfinished-looking cut. */
+  -webkit-mask-image: linear-gradient(90deg, transparent 0%, #000 6%);
+  mask-image: linear-gradient(90deg, transparent 0%, #000 6%);
+}
 .hero-frame:hover { box-shadow: 0 28px 60px -18px rgba(20, 33, 61, 0.28); }
 @media (max-width: 760px) {
   .hero-bleed { padding: 36px 22px 32px; }

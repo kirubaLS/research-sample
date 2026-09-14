@@ -30,6 +30,11 @@ export function SiteHeader() {
   // stacked copy of the brand plus a redundant "Staff sign in" link pointing at the very
   // page already on screen was the bug reported here; this page draws no header at all.
   const isLoginPage = pathname.startsWith("/login");
+  // The front door's own "Sign in" door-card already goes to /login -- a second "Sign in"
+  // link up here, on the very page that offers it as a full card two inches below, was the
+  // "why are there two of these" confusion reported live. Every other page still gets the
+  // header link back to /login; only "/" itself drops it.
+  const isHome = pathname === "/";
 
   const [signedIn, setSignedIn] = useState(false);
   useEffect(() => setSignedIn(Boolean(getApiKey()) || Boolean(getPlatformKey())), [pathname]);
@@ -44,7 +49,7 @@ export function SiteHeader() {
           <span className="sub">Assessment diagnostics</span>
         </Link>
 
-        {!hasSideNav && !isStudentFlow && (
+        {!hasSideNav && !isStudentFlow && !(isHome && !signedIn) && (
           <nav className="navlinks">
             <Link href={signedIn ? "/admin" : "/login"}>
               {signedIn ? "Continue to dashboard" : "Sign in"}
