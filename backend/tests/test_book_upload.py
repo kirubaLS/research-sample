@@ -319,6 +319,44 @@ def test_a_family_under_a_chapter_that_does_not_exist_is_refused(client, school)
 
 # --- proposing families by reading the chapter ---------------------------------------------
 
+def test_chapter_passages_carry_the_chunks_own_section_not_an_empty_one(client, school):
+    """The bug this fixes: passages were built by matching a chunk's node_id against the
+    chapter's SUBTOPIC nodes' own ids, to read off the section number the taxonomy holds
+    for that subtopic. Every chunk is filed under the CHAPTER's node_id, never any
+    subtopic's (see `_load`) -- so that lookup never matched anything, for any subject,
+    and every passage a family-proposing model was ever shown carried an empty section.
+    A model with no real section ever shown to it can only guess one, so its
+    `from_sections` answered to a number retrieval (which reads the chunk's own
+    section_number directly, see app.ingest.probe) would never independently produce --
+    exactly why mapping kept finding families that claimed no section a real question
+    ever landed in."""
+    from sqlalchemy import select
+
+    from app.api.books import _chapter_passages
+    from app.db import SessionLocal
+    from app.models import BookChunk, TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+        db.add(BookChunk(
+            curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+            node_id=chapter.id, bucket="T", reference="Section 13.2",
+            section_number="13.2", text="The mean of grouped data uses class marks.",
+            normalised="the mean of grouped data uses class marks.",
+            stem_hash="test-chapter-passages-section",
+        ))
+        db.commit()
+
+        passages = _chapter_passages(db, "X.MATH", chapter.id)
+    finally:
+        db.close()
+
+    matched = [p for p in passages if p[0] == "Section 13.2"]
+    assert matched, "the chunk just added should be one of this chapter's passages"
+    assert matched[0][1] == "13.2"
+
+
 def test_proposing_with_a_model_refuses_without_a_key_rather_than_falling_back(client):
     """Falling back to the headings here would be the worst outcome: the caller asked for
     the reading, would be billed nothing, and would get a different answer with nothing

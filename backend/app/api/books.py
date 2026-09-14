@@ -1579,24 +1579,26 @@ def _chapter_passages(
 ) -> list[tuple[str, str, str]]:
     """(reference, section number, text) for one chapter, in the book's own order.
 
-    Sections come from the subtopic nodes the chunks hang off, so the number shown to the
-    model is the one the taxonomy holds -- not one re-derived from the text, which could
-    disagree with what a later placement is checked against.
+    The section number is the chunk's own ``section_number`` -- the exact field mapping
+    reads at placement time (see ``app.ingest.probe``'s ``Candidate.section``) -- not one
+    re-derived here a second, different way. It used to be looked up through the chapter's
+    subtopic nodes instead (matching ``BookChunk.node_id`` against those nodes' own ids),
+    which never once matched anything: every chunk is filed under the CHAPTER's node_id,
+    not any subtopic's (see ``_load`` above), so every passage this shows a proposing model
+    carried an empty section regardless of what the book's own contents actually say. A
+    model asked to state which sections a family draws on with no real section ever shown
+    to it has nothing to answer from but its own guess -- so every ``from_sections`` it
+    wrote answered to a number retrieval would never independently produce, and mapping
+    could never find a family that claimed the section a question actually landed in.
     """
-    sections = {
-        n.id: n.code.rsplit(".S", 1)[-1].replace("_", ".")
-        for n in db.scalars(
-            select(TaxonomyNode).where(TaxonomyNode.parent_id == chapter_id)
-        )
-    }
     out: list[tuple[str, str, str]] = []
     for chunk in db.scalars(
         select(BookChunk)
         .where(BookChunk.subject_code == subject)
-        .where(BookChunk.node_id.in_([chapter_id, *sections]))
+        .where(BookChunk.node_id == chapter_id)
         .order_by(BookChunk.id)
     ):
-        out.append((chunk.reference or "?", sections.get(chunk.node_id, ""), chunk.text))
+        out.append((chunk.reference or "?", chunk.section_number or "", chunk.text))
     return out
 
 
