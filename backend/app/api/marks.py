@@ -930,9 +930,15 @@ def read_scan(
         if node is not None:
             skills.setdefault(link.question_id, []).append(node.label)
     tiers: dict[str, str] = {}
+    #: every question a classify pass actually looked at, whether or not it settled on a
+    #: tier -- place() writes one QuestionTier row per question it processes even when
+    #: the tier itself comes back None (an abstain is still a verdict), so this is the
+    #: honest signal for "has classify run on this paper", not "did it agree every time".
+    classified_question_ids: set[str] = set()
     for row_tier in db.scalars(select(QuestionTier).where(
         QuestionTier.question_id.in_([r.question_id for r in rows if r.question_id] or [""])
     )):
+        classified_question_ids.add(row_tier.question_id)
         if row_tier.tier:
             tiers[row_tier.question_id] = row_tier.tier
 
@@ -993,6 +999,14 @@ def read_scan(
         "confirmed_by": assessment.scan_confirmed_by,
         "edited": sum(1 for r in rows if r.edited_at),
         "mapped": sum(1 for r in rows if r.question_id),
+        #: A real fact from the classify pass itself (see classified_question_ids above),
+        #: not inferred from whether any question happens to carry a tier -- an abstain is
+        #: still a verdict. This is what lets the paper screen tell "never classified" apart
+        #: from "classified, and every question abstained" when someone reopens the paper
+        #: after leaving mid-flow, without re-running anything to find out.
+        "classified": any(
+            r.question_id in classified_question_ids for r in rows if r.question_id
+        ),
         "marks_missing": sum(
             1 for r in rows if r.max_marks is None and r.address not in context
         ),
@@ -1006,6 +1020,15 @@ def read_scan(
                 round(float(declared_total) - read_total, 2)
                 if declared_total is not None else None
             ),
+        },
+        #: What the paper's own cover/instructions page states about itself, read once at
+        #: scan time and stored on the assessment rather than only ever returned by that
+        #: one POST /scan response -- otherwise reopening a paper mid-flow had no way to
+        #: show these again short of re-reading the pages.
+        "declared": {
+            "questions": (assessment.declared or {}).get("question_count"),
+            "sections": (assessment.declared or {}).get("sections"),
+            "total_marks": float(declared_total) if declared_total is not None else None,
         },
         "questions": [
             {

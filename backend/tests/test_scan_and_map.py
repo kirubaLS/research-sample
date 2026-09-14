@@ -1203,8 +1203,38 @@ def test_a_judge_that_abstains_on_the_tier_leaves_it_unset(
     assert job.status_code == 200, job.text
     assert job.json()["tiers"] == 0
 
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert placed["mapped_to"]["tier"] is None
+    scan = client.get(f"/assessments/{aid}/scan", headers=h).json()
+    assert scan["questions"][0]["mapped_to"]["tier"] is None
+    # Classify ran and simply abstained -- that must read differently from "classify was
+    # never run at all", which is what the paper screen uses to decide whether it still
+    # has to offer "Read and classify" on a paper someone reopens after leaving mid-flow.
+    assert scan["classified"] is True
+
+
+def test_the_classified_flag_is_false_until_a_classify_pass_has_actually_run(
+    client, school, book, monkeypatch
+):
+    """Mapping alone -- placing a question in a chapter -- is not classifying it: the
+    category comes from a separate reading, and reopening a paper that was only ever
+    mapped must not claim classify already happened."""
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Only mapped", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    client.post(f"/assessments/{aid}/map", headers=h)
+
+    assert client.get(f"/assessments/{aid}/scan", headers=h).json()["classified"] is False
+
+    settings, before = _place_with(monkeypatch, "Statistics", "13.2", "Understanding")
+    try:
+        out = client.post(f"/assessments/{aid}/place", headers=h)
+        client.get(f"/assessments/{aid}/place/jobs/{out.json()['job_id']}", headers=h)
+    finally:
+        settings.anthropic_api_key = before
+
+    assert client.get(f"/assessments/{aid}/scan", headers=h).json()["classified"] is True
 
 
 def test_classifying_is_refused_without_a_key_rather_than_guessing(client, school, book):

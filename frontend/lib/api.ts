@@ -873,6 +873,10 @@ export interface MappedTo {
   /** 'R&U' | 'AP' | 'AEC', or null when nothing has worked it out yet. */
   tier: string | null;
   tier_label: string | null;
+  /** The latest placement's own verdict on itself -- a family the reading could not
+   *  settle, or a chapter move that left the family unable to place it. */
+  needs_review: boolean;
+  review_reason: string | null;
 }
 
 export interface StagedQuestion {
@@ -899,9 +903,20 @@ export interface ScanReview {
   confirmed_by: string | null;
   edited: number;
   mapped: number;
+  /** A classify pass has actually run on this paper -- true even if every question came
+   *  back abstained, so it tells "never classified" apart from "classified, nothing
+   *  settled" without re-running anything to find out. */
+  classified: boolean;
   marks_missing: number;
   /** What was read, against what the paper says it is worth. */
   marks: { read: number; declared: number | null; short_by: number | null };
+  /** What the paper's own cover/instructions page states about itself, read once at scan
+   *  time and stored on the assessment -- so reopening a paper can show these again. */
+  declared: {
+    questions: number | null;
+    sections: Record<string, number> | null;
+    total_marks: number | null;
+  };
   questions: StagedQuestion[];
 }
 

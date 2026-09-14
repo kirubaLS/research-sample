@@ -89,6 +89,11 @@ export default function PaperPage() {
   // to upload a duplicate scan. Real actions taken in this session (scan/mapped/placed
   // below) still take priority once they happen.
   const [openedStage, setOpenedStage] = useState<Stage | null>(null);
+  // Real fact from the DB (see ScanReview.classified), not the run's own spend/summary --
+  // those were never persisted, so refresh() does not fabricate a PlaceResult to match.
+  // This alone is enough to know a reopened paper should not offer "Read and classify"
+  // again as if nothing had happened yet.
+  const [alreadyClassified, setAlreadyClassified] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const [showCamera, setShowCamera] = useState(false);
   // One id per paper, not per mount: switching subject/paper before Complete would
@@ -141,6 +146,7 @@ export default function PaperPage() {
     setScan(null);
     setMapped(null);
     setPlaced(null);
+    setAlreadyClassified(false);
     setConfirmation(null);
     setDocumentId(null);
     setAssessmentId(p.id);
@@ -155,7 +161,7 @@ export default function PaperPage() {
   }
 
   const confirmed = !!(confirmation || review?.confirmed_at);
-  const stage: Stage = placed
+  const stage: Stage = placed || alreadyClassified
     ? "classified"
     : mapped
       ? "mapped"
@@ -212,6 +218,7 @@ export default function PaperPage() {
       setReview(null);
       setMapped(null);
       setPlaced(null);
+      setAlreadyClassified(false);
       setConfirmation(null);
       setDocumentId(null);
       setTitle("Cycle Test I");
@@ -243,6 +250,7 @@ export default function PaperPage() {
       setReview(null);
       setMapped(null);
       setPlaced(null);
+      setAlreadyClassified(false);
       setConfirmation(null);
     } catch (err) {
       setError(explain(err));
@@ -254,7 +262,64 @@ export default function PaperPage() {
   const refresh = useCallback(async (id: string) => {
     const key = getApiKey();
     if (!key) return;
-    setReview(await api.readScan(key, id));
+    const data = await api.readScan(key, id);
+    setReview(data);
+
+    // Reopening a paper used to only ever restore the read-only question list: `scan`
+    // and `mapped` stayed null until re-triggered, which is what they gate -- so the
+    // Confirm/Map/Classify buttons living inside those sections were unreachable for a
+    // paper that was mid-flow when the tab was last closed, with no way forward except
+    // the destructive "Remove scan". Every field below comes straight out of this same
+    // response -- nothing invented -- except the two the run itself never persisted
+    // (the vision read's own problem list, and the classify run's spend), which are left
+    // out rather than guessed at.
+    if (data.staged > 0) {
+      const pages = new Set(
+        data.questions.map((q) => q.page).filter((p): p is number => p != null),
+      );
+      setScan({
+        route: data.route === "vision" ? "vision" : "text",
+        pages: pages.size,
+        questions: new Set(data.questions.map((q) => `${q.section ?? ""}|${q.question_no}`)).size,
+        sub_parts: data.questions.filter((q) => q.sub_part).length,
+        choice_alternatives: data.questions.filter((q) => q.choice_alt).length,
+        context_stems: data.questions.filter((q) => q.is_context).length,
+        total_marks: data.marks.read,
+        staged: data.staged,
+        already_promoted: data.mapped,
+        declared: data.declared,
+        problems: [],
+      });
+    } else {
+      setScan(null);
+    }
+
+    const mappingAttempted = data.mapped > 0 || data.questions.some((q) => q.blocked_reason);
+    if (mappingAttempted) {
+      const blockedRows = data.questions.filter((q) => !q.is_context && q.blocked_reason);
+      setMapped({
+        retrieval: "lexical",
+        mapped: data.mapped,
+        blocked: blockedRows.length,
+        blocked_addresses: blockedRows.map((q) => q.address),
+        needs_review: data.questions.filter((q) => q.mapped_to?.needs_review).length,
+        with_topic: data.questions.filter((q) => q.mapped_to?.topic).length,
+        context_stems: data.questions.filter((q) => q.is_context).length,
+      });
+    } else {
+      setMapped(null);
+    }
+
+    // `placed` (the top summary tiles and the spend line) is deliberately left alone here
+    // -- refresh() runs right after onClassify sets it from that action's own live result,
+    // and reconstructing it from persisted data would both clobber that real result and,
+    // on a plain reopen, show a spend line for numbers nobody can vouch for (that run's
+    // own stats were never persisted). `classified` is enough on its own to stop offering
+    // "Read and classify" again as though nothing had happened; the per-question
+    // chapter/topic/tier chips are read straight from `data.questions[].mapped_to`
+    // regardless, so what a reopened paper actually settled is still visible either way.
+    setAlreadyClassified(data.classified);
+
     try {
       const { documents } = await api.listDocuments(key, id);
       setDocumentId(documents.find((d) => d.kind === "question_paper")?.document_id ?? null);
@@ -801,7 +866,7 @@ export default function PaperPage() {
           {/* Retrieval finds the passages; it does not judge what a question asks a
               student to do. That is a separate reading, and it is the only thing that
               produces a category. */}
-          {!placed && mapped.mapped > 0 && (
+          {!placed && !alreadyClassified && mapped.mapped > 0 && (
             <>
               <p className="note">
                 Every question now sits in a chapter. Reading each one against the passages
