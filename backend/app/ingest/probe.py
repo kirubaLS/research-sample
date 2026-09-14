@@ -13,12 +13,17 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 
 from app.ingest.book import normalise
 
-#: words that carry no subject signal and would otherwise dominate a short exam stem
+#: words that carry no subject signal and would otherwise dominate a short exam stem.
+#: English only -- a Hindi or Tamil stopword list would need the same native-script
+#: research this codebase has no way to verify, so the other scripts simply go through
+#: this filter untouched. That is a strictly better default than the alternative of
+#: excluding them from retrieval entirely, which is what happened before this fix.
 STOPWORDS = frozenset(
     "the a an of is are was in to and or then which following not if by with for be that "
     "at on value find given show prove it its this these those from as we you".split()
@@ -26,7 +31,32 @@ STOPWORDS = frozenset(
 
 
 def tokens(text: str) -> list[str]:
-    return [w for w in re.findall(r"[a-z]+", normalise(text)) if w not in STOPWORDS and len(w) > 2]
+    """Split into words for TF-IDF, in whatever script the text is actually written.
+
+    A plain ``[a-z]+`` regex -- the shape this was before -- only ever matched Latin
+    letters, so a Hindi or Tamil question (or a Tamil book chunk) tokenized to nothing
+    and scored 0 against every chunk in the index, not because the match was bad but
+    because there was never anything to compare: 'no chapter in the book matched this
+    question' on every single row of a Tamil paper, even chunks that were an obvious
+    match to a person reading them. Unicode's own category table is what makes this
+    generalize without a per-language table to maintain: category L (letters, any
+    script) and M (the combining vowel signs and viramas Tamil, Hindi and most other
+    Indic scripts build a syllable out of -- dropping these, which a plain \\w does,
+    splits one word into fragments with no letters in common with the same word
+    elsewhere) are kept as one run; anything else (whitespace, punctuation, digits)
+    ends a run the same way whitespace always did.
+    """
+    words: list[str] = []
+    current: list[str] = []
+    for ch in normalise(text).casefold():
+        if unicodedata.category(ch)[0] in "LM":
+            current.append(ch)
+        elif current:
+            words.append("".join(current))
+            current = []
+    if current:
+        words.append("".join(current))
+    return [w for w in words if w not in STOPWORDS and len(w) > 2]
 
 
 @dataclass(frozen=True)

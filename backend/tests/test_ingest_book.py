@@ -335,6 +335,33 @@ def test_stopwords_do_not_let_a_short_stem_match_anything():
     assert tokens("The value of the area of a circle is") == ["area", "circle"]
 
 
+def test_a_tamil_or_hindi_question_tokenizes_instead_of_scoring_zero_everywhere():
+    """The bug this fixes: tokens() used to be a plain [a-z]+ regex, so any non-Latin
+    script -- an entire Tamil or Hindi paper, not just one hard question -- tokenized to
+    nothing and scored 0 against every chunk in the index. Not a bad match: no match was
+    ever attempted, so 'no chapter in the book matched this question' fired on every row
+    regardless of how obviously a person would have placed it. Unicode's letter (L) and
+    mark (M) categories cover any script without a per-language table -- mark matters on
+    its own: Tamil (and Hindi) build a syllable from a base consonant plus a combining
+    vowel sign, and a plain \\w (word-char) test excludes those marks, which would still
+    shred a Tamil word into meaningless single-consonant fragments with nothing in
+    common with the same word appearing elsewhere."""
+    from app.ingest.probe import tokens
+
+    assert tokens("கிழக்கிலிருந்து வீசும் காற்றின் பெயர் என்ன?") == [
+        "கிழக்கிலிருந்து", "வீசும்", "காற்றின்", "பெயர்", "என்ன",
+    ]
+
+
+def test_capitalized_english_still_tokenizes_fully():
+    """A second, smaller bug the same regex carried: [a-z]+ is case-sensitive, so a
+    capitalized word like a chapter title's 'Light' only ever matched 'ight' -- the
+    fix's casefold() step covers this too, not only the non-Latin case."""
+    from app.ingest.probe import tokens
+
+    assert tokens("Light Reflection and Refraction") == ["light", "reflection", "refraction"]
+
+
 def test_science_activities_are_taught_content():
     """Science teaches through Activities where Maths teaches through Theorems: a labelled,
     numbered procedure a student has performed is taught content by any reading, so a
