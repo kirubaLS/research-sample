@@ -72,6 +72,12 @@ export default function PaperPage() {
   const [confirmation, setConfirmation] = useState<ConfirmResult | null>(null);
   const [renaming, setRenaming] = useState(false);
   const [deleted, setDeleted] = useState(false);
+  // The scanned document itself (the uploaded pages), separate from the assessment it
+  // belongs to -- so a bad scan (wrong file, blurred cover) can be discarded and re-shot
+  // without also destroying every question, mapping and mark already recorded against
+  // this paper, which is what "Delete paper" below does instead.
+  const [documentId, setDocumentId] = useState<string | null>(null);
+  const [removingScan, setRemovingScan] = useState(false);
   // Every paper already created for this school, so an existing one can be opened rather
   // than this screen only ever being able to start a new one. Without this, assessmentId
   // never became non-null except right after creating a paper in this same browser
@@ -136,6 +142,7 @@ export default function PaperPage() {
     setMapped(null);
     setPlaced(null);
     setConfirmation(null);
+    setDocumentId(null);
     setAssessmentId(p.id);
     setSubject(p.subject_code);
     setTitle(p.title);
@@ -206,6 +213,7 @@ export default function PaperPage() {
       setMapped(null);
       setPlaced(null);
       setConfirmation(null);
+      setDocumentId(null);
       setTitle("Cycle Test I");
     } catch (err) {
       setError(explain(err));
@@ -214,10 +222,47 @@ export default function PaperPage() {
     }
   }
 
+  async function onRemoveScan() {
+    const key = getApiKey();
+    if (!key || !documentId) return;
+    if (!window.confirm(
+      "Remove this scan? The uploaded pages cannot be brought back -- you would need to " +
+        "photograph or upload the paper again. Nothing already mapped or confirmed on " +
+        "this paper is touched; only the original scanned pages go.",
+    )) return;
+    setRemovingScan(true);
+    setError(null);
+    try {
+      await api.deleteDocument(key, documentId);
+      setDocumentId(null);
+      // The extracted rows in `review`/`scan` were read off pages that no longer exist --
+      // showing them after this would be a screen full of claims about a photograph
+      // nobody can produce any more. Back to "start" so the only honest next step,
+      // re-scanning, is the one on screen.
+      setScan(null);
+      setReview(null);
+      setMapped(null);
+      setPlaced(null);
+      setConfirmation(null);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setRemovingScan(false);
+    }
+  }
+
   const refresh = useCallback(async (id: string) => {
     const key = getApiKey();
     if (!key) return;
     setReview(await api.readScan(key, id));
+    try {
+      const { documents } = await api.listDocuments(key, id);
+      setDocumentId(documents.find((d) => d.kind === "question_paper")?.document_id ?? null);
+    } catch {
+      // The scan itself already loaded above; not knowing this paper's document_id only
+      // costs the "Remove scan" action below, not the review screen.
+      setDocumentId(null);
+    }
   }, []);
 
   // The one submission path, used whether the pages just came off the camera, a file
@@ -454,6 +499,17 @@ export default function PaperPage() {
             <button type="button" className="secondary" onClick={onRename} disabled={renaming || !!busy}>
               {renaming ? "Renaming…" : "Rename"}
             </button>
+            {documentId && (
+              <button
+                type="button"
+                className="secondary"
+                onClick={onRemoveScan}
+                disabled={removingScan || !!busy}
+                title="Discard the scanned pages and start the scan over, without losing questions already mapped or confirmed"
+              >
+                {removingScan ? "Removing…" : "Remove scan"}
+              </button>
+            )}
             <button type="button" className="danger" onClick={onDelete} disabled={!!busy}>
               Delete
             </button>

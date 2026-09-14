@@ -905,6 +905,20 @@ export interface ScanReview {
   questions: StagedQuestion[];
 }
 
+export interface DocumentSummary {
+  document_id: string;
+  kind: "question_paper" | "answer_sheet" | "mark_grid";
+  assessment_id: string;
+  student_id: string | null;
+  page_count: number;
+  sha256: string;
+  uploaded_by: string;
+  uploaded_at: string | null;
+  confirmed_at: string | null;
+  confirmed_by: string | null;
+  pages: { index: number; content_type: string; byte_size: number; url: string }[];
+}
+
 export interface ConfirmResult {
   confirmed_at: string;
   confirmed_by: string;
@@ -1233,6 +1247,15 @@ export const api = {
   /** Removes one scanned document -- a question paper or an answer script -- and its pages. */
   deleteDocument: (key: string, documentId: string) =>
     authed<void>(`/documents/${documentId}`, key, { method: "DELETE" }),
+
+  /** Every scanned document kept for this paper (its own upload, plus every student's
+   * answer script if student_id is left off) -- one document per (assessment, kind,
+   * student) at most, since a re-upload replaces rather than adds. */
+  listDocuments: (key: string, assessmentId: string, studentId?: string) =>
+    authed<{ documents: DocumentSummary[] }>(
+      `/assessments/${assessmentId}/documents${studentId ? `?student_id=${studentId}` : ""}`,
+      key,
+    ),
 
   /** One page or many, PDFs or photographs, in the order given. onJobQueued fires the
    * instant a vision read is queued (202 + job_id) -- pass it to persist the id
