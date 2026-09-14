@@ -46,6 +46,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   const [needsSchool, setNeedsSchool] = useState(false);
   const [stale, setStale] = useState<string | null>(null);
   const [school, setSchool] = useState<string | null>(null);
+  // Set the moment a teacher key is caught here, so the sibling "not signed in -> /login"
+  // effect below (keyed on the same ready/signedIn state) doesn't also fire and race the
+  // /teacher redirect -- both would otherwise see ready=true, signedIn=false.
+  const [redirectingRole, setRedirectingRole] = useState(false);
 
   useEffect(() => {
     const key = getApiKey();
@@ -56,6 +60,16 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     api
       .whoami(key)
       .then((me) => {
+        // /admin is the principal/school-admin dashboard -- BoardX, Manage Teachers,
+        // Settings, the full roster. A teacher key resolving here (a stale session from
+        // before the teacher role existed, a bookmarked URL, the back button) must not
+        // render any of that; it gets exactly the same "which shell for this role" send-off
+        // /login already gives a fresh sign-in.
+        if (me.role === "teacher") {
+          setRedirectingRole(true);
+          router.replace("/teacher");
+          return;
+        }
         setSchool(me.name);
         setStaff({ role: me.role, can: me.can, scope: me.scope });
         setRole({ role: me.role, can: me.can, scope: me.scope });
@@ -94,8 +108,8 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   // reported live -- landing on /admin with no session now hands off to /login instead of
   // drawing a competing form.
   useEffect(() => {
-    if (ready && !signedIn) router.replace("/login");
-  }, [ready, signedIn, router]);
+    if (ready && !signedIn && !redirectingRole) router.replace("/login");
+  }, [ready, signedIn, redirectingRole, router]);
 
   if (!ready || !signedIn) {
     return (
@@ -103,7 +117,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Mascot pose="loading" size={28} />
           <p className="muted" style={{ margin: 0 }}>
-            {ready ? "Taking you to sign in…" : "Checking your session…"}
+            {ready ? "Taking you to the right place…" : "Checking your session…"}
           </p>
         </div>
       </main>

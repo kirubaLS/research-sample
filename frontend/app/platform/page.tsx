@@ -29,8 +29,22 @@ export default function PlatformConsole() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const load = useCallback(async () => {
+  // Every action below used to do `if (!key) return` silently -- if the stored platform
+  // key was ever missing (signed out in another tab, storage cleared, a session that
+  // outlived its own key), every button on this console just did nothing with no
+  // indication why, which reads exactly like "the CRUD buttons don't work". This surfaces
+  // that state instead of swallowing it.
+  function requireKey(): string | null {
     const key = getPlatformKey();
+    if (!key) {
+      setError("You're not signed in to the platform console any more. Sign in again.");
+      return null;
+    }
+    return key;
+  }
+
+  const load = useCallback(async () => {
+    const key = requireKey();
     if (!key) return;
     try {
       setSchools(await api.listSchools(key));
@@ -40,7 +54,7 @@ export default function PlatformConsole() {
   }, []);
 
   const loadOverview = useCallback(async () => {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     try {
       setOverview(await api.platformOverview(key));
@@ -58,7 +72,7 @@ export default function PlatformConsole() {
    * already resolves to one there (see app.api.deps.current_staff), so this is the same
    * sign-in AdminGate's own box would do with the same key typed in by hand. */
   function openAsAdmin(school: { id: string; name: string }) {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     setApiKey(key, school.name);
     setActiveSchool(school.id);
@@ -69,7 +83,7 @@ export default function PlatformConsole() {
   const [adminKeys, setAdminKeys] = useState<StaffKeySummary[]>([]);
 
   const loadAdminKeys = useCallback(async () => {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     try {
       setAdminKeys(await api.listAdminKeys(key));
@@ -83,7 +97,7 @@ export default function PlatformConsole() {
   }, [loadAdminKeys]);
 
   async function issueAdminKey() {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     const label = window.prompt(
       "Who is this admin key for? (a name, so it can be revoked later)\n\nIt can create " +
@@ -105,7 +119,7 @@ export default function PlatformConsole() {
   }
 
   async function revokeAdminKey(entry: StaffKeySummary) {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     if (!window.confirm(`Revoke the admin key${entry.label ? ` for ${entry.label}` : ""}? They are signed out of every school immediately.`)) return;
     try {
@@ -117,7 +131,7 @@ export default function PlatformConsole() {
   }
 
   const loadKeys = useCallback(async (schoolId: string) => {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     try {
       const rows = await api.listStaffKeys(key, schoolId);
@@ -146,7 +160,7 @@ export default function PlatformConsole() {
 
   async function createSchool(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     const form = new FormData(event.currentTarget);
     const raw = String(form.get("sections") ?? "").trim();
@@ -191,7 +205,7 @@ export default function PlatformConsole() {
   }
 
   async function issueKey(school: PlatformSchool, role: "principal" | "admin") {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     const label = window.prompt(
       `Who is this ${role} key for at ${school.name}? (a name, so it can be revoked later)`,
@@ -208,7 +222,7 @@ export default function PlatformConsole() {
   }
 
   async function revokeKey(school: PlatformSchool, entry: StaffKeySummary) {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     if (!window.confirm(`Revoke the ${entry.role} key${entry.label ? ` for ${entry.label}` : ""}? They are signed out immediately.`)) return;
     try {
@@ -220,7 +234,7 @@ export default function PlatformConsole() {
   }
 
   async function rotate(school: PlatformSchool) {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     const ok = window.confirm(
       `Issue a new ADMIN key for ${school.name}?\n\nThe school's current admin key stops ` +
@@ -237,7 +251,7 @@ export default function PlatformConsole() {
   }
 
   async function toggleDirectoryVisibility(school: PlatformSchool) {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     try {
       const updated = await api.setDirectoryVisibility(
@@ -250,7 +264,7 @@ export default function PlatformConsole() {
   }
 
   async function addSection(school: PlatformSchool) {
-    const key = getPlatformKey();
+    const key = requireKey();
     if (!key) return;
     const spec = window.prompt(`Add a class to ${school.name} (e.g. 10-C)`, "10-C");
     if (!spec) return;
