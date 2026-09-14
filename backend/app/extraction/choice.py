@@ -11,12 +11,17 @@ Two rules fall out, and the second one is the one that protects the diagnosis:
 A second, structurally different choice shape exists alongside the binary OR: a numbered
 list of M sub-items, introduced by an instruction naming a required count N less than the
 list's size, with the group's per-item mark printed once as a group-level 'N x M = Total'
-expression rather than a bracketed mark on each item. No OR marker separates the members
-and none carries a distinguishing ``choice_alt`` -- they are letters or numbers of a plain
-list, not a two-way alternative -- so the binary grouping above has nothing to key on and
-counted every printed sub-item as if all M of them were answered. ``group_choices`` also
-groups this shape, keyed by ``attempt_required`` (the paper's own N) rather than
-``choice_alt``, and dedupes it the same way: N items' worth of marks, counted once.
+expression rather than a bracketed mark on each item. None of the members carries a
+distinguishing ``choice_alt`` -- they are letters or numbers of a plain list, not a
+two-way alternative sharing one sub-item -- so the binary grouping above has nothing to
+key on and counted every printed sub-item as if all M of them were answered.
+``group_choices`` also groups this shape, keyed by ``attempt_required`` (the paper's own
+N) rather than ``choice_alt``, and dedupes it the same way: N items' worth of marks,
+counted once. This is also the shape used when OR itself joins two or more WHOLE
+sub-items rather than two lettered options inside one -- (i) ... OR ... (ii) ..., not
+(a)/(b) within a single (i) -- read as attempt_required=1 over a group of that size,
+same as any other 'attempt any N of M'; the word OR being present does not by itself
+mean choice_alt.
 """
 
 from __future__ import annotations

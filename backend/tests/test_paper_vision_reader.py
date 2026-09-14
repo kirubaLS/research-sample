@@ -196,6 +196,31 @@ def test_attempt_required_is_carried_from_the_model_onto_each_group_member(
     assert ordinary.attempt_required is None
 
 
+def test_or_between_two_whole_sub_parts_reads_as_an_attempt_required_group_of_one(
+    monkeypatch, fake_anthropic,
+):
+    """A third shape: (i) ... OR ... (ii) ... -- the word OR sits between two whole,
+    separately numbered sub-items, not two lettered options inside one sub-part. That is
+    not what choice_alt represents (it needs the SAME sub_part, differing only by
+    choice_alt), so this reads the same as any other 'attempt any N of M' group with
+    N=1 -- the merge step itself does nothing new here, it is the same attempt_required
+    carry-through as the five-item MCQ group above, just with a group of two."""
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"page1": _out(questions=[
+            {"question_no": "13", "sub_part": "i", "max_marks": 8.0,
+             "stem_text": "write a letter to your headmistress", "attempt_required": 1},
+            {"question_no": "13", "sub_part": "ii", "max_marks": 8.0,
+             "stem_text": "write a letter to your brother -- OR alternative",
+             "attempt_required": 1},
+        ]),
+    })
+
+    out = reader.read([(b"page1", "image/jpeg")])
+
+    assert [q.choice_alt for q in out.questions] == [None, None]
+    assert [q.attempt_required for q in out.questions] == [1, 1]
+
+
 def test_each_questions_page_is_the_page_it_was_actually_read_from(monkeypatch, fake_anthropic):
     """One call per page means the page number is known outright, not a value the model
     has to guess -- overriding whatever (if anything) the model itself reported."""
