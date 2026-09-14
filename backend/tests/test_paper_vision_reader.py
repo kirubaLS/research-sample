@@ -119,6 +119,32 @@ def test_a_page_with_no_section_header_inherits_the_last_one_seen(monkeypatch, f
     assert [q.section for q in out.questions] == ["B", "B"]
 
 
+def test_attempt_required_is_carried_from_the_model_onto_each_group_member(
+    monkeypatch, fake_anthropic,
+):
+    """The 'attempt any N of M' group shape: five sub-items, no OR marker, no choice_alt
+    -- attempt_required is what marks them as one group instead of five separate ones.
+    0 (the model's default when it never saw this shape) becomes None, the same way
+    choice_alt's '' already becomes None, so downstream grouping code can test truthiness
+    without every ordinary row explicitly opting out."""
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"page1": _out(questions=[
+            {"question_no": "5", "sub_part": "i", "max_marks": 1.0,
+             "stem_text": "item one", "attempt_required": 3},
+            {"question_no": "5", "sub_part": "ii", "max_marks": 1.0,
+             "stem_text": "item two", "attempt_required": 3},
+            {"question_no": "6", "max_marks": 2.0, "stem_text": "ordinary question"},
+        ]),
+    })
+
+    out = reader.read([(b"page1", "image/jpeg")])
+
+    by_sub = {q.sub_part: q.attempt_required for q in out.questions if q.question_no == "5"}
+    assert by_sub == {"i": 3, "ii": 3}
+    ordinary = next(q for q in out.questions if q.question_no == "6")
+    assert ordinary.attempt_required is None
+
+
 def test_each_questions_page_is_the_page_it_was_actually_read_from(monkeypatch, fake_anthropic):
     """One call per page means the page number is known outright, not a value the model
     has to guess -- overriding whatever (if anything) the model itself reported."""

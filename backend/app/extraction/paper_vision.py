@@ -53,6 +53,11 @@ class _QuestionOut(BaseModel):
     #: true for a shared stem (a case-study paragraph before (i), (ii), (iii)) that is not
     #: itself worth marks
     is_context: bool = False
+    #: set to N, read from the paper's own 'attempt any N of the following M' instruction,
+    #: for a row that is one member of that numbered list -- see SYSTEM's second GROUP
+    #: MARKS paragraph and app.extraction.choice.group_choices. Left unset (0) for every
+    #: other row, including a binary OR alternative (that uses choice_alt instead).
+    attempt_required: int = 0
 
 
 class _DeclaredOut(BaseModel):
@@ -97,6 +102,29 @@ SYSTEM = (
     "Read marks exactly as printed (often in brackets at the right margin, like [2] or "
     "(3)) -- do not compute or guess a total. If a question's marks are not legible, "
     "leave max_marks blank rather than guessing. "
+    "\n\n"
+    "GROUP MARKS, a second printed shape and not a rarer version of the first: some "
+    "questions print a numbered list of sub-items with NO mark label on any individual "
+    "item, introduced instead by an instruction that names how many of them must be "
+    "attempted -- 'answer any three of the following five', 'attempt any 2', or the same "
+    "idea in Hindi or Tamil -- naming a required count that is LESS than how many items "
+    "are actually printed. Near that instruction, the paper prints the group's own "
+    "arithmetic once, in the form 'N x M = Total' (e.g. '3 x 1 = 3', '2 x 4 = 8'), where "
+    "the first number is how many are required, the second is the per-item mark, and the "
+    "third is their product -- do not confuse this with the required count from the "
+    "instruction sentence, which is a separate number that may or may not equal the "
+    "first number here. When you see this shape: read the per-item mark (the middle "
+    "number of that printed expression) exactly as printed, the same no-computing "
+    "discipline as any other mark, and set it as max_marks on EVERY sub-item in the "
+    "list, not only the ones a student happens to attempt -- all of them are printed "
+    "questions, each legitimately worth that many marks, and it is the later grouping "
+    "logic's job to count only the required number of them once graded. Also set "
+    "attempt_required on every sub-item in that list to the required count the "
+    "instruction states -- never left as a guess, and never set at all if the "
+    "instruction does not actually state a number smaller than how many items are "
+    "printed. This is different from an internal choice ('answer (a) OR (b)'): there is "
+    "no OR marker, and choice_alt stays blank on these rows -- use attempt_required for "
+    "this shape, choice_alt for that one, never both on the same row. "
     "\n\n"
     "Separately, read what the paper's own cover or instructions page declares about "
     "itself, if anything is printed there: the maximum marks for the whole paper "
@@ -259,6 +287,7 @@ class AnthropicPaperVisionReader:
                     # sees exactly one page, so there is only one page it could be.
                     logical_page=index,
                     is_context=q.is_context,
+                    attempt_required=q.attempt_required or None,
                 ))
 
         if not out.questions:
