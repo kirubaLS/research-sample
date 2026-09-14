@@ -595,22 +595,37 @@ export default function PaperPage() {
       <ol className="steps" aria-label="Progress">
         {(
           [
-            ["Upload", "the paper as a PDF"],
-            ["Check", "correct anything the reader got wrong"],
-            ["Confirm", "put your name to these questions"],
-            ["Map", "each question onto the book"],
-            ["Classify", "chapter, topic, sub topic and category"],
+            ["Upload", "the paper as a PDF", null],
+            ["Check", "correct anything the reader got wrong", "step-check"],
+            ["Confirm", "put your name to these questions", "step-confirm"],
+            ["Map", "each question onto the book", "step-map"],
+            ["Classify", "chapter, topic, sub topic and category", "step-classify"],
           ] as const
-        ).map(([label, hint], i) => {
+        ).map(([label, hint, anchor], i) => {
           const reached = ["start", "scanned", "confirmed", "mapped", "classified"].indexOf(stage);
           const state = i < reached ? "done" : i === reached ? "now" : "todo";
+          // A step is only worth clicking once its own section actually exists on the
+          // page to scroll to -- "Upload" has no anchor at all (once a scan exists, the
+          // upload form itself is gone; re-uploading is what "Remove scan" is for, not
+          // this stepper), and nothing past "reached" has rendered yet either.
+          const canJump = anchor !== null && i <= reached;
           return (
             <li key={label} className={`step step-${state}`}>
-              <span className="step-n">{i + 1}</span>
-              <span className="step-b">
-                <strong>{label}</strong>
-                <em>{hint}</em>
-              </span>
+              <button
+                type="button"
+                className="step-jump"
+                disabled={!canJump}
+                onClick={() => {
+                  if (!canJump) return;
+                  document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+                }}
+              >
+                <span className="step-n">{i + 1}</span>
+                <span className="step-b">
+                  <strong>{label}</strong>
+                  <em>{hint}</em>
+                </span>
+              </button>
             </li>
           );
         })}
@@ -704,7 +719,7 @@ export default function PaperPage() {
       )}
 
       {scan && (
-        <section className="card">
+        <section className="card" id="step-confirm">
           <div className="tiles">
             <Tile n={scan.questions} label="questions read" />
             <Tile n={scan.sub_parts} label="sub parts" />
@@ -773,7 +788,7 @@ export default function PaperPage() {
       )}
 
       {mapped && (
-        <section className="card">
+        <section className="card" id="step-map">
           <div className="tiles">
             <Tile n={mapped.mapped} label="mapped to the book" tone="good" />
             <Tile n={mapped.blocked} label="could not be mapped" tone={mapped.blocked ? "warn" : undefined} />
@@ -802,7 +817,7 @@ export default function PaperPage() {
       )}
 
       {placed && (
-        <section className="card">
+        <section className="card" id="step-classify">
           <div className="tiles">
             <Tile n={placed.labelled} label="chapter, topic and sub topic settled" tone="good" />
             <Tile
@@ -868,7 +883,7 @@ export default function PaperPage() {
       )}
 
       {review && review.questions.length > 0 && (
-        <section className="card">
+        <section className="card" id="step-check">
           <div className="toolbar">
             <h2>The paper, question by question</h2>
             <div className="filters" role="group" aria-label="Filter questions">

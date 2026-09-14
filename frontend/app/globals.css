@@ -494,11 +494,24 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 }
 .step {
   background: var(--surface);
+  transition: background var(--dur) var(--ease);
+}
+.step-jump {
+  all: unset;
+  box-sizing: border-box;
+  width: 100%;
   padding: 14px 16px;
   display: flex;
   align-items: center;
   gap: 12px;
-  transition: background var(--dur) var(--ease);
+  cursor: default;
+}
+.step-jump:not(:disabled) {
+  cursor: pointer;
+}
+.step-jump:not(:disabled):hover,
+.step-jump:not(:disabled):focus-visible {
+  background: var(--rule);
 }
 .step-n {
   flex: none;
