@@ -150,6 +150,28 @@ SYSTEM = (
 )
 
 
+#: Shown before the previous page's image, when one is included -- see _read_page and
+#: the comment on read() explaining why a one-page overlap replaced patching individual
+#: carried fields (section, question_no, attempt_required, per-item marks...) one at a
+#: time in Python. Explicit about the one-page image included right after it existing
+#: only to resolve a continuation, never as a second page to extract questions from --
+#: without that, a model shown two images could double-read the first one's own content.
+PREVIOUS_PAGE_NOTE = (
+    "You are about to see two images: the page that came immediately before the one you "
+    "are reading, then the page you are actually reading. The first is there ONLY so you "
+    "can tell whether something on the second page continues from it -- an unlabelled "
+    "lettered sub-part, a group's required-count instruction and its 'N x M = Total' "
+    "arithmetic, a section header -- none of which may be restated on the second page "
+    "even though it still applies there. Use the first image to fill in exactly those "
+    "carried-over values (the same section, the same question number, the same "
+    "attempt_required and per-item mark) on rows from the SECOND page when nothing on "
+    "the second page itself states them and they clearly continue from the first. Do "
+    "NOT extract any question rows from the first image itself -- it was already read on "
+    "its own turn; a row belongs in your output only if the text you're transcribing it "
+    "from is physically printed on the second image."
+)
+
+
 #: Read one page, and only one page, per Claude call -- not the whole paper in a single
 #: request. This is the same shape app.ingest.gemini_ocr already uses for Hindi books,
 #: and for the same underlying reason: a request built from every page at once is a
@@ -182,20 +204,41 @@ class AnthropicPaperVisionReader:
         self.model = model
         self.page_concurrency = max(1, page_concurrency)
 
-    def _read_page(self, data: bytes, content_type: str, prompt: str) -> _PaperOut | None:
+    def _read_page(
+        self,
+        data: bytes,
+        content_type: str,
+        prompt: str,
+        previous_page: tuple[bytes, str] | None = None,
+    ) -> _PaperOut | None:
         """One page's worth of the call this reader makes. Returns None, with the
         problem recorded by the caller, rather than raising -- a page that fails to read
-        is a fact about that page, not a reason to give up on the ones around it."""
+        is a fact about that page, not a reason to give up on the ones around it.
+
+        ``previous_page``, when given, is the immediately preceding page's own image,
+        included so THIS call can itself see whether a group's instruction, its N x M
+        arithmetic, or a section header lives on the page before -- see PREVIOUS_PAGE_NOTE
+        below and the comment on ``read()`` for why this replaced patching each carried
+        field in Python one at a time."""
         import anthropic
 
-        content = [
-            {
+        content = []
+        if previous_page is not None:
+            prev_data, prev_content_type = previous_page
+            content.append({"type": "text", "text": PREVIOUS_PAGE_NOTE})
+            content.append({
                 "type": "image",
-                "source": {"type": "base64", "media_type": content_type,
-                           "data": base64.b64encode(data).decode()},
-            },
-            {"type": "text", "text": prompt},
-        ]
+                "source": {"type": "base64", "media_type": prev_content_type,
+                           "data": base64.b64encode(prev_data).decode()},
+            })
+            content.append({"type": "text", "text": "That was the previous page, for "
+                             "context only. Below is the page to actually read:"})
+        content.append({
+            "type": "image",
+            "source": {"type": "base64", "media_type": content_type,
+                       "data": base64.b64encode(data).decode()},
+        })
+        content.append({"type": "text", "text": prompt})
         try:
             response = self.client.messages.parse(
                 model=self.model,
@@ -228,14 +271,19 @@ class AnthropicPaperVisionReader:
         a concurrent draw against the same Anthropic rate limit every other paper or
         grid sheet this deployment is reading at that same moment also draws from.
 
-        One prompt for every page now, not the page-specific "you are still in section
-        X" hint the sequential version could give once it actually knew the prior
-        page's section: that hint only ever assisted the model's own parsing of an
-        unlabelled continuation page, and the Python-level fallback two lines below
-        (``section = q.section.strip() or last_section``) already backfills the same
-        answer regardless of whether the model was told -- the guarantee that survives
-        this change is the *data's* section, not what the model was reminded of before
-        producing it.
+        Each call also carries the ONE page immediately before it as extra context (see
+        PREVIOUS_PAGE_NOTE and _read_page) -- still a request whose size is bounded by a
+        constant (two pages), never by how long the paper is, so the original fix for
+        'RequestTooLargeError: Error code: 413' still holds. This is what actually
+        replaced the growing pile of Python-side carry-over variables (last_section,
+        last_question_no, last_attempt_required, ...) each patching one more field this
+        pipeline had been caught losing across a page break: rather than adding a new
+        carried variable every time a fresh field turns out to be implicit-on-continuation
+        (there is no reason to believe attempt_required and the per-item mark were the
+        last such field), the model now has the actual page that carries the answer,
+        every time, for any field -- the merge step's own carry-over stays in read() below
+        as a second, independent safety net for whatever the model still leaves blank
+        despite seeing both pages, not as the only mechanism anymore.
         """
         if not pages:
             return []
@@ -245,7 +293,10 @@ class AnthropicPaperVisionReader:
         ]
         with ThreadPoolExecutor(max_workers=min(len(pages), self.page_concurrency)) as pool:
             future_to_index = {
-                pool.submit(self._read_page, data, content_type, prompt): i
+                pool.submit(
+                    self._read_page, data, content_type, prompt,
+                    pages[i - 1] if i > 0 else None,
+                ): i
                 for i, (data, content_type) in enumerate(pages)
             }
             for future in as_completed(future_to_index):

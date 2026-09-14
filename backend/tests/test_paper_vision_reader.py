@@ -42,7 +42,11 @@ class _FakeMessages:
 
     def parse(self, **kwargs):
         content = kwargs["messages"][0]["content"]
-        raw = base64.b64decode(content[0]["source"]["data"])
+        # The page actually being read is always the LAST image block: with no
+        # previous-page context there is exactly one image; with context there are two,
+        # the previous page first, the current page second -- see PREVIOUS_PAGE_NOTE.
+        images = [block for block in content if block["type"] == "image"]
+        raw = base64.b64decode(images[-1]["source"]["data"])
         outcome = self._scripted[raw]
         if isinstance(outcome, Exception):
             raise outcome
@@ -304,6 +308,47 @@ def test_every_page_failing_is_a_refusal_naming_each_pages_own_problem(monkeypat
     assert "page 1" in out.refused and "page 2" in out.refused
 
 
+def test_each_page_call_also_carries_the_one_page_before_it_as_context(
+    monkeypatch, fake_anthropic,
+):
+    """The overlap window that replaced patching one more carried field in Python every
+    time a new one turned up missing: the model itself gets to see whatever page might
+    hold the answer, for any field, not just the ones this codebase has so far noticed
+    going missing. Page 1 has nothing before it -- one image, no previous-page note.
+    Page 2 and 3 each carry exactly the page immediately before them, never the whole
+    paper, so the request size stays bounded regardless of how long the paper is."""
+    seen: dict[bytes, list[dict]] = {}
+
+    class _RecordingMessages:
+        def parse(self, **kwargs):
+            content = kwargs["messages"][0]["content"]
+            images = [block for block in content if block["type"] == "image"]
+            raw = base64.b64decode(images[-1]["source"]["data"])
+            seen[raw] = content
+            return _FakeResponse(_out(questions=[{"question_no": "1", "stem_text": "x"}]))
+
+    from app.extraction import paper_vision
+
+    reader = paper_vision.AnthropicPaperVisionReader.__new__(paper_vision.AnthropicPaperVisionReader)
+    reader.client = types.SimpleNamespace(messages=_RecordingMessages())
+    reader.model = "claude-opus-5"
+    reader.page_concurrency = 1  # deterministic completion order for this assertion
+
+    reader.read([(b"p1", "image/jpeg"), (b"p2", "image/jpeg"), (b"p3", "image/jpeg")])
+
+    p1_images = [b for b in seen[b"p1"] if b["type"] == "image"]
+    assert len(p1_images) == 1  # nothing before the first page
+
+    p2_images = [b for b in seen[b"p2"] if b["type"] == "image"]
+    assert len(p2_images) == 2
+    assert base64.b64decode(p2_images[0]["source"]["data"]) == b"p1"
+    assert base64.b64decode(p2_images[1]["source"]["data"]) == b"p2"
+    assert any(paper_vision.PREVIOUS_PAGE_NOTE in b.get("text", "") for b in seen[b"p2"])
+
+    p3_images = [b for b in seen[b"p3"] if b["type"] == "image"]
+    assert base64.b64decode(p3_images[0]["source"]["data"]) == b"p2"  # p3's context is p2, not p1
+
+
 def test_pages_are_read_concurrently_not_one_after_another(monkeypatch, fake_anthropic):
     """The whole point of this change: wall-clock cost bounded by the slowest page, not
     the sum of every page -- proven here by having every page block until every other
@@ -317,7 +362,8 @@ def test_pages_are_read_concurrently_not_one_after_another(monkeypatch, fake_ant
         def parse(self, **kwargs):
             barrier.wait()  # deadlocks (and the test times out) if calls are sequential
             content = kwargs["messages"][0]["content"]
-            raw = base64.b64decode(content[0]["source"]["data"])
+            images = [block for block in content if block["type"] == "image"]
+            raw = base64.b64decode(images[-1]["source"]["data"])
             return _FakeResponse(_out(questions=[
                 {"question_no": raw.decode(), "stem_text": "concurrent"},
             ]))
