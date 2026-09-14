@@ -36,6 +36,20 @@ class Staff:
     def is_teacher(self) -> bool:
         return self.role == "teacher"
 
+    @property
+    def manages_school(self) -> bool:
+        """Full authority over one school's roster, credentials and marks engine.
+
+        A principal has this now, same as an admin -- the "admin" role exists at all
+        only for the cross-school, no-home case (the operator's own deputies, resolved
+        with ``home=None``), not as a second, stronger per-school role a principal has
+        to be handed instead of just being one. ``is_admin`` stays narrower (used by
+        ``school_in_scope`` to decide whether a request has to name its school) because
+        a principal's key still always names exactly one school via ``home`` and must
+        never gain the "which school?" cross-school behavior an admin key has.
+        """
+        return self.role in ("admin", "principal")
+
 
 def teacher_assignments(staff: Staff, db: Session) -> list[TeacherAssignment]:
     """Every row naming what this teacher key may touch. Empty for any other role."""
@@ -216,16 +230,16 @@ def require_scanner_or_teacher(
 def require_admin_staff(staff: Staff = Depends(current_staff)) -> Staff:
     """Anything that changes a school's data, and the whole marks engine.
 
-    A principal is refused with 403 rather than 404: unlike a wrong key, they are
-    genuinely signed in, and telling them the surface exists but is not theirs is the
-    honest answer -- there is nothing to hide from someone already inside the school.
+    A principal has full authority over their own school -- the roster, marks entry,
+    Manage Teachers, everything -- same as an admin key. A teacher is refused with 403
+    rather than 404: unlike a wrong key, they are genuinely signed in, and telling them
+    the surface exists but is not theirs is the honest answer.
     """
-    if not staff.is_admin:
+    if not staff.manages_school:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "this needs an admin key. A principal key reads results, scans papers and "
-            "enters marks for their own school, but does not change the roster or issue "
-            "credentials.",
+            "this needs a principal or admin key. A teacher key acts through its own "
+            "scoped routes instead.",
         )
     return staff
 

@@ -1,10 +1,12 @@
 """Three people use this system, and only one of them can change anything.
 
 A student holds no key at all and reaches the test through a class link. A principal
-holds a key that reads every result and every student's progress. An admin holds the key
-that scans papers, enters marks and changes the roster. Before this split the principal
-and the admin were the same credential, which meant an office laptop left signed in could
-alter a mark.
+holds a key with full authority over their own school -- roster, marks entry, Manage
+Teachers, everything. "admin" is not a second, stronger per-school role a principal is
+handed instead of just being one; it exists only for the cross-school, no-home case (the
+operator's own deputies), which is why creating another school or reaching the platform
+console is still refused for a principal even though changing their own school's roster
+is not.
 """
 
 from __future__ import annotations
@@ -72,11 +74,10 @@ def test_a_principal_scans_and_enters_marks_like_an_admin(client, school, princi
     assert me["can"]["enter_marks"] is True
 
 
-def test_a_principal_still_cannot_touch_the_q_matrix_or_the_credentials(
-    client, school, principal
-):
-    """What did NOT widen. A principal reads a paper and marks it; they do not import a
-    Q-matrix, freeze it, or issue a key -- and the refusal says which."""
+def test_a_principal_now_manages_their_own_school_fully(client, school, principal):
+    """A principal has full authority over their own school -- freezing a Q-matrix, same
+    as issuing a teacher key or editing the roster, is no longer an admin-only action.
+    "admin" is not a second, stronger per-school role held instead of being a principal."""
     from sqlalchemy import select
 
     from app.db import SessionLocal
@@ -88,15 +89,21 @@ def test_a_principal_still_cannot_touch_the_q_matrix_or_the_credentials(
     db.close()
     assert aid, "the suite has created at least one assessment by now"
 
-    refused = client.post(f"/assessments/{aid}/freeze", headers=principal, json={})
-    assert refused.status_code == 403
-    assert "admin key" in refused.json()["detail"]
+    allowed = client.post(f"/assessments/{aid}/freeze", headers=principal, json={})
+    assert allowed.status_code == 200, allowed.text
 
-    # and the console still does not acknowledge itself to them
-    assert client.post(
+
+def test_a_principal_still_cannot_create_another_school_or_reach_the_console(
+    client, school, principal
+):
+    """What did NOT widen: creating a school is cross-school, operator-level power. A
+    principal's key always names exactly one school and never gains the "which school?"
+    behavior an admin key has -- that boundary is unrelated to per-school authority."""
+    refused = client.post(
         "/platform/schools", headers=principal,
         json={"name": "Theirs", "sections": [{"grade": 10, "name": "A"}]},
-    ).status_code == 404
+    )
+    assert refused.status_code == 404
 
 
 def test_a_principal_can_still_list_the_papers_they_cannot_change(client, school, principal):

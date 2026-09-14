@@ -100,8 +100,9 @@ export default function PlatformConsole() {
     const key = requireKey();
     if (!key) return;
     const label = window.prompt(
-      "Who is this admin key for? (a name, so it can be revoked later)\n\nIt can create " +
-        "schools and act on every school on this deployment.",
+      "Who is this deputy operator key for? (a name, so it can be revoked later)\n\n" +
+        "It can create schools and act on every school on this deployment -- almost " +
+        "nobody needs this. A school's own staff should get a principal key instead.",
       "",
     );
     if (label === null) return;
@@ -121,7 +122,7 @@ export default function PlatformConsole() {
   async function revokeAdminKey(entry: StaffKeySummary) {
     const key = requireKey();
     if (!key) return;
-    if (!window.confirm(`Revoke the admin key${entry.label ? ` for ${entry.label}` : ""}? They are signed out of every school immediately.`)) return;
+    if (!window.confirm(`Revoke the deputy operator key${entry.label ? ` for ${entry.label}` : ""}? They are signed out of every school immediately.`)) return;
     try {
       await api.revokeAdminKey(key, entry.id);
       await loadAdminKeys();
@@ -237,9 +238,9 @@ export default function PlatformConsole() {
     const key = requireKey();
     if (!key) return;
     const ok = window.confirm(
-      `Issue a new ADMIN key for ${school.name}?\n\nThe school's current admin key stops ` +
-        `working immediately and whoever holds it will have to sign in again. Principal ` +
-        `keys and class links are not affected.`,
+      `Issue a new key for ${school.name}?\n\nThe school's current key stops working ` +
+        `immediately and whoever holds it will have to sign in again. Any principal keys ` +
+        `issued below and class links are not affected.`,
     );
     if (!ok) return;
     try {
@@ -385,14 +386,16 @@ export default function PlatformConsole() {
       {error && <div className="notice warn" style={{ marginTop: 18 }}>{error}</div>}
 
       <div className="section-head">
-        <h2>Admin keys</h2>
+        <h2>Deputy operator keys</h2>
       </div>
       <div className="card">
         <p className="small muted" style={{ marginTop: 0 }}>
-          An admin key belongs to no school. It creates schools, loads books and works
-          across every school here. Because it has no home school, every request
-          it makes has to name the one it is about, so there is no school it can act on by
-          accident. The operator key below is only needed to issue the first one.
+          Not a school role. This is a second credential for this console itself --
+          someone who helps run the whole deployment: creating schools, loading books,
+          working across every school here. It belongs to no single school, so every
+          request it makes has to name the one it is about. Almost nobody needs this;
+          a school's day-to-day access is a principal key, issued below under that
+          school&rsquo;s own card.
         </p>
         {adminKeys.length === 0 ? (
           <p className="small muted">None issued yet.</p>
@@ -415,7 +418,7 @@ export default function PlatformConsole() {
         )}
         <div style={{ marginTop: 12 }}>
           <button className="secondary tiny" onClick={issueAdminKey}>
-            Issue an admin key
+            Issue a deputy operator key
           </button>
         </div>
       </div>
@@ -508,7 +511,7 @@ export default function PlatformConsole() {
                 Add a class
               </button>
               <button className="secondary tiny" onClick={() => rotate(school)}>
-                Rotate the admin key
+                Rotate the school&rsquo;s key
               </button>
             </div>
 
@@ -516,22 +519,25 @@ export default function PlatformConsole() {
               Staff keys
             </p>
             <p className="small muted" style={{ marginTop: 0 }}>
-              A principal key reads results and progress for this school and no other. It
-              cannot scan a paper, enter marks or change the roster, so the person
-              who runs the assessments and the person who reads them are separate
-              credentials. A key for this school only can do all of that here, but cannot
-              create a school or reach another one.
+              A principal key has full authority over this school: reading results,
+              scanning papers, entering marks, and managing the roster and teachers.
+              Issue one per person who needs that. For a teacher scoped to specific
+              classes or subjects instead, use Manage Teachers inside their dashboard,
+              not a key issued from here.
             </p>
             {(staffKeys[school.id] ?? []).length === 0 ? (
               <p className="small muted">
-                None issued. The school&rsquo;s own key is its admin key.
+                None issued. The school&rsquo;s own key below already works as one.
               </p>
             ) : (
               <div className="stack" style={{ gap: 6 }}>
                 {(staffKeys[school.id] ?? []).map((entry) => (
                   <div className="row between" key={entry.id}>
                     <span className="small">
-                      <strong>{entry.role === "admin" ? "Admin" : "Principal"}</strong>
+                      <strong>Principal</strong>
+                      {entry.role === "admin" && (
+                        <span className="muted"> (issued before this label changed)</span>
+                      )}
                       {entry.label ? ` · ${entry.label}` : ""}
                       {entry.revoked_at && <span className="muted"> · revoked</span>}
                     </span>
@@ -550,9 +556,6 @@ export default function PlatformConsole() {
             <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
               <button className="secondary tiny" onClick={() => issueKey(school, "principal")}>
                 Issue a principal key
-              </button>
-              <button className="secondary tiny" onClick={() => issueKey(school, "admin")}>
-                Issue a key for this school only
               </button>
             </div>
           </div>
