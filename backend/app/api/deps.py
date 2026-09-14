@@ -105,16 +105,14 @@ def current_staff(
     if school is not None:
         return Staff(role="admin", home=school)
 
-    # The operator key opens the school side too, as an admin belonging to no school, so a
-    # request has to name the one it is about. Not an escalation: this key already creates
-    # schools and issues their credentials, so anything it could reach this way it could
-    # reach by minting a key for itself. What it buys is that whoever runs the deployment
-    # can scan a paper for a school without first issuing themselves a second credential.
-    from app.config import get_settings  # noqa: PLC0415 - avoids a cycle at import time
-
-    operator = get_settings().platform_admin_key
-    if operator and secrets.compare_digest(x_api_key, operator):
-        return Staff(role="admin", home=None)
+    # The operator key used to also open this side, as an admin belonging to no school --
+    # deliberately removed. It reads as a convenience ("scan a paper without minting a
+    # second credential") but it means the one secret that can create every school on the
+    # deployment also signs in on the same form a teacher or principal uses, which is
+    # confusing at best and is exactly the "why does the operator key unlock /admin"
+    # question that got this removed. The operator key now opens only require_platform_admin
+    # (/platform and nothing else) -- if the person running the deployment wants to act
+    # inside a school, they issue themselves an admin key for it, the same as anyone else.
 
     staff = db.scalar(select(StaffKey).where(StaffKey.api_key == x_api_key))
     # A revoked key is treated exactly like one that never existed: answering differently
