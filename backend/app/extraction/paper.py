@@ -120,6 +120,13 @@ class ExtractedQuestion:
     #: paragraph is worth nothing on its own and counting it as a question made the paper
     #: read as three 1-mark questions where it has three worth four.
     is_context: bool = False
+    #: set to N when this row is one member of an 'attempt any N of the following M'
+    #: group -- a numbered list of M sub-items with no per-item mark printed, introduced
+    #: by an instruction naming a required count N and a group-level 'N x M = Total'
+    #: expression, rather than the binary 'OR' choice_alt already handles. See
+    #: app.extraction.choice.group_choices. None for every other row, including a
+    #: binary-OR alternative.
+    attempt_required: int | None = None
     #: set while parsing, cleared by the passes below -- see _classify_lettered_parts
     provisional_sub_part: bool = False
     provisional_choice: bool = False
@@ -167,14 +174,47 @@ class PaperExtract:
     def total_marks(self) -> float:
         """What the paper is worth, counting each mark exactly once.
 
-        One half of an internal choice, because a student answers one of the two. Never a
-        context stem, whose marks live on its sub-parts.
+        One half of a binary internal choice, because a student answers one of the two --
+        this route's own choice parsing (_classify_lettered_parts, and an OR that follows
+        a bare numbered question) leaves the first half's choice_alt at None rather than
+        'a', which is why this filters on (None, 'a') rather than deferring to
+        app.extraction.choice.group_choices, whose OR-bucketing needs both halves marked.
+        N items' worth for an 'attempt any N of M' group, never all M -- that grouping
+        does not share this quirk (neither half of it is a bare 'first question'), so it
+        reuses group_choices as-is. Never a context stem, whose marks live on its own
+        sub-parts.
         """
-        return sum(
-            q.max_marks or 0.0
-            for q in self.questions
-            if q.choice_alt in (None, "a") and not q.is_context
+        from app.extraction.address import Address
+        from app.extraction.choice import group_choices
+
+        countable = [q for q in self.questions if not q.is_context]
+        grouped = [q for q in countable if q.attempt_required]
+        ungrouped = [q for q in countable if not q.attempt_required]
+
+        total = sum(
+            q.max_marks or 0.0 for q in ungrouped if q.choice_alt in (None, "a")
         )
+
+        if grouped:
+            rows = [
+                (Address(q.section, q.question_no, q.sub_part, q.choice_alt), q.max_marks or 0.0)
+                for q in grouped
+            ]
+            attempt_required = {
+                Address(q.section, q.question_no, q.sub_part, q.choice_alt).key: q.attempt_required
+                for q in grouped
+            }
+            _, groups = group_choices(rows, attempt_required)
+            grouped_keys = {a.key for g in groups for a in g.addresses}
+            total += sum(g.marks for g in groups)
+            # A lone, unpaired attempt_required row (nothing else shares its question) is
+            # not a group -- group_choices leaves it out of `groups` entirely, so it falls
+            # back to counting like any ordinary row rather than silently vanishing.
+            total += sum(
+                m for a, m in rows
+                if a.key not in grouped_keys and a.choice_alt in (None, "a")
+            )
+        return total
 
 
 def readable_letters(text: str) -> int:
@@ -775,8 +815,19 @@ def dedupe_addresses(
         elif existing.is_context and q.is_context:
             existing.stem_text = f"{existing.stem_text}\n{q.stem_text}".strip()
         else:
+            # Both readings are named, not just the fact of the collision: a person
+            # checking this against the paper needs to see what the *second* reading
+            # said too, not only that one was kept and one was not -- guessing which of
+            # the two is right is exactly the kind of invention this pipeline refuses to
+            # do itself.
+            def _snippet(text: str) -> str:
+                text = " ".join((text or "").split())
+                return text[:80] + ("..." if len(text) > 80 else "")
+
             problems.append(
                 f"question {q.address!r} was read twice with different text -- "
-                "the second reading was dropped; check it against the paper"
+                "the second reading was dropped; check it against the paper "
+                f"(kept: {_snippet(existing.stem_text)!r}; "
+                f"dropped: {_snippet(q.stem_text)!r})"
             )
     return list(by_address.values()), problems

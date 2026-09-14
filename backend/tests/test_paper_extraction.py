@@ -11,7 +11,7 @@ from __future__ import annotations
 import pymupdf
 import pytest
 
-from app.extraction.paper import extract_paper, readable_letters
+from app.extraction.paper import ExtractedQuestion, PaperExtract, dedupe_addresses, extract_paper, readable_letters
 
 
 def _pdf(tmp_path, pages: list[list[tuple[float, float, str]]], name="p.pdf"):
@@ -520,3 +520,51 @@ def test_the_same_letters_with_an_or_between_them_are_a_choice(tmp_path):
     # Answered once, so worth its marks once.
     assert out.total_marks == 3
     assert out.problems == []
+
+
+def _eq(question_no, sub_part=None, *, marks, attempt_required=None, section="A"):
+    return ExtractedQuestion(
+        section=section, question_no=question_no, sub_part=sub_part, choice_alt=None,
+        max_marks=marks, stem_text=f"stub {question_no}{sub_part or ''}", logical_page=1,
+        attempt_required=attempt_required,
+    )
+
+
+def test_total_marks_counts_an_attempt_n_of_m_group_once():
+    """A vision read of a group like 'answer any three of the following five (3 x 1 = 3)':
+    five 1-mark sub-items, no OR marker -- naive summing (what produced 111/80 on a real
+    paper) counts all five; the paper is only worth the three required."""
+    extract = PaperExtract(route="vision", page_count=1, questions=[
+        _eq("5", "i", marks=1.0, attempt_required=3),
+        _eq("5", "ii", marks=1.0, attempt_required=3),
+        _eq("5", "iii", marks=1.0, attempt_required=3),
+        _eq("5", "iv", marks=1.0, attempt_required=3),
+        _eq("5", "v", marks=1.0, attempt_required=3),
+        _eq("6", marks=2.0),
+    ])
+    assert extract.total_marks == 5.0  # 3 x 1 (required) + 2, never 5 x 1 + 2 = 7
+
+
+def test_total_marks_leaves_an_ordinary_paper_unaffected():
+    """No attempt_required anywhere: behaves exactly as a plain sum, same as before this
+    change -- the fix must not touch a paper that has no group-marks shape at all."""
+    extract = PaperExtract(route="vision", page_count=1, questions=[
+        _eq("1", marks=2.0), _eq("2", marks=3.0),
+    ])
+    assert extract.total_marks == 5.0
+
+
+def test_a_duplicate_address_reading_names_both_readings():
+    """The second reading is dropped (a database uniqueness constraint leaves no other
+    choice), but a reviewer must be able to see what it said -- not just that it existed
+    -- without this pipeline guessing which of the two readings is correct."""
+    kept = _eq("1", marks=None)
+    kept.stem_text = "What is the capital of India?"
+    dropped = _eq("1", marks=None)
+    dropped.stem_text = "What is the capital of Tamil Nadu?"
+
+    deduped, problems = dedupe_addresses([kept, dropped])
+    assert len(deduped) == 1
+    assert len(problems) == 1
+    assert "capital of India" in problems[0]
+    assert "capital of Tamil Nadu" in problems[0]
