@@ -862,6 +862,39 @@ def get_paper_scan_job(
     return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
 
 
+#: A sub-part's own printed letter, in the order CBSE actually uses it: lowercase roman
+#: up to xv (every group we've measured stays well under that), or a plain a/b/c/d style
+#: on the papers that use one instead -- plain string order already agrees with roman
+#: order up to "v" by coincidence (shared prefixes sort short-before-long), which is
+#: exactly why a paper with only i-v sub-parts never surfaced this: it silently breaks
+#: past that ("ix" < "viii" as plain strings, backwards), which papers with a "vi" or
+#: later sub-part would eventually hit.
+_ROMAN_SUB_PARTS = {
+    r: n for n, r in enumerate(
+        ["i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix", "x",
+         "xi", "xii", "xiii", "xiv", "xv"],
+        start=1,
+    )
+}
+
+
+def _sub_part_sort_key(sub_part: str | None) -> tuple[int, int | str]:
+    if not sub_part:
+        return (0, "")  # a context stem (no sub-part) sorts before its own sub-parts
+    s = sub_part.strip().lower()
+    if s in _ROMAN_SUB_PARTS:
+        return (1, _ROMAN_SUB_PARTS[s])
+    return (2, s)  # a/b/c-style papers: plain alphabetical is already correct
+
+
+def _question_no_sort_key(question_no: str) -> tuple[int, int | str]:
+    no = (question_no or "").strip()
+    try:
+        return (0, int(no))
+    except ValueError:
+        return (1, no)  # not purely numeric (rare) -- falls back to plain string order
+
+
 @router.get("/{assessment_id}/scan")
 def read_scan(
     assessment_id: str,
@@ -874,6 +907,15 @@ def read_scan(
         select(ScannedQuestion)
         .where(ScannedQuestion.assessment_id == assessment.id)
         .order_by(ScannedQuestion.section, ScannedQuestion.logical_page)
+    ))
+    # The DB query above only guarantees section and the page a row happened to be read
+    # from -- which page a continuation landed on says nothing about where it belongs in
+    # the paper (that's the whole reason last_question_no carries it forward at all), and
+    # even an ordinary page mixes several questions top to bottom. A reviewer needs the
+    # paper's own order, not whichever order the reads happened to come back in.
+    rows.sort(key=lambda r: (
+        r.section or "", _question_no_sort_key(r.question_no),
+        _sub_part_sort_key(r.sub_part), r.choice_alt or "",
     ))
     questions = {q.id: q for q in db.scalars(
         select(Question).where(Question.assessment_id == assessment.id)

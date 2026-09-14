@@ -568,3 +568,64 @@ def test_a_duplicate_address_reading_names_both_readings():
     assert len(problems) == 1
     assert "capital of India" in problems[0]
     assert "capital of Tamil Nadu" in problems[0]
+
+
+def test_an_mcqs_prompt_and_options_split_by_a_page_break_are_joined_not_dropped():
+    """A finer version of the same page-break problem the sub-part carry-over fixes: not
+    the whole sub-part, just its options block, landing on the far side of the break.
+    The earlier page's call sees the sub-part's letter and prompt with no options below
+    it yet; the next page's call sees a bare '(A)...(D)' block with nothing above it. Both
+    read the same address -- this used to be an unresolved 'read twice' conflict with one
+    side silently dropped, the same shape a case-study passage split in two already gets
+    merged for instead of flagged."""
+    prompt = _eq("3", "i", marks=None)
+    prompt.stem_text = "கரந்தைத்திணை"
+    options = _eq("3", "i", marks=None)
+    options.stem_text = "(A) பகைவரின் ஆநிரையைக் கவர்தல் (B) கவரப்பட்ட ஆநிரையை மீட்டல்"
+
+    deduped, problems = dedupe_addresses([prompt, options])
+    assert len(deduped) == 1
+    assert problems == []
+    assert deduped[0].stem_text == (
+        "கரந்தைத்திணை (A) பகைவரின் ஆநிரையைக் கவர்தல் (B) கவரப்பட்ட ஆநிரையை மீட்டல்"
+    )
+
+
+def test_the_options_only_merge_still_fires_regardless_of_read_order():
+    """Whichever half the vision reads land in `questions` first, the prompt goes first
+    in the merged text -- reconstructing print order, not read order."""
+    options = _eq("3", "i", marks=None)
+    options.stem_text = "(A) one (B) two"
+    prompt = _eq("3", "i", marks=None)
+    prompt.stem_text = "What is this?"
+
+    deduped, _ = dedupe_addresses([options, prompt])  # options read first this time
+    assert deduped[0].stem_text == "What is this? (A) one (B) two"
+
+
+def test_two_genuinely_conflicting_mcq_stems_are_not_merged_as_options():
+    """Both sides carrying real marks that disagree is an actual conflict, not a split --
+    must still be surfaced, not silently combined just because it's the same address."""
+    a = _eq("1", marks=1.0)
+    a.stem_text = "What is the capital of India?"
+    b = _eq("1", marks=2.0)
+    b.stem_text = "What is the capital of Tamil Nadu?"
+
+    deduped, problems = dedupe_addresses([a, b])
+    assert len(deduped) == 1
+    assert len(problems) == 1
+
+
+def test_scan_review_sorts_by_the_papers_own_order_not_read_order():
+    """A reviewer needs question 3's continuation sitting with question 3, not wherever
+    the page it happened to land on put it -- and a plain string sort of roman-numeral
+    sub-parts breaks past 'v' ('ix' < 'viii' as strings), which this paper never has
+    enough sub-parts to expose but a longer one would."""
+    from app.api.marks import _question_no_sort_key, _sub_part_sort_key
+
+    labels = ["3", "12", "1", "2"]
+    assert sorted(labels, key=_question_no_sort_key) == ["1", "2", "3", "12"]
+
+    subs = ["v", "i", "iii", "ix", "viii", "ii", "iv", None, "vi", "vii"]
+    ordered = sorted(subs, key=_sub_part_sort_key)
+    assert ordered == [None, "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"]

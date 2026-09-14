@@ -787,6 +787,16 @@ def context_addresses(rows) -> set[str]:
     }
 
 
+#: CBSE letters MCQ options (A)/(B)/(C)/(D) the same way on every board-set paper this
+#: pipeline has read -- Tamil, Hindi, and English alike -- so a stem opening on one is a
+#: structural fact about layout, not a guess about the question's content or language.
+_OPTIONS_ONLY = re.compile(r"^\(A\)")
+
+
+def _is_options_only(text: str) -> bool:
+    return bool(_OPTIONS_ONLY.match((text or "").strip()))
+
+
 def dedupe_addresses(
     questions: list[ExtractedQuestion],
 ) -> tuple[list[ExtractedQuestion], list[str]]:
@@ -801,8 +811,15 @@ def dedupe_addresses(
 
     Two context rows for the same address are merged into one, stem text joined, since
     both are the same shared-stem role and losing either loses nothing a person reviewing
-    the scan would miss. Any other collision (two rows that are not both context, or one
-    that carries marks) is not something safe to guess how to merge -- the second is
+    the scan would miss. A second, finer version of the same page-break problem: an MCQ's
+    prompt and its (A)/(B)/(C)/(D) options sometimes land on opposite sides of a page
+    break too, one page's call reading the labeled prompt with no options yet, the next
+    page's call reading a bare options block with no prompt above it -- also merged
+    (_is_options_only), same reasoning, not a guess about which reading is "right" since
+    there is no disagreement to resolve, just two halves of one printed line. Any other
+    collision (two rows that are not both context, aren't a prompt/options split, or
+    carry marks that actually disagree) is not something safe to guess how to merge -- the
+    second is
     dropped and named in ``problems`` instead, so a person reviewing the scan sees it
     rather than the whole read silently failing on a duplicate-key error.
     """
@@ -814,6 +831,28 @@ def dedupe_addresses(
             by_address[q.address] = q
         elif existing.is_context and q.is_context:
             existing.stem_text = f"{existing.stem_text}\n{q.stem_text}".strip()
+        elif (
+            not existing.is_context and not q.is_context
+            and (existing.max_marks is None or q.max_marks is None
+                 or existing.max_marks == q.max_marks)
+            and _is_options_only(existing.stem_text) != _is_options_only(q.stem_text)
+        ):
+            # The same split as the context-passage case just above, one layer finer: an
+            # MCQ's prompt line and its (A)/(B)/(C)/(D) options sometimes fall on opposite
+            # sides of a page break -- a sub-part's own letter is on the earlier page with
+            # no options under it yet, the options arrive at the top of the next page with
+            # no prompt above them. "(A)" starting a line is CBSE's own convention on
+            # every board-set paper regardless of subject or language (Tamil, Hindi and
+            # English papers all letter options A/B/C/D, never transliterated), so this is
+            # a structural signal, not a guess about content -- the same kind of fact
+            # last_question_no/last_section already lean on elsewhere in this pipeline.
+            # Marks are still checked for disagreement (a real conflict, not a split) the
+            # same as any other field would be.
+            prompt, options = (
+                (q, existing) if _is_options_only(existing.stem_text) else (existing, q)
+            )
+            existing.stem_text = f"{prompt.stem_text} {options.stem_text}".strip()
+            existing.max_marks = existing.max_marks if existing.max_marks is not None else q.max_marks
         else:
             # Both readings are named, not just the fact of the collision: a person
             # checking this against the paper needs to see what the *second* reading
