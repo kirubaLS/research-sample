@@ -931,16 +931,18 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 }
 .hero-frame img {
   display: block; width: 100%; height: auto;
+  /* Top fade kept minimal -- the mascot's head sits close to the top of this crop, and an
+     8% fade (the first attempt) was strong enough to visibly cut into it. */
   -webkit-mask-image: linear-gradient(
     to right, transparent 0%, #000 10%, #000 88%, transparent 100%
   ), linear-gradient(
-    to bottom, transparent 0%, #000 8%, #000 90%, transparent 100%
+    to bottom, transparent 0%, #000 2%, #000 92%, transparent 100%
   );
   -webkit-mask-composite: source-in;
   mask-image: linear-gradient(
     to right, transparent 0%, #000 10%, #000 88%, transparent 100%
   ), linear-gradient(
-    to bottom, transparent 0%, #000 8%, #000 90%, transparent 100%
+    to bottom, transparent 0%, #000 2%, #000 92%, transparent 100%
   );
   mask-composite: intersect;
 }
