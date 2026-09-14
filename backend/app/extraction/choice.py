@@ -41,8 +41,14 @@ class ChoiceGroup:
     addresses: list[Address]
     marks: float
     #: None for a binary OR group (attempt one of two, size always 2). Set to the
-    #: paper's own N for an 'attempt any N of M' group, where size is M.
+    #: paper's own N for an 'attempt any N of M' group, where size is M -- clamped to
+    #: never exceed M, since a paper cannot require more attempts than it printed items.
     required_count: int | None = None
+    #: What the model actually said N was, before that clamp. Equal to required_count
+    #: unless the model's reading was physically impossible (N > M) -- see verification
+    #: .py's G5, which flags exactly that disagreement for a human rather than trusting
+    #: either number silently.
+    required_as_read: int | None = None
 
     @property
     def size(self) -> int:
@@ -100,12 +106,25 @@ def group_choices(
         # paper printed), using the largest N seen so the group is never worth less than
         # what any one member claims.
         required = max(attempt_required[addr.key] for addr, _ in members)
+        # Hard backstop against a hallucinated N, independent of whether anything later
+        # in the pipeline happens to catch it: a paper cannot require more attempts than
+        # it printed sub-items for. This is not a guess or an estimate -- len(members) is
+        # exactly how many rows this group actually has, ground truth from the same
+        # extraction, so clamping to it can only ever reduce an impossible number to a
+        # possible one, never invent a value. required_as_read is kept on the group so a
+        # caller that wants to flag the mismatch for a human (see verification.py's G5)
+        # still can.
+        required_as_read = required
+        required = min(required, len(members))
         gid = f"ag-{key[0] or '_'}-{key[1]}-{i}"
         for addr, _ in members:
             mapping[addr.key] = gid
         per_item = max(m for _, m in members)
         groups.append(
-            ChoiceGroup(gid, [a for a, _ in members], required * per_item, required)
+            ChoiceGroup(
+                gid, [a for a, _ in members], required * per_item, required,
+                required_as_read=required_as_read,
+            )
         )
     return mapping, groups
 

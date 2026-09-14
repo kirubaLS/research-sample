@@ -156,6 +156,31 @@ def test_a_single_attempt_required_row_is_not_grouped():
     assert mapping == {}
 
 
+def test_a_hallucinated_n_larger_than_the_group_is_clamped_not_trusted():
+    """A paper cannot require more attempts than it printed sub-items for. If the model
+    reads N=5 for a group that only has 3 rows, that N is physically impossible -- it is
+    clamped to the group's real size (3) so a downstream total can never be inflated
+    past what the paper could actually be worth, and the original misread is kept on the
+    group (required_as_read) so it can still be flagged rather than silently vanish."""
+    rows = [
+        (Address("A", "5", "i", None), 1.0),
+        (Address("A", "5", "ii", None), 1.0),
+        (Address("A", "5", "iii", None), 1.0),
+    ]
+    attempt_required = {
+        Address("A", "5", "i", None).key: 5,
+        Address("A", "5", "ii", None).key: 5,
+        Address("A", "5", "iii", None).key: 5,
+    }
+    _, groups = group_choices(rows, attempt_required)
+    group = groups[0]
+    assert group.size == 3
+    assert group.required_count == 3          # clamped: cannot exceed what was printed
+    assert group.required_as_read == 5        # the misread itself is not thrown away
+    assert group.marks == 3.0                 # never 5.0 -- that would be invented marks
+    assert effective_total(rows, groups) == 3.0
+
+
 def test_all_four_gates_pass_on_maths_30b_section_b():
     """5 VSA x 2 marks = 10, with Q22 offering (a)/(b) — a faithful reconstruction."""
     rows = [(Address("B", str(20 + i), None, None), 2.0) for i in range(1, 6) if 20 + i != 22]
@@ -177,3 +202,29 @@ def test_gate_failure_names_the_broken_equation():
     assert not report.passed
     names = {f.gate for f in report.failures}
     assert "G1_question_count" in names and "G4_paper_total" in names
+
+
+def test_g5_flags_a_hallucinated_n_even_though_the_clamp_kept_the_total_sound():
+    """G2/G4 use the already-clamped total, so they can pass even when a group's N was
+    misread -- G5 exists precisely so that disagreement is still visible to a human,
+    not silently absorbed by the clamp."""
+    rows = [
+        (Address("A", "5", "i", None), 1.0),
+        (Address("A", "5", "ii", None), 1.0),
+        (Address("A", "5", "iii", None), 1.0),
+    ]
+    attempt_required = {
+        Address("A", "5", "i", None).key: 5,
+        Address("A", "5", "ii", None).key: 5,
+        Address("A", "5", "iii", None).key: 5,
+    }
+    _, groups = group_choices(rows, attempt_required)
+    report = verify_paper(
+        rows, groups, {"question_count": 1, "total_marks": 3, "sections": {"A": 3}},
+    )
+    g2, g4 = report.results[1], report.results[-1]
+    assert g2.passed and g4.passed, "the clamp already made the totals correct"
+    g5 = next(f for f in report.results if f.gate.startswith("G5_"))
+    assert not g5.passed
+    assert g5.expected == 3 and g5.actual == 5
+    assert not report.passed, "a G5 failure must still block the paper"

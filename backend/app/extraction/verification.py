@@ -7,6 +7,11 @@ section headers, which is what makes extraction verifiable rather than merely pr
   G2  per-section marks             == declared section marks   (after choice-grouping)
   G3  printed section arithmetic    'a x b = c' holds
   G4  sum over sections             == 'Maximum Marks : 80'
+  G5  every 'attempt any N of M'    N <= M -- the model's read cannot exceed what the
+      group's own required count       group actually contains. A paper cannot require
+                                        more attempts than it printed sub-items for, so
+                                        N > M is never a real paper disagreeing with
+                                        itself -- it is always a misreading.
 
 A failure blocks the paper and names the equation that broke. It never guesses.
 """
@@ -119,6 +124,25 @@ def verify_paper(
                 total,
                 n * per,
                 f"paper prints {n} x {per} = {total}",
+            )
+        )
+
+    # --- G5: every 'attempt any N of M' group's N is physically possible (N <= M).
+    # choice.py already clamps required_count to the group size before computing marks,
+    # so a violation here can never have inflated G2/G4's totals -- this gate exists so
+    # the *disagreement itself* is visible to a human rather than silently corrected.
+    for g in groups:
+        if g.required_as_read is None:
+            continue
+        report.results.append(
+            GateResult(
+                f"G5_attempt_required_plausible[{g.group_id}]",
+                g.required_as_read <= g.size,
+                g.size,
+                g.required_as_read,
+                f"paper printed {g.size} sub-item(s) in this group; a reading of "
+                f"'attempt any {g.required_as_read}' is not possible and was clamped to "
+                f"{g.required_count} for scoring -- check this group against the paper",
             )
         )
 
