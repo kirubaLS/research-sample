@@ -921,6 +921,91 @@ def test_uploading_a_chapter_again_fills_in_the_sections_it_was_missing(client):
         db.close()
 
 
+def test_uploading_a_chapter_again_corrects_a_wrong_section_not_only_a_blank_one(client):
+    """The bug the fill-in-the-gap fix above did not cover: a chapter whose FIRST pass
+    could only read it as one giant single_section block (headings this extractor
+    could not detect at all yet -- the exact shape a Tamil or Hindi chapter hit before
+    its heading detection worked) stores every chunk under the SAME placeholder section
+    "1", which is not a blank -- `not existing.section_number` is already false. A later,
+    corrected pass that reads the real "13.1"/"13.2" headings used to leave every chunk
+    answering to that same wrong "1" forever, no matter how many times the fixed
+    extractor re-read the same file, because a chunk is written only when its hash is
+    absent and the file hashes the same either time."""
+    from sqlalchemy import select, update
+
+    from app.db import SessionLocal
+    from app.models import BookChunk
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.MATH/contents", headers=HEAD,
+        files={"file": ("00-contents.pdf", _one_page([
+            "Contents", "1. Real Numbers", "1.1 Euclid's Division Lemma",
+            "1.2 Fundamental Theorem",
+        ]), "application/pdf")},
+    )
+    # Distinct wording from every other book-upload test in this file and from the
+    # `book` fixture's own seeded chunks (also filed under a chapter named "Statistics"
+    # this file already uses) -- otherwise this test's chunks hash the same as another
+    # test's and reuse THEIR already-correct rows instead of creating its own, which is
+    # exactly the scoping the comment above was written to avoid.
+    chapter = _one_page(
+        ["1 Real Numbers", "1.1 Euclid's Division Lemma"]
+        + ["Euclid's division lemma states that for positive integers. " * 3] * 4
+        + ["1.2 Fundamental Theorem"]
+        + ["Every composite number is a product of primes uniquely. " * 3] * 4
+        + ["Example 1 : Express 140 as a product of its prime factors."]
+        + ["Working shown here for the factor tree. " * 3] * 4
+    )
+
+    db = SessionLocal()
+    before_ids = set(db.scalars(select(BookChunk.id)).all())
+    db.close()
+
+    first = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh101.pdf", chapter, "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["chunks"] > 0
+
+    # This test's own chapter reuses the real X.MATH.REAL chapter node (a session-wide
+    # taxonomy, shared with the `book` fixture used elsewhere in this suite, which files
+    # its own chunks under that same chapter too) -- scoped to the rows THIS upload just
+    # created rather than a blanket UPDATE/SELECT over the whole table, which would reach
+    # rows other tests in this session-scoped DB still depend on.
+    db = SessionLocal()
+    mine_ids = set(db.scalars(select(BookChunk.id)).all()) - before_ids
+    db.close()
+    assert mine_ids, "the upload created no chunks to test the correction against"
+
+    # Simulating the first, undetected-headings pass: every chunk of THIS test's own
+    # chapter answers to the same placeholder section, not to nothing.
+    db = SessionLocal()
+    db.execute(update(BookChunk).where(BookChunk.id.in_(mine_ids)).values(section_number="1"))
+    db.commit()
+    db.close()
+
+    again = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh101.pdf", chapter, "application/pdf")},
+    )
+    assert again.status_code == 201, again.text
+    assert again.json()["sections_filled"] > 0
+
+    db = SessionLocal()
+    try:
+        sections = {
+            row.section_number
+            for row in db.scalars(select(BookChunk).where(BookChunk.id.in_(mine_ids))).all()
+        }
+        # The real section(s) this pass actually read -- not still collapsed under the
+        # one placeholder value the earlier pass got stuck on.
+        assert sections != {"1"}
+    finally:
+        db.close()
+
+
 # --- families belong to one subject ---------------------------------------------------------
 
 def test_apparatus_headings_are_not_proposed_as_families():

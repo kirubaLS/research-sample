@@ -835,13 +835,21 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
                 text=chunk.text, normalised=chunk.text, stem_hash=chunk.stem_hash,
             ))
             written["chunks"] += 1
-        elif chunk.section and not existing.section_number:
-            # A passage loaded before the section was recorded. Re-uploading the file was
-            # the obvious way to fix that and did nothing at all: a chunk is written only
-            # when its hash is absent, and the same file hashes the same, so every chunk
-            # already existed and the run reported nothing written. Filling the gap in
-            # place touches neither the text nor the vector, so the book does not have to
-            # be embedded again to gain the topics it always had.
+        elif chunk.section and existing.section_number != chunk.section:
+            # A passage loaded before the section was recorded, OR recorded wrong the
+            # first time -- a chapter this extractor could only read as one giant
+            # single_section block on an earlier pass (a script's headings undetectable,
+            # a Tamil or Hindi chapter whose heading regex assumed Latin script) stores
+            # every one of its chunks under the same placeholder section "1", and a
+            # later pass that DOES read the real headings correctly used to leave that
+            # wrong "1" in place forever: a chunk is written only when its hash is
+            # absent, the same file hashes the same, so every chunk already existed and
+            # `not existing.section_number` is false once anything, right or wrong, has
+            # ever been stored -- so re-uploading after fixing the heading detection
+            # silently changed nothing. Correcting it in place, whenever the freshly
+            # read section actually disagrees, touches neither the text nor the vector,
+            # so the book does not have to be embedded again to gain the topics it
+            # always had.
             existing.section_number = chunk.section
             written["sections_filled"] += 1
         if chunk.kind in ("theorem", "activity", "example") and db.scalar(
