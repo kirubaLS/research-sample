@@ -110,6 +110,9 @@ class QuestionIn(BaseModel):
     question_no: str
     sub_part: str | None = None
     choice_alt: str | None = None
+    #: set to N for a row that is one member of an 'attempt any N of the following M'
+    #: group (see app.extraction.choice) -- distinct from choice_alt's binary OR shape.
+    attempt_required: int | None = None
     max_marks: float = Field(gt=0)
     mark_step: float = 1.0
     question_type: str | None = None

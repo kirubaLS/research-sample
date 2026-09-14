@@ -286,9 +286,12 @@ def add_questions(
 
     rows: list[tuple[Address, float]] = []
     created = 0
+    attempt_required: dict[str, int] = {}
     for q in body.questions:
         addr = Address(q.section, q.question_no, q.sub_part, q.choice_alt)
         rows.append((addr, q.max_marks))
+        if q.attempt_required:
+            attempt_required[addr.key] = q.attempt_required
         existing = db.scalar(
             select(Question).where(
                 Question.assessment_id == a.id, Question.address == addr.key
@@ -298,6 +301,7 @@ def add_questions(
             row = Question(
                 assessment_id=a.id, address=addr.key, section=q.section,
                 question_no=q.question_no, sub_part=q.sub_part, choice_alt=q.choice_alt,
+                attempt_required=q.attempt_required,
                 max_marks=q.max_marks, mark_step=q.mark_step, question_type=q.question_type,
                 stem_text=q.stem_text, logical_page=q.logical_page,
                 board_unit_id=node_id(q.board_unit, "board unit"),
@@ -317,7 +321,7 @@ def add_questions(
                 if node is not None:
                     db.add(QuestionSkill(question_id=row.id, node_id=node.id, source="import"))
 
-    mapping, groups = group_choices(rows)
+    mapping, groups = group_choices(rows, attempt_required)
     for key, gid in mapping.items():
         row = db.scalar(
             select(Question).where(Question.assessment_id == a.id, Question.address == key)
@@ -346,7 +350,12 @@ def verify(
         (Address(q.section, q.question_no, q.sub_part, q.choice_alt), float(q.max_marks))
         for q in questions
     ]
-    _, groups = group_choices(rows)
+    attempt_required = {
+        Address(q.section, q.question_no, q.sub_part, q.choice_alt).key: q.attempt_required
+        for q in questions
+        if q.attempt_required
+    }
+    _, groups = group_choices(rows, attempt_required)
     arithmetic = (
         {k: (int(v[0]), float(v[1]), float(v[2])) for k, v in section_arithmetic.items()}
         if section_arithmetic
@@ -489,6 +498,48 @@ def reconcile(
 # --------------------------------------------------------------------------------------
 # Scanning a question paper
 # --------------------------------------------------------------------------------------
+def _scanned_effective_total(rows, context: set[str]) -> float:
+    """What these staged rows are worth, counting each mark exactly once.
+
+    Shared by the scan-review GET and confirm_scan so the number a person checks before
+    confirming is the same one confirm_scan itself holds the paper to.
+
+    Binary OR is filtered directly on (None, 'a') rather than through
+    app.extraction.choice.group_choices, matching both extraction routes' own convention
+    (paper.py's docstring and paper_vision.py's SYSTEM prompt both leave the first half's
+    choice_alt blank, only the second half is lettered) -- group_choices' OR-bucketing
+    needs both halves lettered, so handing it these rows as-is would leave every real
+    OR-pair ungrouped and double-counted. 'Attempt any N of M' groups (attempt_required)
+    have no such quirk and do reuse group_choices. Never a naive sum of every row, which
+    is exactly the double-count that produced a 111-mark read on an 80-mark paper.
+    """
+    countable = [r for r in rows if r.address not in context]
+    grouped = [r for r in countable if r.attempt_required]
+    ungrouped = [r for r in countable if not r.attempt_required]
+
+    total = float(sum(
+        r.max_marks or 0 for r in ungrouped if r.choice_alt in (None, "a")
+    ))
+
+    if grouped:
+        addr_rows = [
+            (Address(r.section, r.question_no, r.sub_part, r.choice_alt), float(r.max_marks or 0))
+            for r in grouped
+        ]
+        attempt_required = {
+            Address(r.section, r.question_no, r.sub_part, r.choice_alt).key: r.attempt_required
+            for r in grouped
+        }
+        _, groups = group_choices(addr_rows, attempt_required)
+        grouped_keys = {a.key for g in groups for a in g.addresses}
+        total += sum(g.marks for g in groups)
+        total += sum(
+            m for a, m in addr_rows
+            if a.key not in grouped_keys and a.choice_alt in (None, "a")
+        )
+    return total
+
+
 def _finish_paper_scan(
     db: Session, school: School, assessment: Assessment, extract, originals, source_sha: str,
 ) -> dict:
@@ -531,6 +582,7 @@ def _finish_paper_scan(
             sub_part=question.sub_part, choice_alt=question.choice_alt,
             max_marks=question.max_marks, stem_text=question.stem_text,
             logical_page=question.logical_page,
+            attempt_required=question.attempt_required,
         ))
         written += 1
 
@@ -886,10 +938,7 @@ def read_scan(
     from app.extraction.paper import context_addresses
 
     context = context_addresses(rows)
-    read_total = float(sum(
-        r.max_marks or 0 for r in rows
-        if r.choice_alt in (None, "a") and r.address not in context
-    ))
+    read_total = _scanned_effective_total(rows, context)
     declared_total = (assessment.declared or {}).get("total_marks")
     if declared_total is None and assessment.total_marks is not None:
         declared_total = float(assessment.total_marks)
@@ -1077,10 +1126,7 @@ def confirm_scan(
             + ". Set them, or remove the rows that are not questions.",
         )
 
-    read_total = float(sum(
-        r.max_marks or 0 for r in rows
-        if r.choice_alt in (None, "a") and r.address not in context
-    ))
+    read_total = _scanned_effective_total(rows, set(context))
     declared_total = (assessment.declared or {}).get("total_marks")
     if declared_total is None and assessment.total_marks is not None:
         declared_total = float(assessment.total_marks)
@@ -1272,6 +1318,7 @@ def map_paper_to_book(
         question = Question(
             assessment_id=assessment.id, address=row.address, section=row.section,
             question_no=row.question_no, sub_part=row.sub_part, choice_alt=row.choice_alt,
+            attempt_required=row.attempt_required,
             max_marks=row.max_marks, stem_text=row.stem_text,
             stem_hash=stem_hash(row.stem_text), logical_page=row.logical_page,
             board_unit_id=unit_id, chapter_id=chapter.id, curriculum_section=section,

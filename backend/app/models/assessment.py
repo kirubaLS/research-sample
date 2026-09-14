@@ -165,6 +165,10 @@ class Question(Base, PkMixin, TimestampMixin):
     sub_part: Mapped[str | None] = mapped_column(String(12), nullable=True)
     choice_alt: Mapped[str | None] = mapped_column(String(4), nullable=True)
     choice_group_id: Mapped[str | None] = mapped_column(String(36), index=True, nullable=True)
+    #: set to N when this row is one member of an 'attempt any N of the following M'
+    #: group (see app.extraction.choice) -- distinct from choice_alt's binary OR shape.
+    #: Null for an ordinary row and for a binary-OR alternative.
+    attempt_required: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     max_marks: Mapped[float] = mapped_column(Numeric(5, 2))
     mark_step: Mapped[float] = mapped_column(Numeric(3, 2), default=1.0)
@@ -235,6 +239,9 @@ class ScannedQuestion(Base, PkMixin, TimestampMixin):
     question_no: Mapped[str] = mapped_column(String(12))
     sub_part: Mapped[str | None] = mapped_column(String(12), nullable=True)
     choice_alt: Mapped[str | None] = mapped_column(String(4), nullable=True)
+    #: same meaning as Question.attempt_required -- carried through staging so a group
+    #: survives the scan/confirm/map pipeline rather than needing to be re-detected.
+    attempt_required: Mapped[int | None] = mapped_column(Integer, nullable=True)
     #: Nullable here where Question's is not: a mark label the extractor could not read is
     #: a gap for a person to fill, not a reason to refuse the whole paper.
     max_marks: Mapped[float | None] = mapped_column(Numeric(5, 2), nullable=True)
