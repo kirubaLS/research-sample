@@ -277,6 +277,15 @@ class AnthropicPaperVisionReader:
         # unreadable, it is a continuation, and last_question_no is the same fact
         # last_section already carries for exactly this reason.
         last_question_no: str | None = None
+        # The group's own N and per-item mark are stated once, on whichever page carries
+        # the instruction line and the group's first member -- almost always page one of
+        # the group, never repeated on a page break. A continuation row inherits these
+        # from the last member actually seen of the SAME question_no, exactly the same
+        # carry-over as section/question_no above and for the same reason: a row that is
+        # legitimately blank here (nothing printed on this page to read it from) is not
+        # the same as a row that was never part of a group at all.
+        last_attempt_required: int | None = None
+        last_group_marks: float | None = None
         results = self._read_all(pages)
 
         for index in range(1, len(pages) + 1):
@@ -310,22 +319,36 @@ class AnthropicPaperVisionReader:
                         )
                         continue
                 else:
+                    if number != last_question_no:
+                        # A genuinely new question -- the previous one's group figures
+                        # do not apply here even if this one turns out to be a group too.
+                        last_attempt_required = None
+                        last_group_marks = None
                     last_question_no = number
                 section = q.section.strip() or last_section
                 if q.section.strip():
                     last_section = q.section.strip()
+                attempt_required = q.attempt_required or last_attempt_required
+                max_marks = q.max_marks
+                if attempt_required:
+                    if q.attempt_required:
+                        last_attempt_required = q.attempt_required
+                    if max_marks is not None:
+                        last_group_marks = max_marks
+                    elif last_group_marks is not None:
+                        max_marks = last_group_marks
                 out.questions.append(ExtractedQuestion(
                     section=section or None,
                     question_no=number,
                     sub_part=sub_part or None,
                     choice_alt=q.choice_alt.strip().lower() or None,
-                    max_marks=q.max_marks,
+                    max_marks=max_marks,
                     stem_text=q.stem_text.strip(),
                     # Known outright now, not a guess the model has to make: each call
                     # sees exactly one page, so there is only one page it could be.
                     logical_page=index,
                     is_context=q.is_context,
-                    attempt_required=q.attempt_required or None,
+                    attempt_required=attempt_required or None,
                 ))
 
         if not out.questions:

@@ -152,6 +152,43 @@ def test_a_lettered_sub_part_with_no_number_inherits_the_last_question_seen(
     assert q4.sub_part == "i"
 
 
+def test_a_group_instruction_split_across_the_page_break_still_groups_every_member(
+    monkeypatch, fake_anthropic,
+):
+    """The bug this fixes: the group's own instruction and its 'N x M = Total' arithmetic
+    are printed once, next to the group's FIRST sub-item -- almost always the one that
+    happens to sit right before a page break. Continuation members (ii)-(v), same as any
+    other continuation, have nothing on their own page to read attempt_required or the
+    per-item mark from. The question_no/section carry-over already fixed the row from
+    being dropped outright; without also carrying attempt_required and the per-item mark,
+    those rows survived but silently fell out of the group (no attempt_required means
+    group_choices has nothing to key them on), so their marks were still lost."""
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"p2": _out(questions=[
+            {"section": "B", "question_no": "3", "sub_part": "i", "max_marks": 1.0,
+             "stem_text": "first item, with the instruction and 3 x 1 = 3 right above it",
+             "attempt_required": 3},
+        ]),
+        b"p3": _out(questions=[
+            {"question_no": "", "sub_part": "ii", "stem_text": "continues, nothing printed above it"},
+            {"question_no": "", "sub_part": "iii", "stem_text": "still question 3"},
+            {"question_no": "", "sub_part": "iv", "stem_text": "still question 3"},
+            {"question_no": "", "sub_part": "v", "stem_text": "still question 3"},
+            {"question_no": "4", "sub_part": "i", "max_marks": 2.0, "stem_text": "an ordinary next question"},
+        ]),
+    })
+
+    out = reader.read([(b"p2", "image/jpeg"), (b"p3", "image/jpeg")])
+
+    q3 = [q for q in out.questions if q.question_no == "3"]
+    assert [q.sub_part for q in q3] == ["i", "ii", "iii", "iv", "v"]
+    assert all(q.attempt_required == 3 for q in q3)
+    assert all(q.max_marks == 1.0 for q in q3)
+    q4 = next(q for q in out.questions if q.question_no == "4")
+    assert q4.attempt_required is None
+    assert q4.max_marks == 2.0
+
+
 def test_a_row_with_neither_number_nor_sub_part_is_dropped_but_named(
     monkeypatch, fake_anthropic,
 ):
