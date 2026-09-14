@@ -1137,9 +1137,13 @@ def confirm_scan(
             f"the paper is worth {float(declared_total):g} marks and the questions here "
             f"add up to {read_total:g}"
             + (
-                f", so {short:g} are missing. A question whose sub-parts are worth "
-                "different marks is the usual cause: open the ones with parts (i), (ii), "
-                "(iii) and check that each part carries its own marks."
+                f", so {short:g} are missing. Two usual causes: a question whose "
+                "sub-parts are worth different marks (open the ones with parts (i), "
+                "(ii), (iii) and check each part carries its own marks), or a group of "
+                "sub-parts that was split across a page break in the original scan (the "
+                "later parts would be missing from this list entirely, not just missing "
+                "their marks -- check the paper for a question whose lettered parts stop "
+                "partway through)."
                 if short > 0 else
                 f", so {-short:g} are counted twice. A question with an internal choice "
                 "is the usual cause: only one half of a choice counts."

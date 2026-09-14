@@ -253,6 +253,17 @@ class AnthropicPaperVisionReader:
         # carries onto an unlabelled page 4 exactly as it did in the fully sequential
         # version.
         last_section: str | None = None
+        # Same carry-over, for the same reason, on the axis that was actually losing
+        # marks: a group of lettered sub-parts -- (i) attempt any three of the following
+        # five -- routinely spans a page break, and only the FIRST sub-part sits under
+        # the question's own number; (ii) onward continue on the next page with nothing
+        # above them but more letters. The model correctly leaves question_no blank
+        # rather than invent one it cannot see (same guardrail as every other field),
+        # which used to mean this loop silently dropped the row -- `if not number:
+        # continue`, no trace, no count against it. A lettered row with no number is not
+        # unreadable, it is a continuation, and last_question_no is the same fact
+        # last_section already carries for exactly this reason.
+        last_question_no: str | None = None
         results = self._read_all(pages)
 
         for index in range(1, len(pages) + 1):
@@ -271,15 +282,29 @@ class AnthropicPaperVisionReader:
 
             for q in parsed.questions:
                 number = q.question_no.strip()
+                sub_part = q.sub_part.strip().lower()
                 if not number:
-                    continue
+                    # A bare lettered continuation of the previous page's last question:
+                    # carry the number forward, same as section. A row with neither a
+                    # number nor a sub-part letter has nothing to anchor it to anything
+                    # -- that one stays dropped, but named, not silent.
+                    if sub_part and last_question_no:
+                        number = last_question_no
+                    else:
+                        out.problems.append(
+                            f"page {index}: a row with no question number and no "
+                            f"sub-part letter was skipped -- {q.stem_text.strip()[:60]!r}"
+                        )
+                        continue
+                else:
+                    last_question_no = number
                 section = q.section.strip() or last_section
                 if q.section.strip():
                     last_section = q.section.strip()
                 out.questions.append(ExtractedQuestion(
                     section=section or None,
                     question_no=number,
-                    sub_part=q.sub_part.strip().lower() or None,
+                    sub_part=sub_part or None,
                     choice_alt=q.choice_alt.strip().lower() or None,
                     max_marks=q.max_marks,
                     stem_text=q.stem_text.strip(),

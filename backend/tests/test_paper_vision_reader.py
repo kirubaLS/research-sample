@@ -119,6 +119,57 @@ def test_a_page_with_no_section_header_inherits_the_last_one_seen(monkeypatch, f
     assert [q.section for q in out.questions] == ["B", "B"]
 
 
+def test_a_lettered_sub_part_with_no_number_inherits_the_last_question_seen(
+    monkeypatch, fake_anthropic,
+):
+    """The bug this fixes: 'attempt any three of the following five' groups routinely
+    span a page break -- only sub-part (i) sits under the question's printed number,
+    (ii) onward continue on the next page with no number above them at all. The model
+    correctly leaves question_no blank rather than invent one it cannot see (same
+    guardrail as every other field); this used to mean the row was silently dropped
+    (`if not number: continue`, no trace). A lettered row with no number is a
+    continuation, not garbage -- same carry-over already applied to section."""
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"p2": _out(questions=[
+            {"section": "B", "question_no": "3", "sub_part": "i", "max_marks": 1.0,
+             "stem_text": "first alternative, at the bottom of the page"},
+        ]),
+        b"p3": _out(questions=[
+            {"question_no": "", "sub_part": "ii", "max_marks": 1.0, "stem_text": "continues at the top of the next page"},
+            {"question_no": "", "sub_part": "iii", "max_marks": 1.0, "stem_text": "still question 3"},
+            {"question_no": "", "sub_part": "iv", "max_marks": 1.0, "stem_text": "still question 3"},
+            {"question_no": "", "sub_part": "v", "max_marks": 1.0, "stem_text": "still question 3"},
+            {"question_no": "4", "sub_part": "i", "max_marks": 1.0, "stem_text": "a real new question"},
+        ]),
+    })
+
+    out = reader.read([(b"p2", "image/jpeg"), (b"p3", "image/jpeg")])
+
+    q3_parts = [q.sub_part for q in out.questions if q.question_no == "3"]
+    assert q3_parts == ["i", "ii", "iii", "iv", "v"]
+    assert next(q for q in out.questions if q.sub_part == "ii").section == "B"
+    q4 = next(q for q in out.questions if q.question_no == "4")
+    assert q4.sub_part == "i"
+
+
+def test_a_row_with_neither_number_nor_sub_part_is_dropped_but_named(
+    monkeypatch, fake_anthropic,
+):
+    """Nothing to anchor a bare, unlettered row to -- still dropped, same as before this
+    fix, but now visible in problems instead of vanishing without a trace."""
+    reader = _reader(monkeypatch, fake_anthropic, scripted={
+        b"p1": _out(questions=[
+            {"question_no": "", "stem_text": "stray OCR noise with nothing to anchor it"},
+            {"question_no": "1", "stem_text": "a real question"},
+        ]),
+    })
+
+    out = reader.read([(b"p1", "image/jpeg")])
+
+    assert [q.question_no for q in out.questions] == ["1"]
+    assert any("stray OCR noise" in p for p in out.problems)
+
+
 def test_attempt_required_is_carried_from_the_model_onto_each_group_member(
     monkeypatch, fake_anthropic,
 ):
