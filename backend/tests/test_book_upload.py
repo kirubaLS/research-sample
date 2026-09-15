@@ -1325,3 +1325,286 @@ def test_the_audit_runs_across_every_subject_in_one_call(client, school):
         assert db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.ECO.CF.VOLUME_WRONG")) is None
     finally:
         db.close()
+
+
+def _corrupted_label() -> str:
+    """Devanagari text on a Math family -- the corruption signal is script-based and
+    subject-agnostic (see app.ingest.tamil_text._OTHER_INDIC_SCRIPT), so any subject's
+    fixtures can exercise it without a real Tamil book loaded."""
+    return "पराचीन जञान परपरा"
+
+
+def test_a_corrupted_family_with_a_confident_match_is_fixed_by_label_only(client, school, book):
+    """Exactly one corrupted family and exactly one clean proposal under the same
+    chapter is the confident case: dry run reports it, apply updates ONLY the label --
+    code, id, and any Question FK pointing at it are untouched."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import (
+        Assessment, ConceptFamilyProposal, Question, TaxonomyNode,
+    )
+
+    db = SessionLocal()
+    try:
+        circle = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CIRCLE"))
+        chapter = TaxonomyNode(
+            kind="chapter", code="X.MATH.REPAIR_CONFIDENT_CHAPTER",
+            label="Repair Confident Test Chapter", parent_id=circle.parent_id,
+            path="X.MATH.REPAIR_CONFIDENT_CHAPTER",
+            curriculum_version=circle.curriculum_version,
+        )
+        db.add(chapter)
+        db.flush()
+        family = TaxonomyNode(
+            kind="concept_family", code="X.MATH.CF.REPAIR_CONFIDENT_TEST",
+            label=_corrupted_label(), parent_id=chapter.id,
+            path="X.MATH.CF.REPAIR_CONFIDENT_TEST",
+            curriculum_version=chapter.curriculum_version,
+        )
+        db.add(family)
+        db.flush()
+        family_id = family.id
+
+        assessment = Assessment(
+            school_id=school["school_id"], subject_code="X.MATH",
+            title="Repair guard", total_marks=3,
+        )
+        db.add(assessment)
+        db.flush()
+        db.add(Question(
+            assessment_id=assessment.id, address="/1//", question_no="1",
+            max_marks=3.0, board_unit_id=chapter.parent_id, chapter_id=chapter.id,
+            curriculum_section="10.1", concept_family_id=family_id,
+            concept_variant="repair test question", variant_hash="repair-test-hash",
+        ))
+
+        run_id = uuid.uuid4().hex
+        db.add(ConceptFamilyProposal(
+            curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+            run_id=run_id, source="llm", model="fixture-clean",
+            code="X.MATH.CF.TANGENT_TO_A_CIRCLE", label="Tangent to a Circle",
+            chapter_id=chapter.id, evidence=["Theorem 10.1"], from_sections=["10.1"],
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    dry = client.post(
+        "/platform/books/X.MATH/concept-families/repair-corrupted", headers=HEAD,
+    ).json()
+    assert dry["dry_run"] is True
+    fixed = next(f for f in dry["would_fix"] if f["code"] == "X.MATH.CF.REPAIR_CONFIDENT_TEST")
+    assert fixed["old_label"] == _corrupted_label()
+    assert fixed["new_label"] == "Tangent to a Circle"
+
+    db = SessionLocal()
+    try:
+        still = db.scalar(select(TaxonomyNode).where(TaxonomyNode.id == family_id))
+        assert still.label == _corrupted_label()  # dry run wrote nothing
+    finally:
+        db.close()
+
+    applied = client.post(
+        "/platform/books/X.MATH/concept-families/repair-corrupted?dry_run=false",
+        headers=HEAD,
+    ).json()
+    assert applied["dry_run"] is False
+    applied_entry = next(
+        f for f in applied["would_fix"] if f["code"] == "X.MATH.CF.REPAIR_CONFIDENT_TEST"
+    )
+    assert applied_entry["applied"] is True
+
+    db = SessionLocal()
+    try:
+        fixed_node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.id == family_id))
+        assert fixed_node.label == "Tangent to a Circle"
+        assert fixed_node.code == "X.MATH.CF.REPAIR_CONFIDENT_TEST"  # code untouched
+        assert fixed_node.id == family_id  # id untouched
+
+        question = db.scalar(select(Question).where(Question.variant_hash == "repair-test-hash"))
+        assert question.concept_family_id == family_id  # FK untouched
+    finally:
+        db.close()
+
+    # Idempotent: a second dry run finds it already clean, and a second apply is a no-op.
+    again = client.post(
+        "/platform/books/X.MATH/concept-families/repair-corrupted", headers=HEAD,
+    ).json()
+    assert not any(f["code"] == "X.MATH.CF.REPAIR_CONFIDENT_TEST" for f in again["would_fix"])
+    assert not any(
+        f["code"] == "X.MATH.CF.REPAIR_CONFIDENT_TEST" for f in again["flagged_for_review"]
+    )
+    assert not any(
+        f["code"] == "X.MATH.CF.REPAIR_CONFIDENT_TEST" for f in again["unreferenced"]
+    )
+    reapplied = client.post(
+        "/platform/books/X.MATH/concept-families/repair-corrupted?dry_run=false",
+        headers=HEAD,
+    ).json()
+    assert not any(
+        f["code"] == "X.MATH.CF.REPAIR_CONFIDENT_TEST" for f in reapplied["would_fix"]
+    )
+
+
+def test_a_corrupted_family_with_no_confident_match_is_flagged_not_touched(client, school, book):
+    """Two clean proposals under one chapter is the 'one family became five' case: no
+    guessing, the corrupted family is reported for review and never modified, even under
+    apply=false. It carries a real question, so it belongs in flagged_for_review, not
+    unreferenced."""
+    import uuid
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Assessment, ConceptFamilyProposal, Question, TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        real = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.REAL"))
+        chapter = TaxonomyNode(
+            kind="chapter", code="X.MATH.REPAIR_AMBIGUOUS_CHAPTER",
+            label="Repair Ambiguous Test Chapter", parent_id=real.parent_id,
+            path="X.MATH.REPAIR_AMBIGUOUS_CHAPTER",
+            curriculum_version=real.curriculum_version,
+        )
+        db.add(chapter)
+        db.flush()
+        family = TaxonomyNode(
+            kind="concept_family", code="X.MATH.CF.REPAIR_AMBIGUOUS_TEST",
+            label=_corrupted_label(), parent_id=chapter.id,
+            path="X.MATH.CF.REPAIR_AMBIGUOUS_TEST",
+            curriculum_version=chapter.curriculum_version,
+        )
+        db.add(family)
+        db.flush()
+        family_id = family.id
+
+        assessment = Assessment(
+            school_id=school["school_id"], subject_code="X.MATH",
+            title="Repair ambiguity guard", total_marks=2,
+        )
+        db.add(assessment)
+        db.flush()
+        db.add(Question(
+            assessment_id=assessment.id, address="/1//", question_no="1",
+            max_marks=2.0, board_unit_id=chapter.parent_id, chapter_id=chapter.id,
+            curriculum_section="1.2", concept_family_id=family_id,
+            concept_variant="ambiguous repair test question",
+            variant_hash="repair-ambiguous-hash",
+        ))
+
+        run_id = uuid.uuid4().hex
+        for i, label in enumerate(["Fundamental Theorem of Arithmetic", "Prime Factorisation"]):
+            db.add(ConceptFamilyProposal(
+                curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+                run_id=run_id, source="llm", model="fixture-clean",
+                code=f"X.MATH.CF.REAL_CLEAN_{i}", label=label,
+                chapter_id=chapter.id, evidence=["Theorem 1.1"], from_sections=["1.2"],
+            ))
+        db.commit()
+    finally:
+        db.close()
+
+    dry = client.post(
+        "/platform/books/X.MATH/concept-families/repair-corrupted", headers=HEAD,
+    ).json()
+    assert not any(f["code"] == "X.MATH.CF.REPAIR_AMBIGUOUS_TEST" for f in dry["would_fix"])
+    flagged = next(
+        f for f in dry["flagged_for_review"] if f["code"] == "X.MATH.CF.REPAIR_AMBIGUOUS_TEST"
+    )
+    assert flagged["question_count"] == 1
+    assert set(flagged["candidate_labels"]) == {
+        "Fundamental Theorem of Arithmetic", "Prime Factorisation",
+    }
+
+    applied = client.post(
+        "/platform/books/X.MATH/concept-families/repair-corrupted?dry_run=false",
+        headers=HEAD,
+    ).json()
+    assert not any(
+        f["code"] == "X.MATH.CF.REPAIR_AMBIGUOUS_TEST" for f in applied["would_fix"]
+    )
+
+    db = SessionLocal()
+    try:
+        untouched = db.scalar(select(TaxonomyNode).where(TaxonomyNode.id == family_id))
+        assert untouched.label == _corrupted_label()
+    finally:
+        db.close()
+
+
+def test_a_corrupted_family_with_no_questions_and_no_match_is_unreferenced(client, school, book):
+    """No Question references it and no candidate proposal exists under its chapter: it
+    is reported as unreferenced (safe to delete by hand) but never modified here."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        ap = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.AP"))
+        chapter = TaxonomyNode(
+            kind="chapter", code="X.MATH.REPAIR_UNREFERENCED_CHAPTER",
+            label="Repair Unreferenced Test Chapter", parent_id=ap.parent_id,
+            path="X.MATH.REPAIR_UNREFERENCED_CHAPTER",
+            curriculum_version=ap.curriculum_version,
+        )
+        db.add(chapter)
+        db.flush()
+        family = TaxonomyNode(
+            kind="concept_family", code="X.MATH.CF.REPAIR_UNREFERENCED_TEST",
+            label=_corrupted_label(), parent_id=chapter.id,
+            path="X.MATH.CF.REPAIR_UNREFERENCED_TEST",
+            curriculum_version=chapter.curriculum_version,
+        )
+        db.add(family)
+        db.commit()
+        family_id = family.id
+    finally:
+        db.close()
+
+    dry = client.post(
+        "/platform/books/X.MATH/concept-families/repair-corrupted", headers=HEAD,
+    ).json()
+    assert not any(
+        f["code"] == "X.MATH.CF.REPAIR_UNREFERENCED_TEST" for f in dry["would_fix"]
+    )
+    unref = next(
+        f for f in dry["unreferenced"] if f["code"] == "X.MATH.CF.REPAIR_UNREFERENCED_TEST"
+    )
+    assert unref["question_count"] == 0
+
+    applied = client.post(
+        "/platform/books/X.MATH/concept-families/repair-corrupted?dry_run=false",
+        headers=HEAD,
+    ).json()
+    assert not any(
+        f["code"] == "X.MATH.CF.REPAIR_UNREFERENCED_TEST" for f in applied["would_fix"]
+    )
+
+    db = SessionLocal()
+    try:
+        untouched = db.scalar(select(TaxonomyNode).where(TaxonomyNode.id == family_id))
+        assert untouched.label == _corrupted_label()
+    finally:
+        db.close()
+
+
+def test_a_clean_label_is_never_reported_or_touched(client, school):
+    """X.MATH.CF.VOLUME's label is ordinary English -- it must not appear anywhere in
+    the repair report, dry run or applied."""
+    for dry_run in ("true", "false"):
+        r = client.post(
+            f"/platform/books/X.MATH/concept-families/repair-corrupted?dry_run={dry_run}",
+            headers=HEAD,
+        ).json()
+        codes = (
+            {f["code"] for f in r["would_fix"]}
+            | {f["code"] for f in r["flagged_for_review"]}
+            | {f["code"] for f in r["unreferenced"]}
+        )
+        assert "X.MATH.CF.VOLUME" not in codes

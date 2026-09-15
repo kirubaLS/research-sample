@@ -54,7 +54,7 @@ from app.ingest.hindi_text import hindi_read_text
 from sarvamai.core.api_error import ApiError as SarvamApiError
 from app.ingest.embed import classify_familiarity
 from app.ingest.probe import LexicalIndex, SemanticIndex, locate
-from app.ingest.tamil_text import tamil_read_text
+from app.ingest.tamil_text import tamil_read_text, tamil_text_is_corrupted
 from app.models import (
     BookChunk,
     BookSource,
@@ -1392,6 +1392,183 @@ def delete_family(subject: str, code: str, db: Session = Depends(get_session)) -
     db.delete(node)
     db.commit()
     return {"code": code, "deleted": True}
+
+
+def _family_label_is_corrupted(label: str) -> bool:
+    """Whether an APPLIED concept_family's ``label`` shows the broken-ToUnicode-CMap
+    defect described in app.ingest.tamil_text's module docstring.
+
+    The original (pre-fix) X.TAM proposer run read this defect straight out of corrupted
+    ``book_chunk`` text, so every family it proposed inherited the same corruption in its
+    label: missing pulli marks throughout, and in the worse cases a run of Bengali,
+    Devanagari or even Thai characters spliced in where the model's ToUnicode-mangled
+    input pointed it at the wrong glyphs entirely.
+
+    Reused rather than reinvented: ``tamil_text_is_corrupted`` already carries three
+    independent signals for exactly this defect, verified against real production
+    passages (see that function's own docstring). The one thing worth calling out is
+    which of those three signals actually fires on a *label* rather than a paragraph.
+    Its pulli-ratio check is gated behind >=20 Tamil consonants because a short string
+    can legitimately have zero pulli-bearing consonants by chance -- and a family label
+    ('பாககளின் ஓசை வகைகள்', 40-odd characters) is exactly the regime that gate exists
+    for: most labels never reach 20 consonants, so the ratio check quietly does nothing
+    on them. That is fine here, not a gap to work around, because the other two signals
+    are both length-independent and both are exactly what a spot check of the real 458
+    corrupted rows found: a non-Tamil Indic script appearing at all
+    (X.TAM.CF.SOCIAL_BACKGROUND_HISTORICAL_CONTEXT's label is almost entirely Bengali),
+    or a Latin letter fused into a Tamil run with no space. A label that does happen to
+    be long enough for the pulli-ratio gate still gets that check for free, at no extra
+    cost -- this function makes no threshold decision of its own to defend.
+    """
+    return tamil_text_is_corrupted(label)
+
+
+def _family_question_counts(db: Session, family_ids: list[str]) -> dict[str, int]:
+    """How many real ``Question`` rows point at each family, keyed by taxonomy_node id."""
+    from app.models import Question
+
+    if not family_ids:
+        return {}
+    return dict(db.execute(
+        select(Question.concept_family_id, func.count(Question.id))
+        .where(Question.concept_family_id.in_(family_ids))
+        .group_by(Question.concept_family_id)
+    ).all())
+
+
+@router.post("/{subject}/concept-families/repair-corrupted")
+def repair_corrupted_families(
+    subject: str, dry_run: bool = True, db: Session = Depends(get_session),
+) -> dict:
+    """Fix an APPLIED family's corrupted ``label`` in place, from a clean re-proposal.
+
+    This is the cleanup for a specific production incident, not a general tool: X.TAM's
+    original LLM proposer run read the book through a font whose ToUnicode CMap was
+    broken (app.ingest.tamil_text), so the families it produced back then have labels
+    with the same corruption baked in -- missing pulli marks, and in the worse cases
+    whole runs of the wrong script spliced in (see _family_label_is_corrupted). The book
+    has since been re-ingested through the fix and re-proposed cleanly
+    (POST .../propose-llm?force=true), but those clean proposals were never applied --
+    doing so naively would create a SECOND family per chapter concept and leave the
+    corrupted originals in place, and worse, any corrupted family a real Question already
+    references (Question.concept_family_id is required, non-nullable) cannot simply be
+    deleted and replaced without orphaning real marks.
+
+    So this only ever does one thing to existing data: UPDATE a corrupted family's
+    ``label`` column to a clean proposal's label. ``code``, ``id``, and every existing FK
+    reference (Question.concept_family_id included) are never touched -- a label is
+    display text, not identity, exactly the same reasoning edit_family_sections already
+    relies on for `from_sections`.
+
+    A "confident match" is deliberately narrow, because a false positive here corrupts
+    real data a second time: the corrupted family's chapter must have exactly one OTHER
+    corrupted family under it (i.e. this is the only broken family in that chapter) and
+    exactly one clean proposal under it from the latest propose-llm run. Where a chapter's
+    old family count and its new proposal count don't line up 1:1 -- the "one family
+    became five" case found for ASIRIYAPPA_GRAMMAR/poetry-types -- this deliberately does
+    not guess which proposal it maps to; it is left for a human, in `flagged_for_review`.
+
+    ``dry_run`` (default true) reports what WOULD happen and writes nothing. Pass
+    ``dry_run=false`` to actually write the matched labels. Idempotent either way: a
+    family already fixed (by this route or by hand) reads as clean on the next call and
+    is neither reported nor touched again.
+    """
+    version = "CBSE-2026-27"
+    nodes_by_id = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+    families = [
+        n for n in nodes_by_id.values()
+        if n.kind == "concept_family" and n.code.startswith(f"{subject}.CF.")
+    ]
+    corrupted = [f for f in families if _family_label_is_corrupted(f.label)]
+    question_counts = _family_question_counts(db, [f.id for f in corrupted])
+
+    # Only the latest run's clean proposals are candidates -- an older run may itself
+    # carry the same corruption this route exists to fix, so it is never a source of
+    # truth here, only the run made after tamil_text.py's fix went in.
+    proposal_rows = list(
+        db.scalars(
+            select(ConceptFamilyProposal)
+            .where(ConceptFamilyProposal.subject_code == subject)
+            .where(ConceptFamilyProposal.curriculum_version == version)
+            .order_by(ConceptFamilyProposal.created_at)
+        )
+    )
+    latest_run = proposal_rows[-1].run_id if proposal_rows else None
+    latest_proposals = [p for p in proposal_rows if p.run_id == latest_run]
+
+    proposals_by_chapter: dict[str, list[ConceptFamilyProposal]] = {}
+    for p in latest_proposals:
+        if p.chapter_id:
+            proposals_by_chapter.setdefault(p.chapter_id, []).append(p)
+
+    corrupted_by_chapter: dict[str, list[TaxonomyNode]] = {}
+    for f in corrupted:
+        if f.parent_id:
+            corrupted_by_chapter.setdefault(f.parent_id, []).append(f)
+
+    def chapter_label(chapter_id: str | None) -> str | None:
+        chapter = nodes_by_id.get(chapter_id) if chapter_id else None
+        return chapter.label if chapter else None
+
+    would_fix: list[dict] = []
+    flagged_for_review: list[dict] = []
+    unreferenced: list[dict] = []
+    matches: dict[str, ConceptFamilyProposal] = {}  # family.id -> matched proposal
+
+    for f in sorted(corrupted, key=lambda n: n.code):
+        candidates = proposals_by_chapter.get(f.parent_id or "", [])
+        siblings = corrupted_by_chapter.get(f.parent_id or "", [])
+        confident = (
+            f.parent_id is not None
+            and len(siblings) == 1
+            and len(candidates) == 1
+        )
+        if confident:
+            matches[f.id] = candidates[0]
+            would_fix.append({
+                "code": f.code, "old_label": f.label, "new_label": candidates[0].label,
+                "chapter": chapter_label(f.parent_id),
+            })
+            continue
+
+        count = question_counts.get(f.id, 0)
+        entry = {
+            "code": f.code, "old_label": f.label,
+            "chapter": chapter_label(f.parent_id),
+            "candidate_labels": [c.label for c in candidates],
+            "question_count": count,
+        }
+        if count == 0:
+            unreferenced.append(entry)
+        else:
+            flagged_for_review.append(entry)
+
+    applied = 0
+    if not dry_run and matches:
+        for family_id, proposal in matches.items():
+            nodes_by_id[family_id].label = proposal.label
+            applied += 1
+        db.commit()
+        for entry in would_fix:
+            entry["applied"] = True
+    else:
+        for entry in would_fix:
+            entry["applied"] = False
+
+    return {
+        "subject": subject,
+        "dry_run": dry_run,
+        "corrupted_found": len(corrupted),
+        "would_fix": would_fix,
+        "flagged_for_review": flagged_for_review,
+        "unreferenced": unreferenced,
+        "applied": applied,
+        "note": (
+            "unreferenced families have zero Question rows pointing at them and no "
+            "confident clean match -- safe to remove outright, but this route never "
+            "deletes anything; use DELETE /concept-families/{code} yourself for those."
+        ),
+    }
 
 
 def _audit_families(db: Session, subject: str) -> dict:
