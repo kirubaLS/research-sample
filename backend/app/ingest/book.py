@@ -163,6 +163,11 @@ class ChapterExtract:
     chunks: list[Chunk] = field(default_factory=list)
     #: populated by verify_against_toc; empty means the extraction agrees with the book
     problems: list[str] = field(default_factory=list)
+    #: Real, worth surfacing, but never a reason to discard a chapter's real content: a
+    #: missing drill marker is at least as likely to mean "this chapter's exercises use a
+    #: heading this pattern hasn't seen" as "this chapter genuinely has none" -- unlike a
+    #: TOC disagreement, which really does mean the wrong file was uploaded.
+    warnings: list[str] = field(default_factory=list)
     #: What the extraction was actually checked against. None means no section-level
     #: oracle existed -- the Science contents page lists chapters only -- and every
     #: section number from this chapter must stay visibly unverified downstream. An
@@ -706,7 +711,7 @@ def parse_toc_chapters(contents_pdf: str | Path, *, text: str | None = None) -> 
     return found
 
 
-def verify_structure(extract: ChapterExtract) -> ChapterExtract:
+def verify_structure(extract: ChapterExtract, *, exercises_required: bool = True) -> ChapterExtract:
     """The checks that survive when the book publishes no section list.
 
     Weaker than verify_against_toc and deliberately not dressed up as equivalent: nothing
@@ -715,6 +720,16 @@ def verify_structure(extract: ChapterExtract) -> ChapterExtract:
     the middle -- 9.1, 9.2, 9.4 means 9.3 was missed -- a chapter that yielded no sections
     at all, and one that yielded no drilled content, each of which is a silent hole in the
     knowledge base rather than a visible failure.
+
+    ``exercises_required=False`` (single_section subjects: Tamil, Hindi, English) makes
+    the missing-exercises check a warning, not a rejection. Maths and Science number their
+    drills consistently enough that "no EXERCISE/QUESTIONS marker found" reliably means
+    the chapter has none. A literature chapter's drill heading is matched by a small set of
+    fixed phrases confirmed against one real chapter file each (TAMIL_DRILL_LABEL,
+    HINDI_DRILL_LABEL) -- a different, unconfirmed phrasing for a chapter that genuinely
+    does have exercises is at least as likely as a chapter that truly has none, and
+    discarding the chapter's real prose/poem content over that ambiguity is a worse
+    outcome than keeping the content and flagging the gap for a person to check.
     """
     numbers = [s.number for s in extract.sections]
     if not numbers:
@@ -748,7 +763,8 @@ def verify_structure(extract: ChapterExtract) -> ChapterExtract:
                 )
 
     if not any(c.bucket == "E" for c in extract.chunks):
-        extract.problems.append(
+        target = extract.problems if exercises_required else extract.warnings
+        target.append(
             f"chapter {extract.number}: no exercises or questions were found, so no "
             f"question from it could ever be judged PRACTISED"
         )

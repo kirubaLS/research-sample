@@ -662,7 +662,7 @@ def _process_chapter(
                     f"the contents page calls chapter {number} "
                     f"{expected_title!r}, not {extract.title!r}"
                 )
-            verify_structure(extract)
+            verify_structure(extract, exercises_required=not (is_hindi or is_tamil or subject.startswith("X.ENG")))
             extract.verified_against = None
     finally:
         path.unlink(missing_ok=True)
@@ -687,6 +687,7 @@ def _process_chapter(
         "chapter": extract.number, "title": extract.title,
         "sections": len(extract.sections),
         "verified_against": extract.verified_against,
+        "warnings": extract.warnings,
         **written,
     }
 
