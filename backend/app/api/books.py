@@ -523,8 +523,20 @@ def create_families(
     subject: str, body: FamiliesIn, db: Session = Depends(get_session)
 ) -> dict:
     """Create the reviewed families. Additive only: an existing one is never renamed."""
+    from app.curriculum.families import script_mismatch
+
     nodes = {n.code: n for n in db.scalars(select(TaxonomyNode))}
     created, skipped, unknown = 0, 0, []
+    wrong_script: list[dict] = []
+
+    # What each chapter's own content actually reads as, so a pasted-in label from a
+    # different book's proposal list is caught by what the chapter already contains, not by
+    # a hardcoded subject-to-language table -- this has to work for whatever language a
+    # book turns out to be in.
+    subtopics_by_chapter_id: dict[str, list[str]] = {}
+    for node in nodes.values():
+        if node.kind == "subtopic":
+            subtopics_by_chapter_id.setdefault(node.parent_id, []).append(node.label)
 
     for entry in body.families:
         code = str(entry.get("code", "")).strip()
@@ -541,6 +553,19 @@ def create_families(
             # after a class has been tested breaks every trend that references it.
             skipped += 1
             continue
+
+        # Prefer the chapter's own section headings; fall back to the chapter's own label
+        # when no subtopics were ingested for it, so the check still has something real to
+        # compare against.
+        reference = " ".join(subtopics_by_chapter_id.get(chapter.id, [])) or chapter.label
+        mismatch = script_mismatch(label, reference)
+        if mismatch:
+            wrong_script.append({
+                "code": code, "label": label, "chapter_code": chapter_code,
+                "label_script": mismatch[0], "chapter_script": mismatch[1],
+            })
+            continue
+
         db.add(TaxonomyNode(
             kind="concept_family", code=code, label=label,
             parent_id=chapter.id, path=code,
@@ -553,7 +578,15 @@ def create_families(
         "created": created,
         "already_existed": skipped,
         "unknown_chapters": sorted(set(unknown)),
-        "note": "Existing families are left alone; a rename would break past comparisons.",
+        "wrong_script": wrong_script,
+        "note": (
+            "Existing families are left alone; a rename would break past comparisons. "
+            "Entries in wrong_script were refused because their label's script does not "
+            "match this chapter's own book content -- almost always a proposal pasted in "
+            "from a different subject's list by mistake."
+            if wrong_script else
+            "Existing families are left alone; a rename would break past comparisons."
+        ),
     }
 
 

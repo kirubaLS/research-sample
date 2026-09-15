@@ -23,10 +23,51 @@ commitment is a person's to make.
 from __future__ import annotations
 
 import re
+import unicodedata
+from collections import Counter
 from dataclasses import dataclass
 
 #: Section headings that are not learning areas. A student is not weak at "Introduction".
 NOT_A_FAMILY = frozenset({"introduction", "summary"})
+
+
+def dominant_script(text: str) -> str | None:
+    """The Unicode script most of ``text``'s letters belong to, or ``None`` if it has none.
+
+    Generic on purpose: it reads the character data, not a table of subject codes to
+    languages, so it works for whichever script a book turns out to use without anyone
+    having enumerated it in advance. "TAMIL LETTER..." and "DEVANAGARI LETTER..." both come
+    straight out of ``unicodedata.name`` -- the first word of the Unicode character name is
+    its script, for every script this app will ever see a book in.
+    """
+    counts: Counter[str] = Counter()
+    for ch in text:
+        if not ch.isalpha():
+            continue
+        try:
+            name = unicodedata.name(ch)
+        except ValueError:
+            continue
+        counts[name.split(" ", 1)[0]] += 1
+    if not counts:
+        return None
+    return counts.most_common(1)[0][0]
+
+
+def script_mismatch(label: str, reference_text: str) -> tuple[str, str] | None:
+    """``(label_script, reference_script)`` if they disagree, else ``None``.
+
+    ``reference_text`` should be real content already known to belong to the same chapter
+    or subject -- other section labels, book chunk text -- so the comparison is always
+    against what that book actually contains, never a hardcoded expectation.
+    """
+    label_script = dominant_script(label)
+    reference_script = dominant_script(reference_text)
+    if label_script is None or reference_script is None:
+        return None
+    if label_script == reference_script:
+        return None
+    return label_script, reference_script
 
 
 @dataclass(frozen=True)

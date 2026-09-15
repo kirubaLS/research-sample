@@ -305,6 +305,37 @@ def test_a_family_is_created_once_and_never_renamed(client, school):
         db.close()
 
 
+def test_a_family_in_a_different_script_than_its_chapter_is_refused(client, school):
+    """A label pasted in from a different subject's proposal list -- the way a real Hindi
+    label once ended up on a Tamil chapter -- is caught by comparing it against what the
+    chapter's own book content actually reads as, not a hardcoded subject-to-language
+    table."""
+    payload = {"families": [{
+        "code": "X.MATH.CF.WRONG_SCRIPT",
+        "label": "प्राचीन ज्ञान परंपरा में वायु",
+        "chapter_code": "X.MATH.SAV",
+    }]}
+    r = client.post("/platform/books/X.MATH/concept-families", headers=HEAD, json=payload)
+    body = r.json()
+    assert body["created"] == 0
+    assert body["wrong_script"], "a script mismatch against the chapter's own content should be reported"
+    assert body["wrong_script"][0]["code"] == "X.MATH.CF.WRONG_SCRIPT"
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        node = db.scalar(
+            select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.WRONG_SCRIPT")
+        )
+        assert node is None, "a script-mismatched family must never be written"
+    finally:
+        db.close()
+
+
 def test_a_family_under_a_chapter_that_does_not_exist_is_refused(client, school):
     r = client.post(
         "/platform/books/X.MATH/concept-families", headers=HEAD,
