@@ -30,6 +30,15 @@ from pathlib import Path
 import pymupdf
 
 from app.extraction.mark_grammar import MARK_BAND, parse_label
+from app.ingest.tamil_text import clean_tamil_text, tamil_text_is_corrupted
+
+#: Same prefix and convention as app.api.books.TAMIL_SUBJECT_PREFIX (not imported from
+#: there: app.api is the request layer and importing a router module into an extraction
+#: module the API layer itself calls would invert the dependency). A Tamil-medium paper's
+#: subject code always starts with this, and that is the cheapest, most reliable signal
+#: this module has for "is this paper's text layer at risk of the broken-ToUnicode-CMap
+#: defect app.ingest.tamil_text exists to catch" -- see extract_paper's own docstring note.
+TAMIL_SUBJECT_PREFIX = "X.TAM"
 
 #: a mark label in its bare form, for the span-level split below
 _BARE_NUMBER = re.compile(r"^\d{1,2}$")
@@ -258,8 +267,57 @@ def _split_trailing_mark(spans: list[dict], width: float) -> tuple[list[dict], l
     return spans[:cut], spans[cut:]
 
 
-def read_lines(path: str | Path) -> tuple[list[Line], int, int, int]:
-    """Assemble spans into visual lines. Returns (lines, pages, characters, images)."""
+def _ocr_recovered_lines(page: "pymupdf.Page", number: int, width: float) -> list[Line]:
+    """A Tamil page's lines, read through OCR instead of its broken text layer.
+
+    Loses the exact per-glyph positions the span-based path above gives every other page
+    -- Tesseract returns recognised text, not the PDF's own coordinate space -- so this
+    can only approximate the two things read_lines' caller actually needs a position for:
+    whether a line opens flush against the margin (a question or a lettered/roman part
+    starts one; body text that wraps does not) and whether a line is a right-aligned mark
+    label. Every OCR'd line is placed flush left (satisfying QUESTION's 0.22 and
+    SUB_PART/LETTERED_PART's 0.35 fraction checks alike, since which of those regexes
+    actually matches the text still gates everything downstream), except a line that is
+    nothing but a bare mark label on its own -- exactly the shape _marks_on looks for --
+    which is placed inside MARK_BAND instead, so a Tamil paper's own mark labels (Latin
+    digits, never corrupted by the Tamil font defect) are still recognised as marks.
+    """
+    from app.ingest.tamil_ocr import ocr_available, ocr_read_page
+
+    if not ocr_available():
+        # Same reasoning as app.ingest.tamil_text._extract_tamil_page_text's identical
+        # guard: surfaced as a clear failure, not silently fed the known-corrupted text.
+        raise RuntimeError(
+            f"page {number} of a Tamil question paper has a broken font ToUnicode "
+            f"mapping (see app.ingest.tamil_text's module docstring) and Tesseract's "
+            f"Tamil language pack ('tam') is not installed here, so this page cannot be "
+            f"read at all -- install Tesseract with the tam traineddata, or upload from a "
+            f"deployment that has it."
+        )
+
+    recovered: list[Line] = []
+    for index, raw in enumerate(ocr_read_page(page).splitlines()):
+        text = raw.strip()
+        if not text:
+            continue
+        label = parse_label(text)
+        is_bare_mark = label is not None and label.form == "bare"
+        right_fraction = sum(MARK_BAND) / 2 if is_bare_mark else 0.0
+        recovered.append(Line(raw, number, float(index), 0.0, right_fraction, width))
+    return recovered
+
+
+def read_lines(path: str | Path, *, is_tamil: bool = False) -> tuple[list[Line], int, int, int]:
+    """Assemble spans into visual lines. Returns (lines, pages, characters, images).
+
+    ``is_tamil`` guards a Tamil-specific recovery pass, not a Tamil-specific extraction
+    path: every page is still read the normal, fast, position-aware way first. Only when
+    that page's own text is Tamil AND shows the broken-ToUnicode-CMap defect
+    (app.ingest.tamil_text.tamil_text_is_corrupted -- the exact same detector and the
+    exact same OCR fallback app.ingest.tamil_text.tamil_read_text uses for book chapters)
+    is it re-read through OCR instead. A clean Tamil page, or any non-Tamil paper, never
+    touches this at all.
+    """
     lines: list[Line] = []
     characters = 0
     images = 0
@@ -269,6 +327,7 @@ def read_lines(path: str | Path) -> tuple[list[Line], int, int, int]:
             images += len(page.get_images(full=True))
             width = page.rect.width or 1.0
             data = page.get_text("dict")
+            page_lines: list[Line] = []
             for block in data.get("blocks", []):
                 for line in block.get("lines", []):
                     spans = line.get("spans", [])
@@ -277,13 +336,19 @@ def read_lines(path: str | Path) -> tuple[list[Line], int, int, int]:
                     stem, mark = _split_trailing_mark(spans, width)
                     for group in (stem, mark):
                         text = "".join(s["text"] for s in group)
-                        characters += len(text.strip())
                         if not text.strip():
                             continue
                         x0 = min(s["bbox"][0] for s in group)
                         x1 = max(s["bbox"][2] for s in group)
                         top = min(s["bbox"][1] for s in group)
-                        lines.append(Line(text, number, top, x0, x1 / width, width))
+                        page_lines.append(Line(text, number, top, x0, x1 / width, width))
+
+            if is_tamil and tamil_text_is_corrupted(clean_tamil_text(page.get_text())):
+                page_lines = _ocr_recovered_lines(page, number, width)
+
+            for line in page_lines:
+                characters += len(line.text.strip())
+            lines.extend(page_lines)
     lines.sort(key=lambda line: (line.page, round(line.top, 1), line.left))
     return lines, pages, characters, images
 
@@ -378,9 +443,19 @@ def _declared(lines: list[Line]) -> tuple[dict[str, float], int | None, float | 
     )
 
 
-def extract_paper(path: str | Path) -> PaperExtract:
-    """Read a question paper. The result is checkable, never merely plausible."""
-    lines, pages, characters, images = read_lines(path)
+def extract_paper(path: str | Path, *, subject_code: str | None = None) -> PaperExtract:
+    """Read a question paper. The result is checkable, never merely plausible.
+
+    ``subject_code`` is optional and, for every non-Tamil paper, changes nothing: it only
+    gates the Tamil-specific OCR recovery read_lines runs per page (see its own
+    docstring) for a subject code starting with TAMIL_SUBJECT_PREFIX, the same convention
+    app.api.books already uses to tell a Tamil-medium upload apart from every other
+    subject. Callers that do not have a subject code yet (or are reading a paper for a
+    subject this recovery does not apply to) can omit it and get exactly the old
+    behaviour.
+    """
+    is_tamil = bool(subject_code) and subject_code.startswith(TAMIL_SUBJECT_PREFIX)
+    lines, pages, characters, images = read_lines(path, is_tamil=is_tamil)
 
     # Both conditions, not either. Character count alone called a short cyclic test a scan;
     # images alone would call any illustrated paper one. A scan is pictures WITH no text:

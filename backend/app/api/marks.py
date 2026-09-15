@@ -800,7 +800,7 @@ async def scan_paper(
 
     path = await pages_to_pdf(files)
     try:
-        extract = extract_paper(path)
+        extract = extract_paper(path, subject_code=assessment.subject_code)
         source_sha = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
         pdf_bytes = path.read_bytes() if extract.route == "vision" else None
     finally:

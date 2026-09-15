@@ -629,3 +629,84 @@ def test_scan_review_sorts_by_the_papers_own_order_not_read_order():
     subs = ["v", "i", "iii", "ix", "viii", "ii", "iv", None, "vi", "vii"]
     ordered = sorted(subs, key=_sub_part_sort_key)
     assert ordered == [None, "i", "ii", "iii", "iv", "v", "vi", "vii", "viii", "ix"]
+
+
+# ---------------------------------------------------------------------------------------
+# The question-paper side of the broken-ToUnicode-CMap defect app.ingest.tamil_text and
+# app.ingest.tamil_ocr already fix for book chapters (see their own module docstrings).
+# Real production data: a scanned Tamil question's stem_text read back
+# 'மெலலிய காறறைக குறிககும சொல யாது?' -- missing every pulli mark -- and should have read
+# 'மெல்லிய காற்றைக் குறிக்கும் சொல் யாது?'. No Tamil-capable font is installed in this
+# environment (see test_tamil_upload.py's own note), so these stand up a placeholder-text
+# PDF and drive the corruption detector and OCR fallback through monkeypatching, exactly
+# as test_tamil_upload.py stubs tamil_read_text -- what is under test is that paper.py's
+# extraction wires the two together and gates them on the paper's own subject code, not
+# the quality of detection or OCR themselves (that is tamil_text_is_corrupted's and
+# tamil_ocr's own test suites).
+# ---------------------------------------------------------------------------------------
+
+
+def test_a_corrupted_tamil_page_is_recovered_through_ocr(tmp_path, monkeypatch):
+    """subject_code='X.TAM' plus a page tamil_text_is_corrupted flags routes that page
+    through OCR instead of trusting the broken text layer -- the stem a reviewer sees is
+    the OCR'd one, not the pulli-stripped garbage the CMap defect produces."""
+    path = _pdf(tmp_path, [[
+        (60, 130, "1. broken stem placeholder"),
+        (MARK_X, 130, "2"),
+    ]])
+
+    monkeypatch.setattr("app.extraction.paper.tamil_text_is_corrupted", lambda text: True)
+    monkeypatch.setattr("app.ingest.tamil_ocr.ocr_available", lambda: True)
+    monkeypatch.setattr(
+        "app.ingest.tamil_ocr.ocr_read_page",
+        lambda page, **kw: "1. மெல்லிய காற்றைக் குறிக்கும் சொல் யாது?\n2\n",
+    )
+
+    out = extract_paper(path, subject_code="X.TAM")
+    assert out.route == "text"
+    assert len(out.questions) == 1
+    assert out.questions[0].stem_text == "மெல்லிய காற்றைக் குறிக்கும் சொல் யாது?"
+    assert out.questions[0].max_marks == 2.0
+
+
+def test_a_clean_tamil_page_never_pays_for_ocr(tmp_path, monkeypatch):
+    """subject_code='X.TAM' alone is not enough to trigger recovery -- a page whose text
+    tamil_text_is_corrupted does not flag must stay on the fast, position-aware path.
+    ocr_read_page raising if it is ever called is the assertion: this is the same "clean
+    chapters stay on the fast path" guarantee app.ingest.tamil_text.tamil_read_text gives
+    book chapters, now checked for the paper route too."""
+    path = _pdf(tmp_path, [[
+        (60, 130, "1. clean stem placeholder"),
+        (MARK_X, 130, "2"),
+    ]])
+
+    monkeypatch.setattr("app.extraction.paper.tamil_text_is_corrupted", lambda text: False)
+
+    def _boom(page, **kw):
+        raise AssertionError("ocr_read_page must not be called for an uncorrupted page")
+
+    monkeypatch.setattr("app.ingest.tamil_ocr.ocr_read_page", _boom)
+
+    out = extract_paper(path, subject_code="X.TAM")
+    assert out.questions[0].stem_text == "clean stem placeholder"
+    assert out.questions[0].max_marks == 2.0
+
+
+def test_a_non_tamil_paper_never_runs_the_tamil_check_at_all(tmp_path, monkeypatch):
+    """No subject_code, or a non-Tamil one, must not even call tamil_text_is_corrupted --
+    the recovery pass is scoped to Tamil papers, not every paper this route reads."""
+    path = _pdf(tmp_path, [[
+        (60, 130, "1. an ordinary maths question"),
+        (MARK_X, 130, "3"),
+    ]])
+
+    def _boom(text):
+        raise AssertionError("tamil_text_is_corrupted must not run for a non-Tamil paper")
+
+    monkeypatch.setattr("app.extraction.paper.tamil_text_is_corrupted", _boom)
+
+    out_no_subject = extract_paper(path)
+    assert out_no_subject.questions[0].stem_text == "an ordinary maths question"
+
+    out_other_subject = extract_paper(path, subject_code="X.MAT")
+    assert out_other_subject.questions[0].stem_text == "an ordinary maths question"
