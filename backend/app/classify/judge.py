@@ -29,7 +29,10 @@ TIERS = ("Remembering & Understanding", "Applying", "Analysing, Evaluating & Cre
 class Classification(BaseModel):
     """What the judge returns. Every field is checkable against something."""
 
-    chapter: str = Field(description="Exactly one of the candidate chapter names supplied")
+    chapter: str | None = Field(
+        description="Exactly one of the candidate chapter names supplied, or null for a "
+        "genuinely skill-anchored question that has no content tie to any chapter"
+    )
     curriculum_section: str | None = Field(
         default=None,
         description="The NCERT section number from the evidence, e.g. '12.2'. Null if the "
@@ -51,7 +54,9 @@ class Classification(BaseModel):
         description="References of the passages actually used, e.g. ['Theorem 6.3']",
     )
     confidence: float = Field(ge=0.0, le=1.0)
-    #: set when the question could legitimately sit in more than one chapter
+    #: set when the question could legitimately sit in more than one chapter. Only
+    #: meaningful when chapter is not null -- a skill-anchored question has no second
+    #: guess to offer either, because it was never a content question in the first place.
     alternative_chapter: str | None = None
 
 
@@ -67,8 +72,36 @@ SYSTEM = """You place CBSE Class X questions in the NCERT textbook.
 
 You are given a question and passages retrieved from the book. Decide which chapter the
 question belongs to, using only the chapters present in the passages -- never a chapter
-you were not shown, even if you believe it fits better. If none of the passages fits, pick
-the closest and say so in your reasoning with a low confidence.
+you were not shown, even if you believe it fits better.
+
+You have three honest answers, not two:
+
+1. The question is ABOUT something in one of the candidate chapters (a theorem, a
+   character, a grammar rule, a poem's theme). Pick that chapter.
+2. The question is content-anchored -- it is clearly testing something from the book --
+   but you cannot tell which of several candidate chapters from the evidence shown. Pick
+   the closest one and say so in your reasoning, with confidence below 0.7 and the other
+   candidate in alternative_chapter. This is still "the question is about a chapter",
+   just an uncertain guess at which one.
+3. The question is SKILL-ANCHORED: it has no content tie to any specific chapter because
+   it is testing a general writing or language skill against a prompt invented for this
+   paper -- a letter to a named recipient, an essay from a given outline, an unseen
+   passage or picture composition, a notice or dialogue-writing task, a "rewrite in your
+   own words" with no source text from the book. For these, set chapter to null and put
+   what the student has to DO in skill_required (e.g. "write a formal letter requesting
+   library books", "compose a narrative from a picture prompt"). This is a confident,
+   correct answer, not a hedge: do not use a low confidence just because chapter is null,
+   and do not force a chapter onto it merely because a passage was retrieved -- retrieval
+   often returns the closest-sounding passage even when nothing in the book is what the
+   question is actually asking for.
+
+Case 3 is narrow. It is for a task that would be exactly the same question on a different
+paper testing a different chapter -- the skill is what is being tested, not the content.
+It is NOT an excuse to null out a question you are merely unsure about, or one that draws
+on a specific chapter's vocabulary, characters, or grammar point even loosely -- that is
+case 2. When in doubt whether a question has a content tie at all, prefer case 2: a
+low-confidence guess that names real evidence is more useful to a teacher than an
+abstention that turns out to have been avoidable.
 
 Judge what the question ASKS, not which words it shares with a passage. A question about a
 theorem is not the theorem. A question that asks which statement is NOT true is testing the
@@ -82,10 +115,13 @@ For the competency tier, use CBSE's own three:
 - "Analysing, Evaluating & Creating" -- compare, justify, prove something not proved in the
   book, or work backwards from a result
 
-Confidence is your own honest estimate that a CBSE teacher would agree with the chapter.
-Use below 0.7 whenever the question could reasonably sit in another chapter, and name that
-chapter in alternative_chapter. An abstention costs a minute of a teacher's time; a
-confident wrong answer goes into a report and is acted on."""
+Confidence is your own honest estimate that a CBSE teacher would agree with your answer --
+the chapter you picked, or, for a null chapter, that the question really is skill-anchored
+with no chapter to name. Use below 0.7 whenever a content-anchored question could
+reasonably sit in another chapter, and name that chapter in alternative_chapter. A
+low-confidence content guess costs a teacher a minute's review; a confident wrong chapter
+goes into a report and is acted on -- and forcing a chapter onto a skill-anchored question
+is exactly that failure, just dressed up as a guess."""
 
 
 def build_prompt(

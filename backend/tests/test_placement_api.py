@@ -123,6 +123,118 @@ def test_placement_needs_question_text(client, school):
 
 # --- the review queue --------------------------------------------------------------------
 
+def test_a_skill_anchored_question_is_placed_with_no_chapter(client, school, paper, book):
+    """End to end through the real write path: a letter-writing question the judge
+    confidently says has no chapter must land as chapter_id=None, curriculum_section=None,
+    needing no review -- and must not crash reconciliation for the paper's other, ordinary
+    question."""
+    from sqlalchemy import select
+
+    from app.api.placement import _run_placement_job
+    from app.classify import anthropic_judge as anthropic_judge_module
+    from app.classify.judge import Classification
+    from app.config import get_settings
+    from app.db import SessionLocal
+    from app.models import PlacementJob, Question, QuestionPlacement
+
+    settings = get_settings()
+    before_key = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    class StubJudge:
+        """Reproduces the real bug's fix: a letter to the headmaster gets no chapter, a
+        content question keeps its ordinary answer."""
+
+        def classify(self, question, evidence):
+            if "letter" in question.lower():
+                return Classification(
+                    chapter=None, tier=None,
+                    skill_required="write a formal letter requesting library books",
+                    reasoning="skill-anchored: a letter invented for this paper",
+                    confidence=0.9,
+                )
+            return Classification(
+                chapter="Surface Areas and Volumes", tier="Applying",
+                skill_required="mensuration formula", reasoning="a cone",
+                confidence=0.95,
+            )
+
+    class StubJudgeFactory:
+        def __new__(cls, *a, **kw):
+            return StubJudge()
+
+    db = SessionLocal()
+    try:
+        added = client.post(
+            f"/assessments/{paper}/questions", headers=_auth(school),
+            json={"questions": [{
+                "section": "B", "question_no": "3", "max_marks": 5,
+                # Shares vocabulary with the book fixture's circle chunk ("tangent",
+                # "circle") purely so TF-IDF retrieval returns *some* passages to show the
+                # judge -- retrieval cannot know the question is skill-anchored, only the
+                # judge reading the passages can, which is exactly the bug being fixed.
+                "stem_text": (
+                    "Write a letter to your headmaster requesting library books about "
+                    "circles and the tangent to a circle"
+                ),
+                "board_unit": "X.MATH.U.MENSURATION",
+                "concept_family": "X.MATH.CF.VOLUME",
+                "concept_variant": "letter fixture",
+            }]},
+        )
+        assert added.status_code == 200, added.json()
+        letter_qid = db.scalars(
+            select(Question).where(
+                Question.assessment_id == paper, Question.question_no == "3"
+            )
+        ).first().id
+
+        job = PlacementJob(school_id=school["school_id"], assessment_id=paper)
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+
+    original_judge_class = anthropic_judge_module.AnthropicJudge
+    try:
+        anthropic_judge_module.AnthropicJudge = StubJudgeFactory
+        _run_placement_job(job_id)
+    finally:
+        settings.anthropic_api_key = before_key
+        anthropic_judge_module.AnthropicJudge = original_judge_class
+
+    db = SessionLocal()
+    try:
+        job = db.get(PlacementJob, job_id)
+        assert job.status == "succeeded", job.error_detail
+
+        placements: dict[str, QuestionPlacement] = {}
+        for row in db.scalars(
+            select(QuestionPlacement)
+            .join(Question, Question.id == QuestionPlacement.question_id)
+            .where(Question.assessment_id == paper)
+            .order_by(QuestionPlacement.created_at)
+        ):
+            placements[row.question_id] = row
+
+        letter_placement = placements[letter_qid]
+        assert letter_placement.chapter_id is None
+        assert letter_placement.curriculum_section is None
+        assert not letter_placement.needs_review, (
+            "a confident skill-anchored answer needs no one's time"
+        )
+
+        letter_question = db.get(Question, letter_qid)
+        assert letter_question.chapter_id is None
+        assert letter_question.curriculum_section is None
+        assert letter_question.skill_required == (
+            "write a formal letter requesting library books"
+        )
+    finally:
+        db.close()
+
+
 def test_the_queue_holds_only_what_still_needs_a_person(client, school, paper):
     from app.db import SessionLocal
     from app.models import Question, QuestionPlacement

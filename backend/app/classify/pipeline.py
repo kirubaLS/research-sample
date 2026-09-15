@@ -38,8 +38,11 @@ EVIDENCE_DEPTH = 8
 class PlacedQuestion:
     question_id: str
     marks: float
-    chapter: str
-    board_unit: str
+    #: Null for a skill-anchored question the judge confidently placed outside any
+    #: chapter -- see judge.Classification.chapter. board_unit is null exactly when this
+    #: is, for the same reason.
+    chapter: str | None
+    board_unit: str | None
     curriculum_section: str | None
     tier: str
     skill_required: str
@@ -125,26 +128,34 @@ def _pass(
             if out_of_scope else call
         )
 
-        options = [Option(call.chapter, unit_of(call.chapter) or "?", confidence)]
-        seen = {call.chapter}
-        for node, _ in verdict.runners_up:
-            name = chapter_of(node)
-            if scope is not None and not out_of_scope and name not in scope:
-                continue
-            if name and name not in seen:
-                seen.add(name)
-                options.append(
-                    Option(name, unit_of(name) or "?", max(0.05, call.confidence * 0.4))
-                )
-        if call.alternative_chapter and call.alternative_chapter not in seen:
-            if scope is None or out_of_scope or call.alternative_chapter in scope:
-                options.append(
-                    Option(
-                        call.alternative_chapter,
-                        unit_of(call.alternative_chapter) or "?",
-                        call.confidence * 0.8,
+        if call.chapter is None:
+            # Skill-anchored: the judge said this question has no chapter to point at, and
+            # the only honest option set is the one that says so. Giving it real-chapter
+            # runners-up as fallbacks would let reconcile()'s marks arithmetic swap it into
+            # a chapter it does not belong to -- exactly the force-fit this whole design
+            # exists to prevent, just moved from the judge to the solver.
+            options = [Option(None, None, confidence)]
+        else:
+            options = [Option(call.chapter, unit_of(call.chapter) or "?", confidence)]
+            seen = {call.chapter}
+            for node, _ in verdict.runners_up:
+                name = chapter_of(node)
+                if scope is not None and not out_of_scope and name not in scope:
+                    continue
+                if name and name not in seen:
+                    seen.add(name)
+                    options.append(
+                        Option(name, unit_of(name) or "?", max(0.05, call.confidence * 0.4))
                     )
-                )
+            if call.alternative_chapter and call.alternative_chapter not in seen:
+                if scope is None or out_of_scope or call.alternative_chapter in scope:
+                    options.append(
+                        Option(
+                            call.alternative_chapter,
+                            unit_of(call.alternative_chapter) or "?",
+                            call.confidence * 0.8,
+                        )
+                    )
 
         slots.append(QuestionSlot(question_id, marks, options))
 
@@ -195,6 +206,10 @@ def place_paper(
                 confidence=judged[slot.question_id].confidence,
             )
             for slot in slots
+            # A skill-anchored question voted for no chapter and says nothing about which
+            # chapters this paper covers -- it is not evidence to aggregate, and Vote.chapter
+            # is not nullable because every real vote names one.
+            if judged[slot.question_id].chapter is not None
         ])
         # Only act on a scope that explains most of the paper. A narrow scope that leaves a
         # third of the marks outside it would delete real content on the second pass, and a

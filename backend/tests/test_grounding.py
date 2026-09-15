@@ -44,6 +44,20 @@ def test_a_grounded_answer_passes_through_untouched():
 
 # --- the four escape routes -------------------------------------------------------------
 
+def test_a_null_chapter_passes_through_untouched():
+    """A skill-anchored question -- a letter, an essay from an outline -- has no chapter
+    to point at, and the schema's own conditional-Chapter rule allows exactly that. `ground`
+    must not treat null as an invented answer and force a candidate onto it: that would
+    reproduce the real bug (a letter-writing question force-mapped to a grammar chapter)
+    one layer lower than the judge."""
+    checked = ground(
+        _call(chapter=None, curriculum_section=None), EVIDENCE, known_sections=SECTIONS,
+    )
+    assert checked.clean
+    assert checked.classification.chapter is None
+    assert checked.classification.confidence == 0.9, "abstaining is not a fault to punish"
+
+
 def test_an_invented_chapter_is_replaced_and_the_confidence_destroyed():
     checked = ground(_call(chapter="Quantum Mechanics"), EVIDENCE, known_sections=SECTIONS)
     assert checked.classification.chapter in {"Surface Areas and Volumes", "Circles"}

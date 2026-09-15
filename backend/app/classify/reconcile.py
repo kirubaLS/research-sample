@@ -24,10 +24,16 @@ from dataclasses import dataclass, field
 
 @dataclass(frozen=True)
 class Option:
-    """One chapter a question could belong to, and how much it is believed."""
+    """One chapter a question could belong to, and how much it is believed.
 
-    chapter: str
-    board_unit: str
+    chapter and board_unit are both null together for a skill-anchored question the judge
+    confidently placed outside any chapter -- see judge.Classification.chapter. Such a
+    question has no board unit to test arithmetic against, so it must never be the only
+    thing making a unit's total wrong or right.
+    """
+
+    chapter: str | None
+    board_unit: str | None
     confidence: float
 
     @property
@@ -64,6 +70,14 @@ def _totals(assignment: dict[str, Option], slots: list[QuestionSlot]) -> dict[st
     marks = {s.question_id: s.marks for s in slots}
     out: dict[str, float] = {}
     for qid, option in assignment.items():
+        # A null board unit is a skill-anchored question the judge confidently said has no
+        # chapter. It does not carry marks for any unit, declared or not, so it must be
+        # left out of the totals entirely -- counting it under a synthetic bucket would
+        # make gap() either credit a unit it was never meant for or penalise the
+        # assignment for "extra" marks nothing declared, and either would pressure the
+        # solver to swap it into a real chapter it does not belong to.
+        if option.board_unit is None:
+            continue
         out[option.board_unit] = out.get(option.board_unit, 0.0) + marks[qid]
     return out
 

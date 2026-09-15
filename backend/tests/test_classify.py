@@ -125,6 +125,31 @@ def test_a_paper_declaring_no_blueprint_is_left_untouched():
     assert "no blueprint" in result.note
 
 
+# --- the skill-anchored path (no chapter to point at) ---------------------------------------
+
+def test_a_skill_anchored_question_does_not_count_toward_any_units_arithmetic():
+    """A letter-writing question has no board unit. It must neither be credited to a
+    declared unit's total nor penalised as 'marks nothing declared' -- either would
+    pressure the solver to swap it into a real chapter it does not belong to."""
+    slots = [
+        QuestionSlot("letter", 5.0, [Option(None, None, 0.9)]),
+        QuestionSlot("1", 3.0, [Option("Circles", MENS, 0.9)]),
+    ]
+    result = reconcile(slots, {MENS: 3.0})
+    assert result.feasible
+    assert result.assignment["letter"].chapter is None
+    assert result.assignment["letter"].board_unit is None
+    assert "letter" not in result.overruled, "there was nothing to swap it into"
+
+
+def test_a_confident_null_chapter_needs_no_human():
+    """Null is a different kind of correct answer, not a hedge -- it must not be flagged
+    for review just because chapter is null, or the whole point of the null path is lost."""
+    slots = [QuestionSlot("letter", 5.0, [Option(None, None, 0.92)])]
+    result = reconcile(slots, {})
+    assert needs_a_human(slots, result) == []
+
+
 # --- who gets looked at --------------------------------------------------------------------
 
 def test_low_confidence_and_overruled_questions_both_reach_a_human():
@@ -203,6 +228,108 @@ def test_the_pipeline_lets_the_blueprint_correct_the_judge():
     assert q.overruled
     assert q.needs_review, "two sources disagreeing is exactly what a human should see"
     assert placement.feasible
+
+
+def test_a_skill_anchored_letter_gets_no_chapter_end_to_end():
+    """The real bug: 'write a letter to your headmaster requesting library books' was
+    force-mapped to a grammar chapter about classifying battle-poem themes. A judge that
+    answers honestly must place it with chapter=None, no board unit, settled and needing
+    no review -- not low confidence, a different kind of correct answer."""
+    from app.classify.pipeline import place_paper
+    from app.ingest.probe import LexicalIndex
+
+    class Chunk:
+        def __init__(self, cid, text, node):
+            self.chunk_id = cid
+            self.id = cid
+            self.text = text
+            self.reference = cid
+            self.node_id = node
+            self.bucket = "T"
+            self.embedding = None
+
+    # Retrieval still returns its best (irrelevant) guess -- a grammar chapter whose words
+    # happen to overlap on "letter"/"write". The judge has to say no to it anyway.
+    chunks = [Chunk("g1", "letter classify battle poem heroism theme grammar", "PURAM")]
+    chunks += [Chunk(f"pad{i}", f"unrelated topic {i}", f"P{i}") for i in range(20)]
+
+    class StubJudge:
+        def classify(self, question, evidence):
+            return Classification(
+                chapter=None, tier=None,
+                skill_required="write a formal letter requesting library books",
+                reasoning="a letter-writing task invented for this paper -- no content "
+                "tie to any chapter, the grammar passage retrieved only shares words",
+                confidence=0.9,
+            )
+
+    names = {"PURAM": "புறப்பொருள் இலக்கணம்"}
+    placement = place_paper(
+        [("L1", "Write a letter to your headmaster requesting library books", 5.0)],
+        [LexicalIndex(chunks)],
+        StubJudge(),
+        chapter_of=names.get,
+        unit_of=lambda c: TRIG,          # must never be called for a null chapter
+        section_of=lambda r: None,
+        # A real paper with a declared blueprint would not put the letter's marks into
+        # any chapter's target either -- this stands in for that by declaring none, since
+        # a target this single-question paper had no other way to satisfy is a fact about
+        # the fixture, not about the null-chapter path under test.
+        declared=None,
+    )
+    [q] = placement.questions
+    assert q.chapter is None
+    assert q.board_unit is None
+    assert q.curriculum_section is None
+    assert not q.needs_review, "a confident skill-anchored answer needs no one's time"
+    assert not q.overruled
+    assert placement.feasible, "the letter's marks are simply not part of the arithmetic"
+
+
+def test_a_content_anchored_but_ambiguous_question_still_uses_the_low_confidence_path():
+    """The null-chapter path must not swallow this one: a question that IS about content,
+    just ambiguously which chapter, still gets a real (low-confidence) chapter guess and
+    still needs review -- exactly as before this change."""
+    from app.classify.pipeline import place_paper
+    from app.ingest.probe import LexicalIndex
+
+    class Chunk:
+        def __init__(self, cid, text, node):
+            self.chunk_id = cid
+            self.id = cid
+            self.text = text
+            self.reference = cid
+            self.node_id = node
+            self.bucket = "T"
+            self.embedding = None
+
+    chunks = [
+        Chunk("mens1", "cone slant height radius volume of a solid", "SAV"),
+        Chunk("trig1", "tower height angle of elevation observer", "APPTRIG"),
+    ]
+    chunks += [Chunk(f"pad{i}", f"unrelated topic {i}", f"P{i}") for i in range(20)]
+
+    class StubJudge:
+        def classify(self, question, evidence):
+            return Classification(
+                chapter="Applications of Trigonometry", tier="Applying",
+                skill_required="right triangle", reasoning="could be either chapter",
+                confidence=0.5, alternative_chapter="Surface Areas and Volumes",
+            )
+
+    names = {"SAV": "Surface Areas and Volumes", "APPTRIG": "Applications of Trigonometry"}
+    units = {"Surface Areas and Volumes": MENS, "Applications of Trigonometry": TRIG}
+    placement = place_paper(
+        [("17", "slant height and angle both plausible", 1.0)],
+        [LexicalIndex(chunks)],
+        StubJudge(),
+        chapter_of=names.get, unit_of=units.get, section_of=lambda r: None,
+        declared=None,
+    )
+    [q] = placement.questions
+    assert q.chapter is not None, "content-ambiguous is not the same as skill-anchored"
+    assert q.board_unit is not None
+    assert q.needs_review, "a low-confidence content guess still needs a person"
 
 
 def test_a_paper_with_no_blueprint_keeps_what_the_judge_decided():

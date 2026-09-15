@@ -265,8 +265,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     try:
         settled, unsettled, refused = 0, 0, []
         for placed in result.questions:
-            chapter = by_label.get(placed.chapter)
-            unit_id = _unit_node_id(db, nodes, placed.board_unit)
+            chapter = by_label.get(placed.chapter) if placed.chapter is not None else None
+            unit_id = _unit_node_id(db, nodes, placed.board_unit) if placed.board_unit else None
             question = db.get(Question, placed.question_id)
 
             # The judge reads the passages retrieval found and can tell a question ABOUT
@@ -276,7 +276,20 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             # It settles the question now, exactly as a teacher's correction does, and the
             # mapping step's attempt stays in the placement history.
             choice = Choice(None)
-            if question is not None and chapter is not None:
+            if question is not None and placed.chapter is None:
+                # Skill-anchored: the judge confidently said this question has no chapter,
+                # and the question record should say the same rather than keep whatever
+                # placeholder chapter it was seeded with. concept_family_id and
+                # board_unit_id are left as they are -- Question requires both non-null
+                # (see the model's own comments), and a skill-anchored question genuinely
+                # has neither a family nor a board unit to report against, so there is
+                # nothing here that would improve on the placeholder.
+                question.chapter_id = None
+                question.curriculum_section = None
+                if placed.skill_required:
+                    question.skill_required = placed.skill_required
+                settled += 1
+            elif question is not None and chapter is not None:
                 choice = choose_family(
                     families.get(chapter.id, []), sections_of,
                     placed.curriculum_section, chapter.label,
@@ -316,7 +329,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     placed.reasoning, choice.unsettled, choice.blocked,
                 ])),
                 evidence=placed.evidence,
-                candidates=[placed.chapter],
+                candidates=[placed.chapter] if placed.chapter is not None else [],
             ))
             # The tier belongs on its own append-only row too. Reports read it from
             # there, so writing it only onto the placement meant the judge decided the

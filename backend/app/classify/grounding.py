@@ -55,9 +55,12 @@ def ground(
     violations: list[str] = []
     update: dict = {}
 
-    # --- the chapter must be one that was actually offered ---
+    # --- the chapter must be one that was actually offered, or null ---
+    # Null is not a violation to correct away: it is the judge saying this question is
+    # skill-anchored and belongs to none of the candidates, which is exactly the answer
+    # the conditional-Chapter rule (app.models.assessment.Question) exists to allow.
     allowed = {e.chapter for e in evidence}
-    if result.chapter not in allowed:
+    if result.chapter is not None and result.chapter not in allowed:
         violations.append(
             f"chapter {result.chapter!r} was not among the candidates {sorted(allowed)}"
         )
