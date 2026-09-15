@@ -5,12 +5,13 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_admin
 from app.api.schemas import (
     AssessmentIn,
+    AssessmentPatchIn,
     MarkBatchIn,
     QuestionBatchIn,
     ReconcileIn,
@@ -22,10 +23,15 @@ from app.extraction.verification import verify_paper
 from app.mapping.solver import Constraint, QuestionDist, solve
 from app.models import (
     Assessment,
+    AnalysisRun,
     DataQualityFlag,
+    LogicalPage,
     MarkEvent,
     Question,
+    QuestionJudgment,
+    QuestionPlacement,
     QuestionSkill,
+    QuestionTier,
     School,
     StudentProfile,
     TaxonomyNode,
@@ -54,6 +60,155 @@ def create_assessment(
     db.add(a)
     db.flush()
     return {"assessment_id": a.id, "status": a.status}
+
+
+@router.get("")
+def list_assessments(
+    subject_code: str | None = None,
+    status_: str | None = None,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Every paper this school has, newest first. A principal's inbox, not a report."""
+    query = select(Assessment).where(Assessment.school_id == school.id)
+    if subject_code:
+        query = query.where(Assessment.subject_code == subject_code)
+    if status_:
+        query = query.where(Assessment.status == status_)
+    rows = db.scalars(query.order_by(Assessment.created_at.desc())).all()
+    return {
+        "assessments": [
+            {
+                "assessment_id": a.id,
+                "subject_code": a.subject_code,
+                "title": a.title,
+                "paper_code": a.paper_code,
+                "status": a.status,
+                "total_marks": float(a.total_marks) if a.total_marks is not None else None,
+                "created_at": a.created_at,
+            }
+            for a in rows
+        ],
+        "count": len(rows),
+    }
+
+
+@router.get("/{assessment_id}")
+def get_assessment(
+    assessment_id: str, school: School = Depends(require_admin), db: Session = Depends(get_session)
+) -> dict:
+    a = _get_assessment(db, school, assessment_id)
+    question_count = db.scalar(
+        select(func.count(Question.id)).where(Question.assessment_id == a.id)
+    )
+    marked_students = db.scalar(
+        select(func.count(func.distinct(MarkEvent.student_id))).where(
+            MarkEvent.assessment_id == a.id
+        )
+    )
+    return {
+        "assessment_id": a.id,
+        "subject_code": a.subject_code,
+        "curriculum_version": a.curriculum_version,
+        "title": a.title,
+        "paper_code": a.paper_code,
+        "total_marks": float(a.total_marks) if a.total_marks is not None else None,
+        "declared": a.declared,
+        "syllabus_scope": a.syllabus_scope,
+        "status": a.status,
+        "qmatrix_frozen_at": a.qmatrix_frozen_at,
+        "qmatrix_version": a.qmatrix_version,
+        "question_count": question_count,
+        "students_with_marks": marked_students,
+        "created_at": a.created_at,
+    }
+
+
+@router.patch("/{assessment_id}")
+def update_assessment(
+    assessment_id: str,
+    body: AssessmentPatchIn,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Correct the paper's own metadata -- title, paper code, declared blueprint. Never
+    subject or curriculum version: see AssessmentPatchIn."""
+    a = _get_assessment(db, school, assessment_id)
+    if body.title is not None:
+        a.title = body.title
+    if body.paper_code is not None:
+        a.paper_code = body.paper_code
+    if body.total_marks is not None:
+        a.total_marks = body.total_marks
+    if body.declared is not None:
+        a.declared = body.declared
+    db.flush()
+    return {"assessment_id": a.id, "title": a.title, "paper_code": a.paper_code}
+
+
+@router.delete("/{assessment_id}")
+def delete_assessment(
+    assessment_id: str,
+    force: bool = False,
+    school: School = Depends(require_admin),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Remove a paper and everything derived from it.
+
+    Refused once real marks have been posted, unless ``force=true``: a paper that students
+    have already been scored against is no longer just a mistaken upload, and deleting it
+    silently would make every report that already cited it inexplicable. An empty or
+    wrongly-created paper -- the common case, a wrong subject or a duplicate upload caught
+    before marking -- deletes outright.
+    """
+    a = _get_assessment(db, school, assessment_id)
+    question_ids = list(
+        db.scalars(select(Question.id).where(Question.assessment_id == a.id))
+    )
+    marked = db.scalar(
+        select(func.count(MarkEvent.id)).where(MarkEvent.assessment_id == a.id)
+    )
+    if marked and not force:
+        raise HTTPException(
+            409,
+            f"{marked} mark(s) already posted against this paper. Pass force=true to "
+            "delete anyway -- every report that cites this paper will lose its source.",
+        )
+
+    if question_ids:
+        db.query(QuestionPlacement).filter(
+            QuestionPlacement.question_id.in_(question_ids)
+        ).delete(synchronize_session=False)
+        db.query(QuestionTier).filter(
+            QuestionTier.question_id.in_(question_ids)
+        ).delete(synchronize_session=False)
+        db.query(QuestionJudgment).filter(
+            QuestionJudgment.question_id.in_(question_ids)
+        ).delete(synchronize_session=False)
+        db.query(QuestionSkill).filter(
+            QuestionSkill.question_id.in_(question_ids)
+        ).delete(synchronize_session=False)
+    db.query(MarkEvent).filter(MarkEvent.assessment_id == a.id).delete(synchronize_session=False)
+    db.query(DataQualityFlag).filter(
+        DataQualityFlag.assessment_id == a.id
+    ).delete(synchronize_session=False)
+    db.query(AnalysisRun).filter(
+        AnalysisRun.assessment_id == a.id
+    ).delete(synchronize_session=False)
+    db.query(LogicalPage).filter(
+        LogicalPage.assessment_id == a.id
+    ).delete(synchronize_session=False)
+    db.query(Question).filter(Question.assessment_id == a.id).delete(synchronize_session=False)
+    db.delete(a)
+    db.commit()
+
+    return {
+        "assessment_id": assessment_id,
+        "deleted": True,
+        "questions_removed": len(question_ids),
+        "marks_removed": marked,
+        "forced": bool(marked and force),
+    }
 
 
 @router.post("/{assessment_id}/questions")

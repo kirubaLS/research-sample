@@ -242,6 +242,104 @@ def test_tenancy_is_enforced(client, school):
     assert leaked.status_code == 404      # 404, never 403
 
 
+def test_a_principal_can_list_read_edit_and_delete_a_paper(client, school):
+    """The rest of the CRUD surface: a wrongly-uploaded paper is not stuck forever."""
+    created = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Wrong Subject Uploaded By Mistake"},
+    )
+    aid = created.json()["assessment_id"]
+
+    listed = client.get("/assessments", headers=_auth(school))
+    assert listed.status_code == 200
+    assert any(a["assessment_id"] == aid for a in listed.json()["assessments"])
+
+    got = client.get(f"/assessments/{aid}", headers=_auth(school))
+    assert got.status_code == 200
+    assert got.json()["title"] == "Wrong Subject Uploaded By Mistake"
+    assert got.json()["question_count"] == 0
+
+    patched = client.patch(
+        f"/assessments/{aid}", headers=_auth(school), json={"title": "Corrected Title"}
+    )
+    assert patched.status_code == 200
+    assert patched.json()["title"] == "Corrected Title"
+    assert client.get(f"/assessments/{aid}", headers=_auth(school)).json()["title"] == "Corrected Title"
+
+    deleted = client.delete(f"/assessments/{aid}", headers=_auth(school))
+    assert deleted.status_code == 200
+    assert deleted.json()["deleted"] is True
+
+    assert client.get(f"/assessments/{aid}", headers=_auth(school)).status_code == 404
+
+
+def test_a_paper_with_marks_already_posted_is_not_deleted_without_force(client, school):
+    from app.db import SessionLocal
+    from app.models import StudentProfile
+
+    db = SessionLocal()
+    db.add(StudentProfile(
+        school_id=school["school_id"], section_id=school["section_id"],
+        name="Delete Guard Student", roll_no="dg-901",
+    ))
+    db.commit()
+    db.close()
+
+    created = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Has Real Marks"},
+    )
+    aid = created.json()["assessment_id"]
+    client.post(
+        f"/assessments/{aid}/questions", headers=_auth(school),
+        json={"questions": [{
+            "section": "A", "question_no": "1", "max_marks": 2,
+            "board_unit": "X.MATH.U.MENSURATION", "concept_family": "X.MATH.CF.VOLUME",
+            "concept_variant": "delete-guard variant",
+        }]},
+    )
+    posted = client.post(
+        f"/assessments/{aid}/marks", headers=_auth(school),
+        json={"marks": [{"student_roll": "dg-901", "address": "1", "marks": 2}]},
+    )
+    assert posted.json()["written"] == 1, posted.json()
+
+    refused = client.delete(f"/assessments/{aid}", headers=_auth(school))
+    assert refused.status_code == 409
+
+    forced = client.delete(f"/assessments/{aid}?force=true", headers=_auth(school))
+    assert forced.status_code == 200
+    assert forced.json()["forced"] is True
+    assert forced.json()["marks_removed"] == 1
+
+    assert client.get(f"/assessments/{aid}", headers=_auth(school)).status_code == 404
+
+
+def test_a_paper_is_scoped_to_its_own_school_for_every_crud_route(client, school):
+    from app.db import SessionLocal
+    from app.models import School
+
+    db = SessionLocal()
+    other = School(name="Another School", api_key="other-key-crud")
+    db.add(other)
+    db.commit()
+    db.close()
+
+    mine = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Not Yours"},
+    ).json()["assessment_id"]
+
+    other_headers = {"X-API-Key": "other-key-crud"}
+    assert client.get(f"/assessments/{mine}", headers=other_headers).status_code == 404
+    assert client.patch(
+        f"/assessments/{mine}", headers=other_headers, json={"title": "Hijacked"}
+    ).status_code == 404
+    assert client.delete(f"/assessments/{mine}", headers=other_headers).status_code == 404
+    # untouched by the failed cross-tenant attempts
+    assert client.get(f"/assessments/{mine}", headers=_auth(school)).json()["title"] == "Not Yours"
+
+
 # --------------------------------------------------------------------------------------
 # The dashboard's own routes — the answer to "where is the student link?"
 # --------------------------------------------------------------------------------------

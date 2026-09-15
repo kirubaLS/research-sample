@@ -61,6 +61,18 @@ class AssessmentIn(BaseModel):
     declared: dict | None = None
 
 
+class AssessmentPatchIn(BaseModel):
+    """Only what a principal can still change after a paper exists. subject_code and
+    curriculum_version are never editable here: both are load-bearing for every question
+    already written against this assessment, and changing either out from under them would
+    silently misfile marks that were correct when they were posted."""
+
+    title: str | None = None
+    paper_code: str | None = None
+    total_marks: float | None = None
+    declared: dict | None = None
+
+
 class QuestionIn(BaseModel):
     section: str | None = None
     question_no: str
