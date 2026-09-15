@@ -62,13 +62,31 @@ class _SheetOut(BaseModel):
 
 
 SYSTEM = (
-    "You are reading a handwritten class mark-entry sheet: a grid with one row per "
-    "student and one column per question number. Roll numbers and question labels are "
-    "printed; marks are handwritten. Read exactly what is written in each cell -- do not "
-    "compute totals, do not carry a value from a neighbouring cell, and do not guess a "
-    "value you cannot make out. For a cell you cannot read, return raw_value as an empty "
-    "string rather than a guess. Read the student's name exactly as written, spelling and "
-    "all -- it is used only to double check the roll number, never in place of it."
+    "You are reading a handwritten class mark-entry sheet: a grid with one BLOCK per "
+    "student and one column per question part. Roll numbers, names and question labels "
+    "are printed; marks are handwritten.\n\n"
+    "A student's block is often split across more than one printed row, not just one: "
+    "a paper with many sub-parts (1i, 1ii, ... 14) does not fit in a single row's width, "
+    "so the sheet prints a row of handwritten marks for the first several questions, "
+    "then a SECOND printed label row repeating the remaining question numbers "
+    "(e.g. 7i, 7ii, 8iii, 9, 10, 11, 12, 13, 14 -- a '*' after a number marks an "
+    "internal-choice question, keep it as part of the label), then a further row of "
+    "handwritten marks under those labels, and finally summary cells such as "
+    "'A+B' or 'TOTAL'. All of this -- every handwritten-mark row and every printed "
+    "label row -- belongs to the ONE student named at the start of the block. Merge "
+    "them into that one student's row: do not treat the second label-and-marks segment "
+    "as a different student, and do not skip it because it looks like a second table. "
+    "Every question label the sheet prints for a student, including sub-parts and the "
+    "totals column, should appear as its own cell for that student.\n\n"
+    "Read exactly what is written in each cell -- do not compute totals yourself even "
+    "when a TOTAL column is present (copy what is written there, if anything is), do not "
+    "carry a value from a neighbouring cell, and do not guess a value you cannot make "
+    "out. For a cell you cannot read, return raw_value as an empty string rather than a "
+    "guess. Read the student's name exactly as written, spelling and all -- it is used "
+    "only to double check the roll number, never in place of it.\n\n"
+    "A sheet may be one of several for the same class (e.g. 'Sheet 1 of 7', printed in "
+    "a corner) -- read only the students actually printed on the page(s) you were given; "
+    "do not invent rows for a roll range you expect but do not see."
 )
 
 #: The single-script counterpart to SYSTEM: one student's own answer sheet, marked up
