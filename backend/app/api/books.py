@@ -1059,6 +1059,49 @@ class FamiliesIn(BaseModel):
     families: list[dict] = Field(min_length=1, max_length=200)
 
 
+@router.get("/{subject}/concept-families/applied")
+def list_applied_families(subject: str, db: Session = Depends(get_session)) -> dict:
+    """Every concept family that actually exists under this subject, across every run.
+
+    GET /concept-families/proposals only ever shows the LATEST proposal run -- a family
+    applied from an earlier run (or a PATCH/edit made after the fact) has no code visible
+    anywhere else, which makes a family spotted as wrong in the review screen (a chapter
+    or topic label that is nonsense, or in the wrong language entirely) impossible to
+    find and act on without reading the database directly. This lists what is actually
+    live right now, regardless of which run proposed it.
+    """
+    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+    families = [
+        n for n in nodes.values()
+        if n.kind == "concept_family" and n.code.startswith(f"{subject}.")
+    ]
+    from app.models import Question
+
+    used = dict(db.execute(
+        select(Question.concept_family_id, func.count(Question.id))
+        .where(Question.concept_family_id.in_([f.id for f in families]))
+        .group_by(Question.concept_family_id)
+    ).all()) if families else {}
+    proposed = {
+        p.code: p for p in db.scalars(select(ConceptFamilyProposal).where(
+            ConceptFamilyProposal.subject_code == subject
+        ))
+    }
+    return {
+        "subject": subject,
+        "families": [
+            {
+                "code": n.code, "label": n.label,
+                "chapter": nodes[n.parent_id].label if n.parent_id in nodes else None,
+                "chapter_code": nodes[n.parent_id].code if n.parent_id in nodes else None,
+                "from_sections": proposed[n.code].from_sections if n.code in proposed else [],
+                "questions": used.get(n.id, 0),
+            }
+            for n in sorted(families, key=lambda f: (nodes.get(f.parent_id).label if f.parent_id in nodes else "", f.label))
+        ],
+    }
+
+
 @router.get("/{subject}/concept-families")
 def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
     """Candidate families from the book's own section headings.

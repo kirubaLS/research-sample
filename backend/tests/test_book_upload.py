@@ -492,6 +492,44 @@ def test_correcting_a_family_that_does_not_exist_says_so(client):
     assert r.status_code == 404
 
 
+def test_applied_families_are_listed_regardless_of_which_run_proposed_them(client, school):
+    """The bug this fixes: GET /concept-families/proposals only shows the latest run, so
+    a family applied earlier (or corrected by PATCH afterwards) has no code visible
+    anywhere -- exactly the case where a reviewer has spotted something wrong in the
+    review screen (a wrong-language label) and needs to find and delete it."""
+    # A made-up section that matches nothing any real chunk in this suite resolves to --
+    # this file's tests run in a session-scoped, shared DB, so a real section number
+    # (like STATS's own 13.2) would make this family a silent extra claimant for other
+    # tests' mapping decisions elsewhere in the suite.
+    created = client.post(
+        "/platform/books/X.MATH/concept-families", headers=HEAD,
+        json={"families": [{
+            "code": "X.MATH.CF.APPLIED_LISTING_TEST", "label": "Findable label",
+            "chapter_code": "X.MATH.STATS", "from_sections": ["77.7"],
+        }]},
+    )
+    assert created.json()["created"] == 1, created.text
+
+    # A second run happens afterward -- the family above must still be listed, even
+    # though it is no longer part of the "latest" run.
+    client.post(
+        "/platform/books/X.MATH/concept-families", headers=HEAD,
+        json={"families": [{
+            "code": "X.MATH.CF.APPLIED_LISTING_TEST_2", "label": "A later family",
+            "chapter_code": "X.MATH.STATS", "from_sections": ["77.8"],
+        }]},
+    )
+
+    body = client.get(
+        "/platform/books/X.MATH/concept-families/applied", headers=HEAD
+    ).json()
+    [family] = [f for f in body["families"] if f["code"] == "X.MATH.CF.APPLIED_LISTING_TEST"]
+    assert family["label"] == "Findable label"
+    assert family["chapter_code"] == "X.MATH.STATS"
+    assert family["from_sections"] == ["77.7"]
+    assert family["questions"] == 0
+
+
 def test_an_unused_family_can_be_deleted(client, school):
     """The undo for bulk-applying a run's proposals without reading each one first: a
     family with a broken or wrong-language label that nothing has used yet should be
