@@ -1304,6 +1304,52 @@ def edit_family_sections(
     return {"code": code, "from_sections": sections}
 
 
+@router.delete("/{subject}/concept-families/{code}")
+def delete_family(subject: str, code: str, db: Session = Depends(get_session)) -> dict:
+    """Remove a family nobody has used yet.
+
+    The audit route already deletes families this way for two specific, mechanically
+    detectable problems (wrong subject, an empty slug). This is the same safety check --
+    refused the moment any Question references the family, because deleting a family a
+    mark is already filed under would orphan it -- for every OTHER way a proposing model
+    can produce a family that should never have been created: an answer in the wrong
+    language entirely (a Tamil chapter can get a Hindi or English label the model
+    happened to slip into), a hallucinated topic, or anything else a reviewer catches by
+    reading rather than by a rule this code could check for itself. Bulk-applying a run's
+    proposals without reading each one first is exactly how one of these gets through --
+    see FamiliesIn's own docstring, "reviewed, not accepted wholesale" -- and this is the
+    undo for that.
+    """
+    from app.models import Question
+
+    node = db.scalar(
+        select(TaxonomyNode).where(
+            TaxonomyNode.code == code, TaxonomyNode.kind == "concept_family",
+        )
+    )
+    if node is None:
+        raise HTTPException(404, f"no concept family {code!r} under {subject}")
+    if not node.code.startswith(f"{subject}."):
+        raise HTTPException(404, f"{code!r} does not belong to {subject}")
+
+    used = db.scalar(select(func.count(Question.id)).where(
+        Question.concept_family_id == node.id
+    ))
+    if used:
+        raise HTTPException(
+            409,
+            f"{used} question(s) are already filed under {code!r}; deleting it would "
+            f"orphan their marks. Use POST /concept-families/merge to move them to "
+            f"another family first.",
+        )
+
+    for p in db.scalars(select(ConceptFamilyProposal).where(ConceptFamilyProposal.code == code)):
+        db.delete(p)
+    db.delete(node)
+    db.commit()
+    return {"code": code, "deleted": True}
+
+
 def _audit_families(db: Session, subject: str) -> dict:
     """What is wrong with the families that exist under this subject's prefix."""
     from app.models import Question

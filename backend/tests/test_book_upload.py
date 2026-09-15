@@ -492,6 +492,86 @@ def test_correcting_a_family_that_does_not_exist_says_so(client):
     assert r.status_code == 404
 
 
+def test_an_unused_family_can_be_deleted(client, school):
+    """The undo for bulk-applying a run's proposals without reading each one first: a
+    family with a broken or wrong-language label that nothing has used yet should be
+    removable outright, not just correctable field by field."""
+    created = client.post(
+        "/platform/books/X.MATH/concept-families", headers=HEAD,
+        json={"families": [{
+            "code": "X.MATH.CF.DELETE_ME_TEST", "label": "Nonsense label",
+            "chapter_code": "X.MATH.STATS",
+        }]},
+    )
+    assert created.json()["created"] == 1, created.text
+
+    deleted = client.delete(
+        "/platform/books/X.MATH/concept-families/X.MATH.CF.DELETE_ME_TEST", headers=HEAD,
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"code": "X.MATH.CF.DELETE_ME_TEST", "deleted": True}
+
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        assert db.scalar(
+            select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.DELETE_ME_TEST")
+        ) is None
+    finally:
+        db.close()
+
+
+def test_deleting_a_family_that_does_not_exist_says_so(client):
+    r = client.delete(
+        "/platform/books/X.MATH/concept-families/X.MATH.CF.NO_SUCH_FAMILY", headers=HEAD,
+    )
+    assert r.status_code == 404
+
+
+def test_a_family_already_carrying_marks_is_refused_deletion(client, school, book):
+    """Deleting a family a real question is filed under would orphan its marks -- the
+    same protection the audit route already gives wrong-subject/empty-code families,
+    extended to every other way a family ends up unwanted."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Assessment, Question, TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        family = db.scalar(
+            select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.MEAN_STEP_DEVIATION")
+        )
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+        board_unit = db.scalar(
+            select(TaxonomyNode).where(TaxonomyNode.id == chapter.parent_id)
+        )
+        assessment = Assessment(
+            school_id=school["school_id"],
+            subject_code="X.MATH", title="Family deletion guard", total_marks=3,
+        )
+        db.add(assessment)
+        db.flush()
+        db.add(Question(
+            assessment_id=assessment.id, address="/1//", question_no="1",
+            max_marks=3.0, board_unit_id=board_unit.id, chapter_id=chapter.id,
+            curriculum_section="13.2", concept_family_id=family.id,
+            concept_variant="test question", variant_hash="test-hash",
+        ))
+        db.commit()
+        family_code = family.code
+    finally:
+        db.close()
+
+    r = client.delete(f"/platform/books/X.MATH/concept-families/{family_code}", headers=HEAD)
+    assert r.status_code == 409
+    assert "orphan" in r.json()["detail"]
+
+
 def test_a_chapter_that_fails_does_not_throw_away_the_chapters_already_paid_for(
     client, school
 ):
