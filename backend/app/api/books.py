@@ -984,10 +984,16 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
     }
 
 
-#: '13.2', '4.3.1'. What a section number looks like, so a proposal that answered with a
-#: sentence -- one run returned "Section on spherical mirror introduction" -- is dropped
-#: rather than stored as a section nothing will ever match.
-SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){1,2}$")
+#: '13.2', '4.3.1', or a bare '1' -- a book whose chapters are not further subdivided
+#: (measured on a Tamil literature book: every chapter is one section, numbered plainly
+#: "1", never "1.1") has a section number just as real as NCERT's dotted "13.2", and the
+#: dot used to be required: every chunk in such a chapter, and every family proposed from
+#: it, was silently stripped to no section at all, which is indistinguishable downstream
+#: from a chapter that never had one -- "N families exist and none claims section 1" on
+#: every question, even though the model had correctly read "1" off the book every time.
+#: What is still rejected is a sentence -- one run returned "Section on spherical mirror
+#: introduction" -- which this pattern never matches either way.
+SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,2}$")
 
 
 def clean_sections(values) -> list[str]:

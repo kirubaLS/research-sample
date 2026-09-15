@@ -1079,6 +1079,22 @@ def test_a_section_that_is_a_sentence_is_not_stored_as_a_section():
     assert clean_sections([]) == []
 
 
+def test_a_bare_section_number_is_kept_not_only_a_dotted_one():
+    """The bug this fixes: a book whose chapters are not further subdivided (measured on
+    a Tamil literature book -- every chapter is one section, numbered plainly "1", never
+    NCERT's "1.1") had its section silently stripped to nothing, because the pattern used
+    to require a dot. Every chunk in such a chapter, and every family proposed from it,
+    lost its section this way -- indistinguishable downstream from a chapter that never
+    had one, which is exactly what produced "N families exist and none claims section 1"
+    on every single question, even though the model had read "1" correctly every time. A
+    free-text answer must still be rejected, dot or no dot."""
+    from app.api.books import clean_sections
+
+    assert clean_sections(["1"]) == ["1"]
+    assert clean_sections(["1", "13.2"]) == ["1", "13.2"]
+    assert clean_sections(["Section on spherical mirror introduction"]) == []
+
+
 # ----------------------------------------------------------------------------------------
 # The judge's verdict settling the question
 #
