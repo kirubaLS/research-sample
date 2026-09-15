@@ -221,7 +221,10 @@ def delete_assessment(
             QuestionPlacement.question_id.in_(question_ids)
         ))
     for model in (
-        Question, ScannedQuestion, LogicalPage, DataQualityFlag, AnalysisRun,
+        # ScannedQuestion before Question: its question_id is a nullable FK onto Question,
+        # set once a scanned row is promoted, so deleting Question first leaves a promoted
+        # scan row pointing at nothing and the foreign key rejects the whole delete.
+        ScannedQuestion, Question, LogicalPage, DataQualityFlag, AnalysisRun,
         MarkEvent, StudentReport, ProposedMark,
     ):
         db.execute(model.__table__.delete().where(model.assessment_id == assessment_id))

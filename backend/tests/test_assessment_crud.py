@@ -2,11 +2,45 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+
 import pytest
 
 
 def _auth(school):
     return {"X-API-Key": school["api_key"]}
+
+
+@contextmanager
+def _foreign_keys_enforced():
+    """Postgres enforces foreign keys unconditionally; sqlite, used only in tests, does not
+    unless told to -- which is exactly why a cascade-order bug in a DELETE could pass every
+    test here and still 500 in production. Scoped to one test rather than flipped globally
+    in app.db: turning it on for every test surfaced unrelated pre-existing ordering issues
+    in gridsheet, out of scope for this fix."""
+    from sqlalchemy import event
+
+    from app.db import engine
+
+    def _enable(dbapi_connection, _):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
+    if engine.dialect.name != "sqlite":
+        yield
+        return
+    event.listen(engine, "connect", _enable)
+    # A pooled connection keeps a PRAGMA for its own lifetime, so a connection this test
+    # picks up would otherwise carry foreign_keys=ON into a later, unrelated test that
+    # happens to reuse it. Disposing on both sides forces every connection touched by this
+    # block, and everything after it, to be freshly made.
+    engine.dispose()
+    try:
+        yield
+    finally:
+        event.remove(engine, "connect", _enable)
+        engine.dispose()
 
 
 @pytest.fixture
@@ -82,10 +116,11 @@ def test_deleting_a_paper_that_has_been_scanned_and_mapped_leaves_nothing_behind
     assessment_id = r.json()["assessment_id"]
 
     db = SessionLocal()
-    db.add(ScannedQuestion(
+    scanned = ScannedQuestion(
         assessment_id=assessment_id, address="1", question_no="1", max_marks=3,
         stem_text="Find the mean.", logical_page=1,
-    ))
+    )
+    db.add(scanned)
     chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
     unit = db.scalar(
         select(ChapterBoardUnit).where(ChapterBoardUnit.chapter_id == chapter.id)
@@ -97,16 +132,22 @@ def test_deleting_a_paper_that_has_been_scanned_and_mapped_leaves_nothing_behind
     )
     db.add(family)
     db.flush()
-    db.add(Question(
+    question = Question(
         assessment_id=assessment_id, address="1", question_no="1", max_marks=3,
         stem_text="Find the mean.", stem_hash="h", chapter_id=chapter.id,
         board_unit_id=unit.board_unit_id, concept_family_id=family.id,
         concept_variant="Find the mean.", variant_hash="v", curriculum_section="13.1",
-    ))
+    )
+    db.add(question)
+    db.flush()
+    # the case that matters: a scanned row promoted to a real Question, the way mapping
+    # actually leaves it -- not the never-promoted row the test previously only covered
+    scanned.question_id = question.id
     db.commit()
     db.close()
 
-    r = client.delete(f"/assessments/{assessment_id}", headers=_auth(school))
+    with _foreign_keys_enforced():
+        r = client.delete(f"/assessments/{assessment_id}", headers=_auth(school))
     assert r.status_code == 204, r.text
 
     db = SessionLocal()
