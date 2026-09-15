@@ -20,8 +20,16 @@ ENV PYTHONUNBUFFERED=1 \
 # extraction method reads it -- reading the rendered page as an image sidesteps the
 # encoding entirely. app.ingest.hindi_ocr checks for the binary and the language data the
 # same way app.extraction.marksheet does, rather than assuming either is present.
+#
+# tesseract-ocr-tam is the same fix for the Tamil book: most chapters have a real Unicode
+# text layer (app.ingest.tamil_text handles that font's own glyph-repeat artifact), but
+# some chapters' embedded font subset has the identical broken-ToUnicode-CMap defect as
+# Hindi's -- pulli marks vanish and stray glyphs from other scripts get substituted in.
+# app.ingest.tamil_ocr OCRs only the specific pages tamil_text.tamil_text_is_corrupted()
+# flags, so this package is needed for that fallback to ever succeed rather than raise.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential libpq5 tesseract-ocr tesseract-ocr-eng tesseract-ocr-hin \
+        tesseract-ocr-tam \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /srv
