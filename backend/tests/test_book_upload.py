@@ -453,6 +453,45 @@ def test_a_stored_proposal_carries_the_chapter_code_needed_to_apply_it(client):
     }
 
 
+def test_a_familys_sections_can_be_corrected_without_renaming_it(client):
+    """The bug this fixes: a family whose label and chapter are exactly right can still
+    have the wrong section on it (a model shown a whole-chapter book cited a question
+    number instead of the bare "1" the chapter's chunks actually carry), and there used
+    to be no way to fix just that -- only create a new family under a new code, which
+    breaks every trend already keyed on the old one. PATCH corrects the one field that is
+    metadata about where mapping looks, not the family's own permanent identity."""
+    created = client.post(
+        "/platform/books/X.MATH/concept-families", headers=HEAD,
+        json={"families": [{
+            "code": "X.MATH.CF.SECTION_FIX_TEST", "label": "Original label",
+            "chapter_code": "X.MATH.STATS", "from_sections": ["30.1"],
+        }]},
+    )
+    assert created.json()["created"] == 1, created.text
+
+    patched = client.patch(
+        "/platform/books/X.MATH/concept-families/X.MATH.CF.SECTION_FIX_TEST",
+        headers=HEAD, json={"from_sections": ["1"]},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json() == {"code": "X.MATH.CF.SECTION_FIX_TEST", "from_sections": ["1"]}
+
+    body = client.get("/platform/books/X.MATH/concept-families/proposals", headers=HEAD).json()
+    [family] = [f for f in body["families"] if f["code"] == "X.MATH.CF.SECTION_FIX_TEST"]
+    assert family["from_sections"] == ["1"]
+    # Never touched: the identity a report's trend depends on.
+    assert family["label"] == "Original label"
+    assert family["chapter_code"] == "X.MATH.STATS"
+
+
+def test_correcting_a_family_that_does_not_exist_says_so(client):
+    r = client.patch(
+        "/platform/books/X.MATH/concept-families/X.MATH.CF.NO_SUCH_FAMILY",
+        headers=HEAD, json={"from_sections": ["1"]},
+    )
+    assert r.status_code == 404
+
+
 def test_a_chapter_that_fails_does_not_throw_away_the_chapters_already_paid_for(
     client, school
 ):

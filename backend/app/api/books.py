@@ -1246,6 +1246,64 @@ def create_families(
     }
 
 
+class FamilySectionsIn(BaseModel):
+    """Correcting which sections of the book a family covers -- never its label or
+    chapter, which is what "a family is never renamed" protects."""
+
+    from_sections: list[str] = Field(min_length=0, max_length=50)
+
+
+@router.patch("/{subject}/concept-families/{code}")
+def edit_family_sections(
+    subject: str, code: str, body: FamilySectionsIn, db: Session = Depends(get_session),
+) -> dict:
+    """Correct which sections of the chapter an existing family covers.
+
+    Everything about a family except this is permanent (see create_families: a code is
+    never renamed, a chapter never moved, because a report's trend depends on the family
+    meaning the same thing across every cycle it was ever used in). Which sections it
+    covers is different -- it is metadata about where mapping should look for this
+    family, not the family's own identity, and it is exactly the field a proposing model
+    can get wrong without the label or the chapter being wrong at all: a chapter that is
+    genuinely one whole section ("1", not NCERT's "1.1") produced families that all cited
+    a question number instead ("30.1") because that was the only digit-shaped thing near
+    the passage the model was shown. The family itself -- its name, its chapter -- was
+    right; only the section it was filed under was not, and there was no way to fix that
+    without deleting and recreating it under a new code, which would have broken every
+    trend already keyed on the old one.
+    """
+    node = db.scalar(
+        select(TaxonomyNode).where(
+            TaxonomyNode.code == code, TaxonomyNode.kind == "concept_family",
+        )
+    )
+    if node is None:
+        raise HTTPException(404, f"no concept family {code!r} under {subject}")
+    if not node.code.startswith(f"{subject}."):
+        raise HTTPException(404, f"{code!r} does not belong to {subject}")
+
+    proposal = db.scalar(
+        select(ConceptFamilyProposal).where(ConceptFamilyProposal.code == code)
+    )
+    sections = clean_sections(body.from_sections)
+    if proposal is not None:
+        proposal.from_sections = sections
+    else:
+        # A family created before any proposal tracked it (the oldest ones, or one typed
+        # in by hand) has no row to correct -- add one, so this and every future read of
+        # "what sections does this family cover" has somewhere to answer from.
+        db.add(ConceptFamilyProposal(
+            curriculum_version=node.curriculum_version, subject_code=subject,
+            run_id=uuid.uuid4().hex, source="manual", model=None,
+            code=code, label=node.label, chapter_id=node.parent_id,
+            rationale="section corrected by hand", evidence=sections,
+            from_sections=sections, applied_at=datetime.now(UTC).isoformat(),
+        ))
+    db.commit()
+
+    return {"code": code, "from_sections": sections}
+
+
 def _audit_families(db: Session, subject: str) -> dict:
     """What is wrong with the families that exist under this subject's prefix."""
     from app.models import Question
