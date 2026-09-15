@@ -1,8 +1,36 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, ApiError, apiBase, apiBaseIsDefault, ApiUnreachable } from "@/lib/api";
-import { getApiKey, getSchoolName, setApiKey, signOut } from "@/lib/session";
+import { useRouter } from "next/navigation";
+import { api, ApiError } from "@/lib/api";
+import Link from "next/link";
+import { Mascot } from "@/components/Mascot";
+import {
+  clearActiveSchool,
+  getApiKey,
+  getSchoolName,
+  setActiveSchool,
+  setRole,
+  signOut,
+  signOutPlatform,
+  type StaffRole,
+} from "@/lib/session";
+
+/** A principal's key never opens the operator console, no matter what this same browser
+ * signed into earlier -- a stale platform key from a prior operator session must not
+ * carry forward onto a principal's own sign-in. */
+function forgetPlatformAccessUnlessAdmin(role: string): void {
+  if (role !== "admin") signOutPlatform();
+}
+
+/** Used only while an admin has not yet named a school; /admin/me replaces it after. */
+const ADMIN_CAN = {
+  read_results: true,
+  scan_papers: true,
+  enter_marks: true,
+  manage_roster: true,
+  manage_schools: true,
+};
 
 /**
  * The dashboard's sign-in.
@@ -11,11 +39,17 @@ import { getApiKey, getSchoolName, setApiKey, signOut } from "@/lib/session";
  * this — they arrive on a class link and have no account at all.
  */
 export function AdminGate({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const [ready, setReady] = useState(false);
   const [signedIn, setSignedIn] = useState(false);
+  const [staff, setStaff] = useState<StaffRole | null>(null);
+  const [needsSchool, setNeedsSchool] = useState(false);
+  const [stale, setStale] = useState<string | null>(null);
   const [school, setSchool] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  // Set the moment a teacher key is caught here, so the sibling "not signed in -> /login"
+  // effect below (keyed on the same ready/signedIn state) doesn't also fire and race the
+  // /teacher redirect -- both would otherwise see ready=true, signedIn=false.
+  const [redirectingRole, setRedirectingRole] = useState(false);
 
   useEffect(() => {
     const key = getApiKey();
@@ -26,89 +60,66 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
     api
       .whoami(key)
       .then((me) => {
+        // /admin is the principal/school-admin dashboard -- BoardX, Manage Teachers,
+        // Settings, the full roster. A teacher key resolving here (a stale session from
+        // before the teacher role existed, a bookmarked URL, the back button) must not
+        // render any of that; it gets exactly the same "which shell for this role" send-off
+        // /login already gives a fresh sign-in.
+        if (me.role === "teacher") {
+          setRedirectingRole(true);
+          router.replace("/teacher");
+          return;
+        }
         setSchool(me.name);
+        setStaff({ role: me.role, can: me.can, scope: me.scope });
+        setRole({ role: me.role, can: me.can, scope: me.scope });
+        forgetPlatformAccessUnlessAdmin(me.role);
         setSignedIn(true);
       })
-      .catch(() => signOut())
+      .catch((err) => {
+        // 400 means the key works but belongs to no school: an admin who has not picked
+        // one yet, or whose stored choice was deleted. Signing them out would be wrong.
+        if (err instanceof ApiError && err.status === 400) {
+          clearActiveSchool();
+          setNeedsSchool(true);
+          setSignedIn(true);
+          setStaff({ role: "admin", scope: "all_schools", can: ADMIN_CAN });
+          setRole({ role: "admin", scope: "all_schools", can: ADMIN_CAN });
+          return;
+        }
+        // Only a rejected key signs anyone out. A server still starting, or a network
+        // that dropped, is not a reason to throw away a session and make a teacher find
+        // their key again -- they will simply see the error and can retry.
+        if (err instanceof ApiError && err.status === 404) {
+          signOut();
+          return;
+        }
+        setStale(
+          "Could not check your session just now. Reload in a moment; you are still signed in.",
+        );
+        setSignedIn(true);
+      })
       .finally(() => setReady(true));
   }, []);
 
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setBusy(true);
-    const key = String(new FormData(event.currentTarget).get("key") ?? "").trim();
-    try {
-      const me = await api.whoami(key);
-      setApiKey(key, me.name);
-      setSchool(me.name);
-      setSignedIn(true);
-    } catch (err) {
-      setError(
-        err instanceof ApiUnreachable
-          ? `Could not reach the API at ${err.base}. Either the backend is down, or this site was built without NEXT_PUBLIC_API_BASE pointing at it, or the API's CORS origins do not include this site.`
-          : err instanceof ApiError && err.status === 404
-            ? "That key was not recognised. Check it against the one the operator console issued."
-            : "Something went wrong signing in.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Not signed in: there is exactly one sign-in screen in the product, /login (§4 of the
+  // brand spec -- "School Staff"/"Student" tabs). This component used to render a second,
+  // differently-styled form of its own right here, which is the duplicate-login confusion
+  // reported live -- landing on /admin with no session now hands off to /login instead of
+  // drawing a competing form.
+  useEffect(() => {
+    if (ready && !signedIn && !redirectingRole) router.replace("/login");
+  }, [ready, signedIn, redirectingRole, router]);
 
-  if (!ready) {
+  if (!ready || !signedIn) {
     return (
       <main className="narrow">
-        <p className="muted">Checking your session…</p>
-      </main>
-    );
-  }
-
-  if (!signedIn) {
-    return (
-      <main className="narrow">
-        <div className="hero">
-          <p className="eyebrow">Principal &amp; admin</p>
-          <h1>Sign in</h1>
-          <p className="lede">
-            The dashboard is for school staff. Students do not sign in — they open a class
-            link instead.
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Mascot pose="loading" size={28} />
+          <p className="muted" style={{ margin: 0 }}>
+            {ready ? "Taking you to the right place…" : "Checking your session…"}
           </p>
         </div>
-
-        {apiBaseIsDefault() && (
-          <div className="notice warn" style={{ marginTop: 18 }}>
-            This site was built without <span className="mono">NEXT_PUBLIC_API_BASE</span>, so
-            it is calling <span className="mono">{apiBase()}</span> — your own machine. Set it
-            to the API service&apos;s URL and deploy again; it is read at build time, so a
-            restart alone will not pick it up.
-          </div>
-        )}
-
-        <form onSubmit={submit} className="card" style={{ marginTop: 22 }}>
-          <div className="field">
-            <label htmlFor="key">School API key</label>
-            <input
-              id="key"
-              name="key"
-              type="password"
-              autoComplete="current-password"
-              placeholder="zozx6r94sEf1KWs7fRdXTNJNYXKEteuW"
-              required
-            />
-            <p className="hint">
-              There are no admin accounts and no passwords — one key per school, held by the
-              principal. It is issued in the operator console at{" "}
-              <span className="mono">/platform</span>, which also re-issues it if this one is
-              lost. From a shell, <span className="mono">python -m scripts.admin_key</span>
-              {" "}prints it instead.
-            </p>
-          </div>
-          {error && <p className="error">{error}</p>}
-          <button type="submit" disabled={busy}>
-            {busy ? "Checking…" : "Sign in"}
-          </button>
-        </form>
       </main>
     );
   }
@@ -116,6 +127,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
   return (
     <>
       <div
+        className="accountbar"
         style={{
           maxWidth: "var(--max)",
           margin: "0 auto",
@@ -126,7 +138,23 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           alignItems: "center",
         }}
       >
-        <span className="small muted">{school ?? getSchoolName()}</span>
+        <span className="small muted">
+          {[needsSchool ? null : (school ?? getSchoolName()) || null,
+            staff ? (staff.role === "admin" ? "Admin" : "Principal") : null]
+            .filter(Boolean)
+            .join(" · ")}
+        </span>
+        {staff?.scope === "all_schools" && !needsSchool && (
+          <button
+            className="secondary tiny"
+            onClick={() => {
+              clearActiveSchool();
+              setNeedsSchool(true);
+            }}
+          >
+            Switch school
+          </button>
+        )}
         <button
           className="secondary tiny"
           onClick={() => {
@@ -137,7 +165,118 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           Sign out
         </button>
       </div>
-      {children}
+      <style jsx global>{`
+        @media print {
+          .accountbar {
+            display: none !important;
+          }
+        }
+      `}</style>
+      {stale && (
+        <p className="notice warn" style={{ maxWidth: "var(--max)", margin: "0 auto 12px" }}>
+          {stale}
+        </p>
+      )}
+      {needsSchool ? (
+        <SchoolPicker
+          onPick={(id) => {
+            setActiveSchool(id);
+            // A full reload, not a state flip: every screen already mounted has data for
+            // no school or the previous one, and a half-switched dashboard is how someone
+            // reads one school's numbers under another school's name.
+            window.location.reload();
+          }}
+        />
+      ) : (
+        children
+      )}
     </>
+  );
+}
+
+
+/**
+ * Which school an admin is acting on.
+ *
+ * There is no default and no "most recent" fallback. An admin key belongs to no school,
+ * and a dashboard that quietly picked one would show a real school's numbers under a
+ * heading nobody chose -- the API refuses to guess for exactly the same reason.
+ */
+function SchoolPicker({ onPick }: { onPick: (id: string) => void }) {
+  const [schools, setSchools] = useState<{ id: string; name: string; students: number }[]>([]);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key) return;
+    api
+      .listSchools(key)
+      .then((rows) => setSchools(rows.map((r) => ({ id: r.id, name: r.name, students: r.students }))))
+      .catch(() => setError("Could not load the list of schools."));
+  }, []);
+
+  return (
+    <main className="narrow">
+      <div className="hero">
+        <p className="eyebrow">Admin</p>
+        <h1>Which school?</h1>
+        <p className="lede">
+          Your key works across every school on this deployment, so nothing is loaded until
+          you say which one. You can switch at any time from the bar above.
+        </p>
+      </div>
+
+      {error && <p className="error">{error}</p>}
+      {!error && schools.length === 0 && <p className="muted">Loading schools…</p>}
+
+      <div className="stack" style={{ gap: 10, marginTop: 18 }}>
+        {schools.map((s) => (
+          <button
+            key={s.id}
+            className="card schoolpick"
+            onClick={() => onPick(s.id)}
+            type="button"
+          >
+            <span className="schoolname">{s.name}</span>
+            <span className="cardnote">
+              {s.students} student{s.students === 1 ? "" : "s"}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <p className="small muted" style={{ marginTop: 18 }}>
+        Creating a school, loading a book or issuing a key happens in the{" "}
+        <Link href="/platform">console</Link>.
+      </p>
+
+      <style jsx>{`
+        .schoolpick {
+          display: block;
+          width: 100%;
+          text-align: left;
+          background: var(--surface, #fff);
+          color: inherit;
+          border: 1px solid var(--rule, #e3e3e6);
+          cursor: pointer;
+          animation: rise-in 0.4s var(--ease, ease) both;
+        }
+        .schoolpick:hover {
+          border-color: var(--mark-2, #16324f);
+          transform: translateY(-2px);
+          box-shadow: var(--shadow);
+        }
+        .schoolname {
+          display: block;
+          font-size: 19px;
+          font-weight: 600;
+          color: var(--ink, #16324f);
+        }
+        .cardnote {
+          display: block;
+          margin-top: 4px;
+        }
+      `}</style>
+    </main>
   );
 }

@@ -92,7 +92,12 @@ class S3ObjectStore:
         self.bucket = bucket
         self.client = boto3.client(
             "s3",
-            endpoint_url=endpoint_url,
+            # An empty string is not "no override" to boto3 -- it is an invalid endpoint
+            # ("ValueError: Invalid endpoint: "), so a blank YAADHUM_S3_ENDPOINT_URL (the
+            # correct value for real AWS S3; the setting only exists for Cloudflare R2 or
+            # MinIO) has to become None here, not pass through as the empty string a
+            # blank env var actually is.
+            endpoint_url=endpoint_url or None,
             region_name=region,
             aws_access_key_id=access_key,
             aws_secret_access_key=secret_key,

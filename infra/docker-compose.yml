@@ -1,0 +1,79 @@
+# The PRODUCTION deploy compose file -- one Lightsail VM, ap-south-1 (Mumbai). Not the
+# same thing as the top-level ../docker-compose.yml, which is local dev only (bare
+# postgres/redis/minio, run against `next dev` / `uvicorn --reload` on the host). Run this
+# one from the repo root as `docker compose -f infra/docker-compose.yml up -d --build`,
+# or `cd infra && docker compose up -d --build` (paths below are already relative to this
+# file's own directory either way, since compose resolves build contexts and volumes
+# relative to the compose file, not the cwd).
+#
+# Postgres runs here too, to start: no managed database service to pay for yet, at the
+# cost of the VM being a single point of failure until you graduate to a managed Postgres
+# (see README.md's migration note). Backend and frontend are never exposed on their own
+# ports -- only Caddy is, so TLS termination and the reverse proxy sit in exactly one
+# place.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: yaadhum
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: yaadhum
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yaadhum"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    # No `ports:` -- reachable only from other containers on this compose network, never
+    # from outside the VM. Use `docker compose exec postgres psql ...` to get a shell on it.
+
+  backend:
+    build:
+      context: ../backend
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Overrides whatever .env has for these two: inside this compose network the
+      # database is reached by service name, not localhost, and the migration endpoint is
+      # the same one the app uses since this Postgres has no separate pooler.
+      YAADHUM_DATABASE_URL: postgresql+psycopg://yaadhum:${POSTGRES_PASSWORD}@postgres:5432/yaadhum
+      YAADHUM_MIGRATION_DATABASE_URL: postgresql+psycopg://yaadhum:${POSTGRES_PASSWORD}@postgres:5432/yaadhum
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ../frontend
+      dockerfile: Dockerfile
+      args:
+        # Baked in at build time -- see frontend/Dockerfile's own comment. This is the
+        # PUBLIC url a browser calls, so it goes through Caddy (api.<yourdomain>), never
+        # the backend container's internal name.
+        NEXT_PUBLIC_API_BASE: ${NEXT_PUBLIC_API_BASE:?set NEXT_PUBLIC_API_BASE in .env}
+    restart: unless-stopped
+    depends_on:
+      - backend
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - frontend
+      - backend
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

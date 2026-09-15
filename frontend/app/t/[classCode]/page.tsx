@@ -59,7 +59,7 @@ export default function StartPage({ params }: { params: Promise<{ classCode: str
         <p className="eyebrow">Class X · interest questionnaire</p>
         <h1>Tell us about yourself</h1>
         <p className="lede">
-          36 short questions, about eight minutes. There are no right or wrong answers — just
+          36 short questions, about eight minutes. There are no right or wrong answers, just
           say how much you would enjoy doing each thing.
         </p>
       </div>

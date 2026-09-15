@@ -114,7 +114,7 @@ function TestFlow() {
             <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
               <span className="badge">3</span>
               <span>
-                Answer about what you would <em>enjoy doing</em> — not what you think you
+                Answer about what you would <em>enjoy doing</em>, not what you think you
                 should say.
               </span>
             </div>

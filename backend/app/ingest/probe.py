@@ -13,12 +13,17 @@ from __future__ import annotations
 
 import math
 import re
+import unicodedata
 from collections import Counter
 from dataclasses import dataclass
 
 from app.ingest.book import normalise
 
-#: words that carry no subject signal and would otherwise dominate a short exam stem
+#: words that carry no subject signal and would otherwise dominate a short exam stem.
+#: English only -- a Hindi or Tamil stopword list would need the same native-script
+#: research this codebase has no way to verify, so the other scripts simply go through
+#: this filter untouched. That is a strictly better default than the alternative of
+#: excluding them from retrieval entirely, which is what happened before this fix.
 STOPWORDS = frozenset(
     "the a an of is are was in to and or then which following not if by with for be that "
     "at on value find given show prove it its this these those from as we you".split()
@@ -26,7 +31,32 @@ STOPWORDS = frozenset(
 
 
 def tokens(text: str) -> list[str]:
-    return [w for w in re.findall(r"[a-z]+", normalise(text)) if w not in STOPWORDS and len(w) > 2]
+    """Split into words for TF-IDF, in whatever script the text is actually written.
+
+    A plain ``[a-z]+`` regex -- the shape this was before -- only ever matched Latin
+    letters, so a Hindi or Tamil question (or a Tamil book chunk) tokenized to nothing
+    and scored 0 against every chunk in the index, not because the match was bad but
+    because there was never anything to compare: 'no chapter in the book matched this
+    question' on every single row of a Tamil paper, even chunks that were an obvious
+    match to a person reading them. Unicode's own category table is what makes this
+    generalize without a per-language table to maintain: category L (letters, any
+    script) and M (the combining vowel signs and viramas Tamil, Hindi and most other
+    Indic scripts build a syllable out of -- dropping these, which a plain \\w does,
+    splits one word into fragments with no letters in common with the same word
+    elsewhere) are kept as one run; anything else (whitespace, punctuation, digits)
+    ends a run the same way whitespace always did.
+    """
+    words: list[str] = []
+    current: list[str] = []
+    for ch in normalise(text).casefold():
+        if unicodedata.category(ch)[0] in "LM":
+            current.append(ch)
+        elif current:
+            words.append("".join(current))
+            current = []
+    if current:
+        words.append("".join(current))
+    return [w for w in words if w not in STOPWORDS and len(w) > 2]
 
 
 @dataclass(frozen=True)
@@ -36,6 +66,12 @@ class Candidate:
     node_id: str | None
     bucket: str
     score: float
+    #: the section of the chapter this passage sits in, when the book said so
+    section: str | None = None
+    #: The passage itself. Carried because the whole point of the classifier is a model
+    #: READING these; without the text it was shown a list of chapter names under the
+    #: heading "PASSAGES FROM THE BOOK" and nothing beneath it, and asked to choose.
+    text: str = ""
 
 
 class SemanticIndex:
@@ -57,7 +93,11 @@ class SemanticIndex:
             return []
         [vector] = self.embedder.embed_texts([question], is_query=True)
         scored = [
-            Candidate(c.id, c.reference, c.node_id, c.bucket, cosine(vector, c.embedding))
+            Candidate(
+                c.id, c.reference, c.node_id, c.bucket,
+                cosine(vector, c.embedding), getattr(c, "section_number", None),
+                getattr(c, "text", "") or "",
+            )
             for c in self.chunks
         ]
         scored.sort(key=lambda c: -c.score)
@@ -85,8 +125,11 @@ class LexicalIndex:
             )
             if score > 0:
                 scored.append(
-                    Candidate(chunk.id, chunk.reference, chunk.node_id, chunk.bucket,
-                              score / norm)
+                    Candidate(
+                        chunk.id, chunk.reference, chunk.node_id, chunk.bucket,
+                        score / norm, getattr(chunk, "section_number", None),
+                        getattr(chunk, "text", "") or "",
+                    )
                 )
         scored.sort(key=lambda c: -c.score)
         return scored[:k]
@@ -105,6 +148,11 @@ class ChapterVerdict:
     agreed: bool                  # did both retrievers independently pick this chapter
     evidence: list[Candidate]     # the chunks that put it there
     runners_up: list[tuple[str | None, float]]
+    #: The section of the winning chapter that the winning passages came from, or None
+    #: when they disagree or the book never said. Voted by the same fused scores that
+    #: chose the chapter, so the topic rests on the same evidence and not on a second
+    #: guess: a section named by one weak passage does not outrank the chapter's own.
+    section: str | None = None
 
 
 #: reciprocal-rank fusion constant. 60 is the value the method was published with and
@@ -138,6 +186,8 @@ def locate(
     depth: int = 12,
     scope: set[str] | None = None,
     chapter_of=None,
+    evidence_passages: int = 3,
+    evidence_chapters: int = 1,
 ) -> ChapterVerdict:
     """Which chapter, from every retriever available, aggregated per chapter.
 
@@ -196,11 +246,54 @@ def locate(
     # agreement between independent retrievers is a cheap, honest confidence signal
     agreed = len(ranked) > 1 and len({lst[0].node_id for lst in ranked}) == 1
 
+    # Which section of the winning chapter its own evidence points at. Only passages that
+    # voted for this chapter count, and only the ones the book gave a section.
+    by_section: dict[str, float] = {}
+    for chunk_id, score in fused.items():
+        candidate = by_chunk[chunk_id]
+        if candidate.node_id == top_node and candidate.section:
+            by_section[candidate.section] = by_section.get(candidate.section, 0.0) + score
+
     return ChapterVerdict(
         node_id=top_node,
         score=top_score,
         margin=top_score - runner_up,
         agreed=agreed,
-        evidence=sorted(evidence[top_node], key=lambda c: -c.score)[:3],
+        evidence=_evidence_across(
+            ordered, evidence, evidence_chapters, evidence_passages
+        ),
         runners_up=[(n, round(s, 4)) for n, s in ordered[1:4]],
+        section=max(by_section, key=by_section.get) if by_section else None,
     )
+
+
+def _evidence_across(
+    ordered: list,
+    evidence: dict,
+    chapters: int,
+    passages: int,
+) -> list[Candidate]:
+    """The passages to hand a reader, spanning the chapters that were in contention.
+
+    Returning only the winner's passages made the judge's job impossible: it is asked to
+    choose one chapter from the candidates it is shown, and it was shown one. The whole
+    reason it exists -- that similarity cannot tell a question ABOUT a theorem from the
+    theorem, and picks the chapter full of right triangles for a cone -- needs the rival
+    chapter in front of it.
+
+    Round-robin rather than best-scoring-first, because the rival is by definition the
+    lower-scoring one: taking the top passages by score would return the winner's again.
+    """
+    ranked = [
+        sorted(evidence[node], key=lambda c: -c.score)
+        for node, _ in ordered[: max(1, chapters)]
+        if node in evidence
+    ]
+    out: list[Candidate] = []
+    rank = 0
+    while len(out) < passages and any(len(lst) > rank for lst in ranked):
+        for lst in ranked:
+            if len(lst) > rank and len(out) < passages:
+                out.append(lst[rank])
+        rank += 1
+    return out

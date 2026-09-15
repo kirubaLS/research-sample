@@ -1,0 +1,16 @@
+{
+  "Rules": [
+    {
+      "ID": "expire-scanned-pages-after-30-days",
+      "Filter": { "Prefix": "scans/" },
+      "Status": "Enabled",
+      "Expiration": { "Days": 30 }
+    },
+    {
+      "ID": "abort-incomplete-multipart-uploads",
+      "Filter": { "Prefix": "" },
+      "Status": "Enabled",
+      "AbortIncompleteMultipartUpload": { "DaysAfterInitiation": 7 }
+    }
+  ]
+}

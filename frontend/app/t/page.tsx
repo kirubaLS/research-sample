@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { api, ClassOption } from "@/lib/api";
+import { GrowthIllustration } from "@/components/GrowthIllustration";
 
 /**
  * The student front door.
@@ -28,14 +29,32 @@ export default function ClassPicker() {
 
   return (
     <main>
-      <div className="hero">
-        <p className="eyebrow">Interest test</p>
-        <h1>Find your class</h1>
-        <p className="lede">
-          Tap your class to begin. 36 short questions, about eight minutes, in English,
-          தமிழ் or हिन्दी. There are no right or wrong answers, and no login.
-        </p>
+      <div className="hero hero-story">
+        <div className="hero-copy">
+          <p className="eyebrow">Interest test</p>
+          <h1>Find your class</h1>
+          <p className="lede">
+            Tap your class to begin. 36 short questions, about eight minutes, in English,
+            தமிழ் or हिन्दी. There are no right or wrong answers, and no login.
+          </p>
+        </div>
+        <GrowthIllustration className="hero-illustration" />
       </div>
+
+      <style jsx>{`
+        .hero-story {
+          display: flex;
+          align-items: center;
+          gap: 28px;
+          flex-wrap: wrap;
+        }
+        .hero-copy { flex: 1 1 320px; min-width: 0; }
+        .hero-illustration { flex: 0 1 260px; min-width: 180px; max-width: 260px; }
+        @media (max-width: 640px) {
+          .hero-story { flex-direction: column-reverse; }
+          .hero-illustration { max-width: 220px; }
+        }
+      `}</style>
 
       {error && <div className="notice warn">{error}</div>}
       {!classes && !error && <p className="cardnote">Loading classes…</p>}

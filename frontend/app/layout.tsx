@@ -1,11 +1,15 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Source_Sans_3, Spectral } from "next/font/google";
+import { JetBrains_Mono, Manrope, Source_Sans_3 } from "next/font/google";
+import { DecorativeBackground } from "@/components/DecorativeBackground";
 import { SiteHeader } from "@/components/SiteHeader";
 import "./globals.css";
 
-const display = Spectral({
+// Manrope, not the old serif (Spectral): a premium EdTech dashboard reads as friendly and
+// modern with a clean sans throughout, headings included -- a serif display face is the
+// one thing that would make this look like a print report rather than a product.
+const display = Manrope({
   subsets: ["latin"],
-  weight: ["400", "600", "700"],
+  weight: ["500", "600", "700", "800"],
   variable: "--font-display",
   display: "swap",
 });
@@ -23,7 +27,7 @@ const mono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Yaadhum",
+  title: "Avai",
   description: "Assessment diagnostics for CBSE schools",
 };
 
@@ -31,12 +35,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
+        <DecorativeBackground />
         <div className="shell">
           <SiteHeader />
           {children}
           <footer className="sitefooter">
             <div className="inner">
-              <span>Yaadhum · assessment diagnostics</span>
+              <span>Avai · assessment diagnostics</span>
               <span className="mono">CBSE Class X · Tamil Nadu</span>
             </div>
           </footer>

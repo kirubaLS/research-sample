@@ -59,7 +59,7 @@ export default function ProbePage() {
       <div className="card" style={{ marginTop: 22 }}>
         <div className="field">
           <label htmlFor="qs">
-            Questions &mdash; one per line, as{" "}
+            Questions, one per line, as{" "}
             <span className="mono">number | expected chapter | stem</span>
           </label>
           <textarea
@@ -123,7 +123,7 @@ export default function ProbePage() {
                     <td style={{ padding: "8px 10px" }} className="mono">
                       {row.q}
                     </td>
-                    <td style={{ padding: "8px 10px" }}>{row.expected ?? "—"}</td>
+                    <td style={{ padding: "8px 10px" }}>{row.expected ?? "none given"}</td>
                     <td
                       style={{
                         padding: "8px 10px",
@@ -131,10 +131,10 @@ export default function ProbePage() {
                         fontWeight: row.hit === false ? 600 : undefined,
                       }}
                     >
-                      {row.retrieved ?? "—"}
+                      {row.retrieved ?? "nothing"}
                     </td>
                     <td style={{ padding: "8px 10px" }} className="mono small">
-                      {row.nearest ?? "—"}
+                      {row.nearest ?? "nothing"}
                     </td>
                     <td style={{ padding: "8px 10px" }} className="mono">
                       {row.similarity.toFixed(2)}
@@ -158,7 +158,7 @@ export default function ProbePage() {
             Retrieval is <strong>{result.mode}</strong>. A row is confident only when both
             retrievers picked the same chapter <em>and</em> it beat the runner-up by a real
             margin. On the paper this was built against, the one wrong answer had the
-            smallest margin of any row &mdash; so the rows marked{" "}
+            smallest margin of any row, so the rows marked{" "}
             <span className="mono">ask a human</span> are where to spend attention, and
             where 100&nbsp;% actually comes from.
           </div>
@@ -171,7 +171,7 @@ export default function ProbePage() {
               <div className="card">
                 <p className="cardnote" style={{ marginBottom: 14 }}>
                   These are the useful rows. A miss usually means the question uses a method
-                  the book teaches in vocabulary the book never uses &mdash; which is exactly
+                  the book teaches in vocabulary the book never uses, which is exactly
                   the ADAPTED case, and a real limit rather than a tuning problem.
                 </p>
                 {result.rows
@@ -179,7 +179,7 @@ export default function ProbePage() {
                   .map((r) => (
                     <div key={r.q} style={{ marginBottom: 14 }}>
                       <p className="small">
-                        <strong>Q{r.q}</strong> &mdash; expected {r.expected}, got{" "}
+                        <strong>Q{r.q}</strong>: expected {r.expected}, got{" "}
                         {r.retrieved} ({r.nearest}, {r.similarity.toFixed(2)})
                       </p>
                       <p className="small muted mono">

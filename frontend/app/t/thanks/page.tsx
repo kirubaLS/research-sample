@@ -33,7 +33,7 @@ export default function ThanksPage() {
 
       <div className="notice" style={{ marginTop: 26 }}>
         Your school&apos;s counsellor will go through the results with you. There is nothing
-        else to do here — you can close this page.
+        else to do here. You can close this page.
       </div>
     </main>
   );
