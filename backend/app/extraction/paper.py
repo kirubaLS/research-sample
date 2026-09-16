@@ -706,13 +706,19 @@ def _demote_unpaired_choices(
 
 
 def _mark_context_rows(questions: list[ExtractedQuestion]) -> list[ExtractedQuestion]:
-    """Flag the shared stem of a question whose sub-parts carry the marks."""
+    """Flag the shared stem of a question whose sub-parts carry the marks.
+
+    Structural signal only (a bare row sharing a ``question_no`` with rows that do have a
+    ``sub_part``) -- not ``max_marks is None`` too. A stem can be mis-read with a stray
+    ``max_marks`` (e.g. the sum of its sub-parts'), and trusting that value let it pass as
+    its own separately-scoreable question, double-counting marks its sub-parts already
+    carry. See ``context_addresses``, which applies the same rule to scanned rows.
+    """
     with_sub_parts = {q.question_no for q in questions if q.sub_part}
     for question in questions:
         question.is_context = (
             question.sub_part is None
             and question.question_no in with_sub_parts
-            and question.max_marks is None
         )
     return questions
 
@@ -848,17 +854,23 @@ def _check(out: PaperExtract) -> None:
 def context_addresses(rows) -> set[str]:
     """The addresses among these rows that are a shared stem rather than a question.
 
-    Takes anything with ``question_no``, ``sub_part``, ``max_marks`` and ``address``, so
-    the same rule serves both the freshly parsed rows and the staged rows read back from
-    the database. It has to be one rule: a stem the reader knows is context and the
-    confirm step does not would block a paper from ever being confirmed.
+    Takes anything with ``question_no``, ``sub_part`` and ``address``, so the same rule
+    serves both the freshly parsed rows and the staged rows read back from the database.
+    It has to be one rule: a stem the reader knows is context and the confirm step does
+    not would block a paper from ever being confirmed.
+
+    This relies purely on the structural signal -- a bare row (no ``sub_part``) sharing
+    a ``question_no`` with rows that do have a ``sub_part`` -- rather than also requiring
+    ``max_marks is None``. Vision extraction can mis-tag a stem with a stray ``max_marks``
+    (e.g. the sum of its sub-parts' marks); trusting that value let a context row like a
+    case-based-question passage get counted as its own separately-scoreable question,
+    double-counting marks already present in its sub-parts.
     """
     with_sub_parts = {row.question_no for row in rows if row.sub_part}
     return {
         row.address for row in rows
         if row.sub_part is None
         and row.question_no in with_sub_parts
-        and row.max_marks is None
     }
 
 

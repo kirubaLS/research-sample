@@ -11,7 +11,14 @@ from __future__ import annotations
 import pymupdf
 import pytest
 
-from app.extraction.paper import ExtractedQuestion, PaperExtract, dedupe_addresses, extract_paper, readable_letters
+from app.extraction.paper import (
+    ExtractedQuestion,
+    PaperExtract,
+    context_addresses,
+    dedupe_addresses,
+    extract_paper,
+    readable_letters,
+)
 
 
 def _pdf(tmp_path, pages: list[list[tuple[float, float, str]]], name="p.pdf"):
@@ -224,6 +231,28 @@ def test_a_context_stem_is_not_reported_as_a_question_missing_its_marks(tmp_path
 
     out = extract_paper(path)
     assert not any("no mark label" in p for p in out.problems)
+
+
+def test_a_stem_wrongly_read_with_marks_is_still_context_not_a_question():
+    """A real Social Science paper's case-based Q37 stem was mis-read with max_marks=4 --
+    exactly the sum of its own sub-parts (1+1+2). Trusting that value let the stem count
+    as a fourth, separately-scoreable question, reporting 4 marks more than the paper
+    actually carries. The structural signal (a bare row sharing question_no with rows
+    that do have a sub_part) must be enough on its own.
+    """
+    def row(sub_part, max_marks):
+        return ExtractedQuestion(
+            section="D", question_no="37", sub_part=sub_part, choice_alt=None,
+            max_marks=max_marks, stem_text="stem", logical_page=1,
+        )
+
+    rows = [
+        row(None, 4.0),
+        row("i", 1.0),
+        row("ii", 1.0),
+        row("iii", 2.0),
+    ]
+    assert context_addresses(rows) == {"D/37//"}
 
 
 def test_a_sub_part_without_its_own_marks_stays_part_of_its_question(tmp_path):
