@@ -74,6 +74,7 @@ export default function DashboardPage() {
         <div className="quick">
           <Link className="btn" href="/admin/paper">Read a question paper</Link>
           <Link className="btn secondary" href="/admin/answers">Enter an answer sheet</Link>
+          <Link className="btn secondary" href="/admin/gridsheet">Scan a class mark sheet</Link>
         </div>
       </section>
 
