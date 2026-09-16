@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.books import clean_sections
 from app.api.deps import require_admin, require_reader, require_scanner
 from app.classify.pipeline import place_paper
+from app.curriculum import group_subjects
 from app.mapping.family import Choice, choose_family
 from app.config import get_settings
 from app.db import get_session
@@ -175,8 +176,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             )
             return
 
+        book_subject_codes = group_subjects(a.subject_code)
         chunks = db.scalars(
-            select(BookChunk).where(BookChunk.subject_code == a.subject_code)
+            select(BookChunk).where(BookChunk.subject_code.in_(book_subject_codes))
         ).all()
         if not chunks:
             _finish_placement_job(
@@ -186,8 +188,12 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             return
 
         nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
-        by_label = {n.label: n for n in nodes.values() if n.kind == "chapter"}
-        unit_by_chapter = _chapter_to_unit(db, nodes)
+        chapter_ids = _chapters_in_subjects(nodes, book_subject_codes)
+        by_label = {
+            n.label: n for n in nodes.values()
+            if n.kind == "chapter" and n.id in chapter_ids
+        }
+        unit_by_chapter = _chapter_to_unit(db, nodes, chapter_ids)
 
         indexes: list = [LexicalIndex(chunks)]
         if settings.jina_api_key and any(c.embedding for c in chunks):
@@ -206,7 +212,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             if node.kind != "subtopic":
                 continue
             parent = nodes.get(node.parent_id)
-            if parent is None or parent.kind != "chapter":
+            if parent is None or parent.kind != "chapter" or parent.id not in chapter_ids:
                 continue
             # codes look like X.MATH.SAV.S12_2 -- the section number is the tail
             tail = node.code.rsplit(".", 1)[-1]
@@ -452,7 +458,9 @@ def place(
             "it would need reviewing question by question.",
         )
     has_book = db.scalar(
-        select(BookChunk.id).where(BookChunk.subject_code == a.subject_code).limit(1)
+        select(BookChunk.id)
+        .where(BookChunk.subject_code.in_(group_subjects(a.subject_code)))
+        .limit(1)
     )
     if not has_book:
         raise HTTPException(409, f"no book loaded for {a.subject_code}")
@@ -491,11 +499,39 @@ def get_placement_job(
     return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
 
 
-def _chapter_to_unit(db: Session, nodes: dict) -> dict[str, str]:
+def _chapters_in_subjects(nodes: dict, subject_codes: list[str]) -> set[str]:
+    """Every chapter node whose parent chain reaches a subject node in ``subject_codes``.
+
+    Two different books can share an identical chapter label (e.g. "Introduction"), so a
+    placement run must only ever consider chapters that actually belong to the assessment's
+    own subject/group -- the same parent-chain walk `_chapter_to_unit` already uses to
+    resolve a chapter's board unit.
+    """
+    subject_ids = {
+        n.id for n in nodes.values() if n.kind == "subject" and n.code in subject_codes
+    }
+    out: set[str] = set()
+    for node in nodes.values():
+        if node.kind != "chapter":
+            continue
+        seen: set[str] = set()
+        current = node
+        while current is not None and current.id not in seen:
+            if current.id in subject_ids:
+                out.add(node.id)
+                break
+            seen.add(current.id)
+            current = nodes.get(current.parent_id)
+    return out
+
+
+def _chapter_to_unit(db: Session, nodes: dict, chapter_ids: set[str] | None = None) -> dict[str, str]:
     from app.models import ChapterBoardUnit
 
     out: dict[str, str] = {}
     for row in db.scalars(select(ChapterBoardUnit)):
+        if chapter_ids is not None and row.chapter_id not in chapter_ids:
+            continue
         chapter = nodes.get(row.chapter_id)
         unit = nodes.get(row.board_unit_id)
         if chapter and unit:

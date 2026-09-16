@@ -41,6 +41,19 @@ class Curriculum:
     #: been tested breaks every comparison that references it
     concept_families: list[tuple[str, str, str]] = field(default_factory=list)
     source_doc_url: str = SYLLABUS_URL
+    #: What real single exam paper this book belongs to. Most subjects are one book and one
+    #: paper, so this defaults (in __post_init__) to the book's own subject_code/label --
+    #: purely additive, nothing about an existing single-book subject changes. English (3
+    #: books) and Hindi (4 books) are the exception: one real paper draws on all of them at
+    #: once, so their Curriculum entries share a group_code/group_label explicitly below.
+    group_code: str = ""
+    group_label: str = ""
+
+    def __post_init__(self) -> None:
+        if not self.group_code:
+            object.__setattr__(self, "group_code", self.subject_code)
+        if not self.group_label:
+            object.__setattr__(self, "group_label", self.subject_label)
 
 
 X_MATH = Curriculum(
@@ -243,6 +256,8 @@ X_ENGLISH_FIRST_FLIGHT = Curriculum(
         Chapter("X.ENG.FF.PROPOSAL", "The Proposal", "X.ENG.FF.U.WHOLE"),
     ],
     concept_families=[],
+    group_code="X.ENG",
+    group_label="Class X English",
 )
 
 X_ENGLISH_FOOTPRINTS = Curriculum(
@@ -265,6 +280,8 @@ X_ENGLISH_FOOTPRINTS = Curriculum(
         Chapter("X.ENG.FWF.SAVEDTHEEARTH", "The Book That Saved the Earth", "X.ENG.FWF.U.WHOLE"),
     ],
     concept_families=[],
+    group_code="X.ENG",
+    group_label="Class X English",
 )
 
 X_ENGLISH_WORKBOOK = Curriculum(
@@ -288,6 +305,8 @@ X_ENGLISH_WORKBOOK = Curriculum(
         Chapter("X.ENG.WB.PROPOSAL", "The Proposal", "X.ENG.WB.U.WHOLE"),
     ],
     concept_families=[],
+    group_code="X.ENG",
+    group_label="Class X English",
 )
 
 #: Class X Hindi is four separate NCERT books too (Kshitij and Kritika for Course A,
@@ -311,6 +330,8 @@ X_HINDI_KRITIKA = Curriculum(
         Chapter("X.HIN.KR.MAIN_KYON_LIKHTA", "मैं क्यों लिखता हूँ?", "X.HIN.KR.U.WHOLE"),
     ],
     concept_families=[],
+    group_code="X.HIN",
+    group_label="Class X Hindi",
 )
 
 X_HINDI_KSHITIJ = Curriculum(
@@ -359,6 +380,8 @@ X_HINDI_KSHITIJ = Curriculum(
         Chapter("X.HIN.KS.SANSKRITI", "भदंत आनंद कौसल्यायन", "X.HIN.KS.U.WHOLE"),
     ],
     concept_families=[],
+    group_code="X.HIN",
+    group_label="Class X Hindi",
 )
 
 X_HINDI_SPARSH = Curriculum(
@@ -398,6 +421,8 @@ X_HINDI_SPARSH = Curriculum(
         Chapter("X.HIN.SP.HABIB_TANVIR", "हबीब तनवीर (कारतूस, एकांकी)", "X.HIN.SP.U.WHOLE"),
     ],
     concept_families=[],
+    group_code="X.HIN",
+    group_label="Class X Hindi",
 )
 
 X_HINDI_SANCHAYAN = Curriculum(
@@ -421,6 +446,8 @@ X_HINDI_SANCHAYAN = Curriculum(
         Chapter("X.HIN.SY.TOPI_SHUKLA", "राही मासूम रज़ा – टोपी शुक्ला", "X.HIN.SY.U.WHOLE"),
     ],
     concept_families=[],
+    group_code="X.HIN",
+    group_label="Class X Hindi",
 )
 
 X_TAMIL = Curriculum(
@@ -513,6 +540,48 @@ CURRICULA: dict[str, Curriculum] = {
     X_HINDI_SANCHAYAN.subject_code: X_HINDI_SANCHAYAN,
     X_TAMIL.subject_code: X_TAMIL,
 }
+
+
+def group_subjects(code: str) -> list[str]:
+    """Every book's subject_code sharing ``code``'s group, in registration order.
+
+    ``code`` may itself be a group_code (e.g. "X.ENG") or a specific book's subject_code
+    (e.g. "X.ENG.FF") -- either way the full group comes back. A single-book subject's
+    group_code equals its own subject_code (see Curriculum.__post_init__), so this returns
+    ``[code]`` for it either way, which is exactly today's behaviour. A code that matches
+    neither a group_code nor any subject_code is not a curriculum error to raise on here --
+    it is handled elsewhere (an unknown subject_code is refused where it is used) -- so it
+    comes back unchanged, standing in for itself the way it already does today.
+    """
+    group_code = code
+    curriculum = CURRICULA.get(code)
+    if curriculum is not None:
+        group_code = curriculum.group_code
+    members = [c.subject_code for c in CURRICULA.values() if c.group_code == group_code]
+    return members or [code]
+
+
+@dataclass(frozen=True)
+class SubjectGroup:
+    group_code: str
+    group_label: str
+    members: list[Curriculum]
+
+
+def subject_groups() -> list[SubjectGroup]:
+    """Every group this deployment carries, each book in registration order -- the
+    authority `/admin/subjects` reads to show English/Hindi as one cluster of books rather
+    than as unrelated subjects."""
+    groups: dict[str, SubjectGroup] = {}
+    for curriculum in CURRICULA.values():
+        group = groups.get(curriculum.group_code)
+        if group is None:
+            groups[curriculum.group_code] = SubjectGroup(
+                curriculum.group_code, curriculum.group_label, [curriculum]
+            )
+        else:
+            group.members.append(curriculum)
+    return list(groups.values())
 
 
 def chapter_title(subject_code: str, number: int) -> str | None:

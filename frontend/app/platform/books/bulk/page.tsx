@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { api, ApiError, type BookStatus, type Subject } from "@/lib/api";
+import { api, ApiError, type BookStatus, type SubjectBook } from "@/lib/api";
 import { plan, type SortedFile } from "@/lib/bookFiles";
 import { getPlatformKey } from "@/lib/session";
 
@@ -54,7 +54,7 @@ const LANGUAGES: { key: string; label: string; prefix: string; fallback: string 
 ];
 
 export default function BulkBooksPage() {
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjects, setSubjects] = useState<SubjectBook[]>([]);
   const [language, setLanguage] = useState(LANGUAGES[0]);
   const [edition, setEdition] = useState("Reprint 2026-27");
   const [files, setFiles] = useState<File[]>([]);
@@ -68,7 +68,11 @@ export default function BulkBooksPage() {
   useEffect(() => {
     const key = getPlatformKey();
     if (!key) return;
-    api.subjects(key).then(({ subjects: s }) => setSubjects(s)).catch(() => setSubjects([]));
+    // Book upload is per physical book (a group like English has 3), so this screen
+    // wants the books flattened out of their groups, not the group-level entries.
+    api.subjects(key)
+      .then(({ subjects: groups }) => setSubjects(groups.flatMap((g) => g.books)))
+      .catch(() => setSubjects([]));
   }, []);
 
   const labelOf = (code: string) => subjects.find((s) => s.subject_code === code)?.label ?? code;

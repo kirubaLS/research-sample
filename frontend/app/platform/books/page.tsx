@@ -7,7 +7,7 @@ import {
   ApiError,
   BookStatus,
   type FamilyProposals,
-  type Subject,
+  type SubjectBook,
 } from "@/lib/api";
 import { getPlatformKey } from "@/lib/session";
 
@@ -22,7 +22,7 @@ type Line = { text: string; bad?: boolean };
 export default function BooksPage() {
   // From the deployment, never a list written into this screen: this is the page that
   // loads a book, so it is the last place that should be told in advance which books exist.
-  const [subjects, setSubjects] = useState<Subject[]>([]);
+  const [subjects, setSubjects] = useState<SubjectBook[]>([]);
   const [subject, setSubject] = useState<string>("");
   const [edition, setEdition] = useState("Reprint 2026-27");
   const [status, setStatus] = useState<BookStatus | null>(null);
@@ -49,7 +49,10 @@ export default function BooksPage() {
     if (!key) return;
     api
       .subjects(key)
-      .then(({ subjects: found }) => {
+      // Uploading a book is per physical book (a group like English has 3), so this
+      // screen wants the books flattened out of their groups, not the group-level entries.
+      .then(({ subjects: groups }) => {
+        const found = groups.flatMap((g) => g.books);
         setSubjects(found);
         setSubject((current) => current || found[0]?.subject_code || "");
       })

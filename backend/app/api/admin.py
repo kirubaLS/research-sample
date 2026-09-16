@@ -26,7 +26,7 @@ from app.api.deps import (
     teacher_assignments,
 )
 from app.api.schemas import StudentCreateIn, StudentUpdateIn
-from app.curriculum import CURRICULA
+from app.curriculum import subject_groups
 from app.db import get_session
 from app.models import (
     TEACHER_ASSIGNMENT_TYPES,
@@ -608,29 +608,52 @@ def list_subjects(
     the operator console out of its own book screen.
     """
     out = []
-    for curriculum in CURRICULA.values():
-        chunks = db.scalar(
-            select(func.count(BookChunk.id)).where(
-                BookChunk.subject_code == curriculum.subject_code
-            )
-        ) or 0
-        embedded = db.scalar(
-            select(func.count(BookChunk.id)).where(
-                BookChunk.subject_code == curriculum.subject_code,
-                BookChunk.embedding.isnot(None),
-            )
-        ) or 0
+    for group in subject_groups():
+        books = []
+        group_chapters = group_board_units = group_chunks = group_embedded = 0
+        for curriculum in group.members:
+            chunks = db.scalar(
+                select(func.count(BookChunk.id)).where(
+                    BookChunk.subject_code == curriculum.subject_code
+                )
+            ) or 0
+            embedded = db.scalar(
+                select(func.count(BookChunk.id)).where(
+                    BookChunk.subject_code == curriculum.subject_code,
+                    BookChunk.embedding.isnot(None),
+                )
+            ) or 0
+            books.append({
+                "subject_code": curriculum.subject_code,
+                "label": curriculum.subject_label,
+                "grade": curriculum.grade,
+                "chapters": len(curriculum.chapters),
+                "board_units": len(curriculum.units),
+                #: a book with no embedded content cannot map a question, and a screen
+                #: that offers it anyway is offering a dead end
+                "book_loaded": embedded > 0,
+                "chunks": chunks,
+                "chunks_embedded": embedded,
+            })
+            group_chapters += len(curriculum.chapters)
+            group_board_units += len(curriculum.units)
+            group_chunks += chunks
+            group_embedded += embedded
         out.append({
-            "subject_code": curriculum.subject_code,
-            "label": curriculum.subject_label,
-            "grade": curriculum.grade,
-            "chapters": len(curriculum.chapters),
-            "board_units": len(curriculum.units),
-            #: a subject with no embedded book cannot map a question, and a screen that
-            #: offers it anyway is offering a dead end
-            "book_loaded": embedded > 0,
-            "chunks": chunks,
-            "chunks_embedded": embedded,
+            "group_code": group.group_code,
+            "group_label": group.group_label,
+            #: back-compat for a single-book group (every subject but English/Hindi): the
+            #: same fields a book itself carries, so an existing caller reading these
+            #: top-level fields on a one-book subject keeps working unchanged
+            "subject_code": group.group_code,
+            "label": group.group_label,
+            "grade": group.members[0].grade,
+            "chapters": group_chapters,
+            "board_units": group_board_units,
+            "book_loaded": group_embedded > 0,
+            "chunks": group_chunks,
+            "chunks_embedded": group_embedded,
+            "books": books,
         })
     return {"subjects": out}
 

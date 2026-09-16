@@ -68,6 +68,18 @@ def _get_assessment(db: Session, school: School, assessment_id: str) -> Assessme
 def create_assessment(
     body: AssessmentIn, school: School = Depends(require_scanner), db: Session = Depends(get_session)
 ) -> dict:
+    from app.curriculum import CURRICULA
+
+    is_group_code = any(c.group_code == body.subject_code for c in CURRICULA.values())
+    if body.subject_code not in CURRICULA and not is_group_code:
+        raise HTTPException(
+            422,
+            f"{body.subject_code!r} is not a subject or subject group this deployment "
+            f"carries. Use GET /admin/subjects to see what exists.",
+        )
+    # A group_code (e.g. "X.ENG") is exactly what a single real exam paper draws on when a
+    # subject is more than one book -- see app.curriculum.group_subjects. Stored as-is on
+    # the assessment; /place resolves it back to every book in the group.
     if body.paper_kind != "school" and body.exam_year is None:
         raise HTTPException(
             422,

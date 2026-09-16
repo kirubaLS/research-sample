@@ -834,7 +834,8 @@ async function uploadMany<T>(
   return data as T;
 }
 
-export interface Subject {
+/** One physical book (e.g. First Flight) inside a subject group. */
+export interface SubjectBook {
   subject_code: string;
   label: string;
   grade: number;
@@ -843,6 +844,16 @@ export interface Subject {
   book_loaded: boolean;
   chunks: number;
   chunks_embedded: number;
+}
+
+/** A real single-paper subject: one book for most subjects, several for English/Hindi.
+ * `group_code`/`group_label` are always present; `subject_code`/`label` mirror them
+ * (back-compat for a one-book group, where group and book are the same thing). Submit
+ * `group_code` as an Assessment's subject_code -- /place resolves it back to every book. */
+export interface Subject extends SubjectBook {
+  group_code: string;
+  group_label: string;
+  books: SubjectBook[];
 }
 
 export interface ScanResult {
