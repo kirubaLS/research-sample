@@ -240,7 +240,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         sections_of = {
             row.code: set(clean_sections(row.from_sections))
             for row in db.scalars(select(ConceptFamilyProposal).where(
-                ConceptFamilyProposal.subject_code == a.subject_code
+                ConceptFamilyProposal.subject_code.in_(book_subject_codes)
             ))
         }
         declared = (a.declared or {}).get("board_units")

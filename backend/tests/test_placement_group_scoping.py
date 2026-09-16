@@ -6,8 +6,10 @@ app/api/placement.py's _chapters_in_subjects and group_subjects).
 
 from __future__ import annotations
 
+import io
 import uuid
 
+import pymupdf
 import pytest
 from sqlalchemy import select
 
@@ -52,7 +54,7 @@ def english_books(school):
             db.add(BookChunk(
                 curriculum_version=chapter.curriculum_version, subject_code=subject_code,
                 node_id=chapter.id, bucket="T", reference=chapter.label, text=text,
-                normalised=text.lower(), stem_hash=chapter.code,
+                section_number="1", normalised=text.lower(), stem_hash=chapter.code,
             ))
             if db.scalar(
                 select(TaxonomyNode).where(TaxonomyNode.code == family_code)
@@ -227,3 +229,37 @@ def test_place_scores_a_group_paper_against_the_second_books_chapter_too(
         assert q1_chapter.id != q2_chapter.id
     finally:
         db.close()
+
+
+def test_map_retrieves_book_chunks_across_the_whole_group(client, school, english_books):
+    """/map (the older, non-LLM lexical route) has to expand a group code the same way
+    /place does -- a query for BookChunk.subject_code == 'X.ENG' matches nothing, since
+    every chunk is filed under its own book (X.ENG.FF, X.ENG.FWF, ...), which is exactly
+    what produced 'no book is loaded for X.ENG' on a real paper with books plainly loaded.
+    """
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    mark_x = 595 * 0.87
+    page.insert_text((60, 90), "SECTION A")
+    page.insert_text((60, 120), "1. Why did Mandela describe deep down in every human")
+    page.insert_text((60, 134), "heart there is mercy and generosity?")
+    page.insert_text((mark_x, 120), "2")
+    data = doc.tobytes()
+    doc.close()
+
+    created = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.ENG", "title": "English group map test", "total_marks": 2},
+    )
+    aid = created.json()["assessment_id"]
+    up = client.post(
+        f"/assessments/{aid}/scan", headers=_auth(school),
+        files=[("files", ("paper.pdf", io.BytesIO(data), "application/pdf"))],
+    )
+    assert up.status_code == 201, up.text
+    confirmed = client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
+    assert confirmed.status_code == 200, confirmed.text
+
+    mapped = client.post(f"/assessments/{aid}/map", headers=_auth(school))
+    assert mapped.status_code == 200, mapped.text
+    assert "no book is loaded" not in mapped.text

@@ -1263,6 +1263,7 @@ def map_paper_to_book(
     """
     from app.api.books import clean_sections
     from app.config import get_settings
+    from app.curriculum import group_subjects
     from app.extraction.paper import context_addresses
     from app.ingest.probe import LexicalIndex, SemanticIndex, locate
     from app.mapping.family import choose_family
@@ -1287,8 +1288,9 @@ def map_paper_to_book(
     if not staged:
         raise HTTPException(422, "nothing staged to map; scan the paper first")
 
+    book_subject_codes = group_subjects(assessment.subject_code)
     chunks = list(db.scalars(
-        select(BookChunk).where(BookChunk.subject_code == assessment.subject_code)
+        select(BookChunk).where(BookChunk.subject_code.in_(book_subject_codes))
     ))
     if not chunks:
         raise HTTPException(
@@ -1334,7 +1336,7 @@ def map_paper_to_book(
     sections_of = {
         row.code: set(clean_sections(row.from_sections))
         for row in db.scalars(select(ConceptFamilyProposal).where(
-            ConceptFamilyProposal.subject_code == assessment.subject_code
+            ConceptFamilyProposal.subject_code.in_(book_subject_codes)
         ))
     }
 
