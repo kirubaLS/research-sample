@@ -152,6 +152,8 @@ X_HISTORY = Curriculum(
     subject_code="X.HIST",
     subject_label="Class X History (India and the Contemporary World – II)",
     grade=10,
+    group_code="X.SST",
+    group_label="Class X Social Science",
     units=[
         BoardUnit("X.HIST.U.WHOLE", "India and the Contemporary World – II", 0.0),
     ],
@@ -171,6 +173,8 @@ X_GEOGRAPHY = Curriculum(
     subject_code="X.GEO",
     subject_label="Class X Geography (Contemporary India – II)",
     grade=10,
+    group_code="X.SST",
+    group_label="Class X Social Science",
     units=[
         BoardUnit("X.GEO.U.WHOLE", "Contemporary India – II", 0.0),
     ],
@@ -191,6 +195,8 @@ X_POLITICAL_SCIENCE = Curriculum(
     subject_code="X.POL",
     subject_label="Class X Political Science (Democratic Politics – II)",
     grade=10,
+    group_code="X.SST",
+    group_label="Class X Social Science",
     units=[
         BoardUnit("X.POL.U.WHOLE", "Democratic Politics – II", 0.0),
     ],
@@ -211,6 +217,8 @@ X_ECONOMICS = Curriculum(
     subject_code="X.ECO",
     subject_label="Class X Economics (Understanding Economic Development)",
     grade=10,
+    group_code="X.SST",
+    group_label="Class X Social Science",
     units=[
         BoardUnit("X.ECO.U.WHOLE", "Understanding Economic Development", 0.0),
     ],
