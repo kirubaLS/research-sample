@@ -227,6 +227,14 @@ def test_place_scores_a_group_paper_against_the_second_books_chapter_too(
         # first book in the group.
         assert q2_chapter.label == "A Triumph of Surgery"
         assert q1_chapter.id != q2_chapter.id
+
+        # A 3-book group's retrieval pool is every chapter of every book combined, so the
+        # judge showing only the single-book default of candidate chapters starves a weak
+        # lexical/semantic match of ever surfacing its true chapter -- see the comment in
+        # app/api/placement.py next to where evidence_chapters is widened.
+        from app.config import get_settings
+
+        assert job.result["spend"]["chapters_shown"] == 3 * get_settings().classifier_evidence_chapters
     finally:
         db.close()
 

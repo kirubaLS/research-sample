@@ -248,12 +248,25 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     finally:
         db.close()  # released BEFORE the slow classifier calls below, not held across it
 
+    # A group paper's retrieval pool is every book in the group at once (X.SST's four
+    # books together), not one -- so the fixed per-book candidate count starves a question
+    # whose true chapter is a weak lexical/semantic match (a short factual stem like "An
+    # oil field located in Gujarat" barely resembles its own chapter's prose) of ever being
+    # shown to the judge at all among just the setting's default handful of chapters, once
+    # that handful is being chosen from every chapter of every book in the group combined.
+    # Widened in proportion to how many books are actually in play, capped so a large group
+    # does not multiply the token cost unboundedly.
+    evidence_chapters = min(
+        settings.classifier_evidence_chapters * len(book_subject_codes),
+        3 * settings.classifier_evidence_chapters,
+    )
+
     try:
         result = place_paper(
             stems, indexes, judge,
             # What the reader is shown, and so what the run costs. Both from settings.
             evidence_passages=settings.classifier_evidence_passages,
-            evidence_chapters=settings.classifier_evidence_chapters,
+            evidence_chapters=evidence_chapters,
             chapter_of=lambda nid: nodes[nid].label if nid in nodes else None,
             unit_of=lambda label: unit_by_chapter.get(label),
             section_of=lambda ref: None,
@@ -385,7 +398,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 "input_tokens": getattr(judge, "input_tokens", 0),
                 "output_tokens": getattr(judge, "output_tokens", 0),
                 "passages_shown": settings.classifier_evidence_passages,
-                "chapters_shown": settings.classifier_evidence_chapters,
+                "chapters_shown": evidence_chapters,
             },
             "settled": result.settled,
             "needs_review": result.reviewed_count,
