@@ -391,92 +391,214 @@ def compose_boardx_report(
 
 
 def render_boardx_pdf(report: dict, *, roll_no: str, class_label: str, school_name: str) -> bytes:
-    """The same composed report, laid out as an actual one-page PDF -- nothing computed
-    here, every figure and sentence is read straight off ``report`` (itself frozen-string
-    output from :func:`compose_boardx_report`), the same "print exactly what was composed"
-    rule ``app.analysis.report_pdf`` already follows for the plain student report.
+    """The same composed report, laid out as an actual one-page PDF matching the AVAI
+    BoardX visual design (navy header/footer bands, a 2x2 grid of white cards, colour-
+    coded highlight boxes) -- nothing computed here, every figure and sentence is read
+    straight off ``report`` (itself frozen-string output from
+    :func:`compose_boardx_report`), the same "print exactly what was composed" rule
+    ``app.analysis.report_pdf`` already follows for the plain student report. The layout
+    is fixed; the content inside it is entirely dynamic -- nothing about a particular
+    student, chapter or subject is hardcoded anywhere below.
     """
     from fpdf import FPDF
+
+    NAVY = (23, 55, 87)
+    PAGE_BG = (244, 246, 250)
+    CARD_BORDER = (228, 231, 238)
+    INK = (35, 40, 50)
+    MUTED = (100, 106, 120)
+
+    BADGE = {1: (23, 55, 87), 2: (30, 130, 118), 3: (196, 120, 30), 4: (46, 125, 79)}
+    GREEN = ((227, 243, 234), (30, 100, 64))
+    ORANGE = ((253, 240, 219), (168, 94, 14))
+    BLUE = ((230, 238, 250), (30, 58, 95))
+    TEAL = ((222, 242, 240), (18, 104, 95))
+    GREY = ((242, 243, 246), (70, 74, 84))
+    PALETTE = [ORANGE, TEAL, GREY, BLUE]
 
     def safe(text: object) -> str:
         return str(text if text is not None else "").encode("latin-1", "replace").decode("latin-1")
 
-    pdf = FPDF(format="A4")
-    pdf.set_auto_page_break(auto=True, margin=14)
+    def num(n: float) -> str:
+        return f"{n:g}"
+
+    pdf = FPDF(format="A4", unit="mm")
+    pdf.set_auto_page_break(auto=False)
     pdf.add_page()
+    pdf.set_fill_color(*PAGE_BG)
+    pdf.rect(0, 0, 210, 297, style="F")
 
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 9, "AVAI BoardX", new_x="LMARGIN", new_y="NEXT")
-    pdf.set_font("Helvetica", "", 11)
-    pdf.set_text_color(90, 90, 90)
-    pdf.cell(0, 6, safe(f"{report['subject_code']}  |  Your One-Page Assessment Report"), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
+    # ---- a tiny retained-mode layout engine ------------------------------------------
+    # A card's content length is different for every student and every paper (a lower-
+    # band report has fewer findings than an upper-band one, a chapter list is 2 rows
+    # for one paper and 6 for another), so nothing here can be a fixed box size. Each
+    # `Card` records its text/box operations while measuring their height with fpdf2's
+    # own dry-run pass; `draw_card` then draws the background at the right height
+    # first, and replays the exact same operations (same fonts, same dry-run height
+    # formula) on top -- measured and drawn heights can never disagree because both
+    # come from the same multi_cell call.
+    class Card:
+        def __init__(self, x: float, w: float):
+            self.x, self.w = x, w
+            self.pad = 5.0
+            self.ops: list[tuple] = []
+            self.op_heights: list[float] = []
+            self.height = 0.0
+
+        def _add(self, op: tuple, h: float) -> None:
+            self.ops.append(op)
+            self.op_heights.append(h)
+            self.height += h
+
+        def text(self, text: str, *, size=10, style="", color=INK, line_h=5.0, gap=1.6, indent=0.0):
+            inner_w = self.w - 2 * self.pad - indent
+            pdf.set_font("Helvetica", style, size)
+            h = pdf.multi_cell(inner_w, line_h, safe(text), dry_run=True, output="HEIGHT")
+            self._add(("text", text, size, style, color, line_h, indent, gap), h + gap)
+
+        def space(self, h: float):
+            self._add(("space", h), h)
+
+        def badge_title(self, n: int, title: str):
+            self._add(("badge", n, title), 9.0)
+
+        def box_start(self, bg: tuple):
+            self._add(("box_start", bg), self.pad)
+
+        def box_end(self):
+            self._add(("box_end",), self.pad)
+
+    def draw_card(card: Card, y: float) -> float:
+        total_h = card.height + 2 * card.pad
+        pdf.set_draw_color(*CARD_BORDER)
+        pdf.set_fill_color(255, 255, 255)
+        pdf.rect(card.x, y, card.w, total_h, style="DF", round_corners=True, corner_radius=2.5)
+
+        # A nested box's own fill has to be painted before its text, or the fill (drawn
+        # once its true height is known) paints straight over text already on the page.
+        # So its height is found by scanning ahead to the matching box_end first --
+        # `op_heights` already carries the exact figure every op contributed when it was
+        # measured, so this is a lookup, not a second measurement pass.
+        box_end_height: dict[int, float] = {}
+        stack: list[int] = []
+        for idx, op in enumerate(card.ops):
+            if op[0] == "box_start":
+                stack.append(idx)
+            elif op[0] == "box_end":
+                start_idx = stack.pop()
+                box_end_height[start_idx] = sum(card.op_heights[start_idx:idx + 1])
+
+        cy = y + card.pad
+        for idx, op in enumerate(card.ops):
+            kind = op[0]
+            if kind == "space":
+                cy += op[1]
+            elif kind == "badge":
+                _, n, title = op
+                bx, by = card.x + card.pad, cy
+                pdf.set_fill_color(*BADGE.get(n, NAVY))
+                pdf.ellipse(bx, by, 6, 6, style="F")
+                pdf.set_xy(bx, by + 0.9)
+                pdf.set_font("Helvetica", "B", 9)
+                pdf.set_text_color(255, 255, 255)
+                pdf.cell(6, 5, safe(str(n)), align="C")
+                pdf.set_text_color(*NAVY)
+                pdf.set_font("Helvetica", "B", 12.5)
+                pdf.set_xy(bx + 8, by - 0.3)
+                pdf.cell(card.w - 2 * card.pad - 8, 6, safe(title))
+                cy += 9.0
+            elif kind == "box_start":
+                _, bg = op
+                box_h = box_end_height[idx]
+                pdf.set_fill_color(*bg)
+                pdf.rect(card.x + card.pad * 0.6, cy, card.w - card.pad * 1.2, box_h,
+                          style="F", round_corners=True, corner_radius=1.6)
+                cy += card.pad
+            elif kind == "box_end":
+                cy += card.pad
+            elif kind == "text":
+                _, text, size, style, color, line_h, indent, gap = op
+                inner_w = card.w - 2 * card.pad - indent
+                pdf.set_xy(card.x + card.pad + indent, cy)
+                pdf.set_font("Helvetica", style, size)
+                pdf.set_text_color(*color)
+                pdf.multi_cell(inner_w, line_h, safe(text), new_x="LEFT", new_y="TOP")
+                h = pdf.multi_cell(inner_w, line_h, safe(text), dry_run=True, output="HEIGHT")
+                cy += h + gap
+        pdf.set_text_color(*INK)
+        return total_h
+
+    # ---- header band -------------------------------------------------------------
+    HEADER_H = 30.0
+    pdf.set_fill_color(*NAVY)
+    pdf.rect(0, 0, 210, HEADER_H, style="F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_xy(8, 4)
+    pdf.set_font("Helvetica", "B", 17)
+    pdf.cell(0, 8, "AVAI BoardX")
+    pdf.set_xy(8, 13)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(
-        0, 7,
-        safe(f"{report['student_name']}  |  {class_label} (Roll {roll_no})  |  "
-             f"{report['assessment_title']}  |  {report['subject_code']}"),
-        new_x="LMARGIN", new_y="NEXT",
+    pdf.cell(0, 6, safe(f"{report['subject_code']}  |  Your One-Page Assessment Report"))
+    pdf.set_xy(8, 21)
+    pdf.set_font("Helvetica", "", 9.5)
+    meta = safe(
+        f"{report['student_name']}  |  {class_label} (Roll {roll_no})  |  "
+        f"{report['assessment_title']}  |  {report['subject_code']}"
     )
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(120, 120, 120)
-    pdf.cell(0, 6, safe(school_name), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
-    pdf.ln(2)
+    pdf.cell(0, 6, meta)
+    pdf.set_text_color(*INK)
 
-    def heading(n: int, title: str) -> None:
-        pdf.set_font("Helvetica", "B", 13)
-        pdf.set_fill_color(240, 242, 247)
-        pdf.cell(0, 8, safe(f"{n}  {title}"), new_x="LMARGIN", new_y="NEXT", fill=True)
-        pdf.ln(1)
+    col1_x, col2_x, col_w = 8.0, 109.0, 93.0
+    row1_y = HEADER_H + 4.0
 
-    def line(text: str, *, size: int = 10, style: str = "") -> None:
-        pdf.set_font("Helvetica", style, size)
-        pdf.multi_cell(0, 5.5, safe(text), new_x="LMARGIN", new_y="NEXT")
+    # ---- section 1: where you stand -----------------------------------------------
+    c1 = Card(col1_x, col_w)
+    c1.badge_title(1, "Where you stand")
+    c1.space(1)
 
-    # Section 1 -- Where you stand
-    heading(1, "Where you stand")
     chapter_entries = [e for e in report["section1"] if "domain" in e]
-    col = (72, 32, 32, 42)
-    pdf.set_font("Helvetica", "B", 9)
-    for w, head in zip(col, ("Chapter", "You scored", "Not scored", "Board importance")):
-        pdf.cell(w, 7, safe(head), border=1)
-    pdf.ln()
-    pdf.set_font("Helvetica", "", 9)
-    exposure_total = 0
+    c1.text("Chapter   ·   You scored   ·   Not scored   ·   Board importance",
+            size=7.6, style="B", color=MUTED, line_h=4.2, gap=1.0)
+    exposure_total = 0.0
     for e in chapter_entries:
-        scored = f"{e['scored']:g} / {e['available']:g}" if e["diagnosable"] else "Not enough evidence"
-        not_scored = f"{e['not_scored']:g}" if e["diagnosable"] else "—"
+        scored = f"{num(e['scored'])} / {num(e['available'])}" if e["diagnosable"] else "Not enough evidence"
+        not_scored = num(e["not_scored"]) if e["diagnosable"] else "—"
         if e["board_exposure_verified"]:
-            board = f"{e['board_exposure']:g} / {e['board_total']:g}"
+            board = f"{num(e['board_exposure'])} / {num(e['board_total'])}"
             exposure_total += e["board_exposure"]
         else:
             board = "Not calibrated"
-        pdf.cell(col[0], 7, safe(e["domain"]), border=1)
-        pdf.cell(col[1], 7, safe(scored), border=1)
-        pdf.cell(col[2], 7, safe(not_scored), border=1)
-        pdf.cell(col[3], 7, safe(board), border=1)
-        pdf.ln()
-    pdf.ln(2)
+        c1.text(e["domain"], size=9, style="B", line_h=4.6, gap=0.3)
+        c1.text(f"Scored {scored}   ·   Not scored {not_scored}   ·   Board {board}",
+                size=8.3, color=MUTED, line_h=4.2, gap=1.4)
+    c1.space(1.5)
+
     board_total = next((e["board_total"] for e in chapter_entries if e["board_exposure_verified"]), None)
+    c1.box_start(GREEN[0])
+    c1.text("BOARD EXPOSURE", size=8, style="B", color=GREEN[1], line_h=4, gap=0.8)
     if board_total:
-        line(f"BOARD EXPOSURE: Affected chapters carry {exposure_total:g} of the {board_total:g} Board marks.",
-             style="B")
+        c1.text(f"Affected chapters carry {num(exposure_total)} of the {num(board_total)} Board marks.",
+                size=9.3, style="B", color=GREEN[1], line_h=4.6, gap=0)
     else:
-        line("BOARD EXPOSURE: Not calibrated for this subject yet.", style="B")
-    # The real frozen-string sentence (S1_BOARD_IMPACT_NOT_CALIBRATED), not a bare code --
-    # "NOT_CALIBRATED" is an internal status value, not something to print to a reader who
-    # was never told what that word means.
+        c1.text("Not calibrated for this subject yet.", size=9.3, style="B", color=GREEN[1], line_h=4.6, gap=0)
+    c1.box_end()
+    c1.space(2.5)
+
     impact_entry = next((e for e in report["section1"] if "domain" not in e), None)
+    c1.box_start(ORANGE[0])
+    c1.text("ESTIMATED BOARD-SCORE IMPACT", size=8, style="B", color=ORANGE[1], line_h=4, gap=0.8)
     if impact_entry is not None:
         for l in impact_entry["lines"]:
-            line(l["text"], style="B")
-    pdf.ln(2)
+            c1.text(l["text"], size=9.3, style="B", color=ORANGE[1], line_h=4.6, gap=0)
+    c1.box_end()
 
-    # Section 2 -- pattern(s) seen, paired back up with section 3/4's own per-finding loop
-    heading(2, "How you are handling questions")
-    line(report["section2"]["caption"]["text"])
-    pdf.ln(1)
+    h1 = draw_card(c1, row1_y)
+
+    # ---- section 2: how you are handling questions ---------------------------------
+    c2 = Card(col2_x, col_w)
+    c2.badge_title(2, "How you are handling questions")
+    c2.space(1)
+    c2.text(report["section2"]["caption"]["text"], size=9, color=MUTED, line_h=4.6, gap=2.5)
 
     i = 0
     pairs: list[tuple[dict, dict | None]] = []
@@ -487,45 +609,84 @@ def render_boardx_pdf(report: dict, *, roll_no: str, class_label: str, school_na
         else:
             pairs.append((report["section3"][i], report["section3"][i + 1]))
             i += 2
+    pattern_pairs = [
+        (card, pat) for card, (pat, _scope) in zip(report["section4"], pairs) if card["topic"] is not None
+    ]
 
-    for card, (pattern, _scope) in zip(report["section4"], pairs):
-        if card["topic"] is None:
-            continue
-        pdf.set_font("Helvetica", "B", 10)
-        pdf.cell(0, 6, safe(f"PATTERN SEEN: {card['topic'].upper()}"), new_x="LMARGIN", new_y="NEXT")
-        line(pattern["text"])
-        pdf.ln(1)
-    if not any(card["topic"] is not None for card in report["section4"]):
-        line("This paper does not contain enough evidence to identify one repeated question pattern.")
-    pdf.ln(2)
+    if not pattern_pairs:
+        c2.text(
+            "This paper does not contain enough evidence to identify one repeated question pattern.",
+            size=9.3, color=MUTED, line_h=4.6, gap=0,
+        )
+    for idx, (card, pattern) in enumerate(pattern_pairs):
+        bg, fg = BLUE if idx % 2 == 0 else TEAL
+        c2.box_start(bg)
+        c2.text(f"PATTERN SEEN: {safe(card['topic']).upper()}", size=8, style="B", color=fg, line_h=4, gap=1.2)
+        c2.text(pattern["text"], size=9.3, style="B", color=INK, line_h=4.6, gap=0)
+        c2.box_end()
+        if idx != len(pattern_pairs) - 1:
+            c2.space(2.5)
 
-    # Section 3 -- where the marks went (section4's own cards, in the engine's own order)
-    heading(3, "Where the marks went")
-    for card, (_pattern, scope) in zip(report["section4"], pairs):
-        pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(0, 6, safe(card["domain"]), new_x="LMARGIN", new_y="NEXT")
+    h2 = draw_card(c2, row1_y)
+
+    row2_y = row1_y + max(h1, h2) + 6.0
+
+    # ---- section 3: where the marks went -------------------------------------------
+    c3 = Card(col1_x, col_w)
+    c3.badge_title(3, "Where the marks went")
+    c3.space(1)
+    for idx, (card, _pair) in enumerate(zip(report["section4"], pairs)):
+        bg, fg = PALETTE[idx % len(PALETTE)]
+        c3.box_start(bg)
+        c3.text(card["domain"], size=9.5, style="B", color=fg, line_h=4.8, gap=1.0)
         for l in card["lines"]:
-            line(l["text"])
-        pdf.ln(1)
-    pdf.ln(1)
+            c3.text(l["text"], size=8.6, color=INK, line_h=4.2, gap=0.6)
+        c3.box_end()
+        if idx != len(report["section4"]) - 1:
+            c3.space(2.5)
+    if not report["section4"]:
+        c3.text("Every chapter on this paper was scored in full.", size=9.3, color=MUTED, line_h=4.6, gap=0)
 
-    # Section 4 -- what to do next
-    heading(4, "What you should do next")
+    h3 = draw_card(c3, row2_y)
+
+    # ---- section 4: what you should do next ----------------------------------------
+    c4 = Card(col2_x, col_w)
+    c4.badge_title(4, "What you should do next")
+    c4.space(1)
     actions = report["section5"]["actions"]
     if not actions:
-        line("Your answer script should be reviewed before a new practice task is selected.")
-    for a in actions:
-        line(a["line"]["text"], style="B")
-    pdf.ln(2)
+        c4.box_start(BLUE[0])
+        c4.text("Your answer script should be reviewed before a new practice task is selected.",
+                size=9.3, style="B", color=BLUE[1], line_h=4.6, gap=0)
+        c4.box_end()
+    for idx, a in enumerate(actions):
+        bg, fg = GREEN if idx % 2 == 0 else TEAL
+        c4.box_start(bg)
+        c4.text(a["line"]["text"], size=9.3, style="B", color=fg, line_h=4.6, gap=0)
+        c4.box_end()
+        if idx != len(actions) - 1:
+            c4.space(2.5)
 
-    pdf.set_font("Helvetica", "I", 8)
-    pdf.set_text_color(120, 120, 120)
+    h4 = draw_card(c4, row2_y)
+
+    # ---- footer band -----------------------------------------------------------------
+    # A thin bar pinned to the bottom of the page, not to the bottom of the content --
+    # a lower-band report with only one or two findings should not drag a wall of navy
+    # across most of the page just because it has less to say than an upper-band one.
+    footer_h = max(10.0, len(report["section6"]) * 4.6 + 6.0)
+    fy = 297 - footer_h
+    pdf.set_fill_color(*NAVY)
+    pdf.rect(0, fy, 210, footer_h, style="F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_font("Helvetica", "B", 8.5)
+    ty = fy + 3.0
     for l in report["section6"]:
-        pdf.multi_cell(0, 5, safe(l["text"]), new_x="LMARGIN", new_y="NEXT")
-    pdf.set_text_color(0, 0, 0)
+        pdf.set_xy(8, ty)
+        pdf.cell(0, 5, safe(l["text"]))
+        ty += 4.6
+    pdf.set_text_color(*INK)
 
     return bytes(pdf.output())
-
 
 class BoardXAuditError(Exception):
     """A composed report failed one of the spec's section 6.2 audit checks. Never caught
