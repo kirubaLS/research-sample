@@ -31,6 +31,8 @@ export default function ManageTeachers() {
   const [adding, setAdding] = useState(false);
   const [editing, setEditing] = useState<TeacherKeyView | null>(null);
   const [revoking, setRevoking] = useState<TeacherKeyView | null>(null);
+  const [renaming, setRenaming] = useState<TeacherKeyView | null>(null);
+  const [reissuing, setReissuing] = useState<TeacherKeyView | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
 
   async function refresh() {
@@ -113,6 +115,26 @@ export default function ManageTeachers() {
                       <div className="dropdown">
                         <button
                           type="button"
+                          className="dropdown-item"
+                          onClick={() => {
+                            setMenuFor(null);
+                            setRenaming(t);
+                          }}
+                        >
+                          Rename
+                        </button>
+                        <button
+                          type="button"
+                          className="dropdown-item"
+                          onClick={() => {
+                            setMenuFor(null);
+                            setReissuing(t);
+                          }}
+                        >
+                          Reissue key
+                        </button>
+                        <button
+                          type="button"
                           className="dropdown-item risk"
                           onClick={() => {
                             setMenuFor(null);
@@ -164,6 +186,27 @@ export default function ManageTeachers() {
             const key = getApiKey();
             if (key) await api.revokeTeacher(key, revoking.id);
             setRevoking(null);
+            refresh();
+          }}
+        />
+      )}
+
+      {renaming && (
+        <RenameModal
+          teacher={renaming}
+          onClose={() => setRenaming(null)}
+          onSaved={() => {
+            setRenaming(null);
+            refresh();
+          }}
+        />
+      )}
+
+      {reissuing && (
+        <ReissueModal
+          teacher={reissuing}
+          onClose={() => {
+            setReissuing(null);
             refresh();
           }}
         />
@@ -430,6 +473,118 @@ function AssignmentEditor({
         <button type="button" onClick={onDone}>{doneLabel}</button>
       </div>
     </>
+  );
+}
+
+function RenameModal({
+  teacher,
+  onClose,
+  onSaved,
+}: {
+  teacher: TeacherKeyView;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [label, setLabel] = useState(teacher.label);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function save() {
+    const key = getApiKey();
+    if (!key || !label.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await api.renameTeacher(key, teacher.id, label.trim());
+      onSaved();
+    } catch {
+      setError("Could not rename this teacher.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <h3 style={{ marginTop: 0 }}>Rename teacher</h3>
+      <div className="field">
+        <label htmlFor="rname">Label (name)</label>
+        <input
+          id="rname"
+          value={label}
+          onChange={(e) => setLabel(e.target.value)}
+          placeholder="e.g. Mr. Ravi"
+          autoFocus
+        />
+      </div>
+      {error && <p className="error">{error}</p>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
+        <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+        <button type="button" disabled={!label.trim() || saving} onClick={save}>
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </Overlay>
+  );
+}
+
+function ReissueModal({
+  teacher,
+  onClose,
+}: {
+  teacher: TeacherKeyView;
+  onClose: () => void;
+}) {
+  const [issued, setIssued] = useState<{ api_key: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  async function reissue() {
+    const key = getApiKey();
+    if (!key) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await api.reissueTeacherKey(key, teacher.id);
+      setIssued({ api_key: result.api_key });
+    } catch {
+      setError("Could not reissue this key.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (issued) {
+    return (
+      <Overlay onClose={onClose}>
+        <h3 style={{ marginTop: 0 }}>New sign-in key generated</h3>
+        <p className="cardnote">
+          Give this key to {teacher.label || "this teacher"}. Their old key has already
+          stopped working. This is shown once and cannot be retrieved again.
+        </p>
+        <CopySecret value={issued.api_key} />
+        <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
+          <button type="button" onClick={onClose}>Done</button>
+        </div>
+      </Overlay>
+    );
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <h3 style={{ marginTop: 0 }}>Reissue {teacher.label || "this teacher"}&rsquo;s key?</h3>
+      <p className="cardnote">
+        Their current key stops working the moment a new one is issued -- useful if they
+        lost it or never received it. Their assignments are kept exactly as they are.
+      </p>
+      {error && <p className="error">{error}</p>}
+      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+        <button type="button" disabled={busy} onClick={reissue}>
+          {busy ? "Issuing…" : "Reissue key"}
+        </button>
+      </div>
+    </Overlay>
   );
 }
 

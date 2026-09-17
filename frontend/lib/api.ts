@@ -1134,6 +1134,21 @@ export const api = {
   revokeTeacher: (key: string, teacherKeyId: string) =>
     authed<TeacherKeyView>(`/admin/teachers/${teacherKeyId}/revoke`, key, { method: "POST" }),
 
+  /** Rename a teacher. Touches only the label -- their key and assignments are untouched. */
+  renameTeacher: (key: string, teacherKeyId: string, label: string) =>
+    authed<TeacherKeyView>(`/admin/teachers/${teacherKeyId}`, key, {
+      method: "PATCH",
+      body: JSON.stringify({ label }),
+    }),
+
+  /** Replace a teacher's key with a fresh one, keeping their assignments. The old key
+   * stops working the instant this returns; the new raw key comes back once, same as
+   * createTeacher. Refused for an already-revoked key. */
+  reissueTeacherKey: (key: string, teacherKeyId: string) =>
+    authed<TeacherKeyView & IssuedKey>(`/admin/teachers/${teacherKeyId}/reissue`, key, {
+      method: "POST",
+    }),
+
   /** Every section a teacher key may open, with what it may do there. */
   teacherSections: (key: string) =>
     authed<{ sections: TeacherSectionSummary[] }>("/admin/teacher/sections", key),

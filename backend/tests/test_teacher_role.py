@@ -140,3 +140,71 @@ def test_teacher_key_cannot_manage_roster_or_keys(client, school):
     # require_reader-gated generic surface: refused, not silently scoped
     r = client.get(f"/admin/sections/{school['section_id']}/students", headers=teacher_headers)
     assert r.status_code == 403
+
+
+def test_renaming_a_teacher_changes_only_the_label(client, school):
+    created = client.post(
+        "/admin/teachers", headers=_auth(school),
+        json={
+            "label": "Ms. Rao",
+            "assignments": [{"type": "class", "section_id": school["section_id"]}],
+        },
+    ).json()
+    original_key = created["api_key"]
+
+    r = client.patch(
+        f"/admin/teachers/{created['id']}", headers=_auth(school), json={"label": "Ms. R. Rao"},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["label"] == "Ms. R. Rao"
+    assert "api_key" not in body
+    assert len(body["assignments"]) == 1
+
+    # the old key still works -- rename never touches the credential
+    assert client.get("/admin/me", headers={"X-API-Key": original_key}).status_code == 200
+
+
+def test_renaming_a_teacher_refuses_an_empty_label(client, school):
+    created = client.post(
+        "/admin/teachers", headers=_auth(school), json={"label": "Ms. Rao", "assignments": []},
+    ).json()
+    r = client.patch(
+        f"/admin/teachers/{created['id']}", headers=_auth(school), json={"label": "   "},
+    )
+    assert r.status_code == 422
+
+
+def test_reissuing_a_teacher_key_kills_the_old_one_and_keeps_assignments(client, school):
+    created = client.post(
+        "/admin/teachers", headers=_auth(school),
+        json={
+            "label": "Ms. Rao",
+            "assignments": [{"type": "class", "section_id": school["section_id"]}],
+        },
+    ).json()
+    old_key = created["api_key"]
+    assert client.get("/admin/me", headers={"X-API-Key": old_key}).status_code == 200
+
+    r = client.post(f"/admin/teachers/{created['id']}/reissue", headers=_auth(school))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    new_key = body["api_key"]
+    assert new_key != old_key
+    assert len(body["assignments"]) == 1
+
+    # the old key is dead, the new one works, and it carries the same assignments
+    assert client.get("/admin/me", headers={"X-API-Key": old_key}).status_code == 404
+    me = client.get("/admin/me", headers={"X-API-Key": new_key})
+    assert me.status_code == 200
+    assert len(me.json()["assignments"]) == 1
+
+
+def test_a_revoked_teacher_key_cannot_be_reissued(client, school):
+    created = client.post(
+        "/admin/teachers", headers=_auth(school), json={"label": "Temp", "assignments": []},
+    ).json()
+    client.post(f"/admin/teachers/{created['id']}/revoke", headers=_auth(school))
+
+    r = client.post(f"/admin/teachers/{created['id']}/reissue", headers=_auth(school))
+    assert r.status_code == 409

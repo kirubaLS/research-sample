@@ -892,3 +892,56 @@ def revoke_teacher(
         key.revoked_at = datetime.now(UTC)
         db.commit()
     return _teacher_view(db, key)
+
+
+class TeacherLabelIn(BaseModel):
+    label: str = Field(..., max_length=120)
+
+
+@router.patch("/teachers/{key_id}")
+def rename_teacher(
+    key_id: str, body: TeacherLabelIn,
+    school: School = Depends(require_admin), db: Session = Depends(get_session),
+) -> dict:
+    """Fix a teacher's name without touching the key or their assignments -- the only
+    thing a typo in ``label`` should cost."""
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school.id or key.role != "teacher":
+        raise HTTPException(404, "no such teacher key")
+    label = body.label.strip()
+    if not label:
+        raise HTTPException(422, "label cannot be empty")
+    key.label = label
+    db.commit()
+    return _teacher_view(db, key)
+
+
+@router.post("/teachers/{key_id}/reissue")
+def reissue_teacher_key(
+    key_id: str,
+    school: School = Depends(require_admin), db: Session = Depends(get_session),
+) -> dict:
+    """Replace a teacher's key with a fresh one, keeping their assignments and row --
+    for a key that was lost or a person who never received theirs.
+
+    The old key stops working the instant the new one is written, the same way a
+    revoke does; unlike revoke, this key is not dead, it has a new secret. A revoked
+    key cannot be reissued -- it stays dead, on purpose, and a school that wants that
+    person back issues them a new key instead, a deliberate act rather than one route
+    silently reviving a credential someone chose to kill.
+    """
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school.id or key.role != "teacher":
+        raise HTTPException(404, "no such teacher key")
+    if key.revoked_at is not None:
+        raise HTTPException(409, "this key was revoked; issue a new teacher instead")
+    key.api_key = secrets.token_urlsafe(24)
+    db.commit()
+    db.refresh(key)
+    view = _teacher_view(db, key)
+    view["api_key"] = key.api_key
+    view["api_key_notice"] = (
+        "Shown once. The old key stopped working the moment this one was issued -- "
+        "give this to the teacher named and store it somewhere safe."
+    )
+    return view
