@@ -266,3 +266,94 @@ def test_frozen_strings_never_mention_the_student_in_third_person(client, school
     # does *not* make that claim -- so only the labelling words are checked here.
     for banned in ("weak", "slow learner", "poor performer", "failing student"):
         assert banned not in all_text.lower()
+
+
+def test_a_subject_with_no_real_board_weight_yet_never_prints_a_fake_zero(client, school):
+    """Every subject but Mathematics and Science currently carries a 0.0 placeholder
+    weight on every one of its board units (app.curriculum's own BoardUnit rows -- not
+    yet populated with real CBSE blueprint data). Composing a report for one of them
+    must say NOT_CALIBRATED, never a verified-looking '0 of 80 Board marks' -- the same
+    dynamic path X.MATH goes through, proving the engine is not Mathematics-specific."""
+    from sqlalchemy import select
+
+    from app.curriculum import X_HISTORY
+    from app.curriculum.apply import apply as apply_curriculum
+    from app.db import SessionLocal
+    from app.models import Question, QuestionSkill, QuestionTier, StudentProfile, TaxonomyNode
+
+    tag = uuid.uuid4().hex[:8]
+    h = _auth(school)
+
+    db = SessionLocal()
+    apply_curriculum(db, X_HISTORY)
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.HIST.PRINTCULTURE"))
+    family_code = "X.HIST.CF.PRINTCULTURE_TEST"
+    if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == family_code)) is None:
+        db.add(TaxonomyNode(
+            kind="concept_family", code=family_code, label="Print culture test family",
+            parent_id=chapter.id, path=family_code,
+        ))
+        db.commit()
+    skill_node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == family_code))
+    db.close()
+
+    aid = client.post(
+        "/assessments", headers=h,
+        json={"subject_code": "X.HIST", "title": f"BoardX History {tag}", "total_marks": 12},
+    ).json()["assessment_id"]
+    out = client.post(
+        f"/assessments/{aid}/questions", headers=h, json={"questions": [
+            {"section": "A", "question_no": n, "max_marks": m, "board_unit": "X.HIST.U.WHOLE",
+             "concept_family": family_code, "concept_variant": f"bx-hist-{tag}-{n}",
+             "chapter": "X.HIST.PRINTCULTURE", "curriculum_section": "5.1"}
+            for n, m in (("1", 2), ("2", 2), ("3", 4), ("4", 4))
+        ]},
+    )
+    assert out.status_code == 200, out.text
+
+    db = SessionLocal()
+    student = StudentProfile(
+        school_id=school["school_id"], section_id=school["section_id"],
+        name=f"History Student {tag}", roll_no=f"{tag}-hist",
+    )
+    db.add(student)
+    questions = {
+        q.address: q for q in db.scalars(select(Question).where(Question.assessment_id == aid))
+    }
+    for address, tier in (("A/1//", "R&U"), ("A/2//", "R&U"), ("A/3//", "AP"), ("A/4//", "AP")):
+        q = questions[address]
+        db.add(QuestionSkill(question_id=q.id, node_id=skill_node.id))
+        db.add(QuestionTier(question_id=q.id, tier=tier))
+    db.commit()
+    student_id = student.id
+    db.close()
+
+    for address, mark in zip(("A/1//", "A/2//", "A/3//", "A/4//"), [2, 0, 0, 0]):
+        r = client.patch(
+            f"/assessments/{aid}/answers/{student_id}/reading/{address}",
+            headers=h, json={"marks": mark, "state": "awarded", "by": "test"},
+        )
+        assert r.status_code == 200, r.text
+    confirmed = client.post(
+        f"/assessments/{aid}/answers/{student_id}/reading/confirm", headers=h, json={"by": "test"},
+    )
+    assert confirmed.status_code == 200, confirmed.text
+
+    r = client.get(
+        f"/reports/student/{student_id}/boardx", params={"assessment_id": aid}, headers=h,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["subject_code"] == "X.HIST"
+
+    chapter_row = next(e for e in body["section1"] if e.get("domain_code") == "X.HIST.PRINTCULTURE")
+    assert chapter_row["board_exposure_verified"] is False
+    assert chapter_row["board_exposure"] is None
+    ids = {line["id"] for entry in body["section1"] for line in entry["lines"]}
+    assert "S1_BOARD_NOT_CALIBRATED" in ids
+    assert "S1_BOARD_EXPOSURE" not in ids
+
+    # And the same complexity-gap pattern search that worked for X.MATH works here too --
+    # nothing in sections 3-4 is Mathematics-specific.
+    card = next(c for c in body["section4"] if c["domain"] == "Print Culture and the Modern World")
+    assert any(line["id"] in ("S4_ACTION", "S4_NOT_LOCALISED") for line in card["lines"])

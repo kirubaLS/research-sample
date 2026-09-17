@@ -82,7 +82,12 @@ def _chapter_board_exposure(
         return None, False
     unit = db.get(TaxonomyNode, link.board_unit_id)
     weight_pct = board_weights.get(unit.code) if unit else None
-    if weight_pct is None:
+    # A weight of exactly 0 is this codebase's placeholder for "not populated yet" --
+    # every subject but Mathematics and Science currently carries this placeholder on
+    # every one of its board units (see app.curriculum's own BoardUnit rows). Treating it
+    # as verified would print a misleading "0 of 80 Board marks" as if that were a real
+    # CBSE blueprint fact, for every chapter in every one of those subjects.
+    if weight_pct is None or weight_pct <= 0:
         return None, False
     return round(weight_pct / 100.0 * BOARD_PAPER_TOTAL_MARKS), True
 
