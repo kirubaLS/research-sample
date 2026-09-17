@@ -36,9 +36,12 @@ from app.models import (
     ChapterBoardUnit,
     ConceptFamilyProposal,
     DataQualityFlag,
+    GridSheetJob,
+    GridSheetRow,
     LogicalPage,
     MarkEvent,
     PaperScanJob,
+    PlacementJob,
     ProposedMark,
     Question,
     QuestionPlacement,
@@ -238,6 +241,16 @@ def delete_assessment(
         # scan row pointing at nothing and the foreign key rejects the whole delete.
         ScannedQuestion, Question, LogicalPage, DataQualityFlag, AnalysisRun,
         MarkEvent, StudentReport, ProposedMark,
+        # The background-job tables each scan/grid-sheet/placement step writes -- each one
+        # carries its own hard FK onto assessment.id, and none of them was ever cleaned up
+        # here, so a paper that had gone through a scan, a grid-sheet read, or "Read and
+        # classify" (i.e. any real paper, not a freshly-created empty one) could never
+        # actually be deleted: the delete failed on a foreign key violation with no
+        # explanation a person reading "can't delete this paper" would ever guess.
+        # GridSheetRow/GridSheetJob before ScanDocument below would also work via that
+        # table's own ON DELETE CASCADE, but deleting them explicitly here does not depend
+        # on that cascade still being the case tomorrow.
+        GridSheetRow, GridSheetJob, PaperScanJob, PlacementJob,
     ):
         db.execute(model.__table__.delete().where(model.assessment_id == assessment_id))
     # ScanDocument's own `pages` relationship cascades to ScanPage in the ORM, so this one
@@ -246,6 +259,11 @@ def delete_assessment(
         select(ScanDocument).where(ScanDocument.assessment_id == assessment_id)
     ):
         db.delete(document)
+    # Flushed separately from the assessment's own delete below: ScanDocument's cascade to
+    # its ScanPage/GridSheetRow rows is an ORM-level delete the unit of work only orders
+    # correctly against the bulk, Core-level deletes above (and against the assessment row
+    # itself) once it has actually run, not merely been queued.
+    db.flush()
     db.delete(a)
     db.commit()
 

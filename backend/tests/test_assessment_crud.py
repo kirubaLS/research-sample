@@ -161,6 +161,66 @@ def test_deleting_a_paper_that_has_been_scanned_and_mapped_leaves_nothing_behind
     db.close()
 
 
+def test_deleting_a_paper_with_scan_grid_and_placement_jobs_leaves_nothing_behind(
+    client, school, assessment,
+):
+    """Every real paper (one that has actually been scanned, read off a grid sheet, or
+    sent through 'Read and classify') has left a PaperScanJob, GridSheetJob/GridSheetRow,
+    or PlacementJob row behind -- each with its own hard foreign key onto assessment.id.
+    None of them were ever cleaned up here, so deleting any paper that had actually been
+    used (as opposed to a freshly created, still-empty one, which is all
+    test_deleting_a_paper_removes_it above exercises) failed outright with a foreign key
+    violation Postgres enforces unconditionally."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import (
+        Assessment,
+        GridSheetJob,
+        GridSheetRow,
+        PaperScanJob,
+        PlacementJob,
+    )
+
+    db = SessionLocal()
+    db.add(PaperScanJob(
+        school_id=school["school_id"], assessment_id=assessment,
+        pdf_bytes=b"x", status="succeeded",
+    ))
+    # GridSheetJob/GridSheetRow both also carry a hard FK onto scan_document -- give them
+    # a real one rather than a null, matching what the real upload path always writes.
+    from app.models import ScanDocument
+
+    document = ScanDocument(
+        school_id=school["school_id"], assessment_id=assessment, kind="mark_grid",
+        sha256="deadbeef", page_count=1,
+    )
+    db.add(document)
+    db.flush()
+    db.add(GridSheetJob(
+        school_id=school["school_id"], assessment_id=assessment,
+        section_id=school["section_id"], document_id=document.id,
+    ))
+    db.add(GridSheetRow(
+        school_id=school["school_id"], assessment_id=assessment,
+        section_id=school["section_id"], document_id=document.id,
+        roll_no="1", status="unmatched", cells=[],
+    ))
+    db.add(PlacementJob(school_id=school["school_id"], assessment_id=assessment, status="succeeded"))
+    db.commit()
+    db.close()
+
+    with _foreign_keys_enforced():
+        r = client.delete(f"/assessments/{assessment}", headers=_auth(school))
+    assert r.status_code == 204, r.text
+
+    db = SessionLocal()
+    assert db.get(Assessment, assessment) is None
+    for model in (PaperScanJob, GridSheetJob, GridSheetRow, PlacementJob):
+        assert not list(db.scalars(select(model).where(model.assessment_id == assessment)))
+    db.close()
+
+
 def test_deleting_a_document_removes_it_from_the_assessment(client, school, assessment):
     import pymupdf
 
