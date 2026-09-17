@@ -184,16 +184,22 @@ export default function PaperPage() {
     return `The API returned ${err.status}.`;
   }
 
-  async function onRename() {
+  // Both take an explicit paper rather than always reading assessmentId/title off state, so
+  // the "Existing papers" list below can offer Rename/Delete right on each row -- without
+  // this, the only way to rename or delete a paper was to open it first and then scroll up
+  // to the header actions, for every single paper.
+  async function onRename(id?: string, currentTitle?: string) {
     const key = getApiKey();
-    if (!key || !assessmentId) return;
-    const next = window.prompt("Rename this paper", title);
-    if (next === null || next.trim() === "" || next === title) return;
+    const targetId = id ?? assessmentId;
+    if (!key || !targetId) return;
+    const next = window.prompt("Rename this paper", currentTitle ?? title);
+    if (next === null || next.trim() === "" || next === (currentTitle ?? title)) return;
     setRenaming(true);
     setError(null);
     try {
-      await api.editAssessment(key, assessmentId, { title: next.trim() });
-      setTitle(next.trim());
+      await api.editAssessment(key, targetId, { title: next.trim() });
+      if (targetId === assessmentId) setTitle(next.trim());
+      await loadPapers();
     } catch (err) {
       setError(explain(err));
     } finally {
@@ -201,9 +207,10 @@ export default function PaperPage() {
     }
   }
 
-  async function onDelete() {
+  async function onDelete(id?: string) {
     const key = getApiKey();
-    if (!key || !assessmentId) return;
+    const targetId = id ?? assessmentId;
+    if (!key || !targetId) return;
     if (!window.confirm(
       "Delete this paper? Every scanned question, mapping and mark recorded against it " +
         "goes with it, and none of it can be brought back.",
@@ -211,17 +218,20 @@ export default function PaperPage() {
     setBusy("Deleting the paper…");
     setError(null);
     try {
-      await api.deleteAssessment(key, assessmentId);
-      setDeleted(true);
-      setAssessmentId(null);
-      setScan(null);
-      setReview(null);
-      setMapped(null);
-      setPlaced(null);
-      setAlreadyClassified(false);
-      setConfirmation(null);
-      setDocumentId(null);
-      setTitle("Cycle Test I");
+      await api.deleteAssessment(key, targetId);
+      if (targetId === assessmentId) {
+        setDeleted(true);
+        setAssessmentId(null);
+        setScan(null);
+        setReview(null);
+        setMapped(null);
+        setPlaced(null);
+        setAlreadyClassified(false);
+        setConfirmation(null);
+        setDocumentId(null);
+        setTitle("Cycle Test I");
+      }
+      await loadPapers();
     } catch (err) {
       setError(explain(err));
     } finally {
@@ -561,7 +571,7 @@ export default function PaperPage() {
         </div>
         {assessmentId && (
           <div className="ph-actions">
-            <button type="button" className="secondary" onClick={onRename} disabled={renaming || !!busy}>
+            <button type="button" className="secondary" onClick={() => void onRename()} disabled={renaming || !!busy}>
               {renaming ? "Renaming…" : "Rename"}
             </button>
             {documentId && (
@@ -575,7 +585,7 @@ export default function PaperPage() {
                 {removingScan ? "Removing…" : "Remove scan"}
               </button>
             )}
-            <button type="button" className="danger" onClick={onDelete} disabled={!!busy}>
+            <button type="button" className="danger" onClick={() => void onDelete()} disabled={!!busy}>
               Delete
             </button>
           </div>
@@ -642,7 +652,7 @@ export default function PaperPage() {
           <p className="lede">Open one to check it, map it, rename it, or delete it.</p>
           <ul className="paper-list">
             {papers.map((p) => (
-              <li key={p.id}>
+              <li key={p.id} className="paper-item">
                 <button
                   type="button"
                   className={p.id === assessmentId ? "paper-row active" : "paper-row"}
@@ -651,6 +661,30 @@ export default function PaperPage() {
                   <span className="name">{p.title}</span>
                   <span className="meta">{p.subject_code} · {p.stage}</span>
                 </button>
+                <span className="paper-row-actions">
+                  <button
+                    type="button"
+                    className="secondary small"
+                    disabled={renaming || !!busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void onRename(p.id, p.title);
+                    }}
+                  >
+                    Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="danger small"
+                    disabled={!!busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void onDelete(p.id);
+                    }}
+                  >
+                    Delete
+                  </button>
+                </span>
               </li>
             ))}
           </ul>

@@ -559,6 +559,11 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
 .paper-row .name { font-weight: 600; }
 .paper-row .meta { color: var(--ink-3); font-size: 13px; white-space: nowrap; }
 
+.paper-item { display: flex; align-items: center; gap: 8px; }
+.paper-item .paper-row { flex: 1; }
+.paper-row-actions { display: flex; gap: 6px; flex-shrink: 0; }
+.paper-row-actions .small { padding: 6px 10px; font-size: 13px; }
+
 .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 .field { display: flex; flex-direction: column; gap: 6px; font-size: 14px; }
 .field > span { color: var(--ink-2); font-weight: 600; }
