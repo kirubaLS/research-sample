@@ -41,6 +41,11 @@ S1_BOARD_IMPACT_CALIBRATED = (
     "an estimated Board-impact range of {impact_low} to {impact_high} marks out of "
     "{board_total}."
 )
+#: Spec section 3.4 / R5: a real, auditable count from the Board-paper corpus, rendered
+#: only when app.curriculum.board_frequency has actually computed one for this chapter's
+#: concept family -- never a guess, and never the same as S1_BOARD_EXPOSURE (a weightage
+#: fact), which is what a chapter is WORTH rather than how often it has actually appeared.
+S1_BOARD_RECURRENCE = "{domain} has appeared in {years_appeared} of the last {years_in_scope} Board years."
 
 S2_ANALYTICS_CAPTION = "This panel shows the Reading and Understanding Analytics issued for this paper."
 
@@ -75,7 +80,7 @@ S6_UNCALIBRATED_BOARD_HISTORY = (
 #: has no frozen-string ID") to check a rendered line's id against.
 KNOWN_STRING_IDS = frozenset({
     "S1_ATTAINMENT", "S1_NON_DIAGNOSABLE", "S1_BOARD_EXPOSURE", "S1_BOARD_NOT_CALIBRATED",
-    "S1_BOARD_IMPACT_NOT_CALIBRATED", "S1_BOARD_IMPACT_CALIBRATED",
+    "S1_BOARD_IMPACT_NOT_CALIBRATED", "S1_BOARD_IMPACT_CALIBRATED", "S1_BOARD_RECURRENCE",
     "S2_ANALYTICS_CAPTION",
     "S3_COMPLEXITY_GAP", "S3_VARIANT_LOW", "S3_SCOPE_LOSS", "S3_NO_PATTERN",
     "S4_ACTION", "S4_NOT_LOCALISED", "S4_TEACHER_REVIEW",
@@ -90,6 +95,7 @@ _TEMPLATES = {
     "S1_BOARD_NOT_CALIBRATED": S1_BOARD_NOT_CALIBRATED,
     "S1_BOARD_IMPACT_NOT_CALIBRATED": S1_BOARD_IMPACT_NOT_CALIBRATED,
     "S1_BOARD_IMPACT_CALIBRATED": S1_BOARD_IMPACT_CALIBRATED,
+    "S1_BOARD_RECURRENCE": S1_BOARD_RECURRENCE,
     "S2_ANALYTICS_CAPTION": S2_ANALYTICS_CAPTION,
     "S3_COMPLEXITY_GAP": S3_COMPLEXITY_GAP,
     "S3_VARIANT_LOW": S3_VARIANT_LOW,

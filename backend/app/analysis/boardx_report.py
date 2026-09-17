@@ -92,6 +92,37 @@ def _chapter_board_exposure(
     return round(weight_pct / 100.0 * BOARD_PAPER_TOTAL_MARKS), True
 
 
+def _chapter_recurrence(
+    db: Session, assessment: Assessment, chapter_code: str,
+    chapter_families: dict[str, list[str]], nodes_by_code: dict[str, TaxonomyNode],
+) -> dict | None:
+    """A real Board-recurrence line for this chapter, or None when the corpus has not
+    been computed for any family this chapter tested (spec section 3.4 / R5: never a
+    count without a stored corpus/version to audit it against -- see
+    app.curriculum.board_frequency.recompute, which only ever writes a row once real
+    Board papers for this subject have actually been placed).
+
+    Picks the first family in the chapter with a calibrated row; a chapter usually maps
+    to one family in a school test's worth of evidence, and this is a citation, not a
+    ranking, so the first real one found is enough to say the chapter has Board history
+    on file at all.
+    """
+    from app.curriculum.board_frequency import CURRENT_VERSION, frequency_rows, stream_of
+
+    freq = frequency_rows(db, assessment.subject_code, CURRENT_VERSION, stream_of(assessment))
+    if not freq:
+        return None
+    for family_code in chapter_families.get(chapter_code, []):
+        family = nodes_by_code.get(family_code)
+        row = freq.get(family.id) if family else None
+        if row is not None:
+            return render(
+                "S1_BOARD_RECURRENCE", domain="{domain}",
+                years_appeared=row.years_appeared, years_in_scope=row.years_eligible,
+            )
+    return None
+
+
 def _resolve_remediation(
     db: Session, subject_code: str, domain_code: str, finding_type: str,
 ) -> tuple[str, str] | None:
@@ -185,6 +216,16 @@ def compose_boardx_report(
     band = "upper" if attainment >= ATTAINMENT_BAND_SPLIT else "lower"
     cap = UPPER_FINDING_CAP if band == "upper" else LOWER_FINDING_CAP
 
+    # Chapter -> the concept families this paper actually tested there, so both the
+    # recurrence lookup below and section 3's pattern search (further down) can work
+    # inside one chapter at a time rather than mixing evidence across unrelated topics.
+    chapter_families: dict[str, list[str]] = {}
+    for r in rows:
+        if r.chapter and r.concept_family:
+            chapter_families.setdefault(r.chapter, [])
+            if r.concept_family not in chapter_families[r.chapter]:
+                chapter_families[r.chapter].append(r.concept_family)
+
     # Section 1 -- lower band starts from marks scored (spec 5.SECTION-1 rule 5); upper
     # band keeps the same order by size of loss select_findings already ranks by.
     section1_order = (
@@ -192,6 +233,7 @@ def compose_boardx_report(
         else chapter_findings
     )
     section1 = []
+    any_recurrence_shown = False
     for f in section1_order:
         chapter_code = f.key
         label = nodes_by_code[chapter_code].label if chapter_code in nodes_by_code else chapter_code
@@ -209,6 +251,12 @@ def compose_boardx_report(
                    board_exposure=exposure_marks, board_total=int(BOARD_PAPER_TOTAL_MARKS))
             if verified else render("S1_BOARD_NOT_CALIBRATED")
         )
+        lines = [line, board_line]
+        recurrence_line = _chapter_recurrence(db, assessment, chapter_code, chapter_families, nodes_by_code)
+        if recurrence_line is not None:
+            recurrence_line["text"] = recurrence_line["text"].replace("{domain}", label)
+            lines.append(recurrence_line)
+            any_recurrence_shown = True
         section1.append({
             "domain": label, "domain_code": chapter_code,
             "scored": f.earned, "available": f.available,
@@ -218,7 +266,7 @@ def compose_boardx_report(
             "board_total": int(BOARD_PAPER_TOTAL_MARKS) if verified else None,
             "board_exposure_verified": verified,
             "estimated_board_impact": "NOT_CALIBRATED",  # R6 -- see module docstring
-            "lines": [line, board_line],
+            "lines": lines,
         })
     section1.append({"lines": [render("S1_BOARD_IMPACT_NOT_CALIBRATED")]})
 
@@ -269,6 +317,16 @@ def compose_boardx_report(
             })
             continue
 
+        resolved = _resolve_remediation(db, assessment.subject_code, chapter_code, finding_type)
+
+        # R4: a finding whose remediation does not resolve is a different case from "no
+        # pattern found" (S4_NOT_LOCALISED is about the latter, and saying it here would
+        # be false -- a pattern WAS found). Upper assembly may still show it, without an
+        # action; lower assembly must not show it at all, so a struggling student is never
+        # handed a card naming a loss with nothing concrete to do about it.
+        if resolved is None and band == "lower":
+            continue
+
         pattern_line["text"] = pattern_line["text"].replace("{domain}", label)
         scope_line = render(
             "S3_SCOPE_LOSS",
@@ -277,7 +335,6 @@ def compose_boardx_report(
         )
         section3.extend([pattern_line, scope_line])
 
-        resolved = _resolve_remediation(db, assessment.subject_code, chapter_code, finding_type)
         card = {"domain": label, "topic": finding_type.replace("_", " "), "lines": [scope_line]}
         if resolved is not None:
             ref, action_text = resolved
@@ -286,7 +343,8 @@ def compose_boardx_report(
             card["action"] = {"remediation_ref": ref, "text": action_text}
             section5_actions.append({"remediation_ref": ref, "text": action_text})
         else:
-            card["lines"].append(render("S4_NOT_LOCALISED"))
+            # Upper assembly only reaches here: R4 permits showing the finding itself
+            # without a resolved action.
             card["action"] = None
         section4.append(card)
 
@@ -305,7 +363,10 @@ def compose_boardx_report(
     section6_lines = [render("S6_ONE_TEST")]
     if overflow_count:
         section6_lines.append(render("S6_OVERFLOW", n=overflow_count))
-    section6_lines.append(render("S6_UNCALIBRATED_BOARD_HISTORY"))
+    # Only when no chapter actually got a real recurrence line above -- once one has,
+    # telling the student "this report does not say" about Board history is simply false.
+    if not any_recurrence_shown:
+        section6_lines.append(render("S6_UNCALIBRATED_BOARD_HISTORY"))
 
     report = {
         "assessment_id": assessment.id, "assessment_title": assessment.title,
