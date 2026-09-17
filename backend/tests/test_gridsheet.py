@@ -145,6 +145,50 @@ def test_a_roll_on_the_roster_is_resolved_and_its_marks_become_proposals(
     assert proposals["read"] == 2
 
 
+def test_a_half_mark_written_as_a_fraction_is_read_not_rejected(
+    client, school, paper, roster, monkeypatch
+):
+    """A real Social Science unit test awarded half marks written '1 1/2', '2 1/2' and
+    bare '1/2' -- not the decimal '1.5' the vision model normalises most cells to. Only
+    float() was tried, so every one of these came back "is not a number" even though the
+    same value written as a decimal parses cleanly right next to it."""
+    from app.extraction.gridsheet import GridCell, GridReading, GridRow
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    reading = GridReading(rows=[
+        GridRow(roll_no="1", name_as_written="Aarthi Selvaraj", cells=[
+            GridCell("A/1", "1 1/2"), GridCell("B/2", "1/2"),
+        ]),
+    ])
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return reading
+
+    monkeypatch.setattr("app.extraction.gridsheet.AnthropicGridReader", StubReader)
+    try:
+        out = _upload(client, school, paper, school["section_id"])
+        job_id = out.json()["job_id"]
+        job = client.get(f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school))
+        body = job.json()
+        review = client.get(
+            f"/assessments/{paper}/gridsheet/{body['document_id']}", headers=_auth(school)
+        ).json()
+        row = next(r for r in review["rows"] if r["roll_no"] == "1")
+        marks = {m["address"]: m["marks"] for m in row["marks"]}
+        assert marks == {"A/1//": 1.5, "B/2//": 0.5}
+        assert row["status"] == "clean"
+        assert row["can_confirm"] is True
+    finally:
+        settings.anthropic_api_key = before
+
+
 def test_a_roll_not_on_the_roster_is_flagged_not_invented(client, school, paper, roster, stub_grid):
     out = _upload(client, school, paper, school["section_id"])
     document_id = out.json()["document_id"]

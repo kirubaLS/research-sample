@@ -23,6 +23,7 @@ Four acts:
 from __future__ import annotations
 
 import logging
+import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
@@ -104,6 +105,40 @@ def _suggest_for(row: GridSheetRow, roster: list[StudentProfile]) -> None:
     row.note = found.reason[:300]
 
 
+#: unicode vulgar fractions a handwritten half-mark sometimes gets read as, mapped to the
+#: plain fraction text _HALF_MARK below already parses -- '½' alone or trailing a whole
+#: number ('1½').
+_VULGAR_FRACTIONS = {"½": "1/2", "¼": "1/4", "¾": "3/4", "⅓": "1/3", "⅔": "2/3"}
+
+#: a mark written as a genuine fraction of a mark -- '1 1/2', '2 1/2', '1/2' -- not the
+#: spreadsheet path's 'N/D means N out of D' convention (app.extraction.marksheet.parse_
+#: value): a school awarding half marks on a paper worth whole numbers writes exactly this,
+#: and CBSE unit tests do. float() alone rejects all three shapes outright.
+_HALF_MARK = re.compile(r"^(?:(\d+)\s+)?(\d+)\s*/\s*(\d+)$")
+
+
+def _parse_photo_cell_mark(raw: str) -> float | None:
+    """A photo cell's raw text as a mark, or None if it is not one.
+
+    Tries a plain float first (the common case, and what the vision model itself already
+    normalises most half-marks to), then a fraction -- mixed ('1 1/2') or bare ('1/2') --
+    written on the sheet as a fraction rather than a decimal.
+    """
+    text = raw.strip()
+    for glyph, replacement in _VULGAR_FRACTIONS.items():
+        if glyph in text:
+            text = text.replace(glyph, f" {replacement}").strip()
+    try:
+        return float(text)
+    except ValueError:
+        pass
+    match = _HALF_MARK.match(text)
+    if match:
+        whole, numerator, denominator = match.groups()
+        return (float(whole) if whole else 0.0) + float(numerator) / float(denominator)
+    return None
+
+
 def _write_proposed_marks(
     db: Session,
     school: School,
@@ -162,9 +197,8 @@ def _write_proposed_marks(
             if not raw:
                 problem = "left blank on the sheet"
             else:
-                try:
-                    marks = float(raw)
-                except ValueError:
+                marks = _parse_photo_cell_mark(raw)
+                if marks is None:
                     problem = f"{raw!r} is not a number"
         if problem is None and state == "awarded" and marks is not None:
             if marks > float(question.max_marks):
