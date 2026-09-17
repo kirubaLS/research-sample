@@ -15,6 +15,7 @@ from fastapi.responses import PlainTextResponse
 from sqlalchemy import text
 
 from app.api import (
+    academics,
     admin,
     books,
     documents,
@@ -106,6 +107,7 @@ async def security_headers(request: Request, call_next):
 
 
 app.include_router(admin.router)
+app.include_router(academics.router)
 app.include_router(interest.router)
 app.include_router(marks.router)
 app.include_router(books.router)

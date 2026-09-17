@@ -112,6 +112,30 @@ export interface Overview {
   }[];
 }
 
+/** GET /admin/academics -- one row per class, a status bucket count per student derived
+ * from real marks. No aspiration/action-plan/recheck fields -- this deployment has no
+ * data model for those yet. */
+export interface ClassAcademicSummary {
+  section_id: string;
+  label: string;
+  grade: number;
+  name: string;
+  student_count: number;
+  status_counts: {
+    on_track: number;
+    needs_attention: number;
+    requires_review: number;
+    not_assessed: number;
+  };
+  avg_score_pct: number | null;
+  test_count: number;
+}
+
+export interface AcademicsOverview {
+  school: { id: string; name: string };
+  classes: ClassAcademicSummary[];
+}
+
 /** GET /admin/staff -- who holds a key for this school. Never carries the secret. */
 export interface SchoolStaffRow {
   id: string;
@@ -1116,6 +1140,27 @@ export const api = {
   overview: (key: string) => authed<Overview>("/admin/overview", key),
 
   dashboard: (key: string) => authed<Dashboard>("/admin/dashboard", key),
+
+  /** Every class, its status split and its average score -- derived from real marks. */
+  academicsOverview: (key: string) => authed<AcademicsOverview>("/admin/academics", key),
+
+  /** The same overview table as a real .xlsx file, principal/admin only. */
+  academicsOverviewXlsx: async (key: string): Promise<Blob> => {
+    const res = await fetch(`${BASE}/admin/academics/overview.xlsx`, {
+      headers: { "X-API-Key": key, ...scopeHeader() },
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.blob();
+  },
+
+  /** The same overview table as a real PDF file. */
+  academicsOverviewPdf: async (key: string): Promise<Blob> => {
+    const res = await fetch(`${BASE}/admin/academics/overview.pdf`, {
+      headers: { "X-API-Key": key, ...scopeHeader() },
+    });
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return res.blob();
+  },
 
   /** The subjects this deployment carries. Never a list written into a screen. */
   subjects: (key: string) => authed<{ subjects: Subject[] }>("/admin/subjects", key),

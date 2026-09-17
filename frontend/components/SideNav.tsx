@@ -47,6 +47,7 @@ interface Item {
 // `teacher_assignment` table exist, gate this on a real `manage_teachers` capability
 // instead of `needs: null`.
 const WORK: Item[] = [
+  { href: "/admin/academics", label: "Overview", glyph: "▣", needs: "read_results" },
   { href: "/admin/boardx", label: "BoardX", glyph: "◈", needs: "read_results" },
   { href: "/admin/paper", label: "Papers", glyph: "▦", needs: "scan_papers" },
   { href: "/admin/answers", label: "Enter Marks", glyph: "▧", needs: "enter_marks" },
