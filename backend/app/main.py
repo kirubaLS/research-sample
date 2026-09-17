@@ -24,6 +24,7 @@ from app.api import (
     placement,
     platform,
     reading,
+    remediation,
     reports,
     board,
 )
@@ -114,6 +115,7 @@ app.include_router(documents.router)
 app.include_router(reading.router)
 app.include_router(gridsheets.router)
 app.include_router(board.router)
+app.include_router(remediation.router)
 
 
 @app.get("/healthz", tags=["ops"])

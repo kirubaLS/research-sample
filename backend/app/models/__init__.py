@@ -44,6 +44,7 @@ from app.models.documents import (
     StudentReport,
 )
 from app.models.marks import MARK_STATES, SOURCE_PRECEDENCE, MarkEvent
+from app.models.remediation import RemediationRow
 from app.models.psychometric import (
     ItemResponse,
     ProfileResult,
@@ -84,4 +85,5 @@ __all__ = [
     "PlacementJob",
     "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
     "CaptureAsset", "Crop", "Prediction", "HumanLabel", "Disagreement",
+    "RemediationRow",
 ]

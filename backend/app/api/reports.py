@@ -630,6 +630,33 @@ def student_report(
     }
 
 
+@router.get("/student/{student_id}/boardx")
+def student_boardx_report(
+    student_id: str,
+    assessment_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """The BoardX v2 one-page student report: 'AVAI BoardX Student Report -- Vision-
+    Aligned Composition & Rule Engine v2'. Composed entirely from the same evidence
+    student_report() above already computes -- see app.analysis.boardx_report for the
+    frozen-string composition and the audit pass every report is checked against before
+    it is returned.
+    """
+    from app.analysis.boardx_report import compose_boardx_report
+
+    a = db.get(Assessment, assessment_id)
+    if a is None or a.school_id != school.id:
+        raise HTTPException(404, "not found")
+    student = db.get(StudentProfile, student_id)
+    if student is None or student.school_id != school.id:
+        raise HTTPException(404, "not found")
+    rows = [r for r in _rows(db, a) if r.student_id == student_id]
+    if not rows:
+        raise HTTPException(404, "no marks for this student")
+    return compose_boardx_report(db, a, student, rows)
+
+
 class IssueIn(BaseModel):
     assessment_id: str
     by: str = ""
