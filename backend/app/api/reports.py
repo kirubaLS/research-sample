@@ -657,6 +657,40 @@ def student_boardx_report(
     return compose_boardx_report(db, a, student, rows)
 
 
+@router.get("/student/{student_id}/boardx.pdf")
+def student_boardx_pdf(
+    student_id: str,
+    assessment_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> Response:
+    """The same BoardX v2 one-pager, rendered as an actual PDF file -- for a principal or
+    teacher to hand a parent, same "print exactly what was composed" rule the plain
+    issued-report PDF already follows."""
+    from app.analysis.boardx_report import compose_boardx_report, render_boardx_pdf
+
+    a = db.get(Assessment, assessment_id)
+    if a is None or a.school_id != school.id:
+        raise HTTPException(404, "not found")
+    student = db.get(StudentProfile, student_id)
+    if student is None or student.school_id != school.id:
+        raise HTTPException(404, "not found")
+    rows = [r for r in _rows(db, a) if r.student_id == student_id]
+    if not rows:
+        raise HTTPException(404, "no marks for this student")
+    report = compose_boardx_report(db, a, student, rows)
+
+    section = db.get(Section, student.section_id)
+    class_label = f"Class {section.grade}-{section.name}" if section else ""
+    pdf_bytes = render_boardx_pdf(
+        report, roll_no=student.roll_no, class_label=class_label, school_name=school.name,
+    )
+    return Response(
+        content=pdf_bytes, media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{student.name}-boardx.pdf"'},
+    )
+
+
 class IssueIn(BaseModel):
     assessment_id: str
     by: str = ""

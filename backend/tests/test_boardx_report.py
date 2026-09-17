@@ -134,6 +134,39 @@ def test_section1_shows_scored_available_and_verified_board_exposure(
     assert "S1_BOARD_IMPACT_NOT_CALIBRATED" in ids
 
 
+def test_boardx_pdf_renders_the_same_composed_report(client, school, boardx_paper):
+    """The one-page PDF export must succeed for any real student/assessment pair --
+    nothing hardcoded, everything read off the same compose_boardx_report() output the
+    JSON route already returns."""
+    aid, student_id = boardx_paper
+    r = client.get(
+        f"/reports/student/{student_id}/boardx.pdf", params={"assessment_id": aid}, headers=_auth(school),
+    )
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"] == "application/pdf"
+    assert r.content[:4] == b"%PDF"
+
+
+def test_boardx_pdf_404s_for_a_student_with_no_marks_on_this_paper(client, school, boardx_paper):
+    aid, _student_id = boardx_paper
+    from app.db import SessionLocal
+    from app.models import StudentProfile
+
+    db = SessionLocal()
+    untouched = StudentProfile(
+        school_id=school["school_id"], section_id=school["section_id"], name="Untouched", roll_no="zz",
+    )
+    db.add(untouched)
+    db.commit()
+    untouched_id = untouched.id
+    db.close()
+
+    r = client.get(
+        f"/reports/student/{untouched_id}/boardx.pdf", params={"assessment_id": aid}, headers=_auth(school),
+    )
+    assert r.status_code == 404
+
+
 def test_section3_to_5_resolve_a_remediation_row_end_to_end(client, school, boardx_paper):
     aid, student_id = boardx_paper
 

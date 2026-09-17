@@ -384,6 +384,137 @@ def compose_boardx_report(
     return report
 
 
+def render_boardx_pdf(report: dict, *, roll_no: str, class_label: str, school_name: str) -> bytes:
+    """The same composed report, laid out as an actual one-page PDF -- nothing computed
+    here, every figure and sentence is read straight off ``report`` (itself frozen-string
+    output from :func:`compose_boardx_report`), the same "print exactly what was composed"
+    rule ``app.analysis.report_pdf`` already follows for the plain student report.
+    """
+    from fpdf import FPDF
+
+    def safe(text: object) -> str:
+        return str(text if text is not None else "").encode("latin-1", "replace").decode("latin-1")
+
+    pdf = FPDF(format="A4")
+    pdf.set_auto_page_break(auto=True, margin=14)
+    pdf.add_page()
+
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 9, "AVAI BoardX", new_x="LMARGIN", new_y="NEXT")
+    pdf.set_font("Helvetica", "", 11)
+    pdf.set_text_color(90, 90, 90)
+    pdf.cell(0, 6, safe(f"{report['subject_code']}  |  Your One-Page Assessment Report"), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.cell(
+        0, 7,
+        safe(f"{report['student_name']}  |  {class_label} (Roll {roll_no})  |  "
+             f"{report['assessment_title']}  |  {report['subject_code']}"),
+        new_x="LMARGIN", new_y="NEXT",
+    )
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(120, 120, 120)
+    pdf.cell(0, 6, safe(school_name), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(2)
+
+    def heading(n: int, title: str) -> None:
+        pdf.set_font("Helvetica", "B", 13)
+        pdf.set_fill_color(240, 242, 247)
+        pdf.cell(0, 8, safe(f"{n}  {title}"), new_x="LMARGIN", new_y="NEXT", fill=True)
+        pdf.ln(1)
+
+    def line(text: str, *, size: int = 10, style: str = "") -> None:
+        pdf.set_font("Helvetica", style, size)
+        pdf.multi_cell(0, 5.5, safe(text), new_x="LMARGIN", new_y="NEXT")
+
+    # Section 1 -- Where you stand
+    heading(1, "Where you stand")
+    chapter_entries = [e for e in report["section1"] if "domain" in e]
+    col = (72, 32, 32, 42)
+    pdf.set_font("Helvetica", "B", 9)
+    for w, head in zip(col, ("Chapter", "You scored", "Not scored", "Board importance")):
+        pdf.cell(w, 7, safe(head), border=1)
+    pdf.ln()
+    pdf.set_font("Helvetica", "", 9)
+    exposure_total = 0
+    for e in chapter_entries:
+        scored = f"{e['scored']:g} / {e['available']:g}" if e["diagnosable"] else "Not enough evidence"
+        not_scored = f"{e['not_scored']:g}" if e["diagnosable"] else "—"
+        if e["board_exposure_verified"]:
+            board = f"{e['board_exposure']:g} / {e['board_total']:g}"
+            exposure_total += e["board_exposure"]
+        else:
+            board = "Not calibrated"
+        pdf.cell(col[0], 7, safe(e["domain"]), border=1)
+        pdf.cell(col[1], 7, safe(scored), border=1)
+        pdf.cell(col[2], 7, safe(not_scored), border=1)
+        pdf.cell(col[3], 7, safe(board), border=1)
+        pdf.ln()
+    pdf.ln(2)
+    board_total = next((e["board_total"] for e in chapter_entries if e["board_exposure_verified"]), None)
+    if board_total:
+        line(f"BOARD EXPOSURE: Affected chapters carry {exposure_total:g} of the {board_total:g} Board marks.",
+             style="B")
+    else:
+        line("BOARD EXPOSURE: Not calibrated for this subject yet.", style="B")
+    line("ESTIMATED BOARD-SCORE IMPACT: NOT_CALIBRATED", style="B")
+    pdf.ln(2)
+
+    # Section 2 -- pattern(s) seen, paired back up with section 3/4's own per-finding loop
+    heading(2, "How you are handling questions")
+    line(report["section2"]["caption"]["text"])
+    pdf.ln(1)
+
+    i = 0
+    pairs: list[tuple[dict, dict | None]] = []
+    for card in report["section4"]:
+        if card["topic"] is None:
+            pairs.append((report["section3"][i], None))
+            i += 1
+        else:
+            pairs.append((report["section3"][i], report["section3"][i + 1]))
+            i += 2
+
+    for card, (pattern, _scope) in zip(report["section4"], pairs):
+        if card["topic"] is None:
+            continue
+        pdf.set_font("Helvetica", "B", 10)
+        pdf.cell(0, 6, safe(f"PATTERN SEEN: {card['topic'].upper()}"), new_x="LMARGIN", new_y="NEXT")
+        line(pattern["text"])
+        pdf.ln(1)
+    if not any(card["topic"] is not None for card in report["section4"]):
+        line("This paper does not contain enough evidence to identify one repeated question pattern.")
+    pdf.ln(2)
+
+    # Section 3 -- where the marks went (section4's own cards, in the engine's own order)
+    heading(3, "Where the marks went")
+    for card, (_pattern, scope) in zip(report["section4"], pairs):
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 6, safe(card["domain"]), new_x="LMARGIN", new_y="NEXT")
+        for l in card["lines"]:
+            line(l["text"])
+        pdf.ln(1)
+    pdf.ln(1)
+
+    # Section 4 -- what to do next
+    heading(4, "What you should do next")
+    actions = report["section5"]["actions"]
+    if not actions:
+        line("Your answer script should be reviewed before a new practice task is selected.")
+    for a in actions:
+        line(a["line"]["text"], style="B")
+    pdf.ln(2)
+
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(120, 120, 120)
+    for l in report["section6"]:
+        pdf.multi_cell(0, 5, safe(l["text"]), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_text_color(0, 0, 0)
+
+    return bytes(pdf.output())
+
+
 class BoardXAuditError(Exception):
     """A composed report failed one of the spec's section 6.2 audit checks. Never caught
     silently -- a report that cannot pass its own audit must not reach a student."""

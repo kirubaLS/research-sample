@@ -582,6 +582,14 @@ def _subject_breakdown(db: Session, school: School, student: StudentProfile, sub
             {**v, "label": TIER_LABELS.get(v["key"], v["key"])}
             for v in _findings_view(tiers, {})
         ],
+        # Every test this rollup drew from, so a screen can offer the one-page BoardX
+        # report (app.analysis.boardx_report) for a specific paper -- that report is
+        # scoped to one assessment, not a subject's whole history, so it needs a real
+        # assessment_id to render against.
+        "tests": [
+            {"assessment_id": aid, "title": title}
+            for aid, title in sorted({(t.assessment_id, t.assessment_title) for t in tagged}, key=lambda x: x[1])
+        ],
     }
 
 

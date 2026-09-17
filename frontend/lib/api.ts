@@ -211,6 +211,53 @@ export interface StudentSubjectBreakdown {
   };
   by_chapter: AcademicFinding[];
   by_tier: AcademicFinding[];
+  tests: { assessment_id: string; title: string }[];
+}
+
+/** GET /reports/student/{id}/boardx -- the BoardX v2 one-page report, composed from
+ * frozen student-register sentences (app.analysis.boardx_report). Each line carries a
+ * frozen-string id; only .text is ever shown. */
+export interface BoardXLine {
+  id: string;
+  text: string;
+}
+
+export interface BoardXChapterRow {
+  domain: string;
+  domain_code: string;
+  scored: number;
+  available: number;
+  not_scored: number;
+  diagnosable: boolean;
+  board_exposure: number | null;
+  board_total: number | null;
+  board_exposure_verified: boolean;
+  estimated_board_impact: "NOT_CALIBRATED";
+  lines: BoardXLine[];
+}
+
+export interface BoardXCard {
+  domain: string;
+  topic: string | null;
+  lines: BoardXLine[];
+  action: { remediation_ref: string; text: string } | null;
+}
+
+export interface BoardXReport {
+  assessment_id: string;
+  assessment_title: string;
+  subject_code: string;
+  student_id: string;
+  student_name: string;
+  assembly_band: "upper" | "lower";
+  // section1's last entry carries only `lines` (the board-impact disclaimer), so a
+  // chapter row is any entry that actually has a `domain`.
+  section1: (BoardXChapterRow | { lines: BoardXLine[] })[];
+  section2: { caption: BoardXLine; crosstab: Record<string, unknown>[] };
+  section3: BoardXLine[];
+  section4: BoardXCard[];
+  section5: { actions: { remediation_ref: string; text: string; line: BoardXLine }[] };
+  section6: BoardXLine[];
 }
 
 /** GET /admin/academics/tests -- every paper with at least one resolved mark. */
@@ -1307,6 +1354,13 @@ export const api = {
 
   studentSubjectPdf: (key: string, studentId: string, subjectCode: string) =>
     authedBlob(`/admin/academics/students/${studentId}/subjects/${subjectCode}.pdf`, key),
+
+  /** The BoardX v2 one-page report for one student, one paper. */
+  studentBoardX: (key: string, studentId: string, assessmentId: string) =>
+    authed<BoardXReport>(`/reports/student/${studentId}/boardx${qs({ assessment_id: assessmentId })}`, key),
+
+  studentBoardXPdf: (key: string, studentId: string, assessmentId: string) =>
+    authedBlob(`/reports/student/${studentId}/boardx.pdf${qs({ assessment_id: assessmentId })}`, key),
 
   /** Every paper with at least one resolved mark -- the Test tab's own list. */
   academicsTests: (key: string) => authed<{ tests: AcademicTestRow[] }>("/admin/academics/tests", key),

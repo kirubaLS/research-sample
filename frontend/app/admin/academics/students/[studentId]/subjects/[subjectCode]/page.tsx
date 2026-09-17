@@ -9,9 +9,10 @@
 
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
+import { BoardXOnePager } from "@/components/academics/BoardXOnePager";
 import { StatusBadge } from "@/components/academics/StatusBadge";
 import { Mascot } from "@/components/Mascot";
-import { api, type AcademicFinding, type StudentSubjectBreakdown } from "@/lib/api";
+import { api, type AcademicFinding, type BoardXReport, type StudentSubjectBreakdown } from "@/lib/api";
 import { downloadBlob } from "@/lib/download";
 import { getApiKey } from "@/lib/session";
 
@@ -24,15 +25,47 @@ export default function StudentSubjectPage({
   const [data, setData] = useState<StudentSubjectBreakdown | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [downloading, setDownloading] = useState<"pdf" | "xlsx" | null>(null);
+  const [boardxAssessmentId, setBoardxAssessmentId] = useState("");
+  const [boardx, setBoardx] = useState<BoardXReport | null>(null);
+  const [boardxError, setBoardxError] = useState<string | null>(null);
+  const [boardxDownloading, setBoardxDownloading] = useState(false);
 
   useEffect(() => {
     const key = getApiKey();
     if (!key) return;
     api
       .studentSubjectBreakdown(key, studentId, subjectCode)
-      .then(setData)
+      .then((res) => {
+        setData(res);
+        if (res.tests.length > 0) setBoardxAssessmentId(res.tests[0].assessment_id);
+      })
       .catch(() => setError("Could not load this subject -- there may be no marks recorded for it."));
   }, [studentId, subjectCode]);
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key || !boardxAssessmentId) return;
+    setBoardx(null);
+    setBoardxError(null);
+    api
+      .studentBoardX(key, studentId, boardxAssessmentId)
+      .then(setBoardx)
+      .catch(() => setBoardxError("Could not compose the BoardX report for this paper."));
+  }, [studentId, boardxAssessmentId]);
+
+  async function downloadBoardX() {
+    const key = getApiKey();
+    if (!key || !boardxAssessmentId) return;
+    setBoardxDownloading(true);
+    try {
+      const blob = await api.studentBoardXPdf(key, studentId, boardxAssessmentId);
+      downloadBlob(blob, `boardx-report.pdf`);
+    } catch {
+      setBoardxError("Could not generate the BoardX PDF.");
+    } finally {
+      setBoardxDownloading(false);
+    }
+  }
 
   async function download(kind: "pdf" | "xlsx") {
     const key = getApiKey();
@@ -106,6 +139,43 @@ export default function StudentSubjectPage({
 
       <div className="section-head" style={{ marginTop: 24 }}><h2>By Category (Remembering, Applying, Analysing)</h2></div>
       <FindingsTable findings={data.by_tier} emptyText="No category-classified questions yet." />
+
+      {data.tests.length > 0 && (
+        <>
+          <div className="row between" style={{ alignItems: "flex-end", marginTop: 28, marginBottom: 8 }}>
+            <div className="section-head" style={{ margin: 0 }}>
+              <h2>One-Page BoardX Report</h2>
+            </div>
+            <div className="row" style={{ gap: 10 }}>
+              {data.tests.length > 1 && (
+                <div className="field" style={{ marginBottom: 0, minWidth: 200 }}>
+                  <label>Paper</label>
+                  <select value={boardxAssessmentId} onChange={(e) => setBoardxAssessmentId(e.target.value)}>
+                    {data.tests.map((t) => (
+                      <option key={t.assessment_id} value={t.assessment_id}>{t.title}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              <button
+                type="button" className="secondary" disabled={!boardx || boardxDownloading}
+                onClick={downloadBoardX}
+                style={{ alignSelf: "flex-end" }}
+              >
+                {boardxDownloading ? "Preparing…" : "Download PDF"}
+              </button>
+            </div>
+          </div>
+          {boardxError && <p className="error">{boardxError}</p>}
+          {!boardx && !boardxError && (
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <Mascot pose="loading" size={20} />
+              <p className="muted" style={{ margin: 0 }}>Composing…</p>
+            </div>
+          )}
+          {boardx && <BoardXOnePager report={boardx} rollNo={data.student.roll_no} />}
+        </>
+      )}
     </main>
   );
 }
