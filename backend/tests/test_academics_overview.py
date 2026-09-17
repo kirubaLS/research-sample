@@ -72,7 +72,11 @@ def test_class_overview_buckets_students_by_score_band(client, school, scored_pa
     assert counts["needs_attention"] >= 1
     assert counts["requires_review"] >= 1
     assert counts["not_assessed"] >= 1
-    assert row["test_count"] == 1
+    # >= rather than == : `school` and its section are session-scoped fixtures shared by
+    # every test file, so other tests in the same run legitimately add more assessments
+    # and marks to this same section -- an exact count here would be asserting against
+    # the whole suite's fixture order, not against what this test itself set up.
+    assert row["test_count"] >= 1
     assert row["avg_score_pct"] is not None
 
 

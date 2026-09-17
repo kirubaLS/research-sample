@@ -80,6 +80,18 @@ function operator<T>(path: string, key: string, init?: RequestInit): Promise<T> 
   });
 }
 
+async function authedBlob(path: string, key: string): Promise<Blob> {
+  const res = await fetch(`${BASE}${path}`, { headers: { "X-API-Key": key, ...scopeHeader() } });
+  if (!res.ok) throw new ApiError(res.status, await res.text());
+  return res.blob();
+}
+
+function qs(params: Record<string, string | undefined>): string {
+  const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== "");
+  if (entries.length === 0) return "";
+  return "?" + new URLSearchParams(entries as [string, string][]).toString();
+}
+
 function studentAuthed<T>(path: string, sessionToken: string, init?: RequestInit): Promise<T> {
   return request<T>(path, {
     ...init,
@@ -134,6 +146,97 @@ export interface ClassAcademicSummary {
 export interface AcademicsOverview {
   school: { id: string; name: string };
   classes: ClassAcademicSummary[];
+}
+
+export type AcademicStatus = "on_track" | "needs_attention" | "requires_review" | "not_assessed";
+
+/** GET /admin/academics/{sectionId}/students -- one row per student in a class, plus
+ * the real subject/test filter options that class actually has marks on. */
+export interface ClassStudentRow {
+  student_id: string;
+  name: string;
+  roll_no: string;
+  status: AcademicStatus;
+  avg_score_pct: number | null;
+  tests_taken: number;
+  top_improvement_area: { chapter: string; rate: number } | null;
+}
+
+export interface ClassStudentsView {
+  section: { id: string; label: string };
+  filters: {
+    subjects: { subject_code: string; label: string }[];
+    tests: { assessment_id: string; title: string }[];
+  };
+  students: ClassStudentRow[];
+}
+
+/** GET /admin/academics/students/{id} -- one student, every subject they have marks
+ * in. */
+export interface StudentSubjectRow {
+  subject_code: string;
+  label: string;
+  avg_score_pct: number | null;
+  tests_taken: number;
+  status: AcademicStatus;
+  strengths: string[];
+  improve: string[];
+}
+
+export interface StudentAcademicsOverview {
+  student: { id: string; name: string; roll_no: string; section_id: string; section_label: string | null };
+  overall: { avg_score_pct: number | null; status: AcademicStatus; tests_taken: number };
+  subjects: StudentSubjectRow[];
+}
+
+/** GET /admin/academics/students/{id}/subjects/{code} -- chapter-wise and tier-wise
+ * findings, the same evidence-floored shape a BoardX report uses. */
+export interface AcademicFinding {
+  key: string;
+  label: string;
+  earned: number;
+  available: number;
+  rate: number | null;
+  questions: number;
+  sufficient: boolean;
+  message: string;
+}
+
+export interface StudentSubjectBreakdown {
+  student: { id: string; name: string; roll_no: string };
+  subject: { subject_code: string; label: string };
+  overall: {
+    earned: number; available: number; avg_score_pct: number | null;
+    status: AcademicStatus; tests_taken: number;
+  };
+  by_chapter: AcademicFinding[];
+  by_tier: AcademicFinding[];
+}
+
+/** GET /admin/academics/tests -- every paper with at least one resolved mark. */
+export interface AcademicTestRow {
+  assessment_id: string;
+  title: string;
+  subject_code: string;
+  label: string;
+  students_marked: number;
+}
+
+/** GET /admin/academics/tests/{id} -- one test's own student-by-student summary. */
+export interface TestStudentRow {
+  student_id: string;
+  name: string;
+  roll_no: string;
+  earned: number;
+  available: number;
+  avg_score_pct: number | null;
+  status: AcademicStatus;
+}
+
+export interface TestSummary {
+  assessment: { id: string; title: string; subject_code: string; subject_label: string };
+  status_counts: Record<AcademicStatus, number>;
+  students: TestStudentRow[];
 }
 
 /** GET /admin/staff -- who holds a key for this school. Never carries the secret. */
@@ -1145,22 +1248,78 @@ export const api = {
   academicsOverview: (key: string) => authed<AcademicsOverview>("/admin/academics", key),
 
   /** The same overview table as a real .xlsx file, principal/admin only. */
-  academicsOverviewXlsx: async (key: string): Promise<Blob> => {
-    const res = await fetch(`${BASE}/admin/academics/overview.xlsx`, {
-      headers: { "X-API-Key": key, ...scopeHeader() },
-    });
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return res.blob();
-  },
+  academicsOverviewXlsx: (key: string) => authedBlob("/admin/academics/overview.xlsx", key),
 
   /** The same overview table as a real PDF file. */
-  academicsOverviewPdf: async (key: string): Promise<Blob> => {
-    const res = await fetch(`${BASE}/admin/academics/overview.pdf`, {
-      headers: { "X-API-Key": key, ...scopeHeader() },
-    });
-    if (!res.ok) throw new ApiError(res.status, await res.text());
-    return res.blob();
-  },
+  academicsOverviewPdf: (key: string) => authedBlob("/admin/academics/overview.pdf", key),
+
+  /** Every student in one class -- status, avg score, weakest chapter -- optionally
+   * narrowed to one subject, one test, or one status band. */
+  classStudents: (
+    key: string, sectionId: string,
+    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus },
+  ) =>
+    authed<ClassStudentsView>(
+      `/admin/academics/${sectionId}/students${qs({
+        subject_code: filters?.subjectCode, assessment_id: filters?.assessmentId, status: filters?.status,
+      })}`,
+      key,
+    ),
+
+  classStudentsXlsx: (
+    key: string, sectionId: string,
+    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus },
+  ) =>
+    authedBlob(
+      `/admin/academics/${sectionId}/students.xlsx${qs({
+        subject_code: filters?.subjectCode, assessment_id: filters?.assessmentId, status: filters?.status,
+      })}`,
+      key,
+    ),
+
+  classStudentsPdf: (
+    key: string, sectionId: string,
+    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus },
+  ) =>
+    authedBlob(
+      `/admin/academics/${sectionId}/students.pdf${qs({
+        subject_code: filters?.subjectCode, assessment_id: filters?.assessmentId, status: filters?.status,
+      })}`,
+      key,
+    ),
+
+  /** One student, every subject they have marks in. */
+  studentAcademics: (key: string, studentId: string) =>
+    authed<StudentAcademicsOverview>(`/admin/academics/students/${studentId}`, key),
+
+  studentAcademicsXlsx: (key: string, studentId: string) =>
+    authedBlob(`/admin/academics/students/${studentId}.xlsx`, key),
+
+  studentAcademicsPdf: (key: string, studentId: string) =>
+    authedBlob(`/admin/academics/students/${studentId}.pdf`, key),
+
+  /** One student, one subject: chapter-wise and tier-wise findings. */
+  studentSubjectBreakdown: (key: string, studentId: string, subjectCode: string) =>
+    authed<StudentSubjectBreakdown>(`/admin/academics/students/${studentId}/subjects/${subjectCode}`, key),
+
+  studentSubjectXlsx: (key: string, studentId: string, subjectCode: string) =>
+    authedBlob(`/admin/academics/students/${studentId}/subjects/${subjectCode}.xlsx`, key),
+
+  studentSubjectPdf: (key: string, studentId: string, subjectCode: string) =>
+    authedBlob(`/admin/academics/students/${studentId}/subjects/${subjectCode}.pdf`, key),
+
+  /** Every paper with at least one resolved mark -- the Test tab's own list. */
+  academicsTests: (key: string) => authed<{ tests: AcademicTestRow[] }>("/admin/academics/tests", key),
+
+  /** One test's own student-by-student summary. */
+  testSummary: (key: string, assessmentId: string) =>
+    authed<TestSummary>(`/admin/academics/tests/${assessmentId}`, key),
+
+  testSummaryXlsx: (key: string, assessmentId: string) =>
+    authedBlob(`/admin/academics/tests/${assessmentId}.xlsx`, key),
+
+  testSummaryPdf: (key: string, assessmentId: string) =>
+    authedBlob(`/admin/academics/tests/${assessmentId}.pdf`, key),
 
   /** The subjects this deployment carries. Never a list written into a screen. */
   subjects: (key: string) => authed<{ subjects: Subject[] }>("/admin/subjects", key),

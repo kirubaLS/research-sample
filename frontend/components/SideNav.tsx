@@ -48,6 +48,7 @@ interface Item {
 // instead of `needs: null`.
 const WORK: Item[] = [
   { href: "/admin/academics", label: "Overview", glyph: "▣", needs: "read_results" },
+  { href: "/admin/academics/tests", label: "Test", glyph: "▧", needs: "read_results" },
   { href: "/admin/boardx", label: "BoardX", glyph: "◈", needs: "read_results" },
   { href: "/admin/paper", label: "Papers", glyph: "▦", needs: "scan_papers" },
   { href: "/admin/answers", label: "Enter Marks", glyph: "▧", needs: "enter_marks" },

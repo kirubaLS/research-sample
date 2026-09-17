@@ -15,16 +15,8 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Mascot } from "@/components/Mascot";
 import { api, type AcademicsOverview, type ClassAcademicSummary } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { getApiKey } from "@/lib/session";
-
-function downloadBlob(blob: Blob, filename: string): void {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
 
 export default function AcademicsOverviewPage() {
   const [data, setData] = useState<AcademicsOverview | null>(null);
