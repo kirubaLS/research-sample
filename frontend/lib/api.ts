@@ -80,6 +80,13 @@ function operator<T>(path: string, key: string, init?: RequestInit): Promise<T> 
   });
 }
 
+function studentAuthed<T>(path: string, sessionToken: string, init?: RequestInit): Promise<T> {
+  return request<T>(path, {
+    ...init,
+    headers: { "X-Student-Session": sessionToken, ...(init?.headers ?? {}) },
+  });
+}
+
 // --- dashboard types ------------------------------------------------------------------
 export interface SectionSummary {
   section_id: string;
@@ -144,6 +151,56 @@ export interface TeacherSectionSummary {
   subjects: string[];
   label: string | null;
   student_path: string | null;
+}
+
+/** GET /admin/teacher/students/{id}/reports -- every report issued for one student,
+ * with whether it is currently shared with them. Never carries a PIN. */
+export interface IssuedReportRow {
+  report_id: string;
+  assessment_id: string;
+  student_id: string;
+  issued_by: string;
+  issued_at: string | null;
+  earned: number;
+  available: number;
+  assessment_title: string | null;
+  shared: boolean;
+  shared_at: string | null;
+  shared_by: string | null;
+}
+
+/** POST .../reports/{id}/share -- the PIN is carried once, on this response only. */
+export interface SharedReportView extends IssuedReportRow {
+  pin: string;
+  class_code: string;
+  roll_no: string;
+  pin_notice: string;
+}
+
+/** POST /student/{classCode}/login */
+export interface StudentLoginResult {
+  session_token: string;
+  student_name: string;
+  expires_at: string;
+}
+
+/** GET /student/reports -- one row per report currently shared with the signed-in
+ * student. */
+export interface StudentReportRow {
+  report_id: string;
+  assessment_id: string;
+  issued_at: string | null;
+  earned: number;
+  available: number;
+  assessment_title: string | null;
+  shared_at: string | null;
+}
+
+/** GET /student/reports/{id} -- the full payload behind one shared row. Same shape
+ * `student_report`/`read_issued_report` return to staff -- the student portal is the
+ * one that keeps its own rendering in plain language, not this response. */
+export interface StudentReportDetail extends StudentReportRow {
+  payload: Record<string, unknown>;
 }
 
 // --- class mark-entry sheet: one photograph, many students ----------------------------
@@ -1166,6 +1223,46 @@ export const api = {
       `/admin/teacher/cohort/${sectionId}`,
       key,
     ),
+
+  // --- sharing a report with the student it belongs to ---
+
+  /** Every report issued for a student -- the list a "Share" picker is built from. */
+  studentIssuedReports: (key: string, studentId: string) =>
+    authed<{ reports: IssuedReportRow[] }>(`/admin/teacher/students/${studentId}/reports`, key),
+
+  /** Issue a fresh PIN for one report and mark it shared -- the PIN, class code and
+   * roll number are all shown once, on this response only. Re-sharing an already-shared
+   * report replaces its PIN rather than failing. */
+  shareReport: (key: string, reportId: string, by: string) =>
+    authed<SharedReportView>(`/admin/teacher/reports/${reportId}/share`, key, {
+      method: "POST",
+      body: JSON.stringify({ by }),
+    }),
+
+  /** Take a report back. The PIN already handed out stops working immediately. */
+  unshareReport: (key: string, reportId: string) =>
+    authed<IssuedReportRow>(`/admin/teacher/reports/${reportId}/unshare`, key, { method: "POST" }),
+
+  // --- the student portal itself (no staff key; a session token instead) ---
+
+  /** Roll number + PIN, traded for a session token. `classCode` is the same code the
+   * interest-test class picker uses (a Section's id). */
+  studentLogin: (classCode: string, rollNo: string, pin: string) =>
+    request<StudentLoginResult>(`/student/${classCode}/login`, {
+      method: "POST",
+      body: JSON.stringify({ roll_no: rollNo, pin }),
+    }),
+
+  /** Every report currently shared with the signed-in student. */
+  studentReports: (sessionToken: string) =>
+    studentAuthed<{ student_name: string; reports: StudentReportRow[] }>("/student/reports", sessionToken),
+
+  /** One shared report's full payload. */
+  studentReport: (sessionToken: string, reportId: string) =>
+    studentAuthed<StudentReportDetail>(`/student/reports/${reportId}`, sessionToken),
+
+  studentLogout: (sessionToken: string) =>
+    studentAuthed<{ ok: boolean }>("/student/logout", sessionToken, { method: "POST" }),
 
   // --- operator console ---
   platformWhoami: (key: string) => operator<{ role: string }>("/platform/me", key),

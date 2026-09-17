@@ -141,3 +141,29 @@ class StudentProfile(Base, PkMixin, TimestampMixin):
     consent_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
 
     section: Mapped[Section] = relationship(back_populates="students")
+
+
+class StudentSession(Base, PkMixin, TimestampMixin):
+    """A signed-in student's own session, born from logging in with a report's PIN.
+
+    Deliberately not a StaffKey: this never carries a role, never opens a staff route,
+    and grants nothing on its own -- every read it makes still has to find a
+    ``StudentReport`` row for this exact ``student_id`` with ``shared_at`` set and
+    ``share_revoked_at`` null. Revoking or re-sharing a report cannot be undone by an
+    old session token; it is checked against the report row fresh on every read, not
+    baked into the token at login.
+
+    Random and short-lived on purpose: a PIN is low-entropy by design (a parent reads
+    it off a slip of paper), so what carries it afterwards has to be a real secret with
+    its own expiry, not the PIN itself asked for again on every request.
+    """
+
+    __tablename__ = "student_session"
+
+    student_id: Mapped[str] = mapped_column(ForeignKey("student_profile.id"), index=True)
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    student: Mapped[StudentProfile] = relationship()

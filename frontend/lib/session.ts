@@ -108,29 +108,32 @@ export function signOutPlatform(): void {
   window.localStorage.removeItem(PLATFORM);
 }
 
-// --- mocked student session -------------------------------------------------------
-// TODO(backend): Dependency Index #2 -- there is no student-auth endpoint. This helper
-// holds a purely local, clearly-labeled demo session so the mocked Student shell
-// (frontend/app/student) has something to read without pretending it round-tripped
-// through a real backend. Never read by AdminGate, the teacher shell, or any code path
-// that also holds a real StaffKey/api key.
-//
-// The teacher shell no longer has a mock preview: a teacher now signs in with a real
-// issued key exactly like a principal (see app/login/page.tsx), and GET /admin/me tells
-// the frontend which shell to render via `role`.
+// --- student session ---------------------------------------------------------------
+// A student session is its own credential (a StudentSession token from POST
+// /student/{classCode}/login, see app/api/student.py), deliberately separate from the
+// staff api-key storage above -- it carries no role, opens no staff route, and grants
+// nothing beyond whatever GET /student/reports itself returns. Never read by AdminGate,
+// the teacher shell, or any code path that also holds a real StaffKey/api key.
 
-const MOCK_STUDENT = "yaadhum:mockStudent";
+const STUDENT_SESSION = "yaadhum:studentSession";
+const STUDENT_NAME = "yaadhum:studentName";
 
-/** Marks that the current browser "signed in" via the mocked student roll-no/PIN form. */
-export function enterMockStudentSession(): void {
-  window.localStorage.setItem(MOCK_STUDENT, "1");
+export function setStudentSession(token: string, name: string): void {
+  window.localStorage.setItem(STUDENT_SESSION, token);
+  window.localStorage.setItem(STUDENT_NAME, name);
 }
 
-export function isMockStudentSession(): boolean {
-  if (typeof window === "undefined") return false;
-  return window.localStorage.getItem(MOCK_STUDENT) === "1";
+export function getStudentSession(): string | null {
+  if (typeof window === "undefined") return null;
+  return window.localStorage.getItem(STUDENT_SESSION);
 }
 
-export function exitMockStudentSession(): void {
-  window.localStorage.removeItem(MOCK_STUDENT);
+export function getStudentName(): string {
+  if (typeof window === "undefined") return "";
+  return window.localStorage.getItem(STUDENT_NAME) ?? "";
+}
+
+export function clearStudentSession(): void {
+  window.localStorage.removeItem(STUDENT_SESSION);
+  window.localStorage.removeItem(STUDENT_NAME);
 }

@@ -21,6 +21,7 @@ from app.models.core import (
     Section,
     StaffKey,
     StudentProfile,
+    StudentSession,
     TeacherAssignment,
 )
 from app.models.corpus import (
@@ -69,7 +70,7 @@ from app.models.taxonomy import (
 
 __all__ = [
     "Base", "new_id", "utcnow",
-    "School", "Section", "StudentProfile",
+    "School", "Section", "StudentProfile", "StudentSession",
     "TaxonomyNode", "TaxonomyAlias", "Prerequisite", "BoardUnitWeight", "BookSource", "IngestJob",
     "ChapterBoardUnit",
     "ConceptFamilyProposal", "FamilyBoardFrequency", "SyllabusVersion",

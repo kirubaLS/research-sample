@@ -119,6 +119,17 @@ class StudentReport(Base, PkMixin, TimestampMixin):
     available: Mapped[float] = mapped_column(Numeric(7, 2), default=0)
     payload: Mapped[dict] = mapped_column(JSON)
 
+    #: Sharing this exact report with the student it belongs to, via a one-time PIN a
+    #: teacher hands out (app.api.student). Null unless a share is currently active --
+    #: only ``share_pin_hash`` is ever stored, never the PIN itself, the same "shown
+    #: once" rule every other credential in this codebase follows.
+    share_pin_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    shared_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    shared_by: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    #: Set instead of clearing the row above: who shared a report, and when, is worth
+    #: keeping after it is taken back, same reasoning as StaffKey.revoked_at.
+    share_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class ProposedMark(Base, PkMixin, TimestampMixin):
     """A mark read out of a file, waiting for a person to confirm it.

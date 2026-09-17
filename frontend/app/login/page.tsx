@@ -5,12 +5,13 @@
  * students authenticate completely differently, so the split is visible up front rather
  * than one form with a role dropdown.
  *
- * - School Staff: ✅ the real `api.whoami` sign-in (identical to AdminGate's own flow) --
+ * - School Staff: the real `api.whoami` sign-in (identical to AdminGate's own flow) --
  *   a sign-in key that really checks against the backend. A principal, admin and teacher
  *   key all use this same form; `GET /admin/me`'s `role` decides which shell to land on.
- * - Student tab: 🔧 BACKEND REQUIRED (Dependency Index #2). Roll number + school code +
- *   PIN, built and stateful, but any non-empty PIN "unlocks" a fixed set of mock reports --
- *   there is no backend to actually check it against.
+ * - Student tab: also real now -- `api.studentLogin` trades a class code, roll number
+ *   and PIN for a StudentSession token (app/api/student.py). The PIN only ever works if
+ *   a teacher shared a report and handed it out; wrong-credentials messaging stays
+ *   generic on purpose, matching the backend's "same 404 either way" answer.
  *
  * Wrong-credentials messaging on the real Principal path stays generic, matching the
  * backend's existing "revoked keys 404 identically to nonexistent ones" convention.
@@ -21,8 +22,7 @@ import { Suspense, useState } from "react";
 import { AvaiLogo } from "@/components/AvaiLogo";
 import { Mascot } from "@/components/Mascot";
 import { api, ApiError, ApiUnreachable } from "@/lib/api";
-import { enterMockStudentSession, setApiKey, setRole } from "@/lib/session";
-import { MOCK_STUDENT_IDENTITY } from "@/lib/mocks/student";
+import { setApiKey, setRole, setStudentSession } from "@/lib/session";
 
 type Tab = "staff" | "student";
 
@@ -174,46 +174,49 @@ function StudentSignIn() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  // TODO(backend): Dependency Index #2 -- there is no student-auth endpoint. Any non-empty
-  // roll no + school code + PIN "signs in" and lands on the mocked student portal; a
-  // blank field is the only thing rejected here, purely for a plausible-looking demo flow.
-  function submit(event: React.FormEvent<HTMLFormElement>) {
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(null);
     const data = new FormData(event.currentTarget);
     const roll = String(data.get("roll") ?? "").trim();
-    const school = String(data.get("school") ?? "").trim();
+    const classCode = String(data.get("classCode") ?? "").trim();
     const pin = String(data.get("pin") ?? "").trim();
-    if (!roll || !school || !pin) {
-      setError("Enter your school code, roll number and PIN.");
+    if (!roll || !classCode || !pin) {
+      setError("Enter your class code, roll number and PIN.");
       return;
     }
     setBusy(true);
-    setTimeout(() => {
-      enterMockStudentSession();
+    try {
+      const result = await api.studentLogin(classCode, roll, pin);
+      setStudentSession(result.session_token, result.student_name);
       router.push("/student");
-    }, 350);
+    } catch (err) {
+      setError(
+        err instanceof ApiUnreachable
+          ? "Could not reach the server. Try again in a minute."
+          : "That roll number, class code or PIN was not recognised. Check with your teacher.",
+      );
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
     <form onSubmit={submit}>
       <p className="cardnote" style={{ marginTop: 0 }}>
-        Sign in with the PIN your teacher gave you when they shared your report.{" "}
-        <span className="small muted">
-          (Demo only — TODO(backend): Dependency Index #2. Any values below "sign in".)
-        </span>
+        Sign in with the PIN your teacher gave you when they shared your report.
       </p>
       <div className="field">
-        <label htmlFor="school">School code</label>
-        <input id="school" name="school" placeholder={MOCK_STUDENT_IDENTITY.schoolCode} required />
+        <label htmlFor="classCode">Class code</label>
+        <input id="classCode" name="classCode" placeholder="the code your teacher gave you" required />
       </div>
       <div className="field">
         <label htmlFor="roll">Roll number</label>
-        <input id="roll" name="roll" placeholder={MOCK_STUDENT_IDENTITY.rollNo} required />
+        <input id="roll" name="roll" placeholder="e.g. 7" required />
       </div>
       <div className="field">
         <label htmlFor="pin">PIN</label>
-        <input id="pin" name="pin" type="password" inputMode="numeric" placeholder="••••" required />
+        <input id="pin" name="pin" type="password" inputMode="numeric" placeholder="••••••" required />
       </div>
       {error && <p className="error">{error}</p>}
       <button type="submit" disabled={busy} style={{ width: "100%", display: "inline-flex", justifyContent: "center", gap: 8 }}>

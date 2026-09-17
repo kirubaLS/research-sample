@@ -6,15 +6,24 @@
  * ranking, plain language only (no "R&U/AP/AEC tier" jargon), no share/compare/class-
  * average affordance anywhere on this screen.
  *
- * TODO(backend): Dependency Index #2 -- reads from MOCK_STUDENT_REPORTS, already in the
- * plain-language shape a real student-facing endpoint would return (this translation is a
- * frontend-layer concern per the spec, not a new backend computation).
+ * Real data: GET /student/reports/{id}, the same payload `student_report` computes for
+ * staff (see app/api/reports.py), re-read here into plain language -- a frontend-layer
+ * translation, not a second backend computation. No trend/previous-score line: nothing
+ * in that payload names a prior report to compare against, so this shows the one score
+ * honestly rather than inventing a comparison. No PDF download either, for the same
+ * reason -- the existing PDF export is staff-only (require_reader); a student-scoped
+ * one does not exist yet.
  */
 
 import { notFound, useRouter } from "next/navigation";
-import { use } from "react";
+import { use, useEffect, useState } from "react";
 import { Mascot } from "@/components/Mascot";
-import { mockStudentReport, mockTrendPose } from "@/lib/mocks/student";
+import { api, type StudentReportDetail } from "@/lib/api";
+import { getStudentSession } from "@/lib/session";
+
+interface NamedFinding {
+  label?: string;
+}
 
 export default function StudentReportDetail({
   params,
@@ -23,24 +32,38 @@ export default function StudentReportDetail({
 }) {
   const { reportId } = use(params);
   const router = useRouter();
-  const report = mockStudentReport(reportId);
-  if (!report) return notFound();
+  const [report, setReport] = useState<StudentReportDetail | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const pose = mockTrendPose(report);
-  const improved = report.previousScore != null && report.score > report.previousScore;
-  const declined = report.previousScore != null && report.score < report.previousScore;
-  const arrow = improved ? "↑" : declined ? "↓" : "→";
+  useEffect(() => {
+    const token = getStudentSession();
+    if (!token) return;
+    api
+      .studentReport(token, reportId)
+      .then(setReport)
+      .catch(() => setError("not-found"));
+  }, [reportId]);
 
-  // TODO(backend): Dependency Index #2 -- reuses the existing issued-report PDF export
-  // shape (api.issuedReportPdf(key, reportId)) once a real, student-scoped report_id
-  // exists. There is no real student session/report_id here, so this stays a mocked
-  // download rather than calling a real endpoint with a fabricated id.
-  function downloadPdf() {
-    window.alert(
-      "Download PDF (demo) — this would call the existing issued-report PDF export, " +
-        "scoped to this student's own report_id, once real student-issued reports exist.",
+  if (error) return notFound();
+  if (!report) {
+    return (
+      <main>
+        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+          <Mascot pose="loading" size={24} />
+          <p className="muted" style={{ margin: 0 }}>Loading…</p>
+        </div>
+      </main>
     );
   }
+
+  const payload = report.payload as {
+    strengths?: NamedFinding[];
+    focus?: NamedFinding[];
+  };
+  const doingWell = (payload.strengths ?? []).map((f) => f.label).filter(Boolean) as string[];
+  const workOnNext = (payload.focus ?? []).map((f) => f.label).filter(Boolean) as string[];
+  const rate = report.available > 0 ? report.earned / report.available : null;
+  const pose = rate == null ? "hello" : rate >= 0.75 ? "achieve" : rate >= 0.4 ? "improve" : "practice";
 
   return (
     <main>
@@ -48,36 +71,38 @@ export default function StudentReportDetail({
         ← Your reports
       </button>
 
-      <h1 style={{ marginBottom: 18 }}>{report.subjectLabel} — {report.term} Assessment</h1>
+      <h1 style={{ marginBottom: 18 }}>{report.assessment_title ?? "Report"}</h1>
 
       <div className="examfeedback">
-        {pose && <Mascot pose={pose} size={64} />}
+        <Mascot pose={pose} size={64} />
         <div className="scorecard">
           <div className="scoreline">
-            <strong>{report.score} / {report.outOf}</strong>
-            <span className="arrow" aria-hidden>{arrow}</span>
+            <strong>{report.earned} / {report.available}</strong>
           </div>
-          <p className="encourage">{report.encouragement}</p>
         </div>
       </div>
 
-      <div className="section-head">
-        <h2>What you&rsquo;re doing well</h2>
-      </div>
-      <ul className="plainlist">
-        {report.doingWell.map((item) => <li key={item}>{item}</li>)}
-      </ul>
+      {doingWell.length > 0 && (
+        <>
+          <div className="section-head">
+            <h2>What you&rsquo;re doing well</h2>
+          </div>
+          <ul className="plainlist">
+            {doingWell.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </>
+      )}
 
-      <div className="section-head">
-        <h2>What to work on next</h2>
-      </div>
-      <ul className="plainlist">
-        {report.workOnNext.map((item) => <li key={item}>{item}</li>)}
-      </ul>
-
-      <button type="button" className="secondary" style={{ marginTop: 24 }} onClick={downloadPdf}>
-        Download PDF
-      </button>
+      {workOnNext.length > 0 && (
+        <>
+          <div className="section-head">
+            <h2>What to work on next</h2>
+          </div>
+          <ul className="plainlist">
+            {workOnNext.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </>
+      )}
 
       <style jsx>{`
         .examfeedback {

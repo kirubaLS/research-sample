@@ -4,9 +4,9 @@
 // section (GET /admin/teacher/sections/{id}/students), refused unless this key holds a
 // subject assignment naming both subjectCode and sectionId.
 //
-// "Share with student" stays a mocked affordance (Dependency Index #2 -- there is no
-// real student PIN issuance yet); "Enter marks" links to the same gridsheet upload flow
-// the principal uses, which now accepts a subject-assigned teacher key too
+// "Share with student" issues a real PIN (POST /admin/teacher/reports/{id}/share) for a
+// report already issued for that student; "Enter marks" links to the same gridsheet
+// upload flow the principal uses, which now accepts a subject-assigned teacher key too
 // (require_scanner_or_teacher).
 
 import Link from "next/link";
@@ -87,7 +87,11 @@ export default function SubjectView({
       </div>
 
       {shareFor && (
-        <ShareWithStudentModal studentName={shareFor.name} onClose={() => setShareFor(null)} />
+        <ShareWithStudentModal
+          studentId={shareFor.studentId}
+          studentName={shareFor.name}
+          onClose={() => setShareFor(null)}
+        />
       )}
     </main>
   );

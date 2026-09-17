@@ -6,6 +6,7 @@ Without these there is no way to answer the two questions a principal opens the 
 
 from __future__ import annotations
 
+import hashlib
 import secrets
 from datetime import UTC, datetime
 
@@ -24,6 +25,7 @@ from app.api.deps import (
     require_teacher_read_scope,
     school_in_scope,
     teacher_assignments,
+    teacher_can_read,
 )
 from app.api.schemas import StudentCreateIn, StudentUpdateIn
 from app.curriculum import subject_groups
@@ -45,6 +47,7 @@ from app.models import (
     StaffKey,
     StudentProfile,
     StudentReport,
+    StudentSession,
     TeacherAssignment,
     TestSession,
 )
@@ -727,6 +730,134 @@ def teacher_sections(
             "student_path": f"/t/{section_id}" if section else None,
         })
     return {"sections": out}
+
+
+def _teacher_report_scope_ok(staff: Staff, db: Session, student: StudentProfile) -> bool:
+    """Whether this staff key may act on this student's reports.
+
+    Only a true cross-school admin key (``role == "admin"`` naming no school) reaches any
+    student -- that is what ``home is None`` means for admin, exactly as
+    ``school_in_scope`` treats it. The school's own legacy ``api_key`` is also
+    ``role == "admin"`` but names one school (``home`` is set), so it is bound to it here
+    the same as a principal; without this it would silently reach every other school's
+    students too.
+    """
+    if staff.is_admin and staff.home is None:
+        return True
+    if staff.home is None or student.school_id != staff.home.id:
+        return False
+    if staff.manages_school:
+        return True
+    return teacher_can_read(staff, db, student.section_id)
+
+
+def _hash_pin(pin: str, student_id: str) -> str:
+    """Salted by student_id so the same four digits never collide across students in the
+    hash column -- the PIN itself is never stored, same rule as every credential here."""
+    return hashlib.sha256(f"{pin}:{student_id}".encode()).hexdigest()
+
+
+def _issued_report_view(record: StudentReport) -> dict:
+    return {
+        "report_id": record.id,
+        "assessment_id": record.assessment_id,
+        "student_id": record.student_id,
+        "issued_by": record.issued_by,
+        "issued_at": record.created_at.isoformat() if record.created_at else None,
+        "earned": float(record.earned),
+        "available": float(record.available),
+        "assessment_title": record.payload.get("assessment_title"),
+        "shared": record.shared_at is not None and record.share_revoked_at is None,
+        "shared_at": record.shared_at.isoformat() if record.shared_at else None,
+        "shared_by": record.shared_by,
+    }
+
+
+@router.get("/teacher/students/{student_id}/reports")
+def teacher_student_reports(
+    student_id: str,
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Every report issued for this student -- the list "Share" is chosen from. A
+    principal/admin reaches every student in their school; a teacher only one their
+    class or subject assignment actually covers."""
+    student = db.get(StudentProfile, student_id)
+    if student is None or not _teacher_report_scope_ok(staff, db, student):
+        raise HTTPException(404, "no such student")
+    records = db.scalars(
+        select(StudentReport)
+        .where(StudentReport.student_id == student_id, StudentReport.school_id == student.school_id)
+        .order_by(StudentReport.created_at.desc())
+    ).all()
+    return {"reports": [_issued_report_view(r) for r in records]}
+
+
+class ShareReportIn(BaseModel):
+    by: str = Field(default="", max_length=120)
+
+
+@router.post("/teacher/reports/{report_id}/share", status_code=201)
+def share_report_with_student(
+    report_id: str,
+    body: ShareReportIn,
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Issue a fresh PIN for this report and mark it shared.
+
+    Re-sharing an already-shared report is allowed and expected -- a lost slip of paper
+    is common, and issuing a new PIN simply replaces the old one; the old PIN stops
+    working the instant this returns, same "one live secret" rule as reissuing a staff
+    key. Shown once, same as every other credential this deployment issues.
+    """
+    record = db.get(StudentReport, report_id)
+    if record is None:
+        raise HTTPException(404, "no such report")
+    student = db.get(StudentProfile, record.student_id)
+    if student is None or not _teacher_report_scope_ok(staff, db, student):
+        raise HTTPException(404, "no such report")
+
+    pin = f"{secrets.randbelow(1_000_000):06d}"
+    record.share_pin_hash = _hash_pin(pin, record.student_id)
+    record.shared_at = datetime.now(UTC)
+    record.shared_by = body.by.strip() or "teacher"
+    record.share_revoked_at = None
+    db.commit()
+    db.refresh(record)
+
+    view = _issued_report_view(record)
+    view["pin"] = pin
+    view["class_code"] = student.section_id
+    view["roll_no"] = student.roll_no
+    view["pin_notice"] = (
+        "Shown once. Give the PIN, the class code above and the roll number to the "
+        "student or their parent -- there is no route that reads the PIN back, only "
+        "share again to issue a new one."
+    )
+    return view
+
+
+@router.post("/teacher/reports/{report_id}/unshare")
+def unshare_report(
+    report_id: str,
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Take a report back. The PIN already handed out stops working immediately, and any
+    student session that was opened by way of it keeps existing but this report drops
+    out of what it can read (checked fresh on every read, not cached into the session)."""
+    record = db.get(StudentReport, report_id)
+    if record is None:
+        raise HTTPException(404, "no such report")
+    student = db.get(StudentProfile, record.student_id)
+    if student is None or not _teacher_report_scope_ok(staff, db, student):
+        raise HTTPException(404, "no such report")
+    if record.shared_at is not None and record.share_revoked_at is None:
+        record.share_revoked_at = datetime.now(UTC)
+        db.commit()
+        db.refresh(record)
+    return _issued_report_view(record)
 
 
 # ---------------------------------------------------------------------------------

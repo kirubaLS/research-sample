@@ -9,8 +9,8 @@
  * /reports/student/{id}, which is require_reader-gated and, in this pass, deliberately
  * not opened to a teacher key (see backend/app/api/deps.py's require_reader docstring) --
  * so those actions are not offered here yet rather than shown broken. "Share with
- * student" stays a mocked affordance (Dependency Index #2 -- no real student PIN
- * issuance exists).
+ * student" issues a real PIN for a report already issued elsewhere (a principal, from
+ * the student's admin page) -- see ShareWithStudentModal.
  */
 
 import { use, useEffect, useState } from "react";
@@ -78,7 +78,11 @@ export default function TeacherStudentPage({
       </div>
 
       {shareOpen && (
-        <ShareWithStudentModal studentName={student.name} onClose={() => setShareOpen(false)} />
+        <ShareWithStudentModal
+          studentId={student.student_id}
+          studentName={student.name}
+          onClose={() => setShareOpen(false)}
+        />
       )}
     </main>
   );

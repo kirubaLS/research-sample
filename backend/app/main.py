@@ -27,6 +27,7 @@ from app.api import (
     remediation,
     reports,
     board,
+    student,
 )
 from app.config import get_settings
 from app.db import engine, init_db
@@ -116,6 +117,7 @@ app.include_router(reading.router)
 app.include_router(gridsheets.router)
 app.include_router(board.router)
 app.include_router(remediation.router)
+app.include_router(student.router)
 
 
 @app.get("/healthz", tags=["ops"])
