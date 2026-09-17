@@ -33,7 +33,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
       .then((me) => {
         setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments });
         if (me.role !== "teacher") {
-          router.replace("/admin");
+          router.replace("/admin/academics");
           return;
         }
         setApiKey(key, me.name);

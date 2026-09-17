@@ -819,6 +819,9 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease), transform var(--dur-fast) var(--ease);
 }
 .sidenav .item:hover { background: var(--surface-2); color: var(--ink); transform: translateX(2px); }
+.sidenav .more-toggle {
+  width: 100%; background: none; border: none; font: inherit; cursor: pointer; text-align: left;
+}
 .sidenav .item.on {
   background: var(--surface-2); color: var(--ink); font-weight: 600;
   box-shadow: inset 3px 0 0 var(--mark);

@@ -821,18 +821,22 @@ def academics_test_summary(
 
 def _xlsx_response(header: list[str], rows: list[list[object]], sheet_title: str, filename: str) -> Response:
     from openpyxl import Workbook
-    from openpyxl.styles import Font
+    from openpyxl.styles import Alignment, Font, PatternFill
 
     wb = Workbook()
     ws = wb.active
     ws.title = (sheet_title or "Sheet")[:31] or "Sheet"
     ws.append(header)
+    header_fill = PatternFill("solid", fgColor="17395A")  # the same navy the PDFs use
     for cell in ws[1]:
-        cell.font = Font(bold=True)
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = header_fill
+        cell.alignment = Alignment(vertical="center")
     for row in rows:
         ws.append(row)
     for i, col in enumerate(header, start=1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = max(14, len(col) + 2)
+    ws.freeze_panes = "A2"
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -843,31 +847,88 @@ def _xlsx_response(header: list[str], rows: list[list[object]], sheet_title: str
     )
 
 
+#: The same navy/light-grey palette app.analysis.boardx_report's one-pager uses, so a
+#: principal opening any academics PDF -- overview, a class list, this table -- gets one
+#: visual system rather than a branded report next to a bare bordered grid.
+_PDF_NAVY = (23, 55, 87)
+_PDF_PAGE_BG = (244, 246, 250)
+_PDF_ROW_ALT = (238, 241, 247)
+_PDF_INK = (35, 40, 50)
+
+
 def _pdf_response(
     title: str, header: list[str], rows: list[list[object]], filename: str,
+    *, subtitle: str = "AVAI Academics",
 ) -> Response:
+    """Every plain tabular export in this module renders through here -- one branded
+    header/footer band and one styled table, so "download PDF" looks like the same
+    product everywhere rather than a bare bordered grid on some screens and a designed
+    report on others. Column widths and row count are entirely dynamic: nothing about a
+    particular class, student or paper is hardcoded, only the page's visual shell is
+    fixed.
+    """
     from fpdf import FPDF
 
     def safe(text: object) -> str:
         return str(text if text is not None else "").encode("latin-1", "replace").decode("latin-1")
 
     pdf = FPDF(format="A4", orientation="L")
-    pdf.set_auto_page_break(auto=True, margin=14)
+    pdf.set_auto_page_break(auto=True, margin=16)
     pdf.add_page()
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.cell(0, 10, safe(title), new_x="LMARGIN", new_y="NEXT")
+    pdf.set_fill_color(*_PDF_PAGE_BG)
+    pdf.rect(0, 0, pdf.w, pdf.h, style="F")
 
-    usable_width = pdf.w - 2 * pdf.l_margin
+    header_h = 20.0
+    pdf.set_fill_color(*_PDF_NAVY)
+    pdf.rect(0, 0, pdf.w, header_h, style="F")
+    pdf.set_text_color(255, 255, 255)
+    pdf.set_xy(10, 4)
+    pdf.set_font("Helvetica", "B", 15)
+    pdf.cell(0, 8, safe(title))
+    pdf.set_xy(10, 12.5)
+    pdf.set_font("Helvetica", "", 9.5)
+    pdf.cell(0, 5, safe(subtitle))
+    pdf.set_text_color(*_PDF_INK)
+
+    pdf.set_xy(10, header_h + 6)
+    usable_width = pdf.w - 20
     col_width = usable_width / max(1, len(header))
-    pdf.set_font("Helvetica", "B", 9)
-    for col in header:
-        pdf.cell(col_width, 8, safe(col), border=1)
-    pdf.ln()
-    pdf.set_font("Helvetica", "", 9)
-    for row in rows:
-        for val in row:
-            pdf.cell(col_width, 7, safe(val), border=1)
+
+    def draw_header_row() -> None:
+        pdf.set_x(10)
+        pdf.set_font("Helvetica", "B", 9.5)
+        pdf.set_fill_color(*_PDF_NAVY)
+        pdf.set_text_color(255, 255, 255)
+        for col in header:
+            pdf.cell(col_width, 8, safe(col), fill=True)
         pdf.ln()
+        pdf.set_text_color(*_PDF_INK)
+
+    draw_header_row()
+    pdf.set_font("Helvetica", "", 9)
+    for i, row in enumerate(rows):
+        # A page break mid-table needs the header row repeated, or the second page reads
+        # as an unlabelled continuation -- set_auto_page_break alone only starts a fresh
+        # page, it does not know this content is tabular.
+        if pdf.get_y() > pdf.h - pdf.b_margin - 8:
+            pdf.add_page()
+            pdf.set_fill_color(*_PDF_PAGE_BG)
+            pdf.rect(0, 0, pdf.w, pdf.h, style="F")
+            pdf.set_xy(10, 10)
+            draw_header_row()
+        pdf.set_x(10)
+        if i % 2 == 1:
+            pdf.set_fill_color(*_PDF_ROW_ALT)
+        else:
+            pdf.set_fill_color(255, 255, 255)
+        for val in row:
+            pdf.cell(col_width, 7.5, safe(val), fill=True)
+        pdf.ln()
+
+    if not rows:
+        pdf.set_x(10)
+        pdf.set_font("Helvetica", "I", 9.5)
+        pdf.cell(0, 8, "Nothing matches yet.")
 
     return Response(
         content=bytes(pdf.output()),

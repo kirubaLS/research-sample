@@ -81,11 +81,14 @@ export default function AcademicsOverviewPage() {
       )}
 
       {data && data.classes.length > 0 && (
-        <div className="classgrid">
-          {data.classes.map((c) => (
-            <ClassCard key={c.section_id} c={c} />
-          ))}
-        </div>
+        <>
+          <SchoolInsights classes={data.classes} />
+          <div className="classgrid">
+            {data.classes.map((c) => (
+              <ClassCard key={c.section_id} c={c} />
+            ))}
+          </div>
+        </>
       )}
 
       <style jsx>{`
@@ -95,6 +98,103 @@ export default function AcademicsOverviewPage() {
         }
       `}</style>
     </main>
+  );
+}
+
+const STATUS_SERIES: { key: keyof ClassAcademicSummary["status_counts"]; label: string; color: string }[] = [
+  { key: "on_track", label: "On Track", color: "var(--verify)" },
+  { key: "needs_attention", label: "Needs Attention", color: "var(--warn)" },
+  { key: "requires_review", label: "Requires Review", color: "var(--risk)" },
+  { key: "not_assessed", label: "Not Yet Assessed", color: "var(--ink-3)" },
+];
+
+/**
+ * Two real, school-wide reads on the same class rows the cards below list one at a
+ * time: how every student in the school currently splits across the four status
+ * bands, and how each class's average score compares to the others. Nothing here is a
+ * second computation -- both charts are the exact `status_counts`/`avg_score_pct` each
+ * `ClassAcademicSummary` already carries, just rolled up or sorted differently.
+ */
+function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
+  const totals = classes.reduce(
+    (acc, c) => {
+      acc.on_track += c.status_counts.on_track;
+      acc.needs_attention += c.status_counts.needs_attention;
+      acc.requires_review += c.status_counts.requires_review;
+      acc.not_assessed += c.status_counts.not_assessed;
+      return acc;
+    },
+    { on_track: 0, needs_attention: 0, requires_review: 0, not_assessed: 0 },
+  );
+  const totalStudents = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
+
+  const scored = classes
+    .filter((c) => c.avg_score_pct != null)
+    .sort((a, b) => (b.avg_score_pct ?? 0) - (a.avg_score_pct ?? 0));
+  const maxScore = Math.max(100, ...scored.map((c) => c.avg_score_pct ?? 0));
+
+  return (
+    <div className="insights">
+      <div className="card insight-card">
+        <h2 style={{ marginTop: 0, fontSize: 15 }}>Status across the whole school</h2>
+        <p className="cardnote" style={{ margin: "0 0 12px" }}>{totalStudents} students, every class combined</p>
+        <div className="insight-stackbar" role="img" aria-label="Status distribution across the whole school">
+          {STATUS_SERIES.map((s) => {
+            const n = totals[s.key];
+            return n > 0 && (
+              <div key={s.key} style={{ width: `${(n / totalStudents) * 100}%`, background: s.color }} title={`${s.label}: ${n}`} />
+            );
+          })}
+        </div>
+        <div className="row" style={{ gap: 16, flexWrap: "wrap", marginTop: 12 }}>
+          {STATUS_SERIES.map((s) => (
+            <Legend key={s.key} label={s.label} n={totals[s.key]} color={s.color} />
+          ))}
+        </div>
+      </div>
+
+      <div className="card insight-card">
+        <h2 style={{ marginTop: 0, fontSize: 15 }}>Average score by class</h2>
+        <p className="cardnote" style={{ margin: "0 0 12px" }}>Classes with no marks yet are left out -- there is no score to compare.</p>
+        {scored.length === 0 ? (
+          <p className="muted small">No class has a scored paper yet.</p>
+        ) : (
+          <div className="scorebars">
+            {scored.map((c) => (
+              <div className="scorebar-row" key={c.section_id}>
+                <span className="scorebar-label">{c.grade}{c.name}</span>
+                <div className="scorebar-track">
+                  <div
+                    className="scorebar-fill"
+                    style={{ width: `${((c.avg_score_pct ?? 0) / maxScore) * 100}%` }}
+                  />
+                </div>
+                <span className="scorebar-value">{c.avg_score_pct}%</span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <style jsx>{`
+        .insights {
+          display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+          gap: 16px; margin-top: 20px;
+        }
+        .insight-card { margin: 0; }
+        .insight-stackbar {
+          display: flex; height: 14px; border-radius: 999px; overflow: hidden;
+          background: var(--rule);
+        }
+        .insight-stackbar > div { transition: width 0.3s ease; }
+        .scorebars { display: flex; flex-direction: column; gap: 9px; }
+        .scorebar-row { display: grid; grid-template-columns: 56px 1fr 42px; align-items: center; gap: 10px; }
+        .scorebar-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+        .scorebar-track { height: 10px; border-radius: 999px; background: var(--rule); overflow: hidden; }
+        .scorebar-fill { height: 100%; border-radius: 999px; background: var(--mark); transition: width 0.3s ease; }
+        .scorebar-value { font-size: 12.5px; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+      `}</style>
+    </div>
   );
 }
 

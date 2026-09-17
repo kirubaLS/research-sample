@@ -34,27 +34,24 @@ interface Item {
   needs: keyof StaffRole["can"] | null;
 }
 
-// Avai nav restructure (design spec §5.1): BoardX is the principal's primary lens and
-// default landing page, followed by Papers, Enter Marks and Settings. The old flat
-// "Dashboard" counts screen doesn't disappear -- it folds into Settings as an
-// "Operations" summary (see /admin/page.tsx), so it is intentionally not a peer item
-// here any more.
-//
-// "Manage Teachers" (spec §5.11) is now wired in, but note it is demo/mock-backed: per
-// the Backend Dependency Index (#1), the `teacher` role + `teacher_assignment` model
-// don't exist in the backend yet, so the screen it opens manages in-memory fixture data,
-// not real rows. TODO(backend): once a real `teacher` StaffKey role and
-// `teacher_assignment` table exist, gate this on a real `manage_teachers` capability
-// instead of `needs: null`.
-const WORK: Item[] = [
+// Overview and Test are what a principal actually opens day to day -- the landing page
+// after sign-in is /admin/academics (see app/login/page.tsx), and this nav leads with
+// it. Papers/Enter Marks/Scan Answer Sheets are real, frequently-used screens for
+// whoever is doing the scanning and marks entry, but a principal mostly is not that
+// person day to day, so they move into the collapsed "More" group below rather than
+// sitting as peers to Overview at the top -- open, not removed.
+const PRIMARY: Item[] = [
   { href: "/admin/academics", label: "Overview", glyph: "▣", needs: "read_results" },
   { href: "/admin/academics/tests", label: "Test", glyph: "▧", needs: "read_results" },
   { href: "/admin/boardx", label: "BoardX", glyph: "◈", needs: "read_results" },
+  { href: "/admin/teachers", label: "Manage Teachers", glyph: "☺", needs: null },
+  { href: "/admin", label: "Settings", glyph: "▤", needs: null },
+];
+
+const MORE: Item[] = [
   { href: "/admin/paper", label: "Papers", glyph: "▦", needs: "scan_papers" },
   { href: "/admin/answers", label: "Enter Marks", glyph: "▧", needs: "enter_marks" },
   { href: "/admin/gridsheet", label: "Scan Answer Sheets", glyph: "▥", needs: "enter_marks" },
-  { href: "/admin/teachers", label: "Manage Teachers", glyph: "☺", needs: null },
-  { href: "/admin", label: "Settings", glyph: "▤", needs: null },
 ];
 
 const PLATFORM: Item[] = [
@@ -69,6 +66,13 @@ export function SideNav() {
   const [signedIn, setSignedIn] = useState(false);
   const [role, setRole] = useState<StaffRole | null>(null);
   const [console_, setConsole] = useState(false);
+  // Collapsed by default -- Papers/Enter Marks/Scan Answer Sheets are real, working
+  // screens, just not ones a principal opens as often as Overview/Test, so they start
+  // tucked away rather than competing for space at the top of every visit. Auto-opens
+  // when a page inside it is the current one, so following a link here or landing on
+  // one of these pages directly (e.g. a bookmark) never hides the nav item that is
+  // actually active.
+  const [moreOpen, setMoreOpen] = useState(false);
 
   useEffect(() => {
     setSignedIn(Boolean(getApiKey()));
@@ -81,6 +85,10 @@ export function SideNav() {
     setConsole(Boolean(getPlatformKey()));
   }, [pathname]);
 
+  useEffect(() => {
+    if (MORE.some((item) => pathname === item.href)) setMoreOpen(true);
+  }, [pathname]);
+
   if (!signedIn && !console_) return null;
 
   // Every signed-in key still passes items with needs: null (Dashboard, and the whole
@@ -89,6 +97,20 @@ export function SideNav() {
   // name.
   const visible = (items: Item[]) =>
     items.filter((item) => item.needs === null || Boolean(role?.can[item.needs]));
+
+  const link = (item: Item) => (
+    <Link
+      key={item.href}
+      href={item.href}
+      className={`item${pathname === item.href ? " on" : ""}`}
+      aria-current={pathname === item.href ? "page" : undefined}
+    >
+      <span className="glyph" aria-hidden>
+        {item.glyph}
+      </span>
+      {item.label}
+    </Link>
+  );
 
   const group = (title: string, items: Item[]) => {
     const shown = visible(items);
@@ -99,26 +121,30 @@ export function SideNav() {
     return (
       <div className="group" key={title}>
         <p className="grouplabel">{title}</p>
-        {shown.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            className={`item${pathname === item.href ? " on" : ""}`}
-            aria-current={pathname === item.href ? "page" : undefined}
-          >
-            <span className="glyph" aria-hidden>
-              {item.glyph}
-            </span>
-            {item.label}
-          </Link>
-        ))}
+        {shown.map(link)}
       </div>
     );
   };
 
+  const moreItems = visible(MORE);
+
   return (
     <nav className="sidenav" aria-label="Sections">
-      {signedIn && group("Assessment", WORK)}
+      {signedIn && group("Assessment", PRIMARY)}
+      {signedIn && moreItems.length > 0 && (
+        <div className="group">
+          <button
+            type="button"
+            className="item more-toggle"
+            onClick={() => setMoreOpen((v) => !v)}
+            aria-expanded={moreOpen}
+          >
+            <span className="glyph" aria-hidden>{moreOpen ? "▾" : "▸"}</span>
+            More
+          </button>
+          {moreOpen && moreItems.map(link)}
+        </div>
+      )}
       {console_ && group("Platform", PLATFORM)}
       {/* Desktop only (hidden by .sidenav's own <=900px rule turning this into a
           horizontal scroll row, where a footer illustration has nowhere to sit) -- the
