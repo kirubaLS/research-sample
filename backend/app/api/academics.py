@@ -289,7 +289,7 @@ def academics_overview_pdf(
 
 def _class_students(
     db: Session, school: School, section: Section,
-    *, subject_code: str | None, assessment_id: str | None, status: str | None,
+    *, subject_code: str | None, assessment_id: str | None, status: str | None, top: int | None = None,
 ) -> list[dict]:
     students = list(
         db.scalars(
@@ -337,6 +337,15 @@ def _class_students(
 
     if status:
         rows_out = [r for r in rows_out if r["status"] == status]
+    # "Top N scorers" is applied last and server-side, on exactly the same rows the
+    # screen (and its downloads) already agreed on -- a student with no score yet
+    # (avg_score_pct is None) can never count as a top scorer, so they are dropped
+    # before ranking rather than sorted as a false zero.
+    if top is not None:
+        rows_out = sorted(
+            (r for r in rows_out if r["avg_score_pct"] is not None),
+            key=lambda r: -r["avg_score_pct"],
+        )[:top]
     return rows_out
 
 
@@ -364,18 +373,24 @@ def _get_section(db: Session, school: School, section_id: str) -> Section:
 def class_students(
     section_id: str,
     subject_code: str | None = None, assessment_id: str | None = None, status: str | None = None,
+    top: int | None = None,
     school: School = Depends(require_reader), db: Session = Depends(get_session),
 ) -> dict:
     """Every student in this class, their overall status and their weakest chapter --
-    optionally narrowed to one subject, one test, or one status band."""
+    optionally narrowed to one subject, one test, a status band, or the top N scorers.
+    `top` is applied server-side so the screen and its downloads can never disagree
+    about which students that view actually means."""
     section = _get_section(db, school, section_id)
     if status is not None and status not in STATUS_LABELS:
         raise HTTPException(422, f"status must be one of {', '.join(STATUS_LABELS)}")
+    if top is not None and top < 1:
+        raise HTTPException(422, "top must be a positive number")
     return {
         "section": {"id": section.id, "label": f"Class {section.grade}-{section.name}"},
         "filters": _section_filters(db, school, section_id),
         "students": _class_students(
-            db, school, section, subject_code=subject_code, assessment_id=assessment_id, status=status,
+            db, school, section, subject_code=subject_code, assessment_id=assessment_id,
+            status=status, top=top,
         ),
     }
 
@@ -398,11 +413,13 @@ def _class_students_rows(students: list[dict]) -> tuple[list[str], list[list[obj
 def class_students_xlsx(
     section_id: str,
     subject_code: str | None = None, assessment_id: str | None = None, status: str | None = None,
+    top: int | None = None,
     school: School = Depends(require_reader), db: Session = Depends(get_session),
 ) -> Response:
     section = _get_section(db, school, section_id)
     students = _class_students(
-        db, school, section, subject_code=subject_code, assessment_id=assessment_id, status=status,
+        db, school, section, subject_code=subject_code, assessment_id=assessment_id,
+        status=status, top=top,
     )
     header, rows = _class_students_rows(students)
     return _xlsx_response(
@@ -414,11 +431,13 @@ def class_students_xlsx(
 def class_students_pdf(
     section_id: str,
     subject_code: str | None = None, assessment_id: str | None = None, status: str | None = None,
+    top: int | None = None,
     school: School = Depends(require_reader), db: Session = Depends(get_session),
 ) -> Response:
     section = _get_section(db, school, section_id)
     students = _class_students(
-        db, school, section, subject_code=subject_code, assessment_id=assessment_id, status=status,
+        db, school, section, subject_code=subject_code, assessment_id=assessment_id,
+        status=status, top=top,
     )
     header, rows = _class_students_rows(students)
     return _pdf_response(
@@ -446,21 +465,29 @@ def _student_subjects(db: Session, school: School, student_id: str) -> dict[str,
     return by_subject
 
 
-def _student_overview(db: Session, school: School, student: StudentProfile) -> dict:
+def _student_overview(
+    db: Session, school: School, student: StudentProfile, *, subject_code: str | None = None,
+) -> dict:
     section = db.get(Section, student.section_id)
     by_subject = _student_subjects(db, school, student.id)
 
+    # The "overall" tiles always cover every subject, regardless of `subject_code` --
+    # that filter narrows which subject rows the table (and its download) lists, not
+    # what "overall" means, so it is computed from the unfiltered data first.
+    total_earned = sum(t.row.earned for entries in by_subject.values() for t in entries if t.row.counts)
+    total_available = sum(t.row.max_marks for entries in by_subject.values() for t in entries if t.row.counts)
+    all_assessment_ids = {t.assessment_id for entries in by_subject.values() for t in entries}
+
+    wanted_subjects = (
+        {s: e for s, e in by_subject.items() if s == subject_code} if subject_code else by_subject
+    )
+
     chapter_labels_needed: set[str] = set()
     subject_rows = []
-    total_earned = total_available = 0.0
-    all_assessment_ids: set[str] = set()
-    for subject_code, entries in sorted(by_subject.items()):
+    for code, entries in sorted(wanted_subjects.items()):
         rows = [t.row for t in entries]
         earned = sum(r.earned for r in rows if r.counts)
         available = sum(r.max_marks for r in rows if r.counts)
-        total_earned += earned
-        total_available += available
-        all_assessment_ids |= {t.assessment_id for t in entries}
         chapters = by_chapter(rows)
         strengths = sorted(
             (f for f in chapters if f.sufficient and f.rate is not None), key=lambda f: -f.rate,
@@ -471,8 +498,8 @@ def _student_overview(db: Session, school: School, student: StudentProfile) -> d
         for f in (*strengths, *weak):
             chapter_labels_needed.add(f.key)
         subject_rows.append({
-            "subject_code": subject_code,
-            "label": _subject_label(subject_code),
+            "subject_code": code,
+            "label": _subject_label(code),
             "avg_score_pct": round(earned / available * 100, 1) if available else None,
             "tests_taken": len({t.assessment_id for t in entries}),
             "status": _status_for(earned, available),
@@ -521,20 +548,22 @@ def _student_rows(overview: dict) -> tuple[list[str], list[list[object]]]:
 # other suffixed pair below.
 @router.get("/students/{student_id}.xlsx")
 def student_overview_xlsx(
-    student_id: str, school: School = Depends(require_reader), db: Session = Depends(get_session)
+    student_id: str, subject_code: str | None = None,
+    school: School = Depends(require_reader), db: Session = Depends(get_session),
 ) -> Response:
     student = _get_student(db, school, student_id)
-    overview = _student_overview(db, school, student)
+    overview = _student_overview(db, school, student, subject_code=subject_code)
     header, rows = _student_rows(overview)
     return _xlsx_response(header, rows, student.name[:31], f"{student.name}-overview.xlsx")
 
 
 @router.get("/students/{student_id}.pdf")
 def student_overview_pdf(
-    student_id: str, school: School = Depends(require_reader), db: Session = Depends(get_session)
+    student_id: str, subject_code: str | None = None,
+    school: School = Depends(require_reader), db: Session = Depends(get_session),
 ) -> Response:
     student = _get_student(db, school, student_id)
-    overview = _student_overview(db, school, student)
+    overview = _student_overview(db, school, student, subject_code=subject_code)
     header, rows = _student_rows(overview)
     return _pdf_response(
         f"{student.name} (Roll {student.roll_no}) -- Overview", header, rows,
@@ -674,6 +703,28 @@ def academics_tests(
     ]
     out.sort(key=lambda e: e["title"])
     return {"tests": out}
+
+
+def _tests_list_rows(tests: list[dict]) -> tuple[list[str], list[list[object]]]:
+    header = ["Test", "Subject", "Students Marked"]
+    rows = [[t["title"], t["label"], t["students_marked"]] for t in tests]
+    return header, rows
+
+
+@router.get("/tests.xlsx")
+def academics_tests_xlsx(
+    school: School = Depends(require_reader), db: Session = Depends(get_session)
+) -> Response:
+    header, rows = _tests_list_rows(academics_tests(school, db)["tests"])
+    return _xlsx_response(header, rows, "Tests", f"{school.name}-tests.xlsx")
+
+
+@router.get("/tests.pdf")
+def academics_tests_pdf(
+    school: School = Depends(require_reader), db: Session = Depends(get_session)
+) -> Response:
+    header, rows = _tests_list_rows(academics_tests(school, db)["tests"])
+    return _pdf_response(f"{school.name} -- Every Test", header, rows, f"{school.name}-tests.pdf")
 
 
 def _test_summary(db: Session, school: School, assessment: Assessment) -> dict:

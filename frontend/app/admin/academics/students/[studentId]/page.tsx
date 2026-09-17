@@ -35,7 +35,10 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
     if (!key) return;
     setDownloading(kind);
     try {
-      const blob = kind === "pdf" ? await api.studentAcademicsPdf(key, studentId) : await api.studentAcademicsXlsx(key, studentId);
+      const filter = subjectFilter || undefined;
+      const blob = kind === "pdf"
+        ? await api.studentAcademicsPdf(key, studentId, filter)
+        : await api.studentAcademicsXlsx(key, studentId, filter);
       downloadBlob(blob, `student-overview.${kind}`);
     } catch {
       setError(`Could not generate the ${kind === "pdf" ? "PDF" : "Excel"} file.`);

@@ -2,9 +2,10 @@
 
 /**
  * One class, every student, a status derived from real marks -- narrowed by subject,
- * by test, by status band, and (client-side only, since it is a view of the same rows
- * rather than a new query) to the top 5 scorers. Tap a student to see their own
- * cross-subject overview.
+ * by test, by status band, and by the top 5 scorers. Every filter (including "top 5")
+ * is sent to the backend and applied there, so the table on screen and its Excel/PDF
+ * downloads can never disagree about which students a filter combination actually
+ * means. Tap a student to see their own cross-subject overview.
  */
 
 import Link from "next/link";
@@ -25,18 +26,20 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
   const [top5, setTop5] = useState(false);
   const [downloading, setDownloading] = useState<"pdf" | "xlsx" | null>(null);
 
+  const filters = {
+    subjectCode: subjectCode || undefined, assessmentId: assessmentId || undefined,
+    status: status || undefined, top: top5 ? 5 : undefined,
+  };
+
   const load = useCallback(() => {
     const key = getApiKey();
     if (!key) return;
     api
-      .classStudents(key, sectionId, {
-        subjectCode: subjectCode || undefined,
-        assessmentId: assessmentId || undefined,
-        status: status || undefined,
-      })
+      .classStudents(key, sectionId, filters)
       .then(setData)
       .catch(() => setError("Could not load this class."));
-  }, [sectionId, subjectCode, assessmentId, status]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sectionId, subjectCode, assessmentId, status, top5]);
 
   useEffect(() => {
     load();
@@ -47,7 +50,6 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
     if (!key) return;
     setDownloading(kind);
     try {
-      const filters = { subjectCode: subjectCode || undefined, assessmentId: assessmentId || undefined, status: status || undefined };
       const blob = kind === "pdf"
         ? await api.classStudentsPdf(key, sectionId, filters)
         : await api.classStudentsXlsx(key, sectionId, filters);
@@ -71,13 +73,7 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
     );
   }
 
-  let rows = data.students;
-  if (top5) {
-    rows = [...rows]
-      .filter((s) => s.avg_score_pct != null)
-      .sort((a, b) => (b.avg_score_pct ?? 0) - (a.avg_score_pct ?? 0))
-      .slice(0, 5);
-  }
+  const rows = data.students;
 
   return (
     <main className="wrap">

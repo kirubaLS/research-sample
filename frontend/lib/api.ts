@@ -1301,36 +1301,41 @@ export const api = {
   academicsOverviewPdf: (key: string) => authedBlob("/admin/academics/overview.pdf", key),
 
   /** Every student in one class -- status, avg score, weakest chapter -- optionally
-   * narrowed to one subject, one test, or one status band. */
+   * narrowed to one subject, one test, one status band, or the top N scorers. `top` is
+   * applied server-side so a screen and its downloads can never disagree about which
+   * students "top scorers" means. */
   classStudents: (
     key: string, sectionId: string,
-    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus },
+    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus; top?: number },
   ) =>
     authed<ClassStudentsView>(
       `/admin/academics/${sectionId}/students${qs({
         subject_code: filters?.subjectCode, assessment_id: filters?.assessmentId, status: filters?.status,
+        top: filters?.top?.toString(),
       })}`,
       key,
     ),
 
   classStudentsXlsx: (
     key: string, sectionId: string,
-    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus },
+    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus; top?: number },
   ) =>
     authedBlob(
       `/admin/academics/${sectionId}/students.xlsx${qs({
         subject_code: filters?.subjectCode, assessment_id: filters?.assessmentId, status: filters?.status,
+        top: filters?.top?.toString(),
       })}`,
       key,
     ),
 
   classStudentsPdf: (
     key: string, sectionId: string,
-    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus },
+    filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus; top?: number },
   ) =>
     authedBlob(
       `/admin/academics/${sectionId}/students.pdf${qs({
         subject_code: filters?.subjectCode, assessment_id: filters?.assessmentId, status: filters?.status,
+        top: filters?.top?.toString(),
       })}`,
       key,
     ),
@@ -1339,11 +1344,11 @@ export const api = {
   studentAcademics: (key: string, studentId: string) =>
     authed<StudentAcademicsOverview>(`/admin/academics/students/${studentId}`, key),
 
-  studentAcademicsXlsx: (key: string, studentId: string) =>
-    authedBlob(`/admin/academics/students/${studentId}.xlsx`, key),
+  studentAcademicsXlsx: (key: string, studentId: string, subjectCode?: string) =>
+    authedBlob(`/admin/academics/students/${studentId}.xlsx${qs({ subject_code: subjectCode })}`, key),
 
-  studentAcademicsPdf: (key: string, studentId: string) =>
-    authedBlob(`/admin/academics/students/${studentId}.pdf`, key),
+  studentAcademicsPdf: (key: string, studentId: string, subjectCode?: string) =>
+    authedBlob(`/admin/academics/students/${studentId}.pdf${qs({ subject_code: subjectCode })}`, key),
 
   /** One student, one subject: chapter-wise and tier-wise findings. */
   studentSubjectBreakdown: (key: string, studentId: string, subjectCode: string) =>
@@ -1364,6 +1369,10 @@ export const api = {
 
   /** Every paper with at least one resolved mark -- the Test tab's own list. */
   academicsTests: (key: string) => authed<{ tests: AcademicTestRow[] }>("/admin/academics/tests", key),
+
+  academicsTestsXlsx: (key: string) => authedBlob("/admin/academics/tests.xlsx", key),
+
+  academicsTestsPdf: (key: string) => authedBlob("/admin/academics/tests.pdf", key),
 
   /** One test's own student-by-student summary. */
   testSummary: (key: string, assessmentId: string) =>

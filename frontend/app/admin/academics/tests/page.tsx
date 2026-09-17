@@ -10,11 +10,13 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Mascot } from "@/components/Mascot";
 import { api, type AcademicTestRow } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { getApiKey } from "@/lib/session";
 
 export default function TestsTabPage() {
   const [tests, setTests] = useState<AcademicTestRow[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState<"pdf" | "xlsx" | null>(null);
 
   useEffect(() => {
     const key = getApiKey();
@@ -25,12 +27,38 @@ export default function TestsTabPage() {
       .catch(() => setError("Could not load tests."));
   }, []);
 
+  async function download(kind: "pdf" | "xlsx") {
+    const key = getApiKey();
+    if (!key) return;
+    setDownloading(kind);
+    try {
+      const blob = kind === "pdf" ? await api.academicsTestsPdf(key) : await api.academicsTestsXlsx(key);
+      downloadBlob(blob, `tests.${kind}`);
+    } catch {
+      setError(`Could not generate the ${kind === "pdf" ? "PDF" : "Excel"} file.`);
+    } finally {
+      setDownloading(null);
+    }
+  }
+
   return (
     <main className="wrap">
-      <div className="hero">
-        <p className="eyebrow">Test</p>
-        <h1 style={{ margin: 0 }}>Every Test</h1>
-        <p className="lede">Every paper with marks recorded on it -- open one to see how the whole class did.</p>
+      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+        <div>
+          <p className="eyebrow">Test</p>
+          <h1 style={{ margin: 0 }}>Every Test</h1>
+          <p className="lede">Every paper with marks recorded on it -- open one to see how the whole class did.</p>
+        </div>
+        {tests && tests.length > 0 && (
+          <div className="row" style={{ gap: 8 }}>
+            <button type="button" className="secondary" disabled={!!downloading} onClick={() => download("xlsx")}>
+              {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
+            </button>
+            <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
+              {downloading === "pdf" ? "Preparing…" : "Download PDF"}
+            </button>
+          </div>
+        )}
       </div>
 
       {error && <p className="error">{error}</p>}
