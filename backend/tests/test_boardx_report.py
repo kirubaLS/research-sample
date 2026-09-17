@@ -167,6 +167,94 @@ def test_boardx_pdf_404s_for_a_student_with_no_marks_on_this_paper(client, schoo
     assert r.status_code == 404
 
 
+def test_variant_low_pattern_names_the_skill_not_its_taxonomy_code(client, school):
+    """A real bug this test guards against: S3_VARIANT_LOW used to be filled in with the
+    raw skill/subtopic taxonomy code (e.g. "X.MATH.PROB.S14_1") because the code was
+    never resolved to the TaxonomyNode's own label -- exactly the kind of internal join
+    key a teacher, principal or student was never meant to see on a report."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Question, QuestionSkill, QuestionTier, StudentProfile, TaxonomyNode
+
+    tag = uuid.uuid4().hex[:8]
+    h = _auth(school)
+    aid = client.post(
+        "/assessments", headers=h,
+        json={"subject_code": "X.MATH", "title": f"Variant Low Test {tag}", "total_marks": 8},
+    ).json()["assessment_id"]
+    client.post(
+        f"/assessments/{aid}/questions", headers=h, json={"questions": [
+            {"section": "A", "question_no": "1", "max_marks": 2, "board_unit": "X.MATH.U.MENSURATION",
+             "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"vl-{tag}-1",
+             "chapter": "X.MATH.SAV", "curriculum_section": "12.1"},
+            {"section": "A", "question_no": "2", "max_marks": 2, "board_unit": "X.MATH.U.MENSURATION",
+             "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"vl-{tag}-2",
+             "chapter": "X.MATH.SAV", "curriculum_section": "12.1"},
+            {"section": "A", "question_no": "3", "max_marks": 2, "board_unit": "X.MATH.U.MENSURATION",
+             "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"vl-{tag}-3",
+             "chapter": "X.MATH.SAV", "curriculum_section": "12.1"},
+            {"section": "A", "question_no": "4", "max_marks": 2, "board_unit": "X.MATH.U.MENSURATION",
+             "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"vl-{tag}-4",
+             "chapter": "X.MATH.SAV", "curriculum_section": "12.1"},
+        ]},
+    )
+
+    db = SessionLocal()
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.SAV"))
+    weak_skill = TaxonomyNode(
+        kind="subtopic", code=f"X.MATH.SAV.WEAK_{tag}", label="Cone and Hemisphere Combinations",
+        parent_id=chapter.id, path=f"X.MATH.SAV.WEAK_{tag}",
+    )
+    strong_skill = TaxonomyNode(
+        kind="subtopic", code=f"X.MATH.SAV.STRONG_{tag}", label="Cube and Cuboid Volumes",
+        parent_id=chapter.id, path=f"X.MATH.SAV.STRONG_{tag}",
+    )
+    db.add_all([weak_skill, strong_skill])
+    db.flush()
+
+    student = StudentProfile(
+        school_id=school["school_id"], section_id=school["section_id"],
+        name=f"Variant Low Student {tag}", roll_no=f"{tag}-vl",
+    )
+    db.add(student)
+    db.flush()
+
+    questions = {
+        q.address: q for q in db.scalars(select(Question).where(Question.assessment_id == aid))
+    }
+    # Two skills, both tested only at tier AP (so no cross-tier complexity_gap can ever
+    # apply), one scoring far worse than the other -- exactly the "several sub-topics,
+    # one much lower than the rest" shape S3_VARIANT_LOW exists for.
+    for address, skill in (("A/1//", weak_skill), ("A/2//", weak_skill), ("A/3//", strong_skill), ("A/4//", strong_skill)):
+        q = questions[address]
+        db.add(QuestionSkill(question_id=q.id, node_id=skill.id))
+        db.add(QuestionTier(question_id=q.id, tier="AP"))
+    db.commit()
+    student_id = student.id
+    db.close()
+
+    for address, mark in zip(("A/1//", "A/2//", "A/3//", "A/4//"), [0, 0, 2, 2]):
+        client.patch(
+            f"/assessments/{aid}/answers/{student_id}/reading/{address}",
+            headers=h, json={"marks": mark, "state": "awarded", "by": "test"},
+        )
+    client.post(f"/assessments/{aid}/answers/{student_id}/reading/confirm", headers=h, json={"by": "test"})
+
+    r = client.get(
+        f"/reports/student/{student_id}/boardx", params={"assessment_id": aid}, headers=h,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+
+    variant_lines = [l for l in body["section3"] if l["id"] == "S3_VARIANT_LOW"]
+    assert variant_lines, "expected at least one S3_VARIANT_LOW line for this paper"
+    for l in variant_lines:
+        assert "Cone and Hemisphere Combinations" in l["text"]
+        assert weak_skill.code not in l["text"]
+        assert "X.MATH" not in l["text"]
+
+
 def test_section3_to_5_resolve_a_remediation_row_end_to_end(client, school, boardx_paper):
     aid, student_id = boardx_paper
 

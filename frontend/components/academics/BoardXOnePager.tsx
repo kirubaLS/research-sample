@@ -25,6 +25,10 @@ export function BoardXOnePager({
     .filter((r) => r.board_exposure_verified)
     .reduce((sum, r) => sum + (r.board_exposure ?? 0), 0);
   const boardTotal = chapterRows.find((r) => r.board_exposure_verified)?.board_total ?? null;
+  // The real frozen-string sentence (S1_BOARD_IMPACT_NOT_CALIBRATED), not the bare status
+  // code "NOT_CALIBRATED" -- that word means nothing to a teacher, principal or student
+  // who was never told what it stands for.
+  const impactLine = report.section1.find((e) => !("domain" in e))?.lines[0];
 
   // section3 is a flat line list built in the same order as section4's cards: one line
   // for a no-pattern card, two (pattern + scope) for a real one. Re-pairing them here
@@ -75,7 +79,7 @@ export function BoardXOnePager({
             ? `Affected chapters carry ${trim(exposureTotal)} of the ${trim(boardTotal)} Board marks.`
             : "Not calibrated for this subject yet."}
         </p>
-        <p className="bx-note"><strong>ESTIMATED BOARD-SCORE IMPACT:</strong> NOT_CALIBRATED</p>
+        {impactLine && <p className="bx-note">{impactLine.text}</p>}
       </BxSection>
 
       <BxSection n={2} title="How you are handling questions">

@@ -141,6 +141,7 @@ def _resolve_remediation(
 
 def _pattern_for_chapter(
     crosstab: list[Finding], chapter_code: str, chapter_skills: set[str],
+    nodes_by_code: dict[str, TaxonomyNode],
 ) -> tuple[dict | None, str | None]:
     """(S3 line, finding_type) for one chapter, from its own skill x tier crosstab rows.
 
@@ -188,8 +189,13 @@ def _pattern_for_chapter(
 
     # No cross-tier gap on any one skill -- fall back to the lowest-scoring skill, if any.
     worst = min(sufficient, key=lambda f: f.rate)
+    worst_skill_code = worst.key.split("|")[0]
+    # A student reads "variant", never the taxonomy code it is keyed by -- the code is an
+    # internal join key (app.models.assessment.QuestionSkill), not something a teacher,
+    # principal or student was ever meant to see on a report.
+    worst_skill_label = nodes_by_code[worst_skill_code].label if worst_skill_code in nodes_by_code else worst_skill_code
     return (
-        render("S3_VARIANT_LOW", domain="{domain}", variant=worst.key.split("|")[0]),
+        render("S3_VARIANT_LOW", domain="{domain}", variant=worst_skill_label),
         "variant_low",
     )
 
@@ -306,7 +312,7 @@ def compose_boardx_report(
         chapter_code = f.key
         label = nodes_by_code[chapter_code].label if chapter_code in nodes_by_code else chapter_code
         pattern_line, finding_type = _pattern_for_chapter(
-            crosstab, chapter_code, chapter_skills.get(chapter_code, set()),
+            crosstab, chapter_code, chapter_skills.get(chapter_code, set()), nodes_by_code,
         )
         if pattern_line is None:
             section3.append(render("S3_NO_PATTERN"))
@@ -458,7 +464,13 @@ def render_boardx_pdf(report: dict, *, roll_no: str, class_label: str, school_na
              style="B")
     else:
         line("BOARD EXPOSURE: Not calibrated for this subject yet.", style="B")
-    line("ESTIMATED BOARD-SCORE IMPACT: NOT_CALIBRATED", style="B")
+    # The real frozen-string sentence (S1_BOARD_IMPACT_NOT_CALIBRATED), not a bare code --
+    # "NOT_CALIBRATED" is an internal status value, not something to print to a reader who
+    # was never told what that word means.
+    impact_entry = next((e for e in report["section1"] if "domain" not in e), None)
+    if impact_entry is not None:
+        for l in impact_entry["lines"]:
+            line(l["text"], style="B")
     pdf.ln(2)
 
     # Section 2 -- pattern(s) seen, paired back up with section 3/4's own per-finding loop
