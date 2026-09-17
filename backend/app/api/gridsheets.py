@@ -39,6 +39,7 @@ from app.api.schemas import StudentCreateIn
 from app.api.upload import IMAGE_SUFFIXES, pages_to_pdf
 from app.config import get_settings
 from app.db import get_session
+from app.extraction.address import Address
 from app.extraction.gridsheet import read_grid, read_single_script
 from app.extraction.marksheet import parse_address, read_any, read_pdf
 from app.extraction.names import suggest
@@ -137,6 +138,15 @@ def _parse_photo_cell_mark(raw: str) -> float | None:
         whole, numerator, denominator = match.groups()
         return (float(whole) if whole else 0.0) + float(numerator) / float(denominator)
     return None
+
+
+def _address_sort_key(address: str) -> tuple[str, int, int, str]:
+    """A canonical 'SECTION/NO/SUB/ALT' address, ordered the way the paper itself prints
+    the questions -- not the order the vision model happened to read the cells in, which
+    a class mark-entry sheet's own multi-row-per-student layout (marks for the first half
+    of the questions, then the second) scrambles relative to plain question order."""
+    section, qno, sub, alt = (address.split("/") + ["", "", "", ""])[:4]
+    return Address(section or None, qno, sub or None, alt or None).sort_key
 
 
 def _write_proposed_marks(
@@ -571,7 +581,7 @@ def review_gridsheet(
                     "raw_value": p.raw_value,
                     "problem": p.problem,
                 }
-                for p in proposals
+                for p in sorted(proposals, key=lambda p: _address_sort_key(p.address))
             ]
         suggested = (
             db.get(StudentProfile, row.suggested_student_id)

@@ -24,6 +24,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import require_scanner
+from app.api.marks import _question_no_sort_key, _sub_part_sort_key
 from app.api.matching import match_address as _match
 from app.api.upload import IMAGE_SUFFIXES, pages_to_pdf
 from app.db import get_session
@@ -217,7 +218,14 @@ def read_proposals(
     student = _student(db, school, student_id)
 
     questions = list(db.scalars(
-        select(Question).where(Question.assessment_id == assessment.id).order_by(Question.address)
+        select(Question).where(Question.assessment_id == assessment.id)
+    ))
+    # A plain string order on the address column puts 'A/10//' right after 'A/1//' and
+    # before 'A/2//' on any paper with ten or more questions in a section -- the paper's
+    # own order, not alphabetical, is what a person checking marks against the sheet needs.
+    questions.sort(key=lambda q: (
+        q.section or "", _question_no_sort_key(q.question_no),
+        _sub_part_sort_key(q.sub_part), q.choice_alt or "",
     ))
     proposals = {
         p.address: p for p in db.scalars(

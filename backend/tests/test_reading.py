@@ -98,6 +98,31 @@ def test_a_long_sheet_is_read_the_same_way(client, school, paper, student):
     assert _read(client, school, paper, student, "long.csv", csv).json()["read"] == 3
 
 
+def test_questions_are_listed_in_the_papers_own_order_not_string_order(client, school, student):
+    """A plain string sort on the address column puts 'A/10//' right after 'A/1//' and
+    before 'A/2//' -- alphabetical, not the paper's own order, on any real paper with ten
+    or more questions in a section. A person checking marks against the physical sheet
+    needs to see them in the order the sheet actually prints them in."""
+    aid = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Order test", "total_marks": 3},
+    ).json()["assessment_id"]
+    out = client.post(
+        f"/assessments/{aid}/questions", headers=_auth(school),
+        json={"questions": [
+            {"section": "A", "question_no": n, "max_marks": 1, "board_unit": "X.MATH.U.STATSPROB",
+             "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"order-{aid}-{n}"}
+            for n in ["1", "2", "9", "10", "11"]
+        ]},
+    )
+    assert out.status_code == 200, out.text
+
+    sheet = client.get(
+        f"/assessments/{aid}/answers/{student}/reading", headers=_auth(school)
+    ).json()
+    assert [q["question_no"] for q in sheet["questions"]] == ["1", "2", "9", "10", "11"]
+
+
 def test_a_question_the_paper_does_not_have_is_reported_not_invented(
     client, school, paper, student
 ):
