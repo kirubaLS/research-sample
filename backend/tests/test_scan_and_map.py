@@ -343,6 +343,116 @@ def test_a_vision_read_that_falls_short_of_the_papers_own_declared_total_is_bloc
         settings.anthropic_api_key = before
 
 
+#: Same layout as PAPER, plus a cover line declaring its own total -- exercises the
+#: primary confidence signal (declared vs. read) rather than the "nothing to compare
+#: against" trust-by-default path PAPER alone exercises.
+PAPER_WITH_DECLARED_TOTAL = [[
+    (60, 40, "Maximum Marks: 8"),
+    *PAPER[0],
+]]
+
+
+def test_a_correctly_parsed_text_paper_never_triggers_the_vision_fallback(
+    client, school, assessment,
+):
+    """The confidence check's whole point is to catch a bad rule-based read, not to run
+    a paid vision call on every ordinary scan. A paper whose declared total matches what
+    was read, with no unmarked leaf question, must be accepted synchronously -- route
+    'text', 201, no PaperScanJob."""
+    from app.db import SessionLocal
+    from app.models.documents import PaperScanJob
+
+    r = _upload(client, school, assessment, _paper_bytes(PAPER_WITH_DECLARED_TOTAL))
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert body["route"] == "text"
+    assert body["total_marks"] == 8.0
+
+    db = SessionLocal()
+    jobs = db.scalars(select(PaperScanJob).where(PaperScanJob.assessment_id == assessment)).all()
+    db.close()
+    assert jobs == [], "a confidently-read text paper must not queue a vision job"
+
+
+def test_a_text_extraction_that_looks_unreliable_falls_back_to_vision(
+    client, school, assessment, monkeypatch,
+):
+    """The core of this feature: the rule-based parser can silently mis-read a paper (a
+    dropped question, a lost mark label) and nothing about the extraction itself looks
+    like an error -- it just reads short. When the sum of what was read falls well short
+    of what the paper's own cover declares, that read is not shipped; the same paper is
+    queued for a vision re-read instead, exactly the way a photograph with no text layer
+    already is."""
+    from app.extraction.paper import ExtractedQuestion
+    from app.extraction.paper_vision import PaperVisionReading
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            # The vision route recovers the question the text route's parser dropped.
+            return PaperVisionReading(
+                questions=[
+                    ExtractedQuestion(
+                        section="A", question_no="1", sub_part=None, choice_alt=None,
+                        max_marks=3.0, stem_text="Find the mean of the grouped data.",
+                        logical_page=1,
+                    ),
+                    ExtractedQuestion(
+                        section="A", question_no="2", sub_part=None, choice_alt=None,
+                        max_marks=5.0, stem_text="Prove the tangent is perpendicular.",
+                        logical_page=1,
+                    ),
+                ],
+                declared_total=8.0,
+            )
+
+    monkeypatch.setattr("app.extraction.paper_vision.AnthropicPaperVisionReader", StubReader)
+    try:
+        # The text route's own extraction is stubbed directly: a genuinely bad
+        # rule-based read is hard to construct as a well-formed fixture (the layouts
+        # that confuse the parser are themselves the bugs), and app.api.marks is the
+        # layer under test here, not paper.py's parsing rules.
+        from app.extraction.paper import ExtractedQuestion as EQ
+        from app.extraction.paper import PaperExtract
+
+        bad_extract = PaperExtract(
+            route="text", page_count=1,
+            questions=[
+                EQ(
+                    section="A", question_no="1", sub_part=None, choice_alt=None,
+                    max_marks=3.0, stem_text="Find the mean of the grouped data.",
+                    logical_page=1,
+                ),
+                # question 2 lost entirely, e.g. by an over-eager furniture drop --
+                # the exact shape of the CBSE bug this feature was built for.
+            ],
+            declared_total=8.0,
+        )
+        # extract_paper is imported locally inside scan_paper (not at module scope in
+        # app.api.marks), so the patch target is its home module, app.extraction.paper.
+        monkeypatch.setattr("app.extraction.paper.extract_paper", lambda *a, **kw: bad_extract)
+
+        r = _upload(client, school, assessment, _paper_bytes(PAPER))
+        assert r.status_code == 202, r.text
+        body = r.json()
+        assert "job_id" in body
+        assert "re-read" in body.get("detail", "")
+
+        job_id = body["job_id"]
+        job = client.get(f"/assessments/{assessment}/scan/jobs/{job_id}", headers=_auth(school))
+        assert job.status_code == 200, job.text
+        # The vision read's own two questions were staged, not the text route's one.
+        assert job.json()["staged"] == 2
+    finally:
+        settings.anthropic_api_key = before
+
+
 def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
     client, school, assessment, book
 ):

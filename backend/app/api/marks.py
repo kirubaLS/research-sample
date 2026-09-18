@@ -608,6 +608,51 @@ def _scanned_effective_total(rows, context: set[str]) -> float:
     return total
 
 
+#: How far the read total may sit from the paper's own declared total before the text
+#: route's read is distrusted. A flat floor for a small paper (a 2-mark tolerance on an
+#: 8-mark quiz would swallow a whole quarter of it) and a percentage for a large one (a
+#: fixed 2 marks on a 100-question board paper is too tight for the odd half-mark
+#: rounding a real paper's own printed total sometimes carries) -- whichever is larger.
+#: 2% is chosen so a single missed sub-part (rarely worth less than a couple of marks)
+#: still trips it, while accumulated half-mark rounding across many sections does not.
+TEXT_ROUTE_MARK_TOLERANCE_FLOOR = 2.0
+TEXT_ROUTE_MARK_TOLERANCE_PCT = 0.02
+
+
+def _text_route_is_confident(extract) -> bool:
+    """Should a route='text' extraction be trusted, or is it worth paying for a vision
+    re-read instead?
+
+    Self-comparison only -- nothing here looks at the paper again, it only asks whether
+    the read paper.py already produced is internally consistent. Reuses
+    PaperExtract.total_marks (the same OR/choice-group-aware, count-once summation
+    _scanned_effective_total above applies to staged rows) rather than a naive sum, for
+    the same reason that function exists: a naive sum double-counts an internal choice
+    and calls a correctly-read paper unreliable.
+
+    No declared total on the paper (``_declared`` found no "Maximum Marks: N" line, or
+    whatever printed it does not match that pattern) means there is nothing to compare
+    the read against -- this returns True rather than False. Falling back whenever a
+    paper simply prints its total in an unrecognised way would trigger a paid vision
+    read on every such paper, not just the broken ones, which is exactly the routine
+    cost this check exists to avoid; a paper this route reads with no other problems is
+    still the best information available, so it ships.
+    """
+    if extract.declared_total is None:
+        return True
+    tolerance = max(
+        TEXT_ROUTE_MARK_TOLERANCE_FLOOR, TEXT_ROUTE_MARK_TOLERANCE_PCT * extract.declared_total
+    )
+    if abs(extract.declared_total - extract.total_marks) > tolerance:
+        return False
+    # A leaf question or sub-part with no mark label at all -- not a context stem, whose
+    # marks legitimately live on its sub-parts (_mark_context_rows) -- is a row the parser
+    # gave up on. The totals check above can still pass by coincidence (two missed marks
+    # offsetting two extra ones elsewhere), so this is checked independently rather than
+    # folded into the same tolerance.
+    return not any(q.max_marks is None and not q.is_context for q in extract.questions)
+
+
 def _finish_paper_scan(
     db: Session, school: School, assessment: Assessment, extract, originals, source_sha: str,
 ) -> dict:
@@ -866,25 +911,38 @@ async def scan_paper(
     path = await pages_to_pdf(files)
     try:
         extract = extract_paper(path, subject_code=assessment.subject_code)
-        source_sha = __import__("hashlib").sha256(path.read_bytes()).hexdigest()
-        pdf_bytes = path.read_bytes() if extract.route == "vision" else None
+        raw_bytes = path.read_bytes()
+        source_sha = __import__("hashlib").sha256(raw_bytes).hexdigest()
     finally:
         path.unlink(missing_ok=True)
 
-    if extract.route == "vision":
+    # The text route ran and produced something, but its own marks don't add up against
+    # what the paper declares for itself -- see _text_route_is_confident. One shot only:
+    # this never re-checks the vision route's own result the same way. A paper hard
+    # enough to beat both reads is a genuinely hard paper, and chaining another fallback
+    # onto vision would just be guessing again, on the vision pipeline's own dime.
+    unreliable_text = extract.route == "text" and not _text_route_is_confident(extract)
+
+    if extract.route == "vision" or unreliable_text:
         assessment.route = "vision"
         assessment.pdf_page_count = extract.page_count
-        job = PaperScanJob(school_id=school.id, assessment_id=assessment.id, pdf_bytes=pdf_bytes)
+        job = PaperScanJob(school_id=school.id, assessment_id=assessment.id, pdf_bytes=raw_bytes)
         db.add(job)
         db.commit()
         background_tasks.add_task(_run_paper_scan_job, job.id)
-        return JSONResponse(
-            status_code=status.HTTP_202_ACCEPTED,
-            content={
-                "job_id": job.id, "status": "pending",
-                "next": f"Poll GET /assessments/{assessment.id}/scan/jobs/{job.id} for the result.",
-            },
-        )
+        content = {
+            "job_id": job.id, "status": "pending",
+            "next": f"Poll GET /assessments/{assessment.id}/scan/jobs/{job.id} for the result.",
+        }
+        if unreliable_text:
+            # A native PDF is normally read synchronously and this 202 is otherwise only
+            # ever seen for a photograph -- without saying why, a person scanning a plain
+            # PDF sees an unexplained wait where they expect an instant result.
+            content["detail"] = (
+                "the fast read of this paper looked unreliable, so it is being re-read "
+                "more carefully with the vision model instead."
+            )
+        return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=content)
 
     return _finish_paper_scan(db, school, assessment, extract, originals, source_sha)
 
