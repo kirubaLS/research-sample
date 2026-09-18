@@ -6,6 +6,7 @@ takes one of three forms.
 
   bare integer      '3'                       -> 3 marks
   product           '6x3=18' / '5 × 2 = 10'   -> 18 marks, and 6 sub-parts of 3 each
+  sum               '1+1' / '2+2+2'           -> 2 marks (6), and each addend one sub-part
   section header    '(Grammar) 12 Marks'      -> a section total, i.e. a verification equation
 
 The product form is a gift: it states the sub-part count and the per-part marks, and
@@ -36,9 +37,14 @@ _PRODUCT = re.compile(
 #: because is_self_consistent then checks the arithmetic actually holds -- "5 2=9" is
 #: rejected, so a stray pair of numbers cannot pose as marks.
 _PRODUCT_NO_SIGN = re.compile(r"^(\d{1,2})\s+(\d{1,2}(?:\.\d)?)\s*=\s*(\d{1,3})$")
+#: 'Write balanced chemical equations ... : 1+1 (i) ... (ii) ...' -- a stem that opens two
+#: or more equally-marked sub-parts sometimes carries their marks as one '+'-joined label
+#: on its own shared line, printed once for the whole question rather than once per part.
+#: Two to five addends: a paper that split this any wider would print one label per part.
+_SUM = re.compile(r"^(\d{1,2}(?:\.\d)?)(?:\s*\+\s*(\d{1,2}(?:\.\d)?)){1,4}$")
 _SECTION_TOTAL = re.compile(r"(\d{1,3})\s*(?:marks?|अंक|மதிப்பெண்)", re.IGNORECASE)
 
-MarkForm = Literal["bare", "product", "section_total"]
+MarkForm = Literal["bare", "product", "sum", "section_total"]
 
 
 @dataclass(frozen=True)
@@ -99,6 +105,15 @@ def parse_label(text: str) -> MarkLabel | None:
         if abs(n * per - total) < 1e-6:
             return MarkLabel(value=total, form="product", sub_parts=n, per_part=per, raw=s)
 
+    m = _SUM.match(s)
+    if m:
+        addends = [float(a) for a in re.findall(r"\d{1,2}(?:\.\d)?", s)]
+        per_part = addends[0] if len(set(addends)) == 1 else None
+        return MarkLabel(
+            value=sum(addends), form="sum", sub_parts=len(addends), per_part=per_part,
+            raw=s,
+        )
+
     m = _BARE.match(s)
     if m:
         return MarkLabel(value=float(m.group(1)), form="bare", raw=s)
@@ -133,7 +148,7 @@ class MarkExtraction:
 
     @property
     def total(self) -> float:
-        return sum(lb.value for lb in self.labels if lb.form in ("bare", "product"))
+        return sum(lb.value for lb in self.labels if lb.form in ("bare", "product", "sum"))
 
 
 def extract_marks(

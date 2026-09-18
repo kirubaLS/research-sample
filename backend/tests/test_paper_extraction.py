@@ -8,6 +8,9 @@ one, so nothing here is imagined.
 
 from __future__ import annotations
 
+import re
+from pathlib import Path
+
 import pymupdf
 import pytest
 
@@ -739,3 +742,69 @@ def test_a_non_tamil_paper_never_runs_the_tamil_check_at_all(tmp_path, monkeypat
 
     out_other_subject = extract_paper(path, subject_code="X.MAT")
     assert out_other_subject.questions[0].stem_text == "an ordinary maths question"
+
+
+# ----------------------------------------------------------------------------------------
+# Regression: a real CBSE Class X Science Unit Test paper a school uploaded
+#
+# This paper reuses the same boilerplate instruction line ("Attempt either option (a) or
+# (b) :", "Read the following passage and answer the questions that follow :") to open
+# several unrelated questions. Each one repeats 3+ times across the paper, which is the
+# same shape _drop_furniture uses to recognise a running header or footer -- so the old,
+# text-only furniture check deleted these lines, including the question number on them,
+# and everything under a deleted "16. Attempt either option..." line was then read as more
+# of whatever question came before it (question 14). See _drop_furniture's own docstring.
+# ----------------------------------------------------------------------------------------
+REGRESSION_PDF = Path(__file__).parent / "fixtures" / "regression" / "science_class10_unittest.pdf"
+
+
+@pytest.mark.skipif(not REGRESSION_PDF.exists(), reason="regression fixture not present")
+def test_a_reused_instruction_line_is_not_read_as_a_running_header():
+    out = extract_paper(REGRESSION_PDF)
+    assert out.route == "text"
+
+    # The paper numbers its questions 1-39 with no gaps. A furniture-deleted opening line
+    # used to leave that question's content misfiled under the question before it instead
+    # of under its own number, or (for a roman-numeral sub-part misread as a fresh
+    # question because its real parent's opening line was gone) filed under a bogus
+    # top-level number that is not a number at all.
+    numbers = {q.question_no for q in out.questions}
+    assert numbers == {str(n) for n in range(1, 40)}
+    assert not any(re.fullmatch(r"[ivxIVX]+", n) for n in numbers)
+
+    # Question 16's own sub-parts (roman-numbered, under its own lettered choice) must be
+    # filed under question 16, not question 14 -- and question 14, which has no sub-parts
+    # of its own, must carry only its own stem.
+    by_no = {}
+    for q in out.questions:
+        by_no.setdefault(q.question_no, []).append(q)
+    assert all(q.sub_part is None and q.choice_alt is None for q in by_no["14"])
+    assert not any("Attempt either option" in q.stem_text for q in by_no["14"])
+    assert any(q.sub_part == "ii" for q in by_no["16"])
+    assert any(q.sub_part == "iii" for q in by_no["16"])
+
+    # Question 27 no longer picks up a different, nearby question's content (the metal-M
+    # case study that opens question 28).
+    q27 = {q.address: q for q in out.questions if q.question_no == "27"}
+    assert not any("metal M of medium reactivity" in q.stem_text for q in q27.values())
+    assert not any(
+        "shiny solid that is stored under kerosene" in q.stem_text for q in q27.values()
+    )
+
+    # Question 25 prints its two sub-parts' marks as one compound "1+1" label on their
+    # shared stem line, not one label per part -- each sub-part is worth 1, not 1 and 3
+    # (the 3 in the old, buggy reading bled in from a nearby question's own mark label).
+    q25 = {q.sub_part: q for q in out.questions if q.question_no == "25"}
+    assert q25["i"].max_marks == 1.0
+    assert q25["ii"].max_marks == 1.0
+
+    # The paper declares 80 marks. What this route recovers is checked against that, with
+    # a documented tolerance: a separate, still-open issue (nested lettered-choice-then-
+    # roman-sub-part blocks, e.g. question 16/29's "(a) (i)..(iii) OR (b) (i)..(iii)",
+    # losing the (b) alternative's marks to an address collision with (a)'s) accounts for
+    # the remaining shortfall and is not what this regression test is about -- it is not
+    # the furniture-deletion bug this test guards, and forcing this number to 80 would
+    # mean guessing at a fix for a different bug rather than testing the one that is
+    # fixed. 66 is comfortably above the 64 the unfixed furniture bug itself produced, and
+    # is a floor to catch a regression of the fix above, not a claim that 80 is unreachable.
+    assert out.total_marks >= 66.0

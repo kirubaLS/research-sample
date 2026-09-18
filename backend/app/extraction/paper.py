@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pymupdf
 
-from app.extraction.mark_grammar import MARK_BAND, parse_label
+from app.extraction.mark_grammar import MARK_BAND, MarkLabel, parse_label
 from app.ingest.tamil_text import clean_tamil_text, tamil_text_is_corrupted
 
 #: Same prefix and convention as app.api.books.TAMIL_SUBJECT_PREFIX (not imported from
@@ -143,6 +143,12 @@ class ExtractedQuestion:
     lettered_part: str | None = None
     #: whether the word OR stood between this part and the one before it
     preceded_by_or: bool = False
+    #: when this row's own mark line was a '+'-joined compound label like '1+1' (see
+    #: mark_grammar's 'sum' form), the share each of its unmarked sub-parts is due, and
+    #: how many of them there should be -- consumed once by _distribute_sum_marks and
+    #: otherwise left alone.
+    sum_per_part: float | None = None
+    sum_count: int | None = None
 
     @property
     def identity(self) -> tuple[str, str | None, str | None]:
@@ -358,6 +364,16 @@ def read_lines(path: str | Path, *, is_tamil: bool = False) -> tuple[list[Line],
 FURNITURE_MIN_CHARS = 12
 #: Repeating on this many pages is what makes a line furniture rather than a coincidence.
 FURNITURE_PAGES = 3
+#: How far a repeating line's vertical position may drift across the pages it appears on
+#: and still count as a header or footer. A header is typeset at a fixed offset from the
+#: page edge -- the same 'top' every time -- while a paper's own boilerplate instruction
+#: ('Attempt either option (a) or (b) :', 'Read the following passage and answer the
+#: questions that follow :') is reused verbatim wherever the next internal-choice or
+#: case-study question happens to fall, which is a different 'top' on every page it
+#: appears on. Text alone cannot tell the two apart -- both repeat 3+ times -- but position
+#: can: measured across this paper's real header/footer the drift was 0.0pt, and across its
+#: reused instruction lines it was 100pt or more.
+FURNITURE_TOP_TOLERANCE = 5.0
 
 
 def _drop_furniture(lines: list[Line], pages: int) -> list[Line]:
@@ -369,19 +385,30 @@ def _drop_furniture(lines: list[Line], pages: int) -> list[Line]:
     School x Yaadhum" -- a stem no student ever answered.
 
     Furniture is what repeats: the same line, with its page number blanked, on three or
-    more pages. Short lines are exempt because a mark label is a short line and "2"
-    repeats on every page of every paper.
+    more pages, printed at the same vertical position every time. Short lines are exempt
+    because a mark label is a short line and "2" repeats on every page of every paper.
+
+    Position, not just repeated text, is required: a paper's own reused boilerplate line
+    (the instruction a case-study or internal-choice question opens with) also repeats
+    verbatim three or more times, but drifts down the page as later occurrences fall
+    later in the question list. Dropping it by text alone deleted the question's own
+    opening line -- including its number -- and everything under it was then read as more
+    of whatever question came before, which is how question 16's own parts were recorded
+    as choice_alt 'a'/'b'/'c' of question 14 and question 15's case study bled into it too.
     """
     if pages < FURNITURE_PAGES:
         return lines
-    seen: dict[str, set[int]] = {}
+    seen: dict[str, list[tuple[int, float]]] = {}
     for line in lines:
         shape = _furniture_shape(line)
         if shape:
-            seen.setdefault(shape, set()).add(line.page)
-    repeating = {
-        shape for shape, on in seen.items() if len(on) >= FURNITURE_PAGES
-    }
+            seen.setdefault(shape, []).append((line.page, line.top))
+    repeating = set()
+    for shape, occurrences in seen.items():
+        on_pages = {page for page, _ in occurrences}
+        tops = [top for _, top in occurrences]
+        if len(on_pages) >= FURNITURE_PAGES and max(tops) - min(tops) <= FURNITURE_TOP_TOLERANCE:
+            repeating.add(shape)
     return [
         line for line in lines
         if not (
@@ -400,7 +427,7 @@ def _furniture_shape(line: Line) -> str | None:
     return re.sub(r"\d+", "#", text)
 
 
-def _marks_on(line: Line) -> float | None:
+def _marks_on(line: Line) -> MarkLabel | None:
     """A mark label, only if it sits in the right-aligned band.
 
     The band is what separates '2' meaning two marks from '2' meaning option (2) or a
@@ -411,7 +438,7 @@ def _marks_on(line: Line) -> float | None:
         return None
     if not (MARK_BAND[0] <= line.right_fraction <= MARK_BAND[1]):
         return None
-    return label.value
+    return label
 
 
 def _declared(lines: list[Line]) -> tuple[dict[str, float], int | None, float | None]:
@@ -523,10 +550,13 @@ def extract_paper(path: str | Path, *, subject_code: str | None = None) -> Paper
             after_or = True
             continue
 
-        marks = _marks_on(line)
-        if marks is not None:
+        label = _marks_on(line)
+        if label is not None:
             if current is not None and current.max_marks is None:
-                current.max_marks = marks
+                current.max_marks = label.value
+                if label.form == "sum" and label.per_part is not None:
+                    current.sum_per_part = label.per_part
+                    current.sum_count = label.sub_parts
             continue
 
         start = QUESTION.match(text)
@@ -593,8 +623,12 @@ def extract_paper(path: str | Path, *, subject_code: str | None = None) -> Paper
 
     close()
 
-    # Order matters. A part with no mark of its own is text and folds back into the stem
-    # first, so that only the parts a paper really marks separately are then classified.
+    # Order matters. A compound mark label is spread onto its sub-parts before the demote
+    # pass decides what an unmarked sub-part is, so a part that is about to receive its
+    # share is never seen as unmarked and folded back into the stem it would then lose its
+    # mark inside. A part with no mark of its own after that is text and folds back into
+    # the stem, so that only the parts a paper really marks separately are then classified.
+    collected = _distribute_sum_marks(collected)
     collected = _demote_unmarked_sub_parts(collected)
     collected = _classify_lettered_parts(collected)
     collected = _demote_unpaired_choices(collected)
@@ -603,6 +637,43 @@ def extract_paper(path: str | Path, *, subject_code: str | None = None) -> Paper
     )
     _check(out)
     return out
+
+
+def _distribute_sum_marks(
+    questions: list[ExtractedQuestion],
+) -> list[ExtractedQuestion]:
+    """Give each equally-marked sub-part its own share of a compound '1+1' label.
+
+    Printed once, on the shared stem, before the sub-parts it covers rather than once per
+    part -- "Write balanced chemical equations ... : 1+1 (i) zinc ... (ii) aluminium ...".
+    Only consumed when the count of immediately-following, still-unmarked sub-parts of the
+    same question matches the label's own addend count exactly: a paper that follows a
+    '1+1' with three sub-parts, or with one already carrying its own mark, is not the
+    shape this label describes, and guessing which two of three parts it meant would be
+    inventing an answer the paper never gave. Left alone in that case, for the fold-back
+    below to treat as ordinary unmarked text same as before this existed.
+    """
+    for i, parent in enumerate(questions):
+        if parent.sum_per_part is None or not parent.sum_count:
+            continue
+        siblings = []
+        for candidate in questions[i + 1:]:
+            if candidate.question_no != parent.question_no:
+                break
+            if not (candidate.provisional_sub_part and candidate.max_marks is None):
+                break
+            siblings.append(candidate)
+            if len(siblings) == parent.sum_count:
+                break
+        if len(siblings) == parent.sum_count:
+            for sibling in siblings:
+                sibling.max_marks = parent.sum_per_part
+            # The total now lives on the sub-parts; leaving it on the stem too would make
+            # this look like a question with marks of its own AND marked sub-parts, which
+            # _check flags as a contradiction (and _mark_context_rows would otherwise never
+            # see this row as the shared-stem context it is).
+            parent.max_marks = None
+    return questions
 
 
 def _demote_unmarked_sub_parts(
