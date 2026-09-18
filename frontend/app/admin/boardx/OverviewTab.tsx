@@ -3,7 +3,7 @@
 import type { CohortReport, PaperReport, BoardFrequencyRow } from "@/lib/api";
 import { AttentionPill, attentionFromRate } from "@/components/boardx/Status";
 import { FindingCard } from "@/components/boardx/FindingCard";
-import { TrendNotAvailable, CauseNotLocalized, EarlySignal } from "@/components/boardx/EmptyStates";
+import { TrendNotAvailable, EarlySignal } from "@/components/boardx/EmptyStates";
 import type { BoardXFinding } from "@/components/boardx/types";
 import { findingsFromTopLosses } from "@/components/boardx/findings";
 import {
@@ -127,11 +127,6 @@ export function OverviewTab({
                 </div>
               ))}
             </div>
-            {cohort.subject_bars.length > 0 && (
-              <div style={{ marginTop: 10 }}>
-                <CauseNotLocalized />
-              </div>
-            )}
           </>
         )}
       </section>
