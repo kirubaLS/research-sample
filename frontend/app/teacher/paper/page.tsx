@@ -588,9 +588,9 @@ export default function PaperPage() {
                 {removingScan ? "Removing…" : "Remove scan"}
               </button>
             )}
-            {/* No Delete here: removing a paper and everything scanned, mapped or marked
-                under it stays a principal/admin decision -- a bigger blast radius than
-                one teacher's own subject assignment covers. */}
+            <button type="button" className="danger" onClick={() => void onDelete()} disabled={!!busy}>
+              Delete
+            </button>
           </div>
         )}
       </header>
@@ -675,6 +675,17 @@ export default function PaperPage() {
                     }}
                   >
                     Rename
+                  </button>
+                  <button
+                    type="button"
+                    className="danger small"
+                    disabled={!!busy}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void onDelete(p.id);
+                    }}
+                  >
+                    Delete
                   </button>
                 </span>
               </li>

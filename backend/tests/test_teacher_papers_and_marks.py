@@ -118,6 +118,45 @@ def test_class_only_teacher_cannot_author_papers(client, school):
     assert r.status_code == 404
 
 
+def test_teacher_can_delete_a_paper_for_their_own_subject(client, school):
+    h = _subject_teacher(client, school, "X.MATH")
+    tag = uuid.uuid4().hex[:8]
+    aid = client.post(
+        "/assessments", headers=h,
+        json={"subject_code": "X.MATH", "title": f"Delete Me {tag}", "total_marks": 10},
+    ).json()["assessment_id"]
+
+    r = client.delete(f"/assessments/{aid}", headers=h)
+    assert r.status_code == 204, r.text
+    assert client.get(f"/assessments/{aid}/scan", headers=h).status_code == 404
+
+
+def test_teacher_cannot_delete_a_paper_from_a_subject_they_do_not_hold(client, school):
+    principal = _auth(school)
+    tag = uuid.uuid4().hex[:8]
+    aid = client.post(
+        "/assessments", headers=principal,
+        json={"subject_code": "X.SCI", "title": f"Not Mine {tag}", "total_marks": 10},
+    ).json()["assessment_id"]
+
+    h = _subject_teacher(client, school, "X.MATH")
+    assert client.delete(f"/assessments/{aid}", headers=h).status_code == 404
+    # still there, refused not silently ignored
+    assert client.get(f"/assessments/{aid}/scan", headers=principal).status_code == 200
+
+
+def test_class_only_teacher_cannot_delete_a_paper(client, school):
+    principal = _auth(school)
+    tag = uuid.uuid4().hex[:8]
+    aid = client.post(
+        "/assessments", headers=principal,
+        json={"subject_code": "X.MATH", "title": f"Class Teacher Cannot Delete {tag}", "total_marks": 10},
+    ).json()["assessment_id"]
+
+    h = _class_teacher(client, school)
+    assert client.delete(f"/assessments/{aid}", headers=h).status_code == 404
+
+
 def test_teacher_papers_list_is_scoped_to_held_subjects(client, school):
     principal = _auth(school)
     tag = uuid.uuid4().hex[:8]

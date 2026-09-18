@@ -246,15 +246,17 @@ def edit_assessment(
 @router.delete("/{assessment_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_assessment(
     assessment_id: str,
-    school: School = Depends(require_admin), db: Session = Depends(get_session),
+    school: School = Depends(require_paper_scope), db: Session = Depends(get_session),
 ) -> None:
     """Remove a paper and everything staged, scanned, mapped or marked under it.
 
     Hard delete, like every other removal in this API (a re-upload replaces its old scan
     document the same way) -- there is no soft-delete column on any of these tables to
-    honour instead. Admin-only: a principal can rename a paper they are still working on,
-    but undoing marks a school has already entered is a bigger blast radius than one
-    person's typo.
+    honour instead. Same authority as every other paper-authoring route
+    (require_paper_scope): a principal reaches any paper in their school; a subject-
+    assigned teacher reaches only a paper in their own subject, the same scope that let
+    them create, scan and map it in the first place. A class-only teacher, who never
+    holds paper-authoring rights at all, still can't reach this.
     """
     a = _get_assessment(db, school, assessment_id)
     question_ids = list(db.scalars(
