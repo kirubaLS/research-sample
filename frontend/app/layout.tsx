@@ -41,7 +41,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           {children}
           <footer className="sitefooter">
             <div className="inner">
-              <span>Avai · assessment diagnostics</span>
+              <span>Avai</span>
               <span className="mono">CBSE Class X · Tamil Nadu</span>
             </div>
           </footer>

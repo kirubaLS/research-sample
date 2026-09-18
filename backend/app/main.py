@@ -52,7 +52,7 @@ app = FastAPI(
     lifespan=lifespan,
     title="Yaadhum",
     version="0.1.0",
-    description="Assessment diagnostics — interest profiling and question-level marks analysis.",
+    description="Interest profiling and question-level marks analysis.",
     docs_url=None if settings.is_production else "/docs",
     redoc_url=None,
 )
