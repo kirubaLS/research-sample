@@ -245,3 +245,13 @@ export async function deletePage(sessionId: string, index: number): Promise<void
   );
   await record(sessionId, "delete", before, after.filter((p): p is ScannedPage => !!p));
 }
+
+/** The camera hands back a Blob per page; every upload route wants a File per page, in
+ *  order. Shared by every screen offering the Scanner as an alternative to the file
+ *  picker, so the conversion can't quietly drift between them. */
+export function pagesToFiles(pages: ScannedPage[]): File[] {
+  return pages
+    .slice()
+    .sort((a, b) => a.index - b.index)
+    .map((p, i) => new File([p.blob], `page-${i + 1}.jpg`, { type: p.blob.type || "image/jpeg" }));
+}

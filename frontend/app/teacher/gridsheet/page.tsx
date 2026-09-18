@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { CameraCapture } from "@/components/CameraCapture";
+import { Scanner } from "@/components/Scanner";
+import { newSessionId } from "@/lib/id";
+import { pagesToFiles } from "@/lib/pageStore";
 import {
   api,
   ApiError,
@@ -48,6 +51,7 @@ export default function GridSheetPage() {
   const [error, setError] = useState<string | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [photoMode, setPhotoMode] = useState<PhotoMode>("class");
+  const [sessionId] = useState(() => newSessionId());
 
   function explain(err: unknown): string {
     if (err instanceof ApiUnreachable) return "Could not reach the API.";
@@ -333,8 +337,14 @@ export default function GridSheetPage() {
             {showCamera ? "Close camera" : "Use camera instead"}
           </button>
         </div>
-        {showCamera && (
+        {showCamera && photoMode === "class" && (
           <CameraCapture onCapture={(file) => void uploadPhoto([file])} onCancel={() => setShowCamera(false)} />
+        )}
+        {showCamera && photoMode === "single" && (
+          <div style={{ marginTop: 12 }}>
+            <p className="muted">Capture each page of the script in order. Retake replaces a single page and keeps its position.</p>
+            <Scanner sessionId={sessionId} mode="script" onComplete={(pages) => uploadPhoto(pagesToFiles(pages))} />
+          </div>
         )}
 
         {papers.length > 0 && ready.length === 0 && (

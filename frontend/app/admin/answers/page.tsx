@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { MarksReader } from "@/components/MarksReader";
 import { Scanner } from "@/components/Scanner";
 import { newSessionId } from "@/lib/id";
-import type { ScannedPage } from "@/lib/pageStore";
+import { pagesToFiles, type ScannedPage } from "@/lib/pageStore";
 import {
   AnswerRow,
   AnswerSheet,
@@ -17,16 +17,6 @@ import {
   SectionSummary,
 } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
-
-/** The camera hands back a Blob per page; the upload route wants a File per page, in
- *  order -- the same conversion the standalone scan screen used to do before its
- *  camera-capture flow moved in here as an option alongside the file picker. */
-function pagesToFiles(pages: ScannedPage[]): File[] {
-  return pages
-    .slice()
-    .sort((a, b) => a.index - b.index)
-    .map((p, i) => new File([p.blob], `page-${i + 1}.jpg`, { type: p.blob.type || "image/jpeg" }));
-}
 
 /**
  * Entering one student's marks against a paper that has already been read and mapped.
