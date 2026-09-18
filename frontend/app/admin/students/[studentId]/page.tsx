@@ -154,7 +154,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
               >
                 {papers.map((p) => (
                   <option key={p.assessment_id} value={p.assessment_id}>
-                    {p.title} · {p.subject_code} · {p.questions_marked} marked
+                    {p.title} · {p.subject_label} · {p.questions_marked} marked
                   </option>
                 ))}
               </select>

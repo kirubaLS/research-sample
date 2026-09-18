@@ -61,7 +61,17 @@ TIER_LABELS = {
 
 def _subject_label(subject_code: str) -> str:
     curriculum = CURRICULA.get(subject_code)
-    return curriculum.subject_label if curriculum else subject_code
+    if curriculum is not None:
+        return curriculum.subject_label
+    # An assessment's own subject_code is sometimes a *group* code (e.g. "X.SST" for
+    # Social Science, "X.ENG" for English) rather than one specific book's code -- those
+    # never appear as a CURRICULA key, only as a member's group_code, so a plain
+    # CURRICULA.get() above never finds them and used to print the raw code straight
+    # through to a principal/teacher/student who has no idea what "X.SST" means.
+    for c in CURRICULA.values():
+        if c.group_code == subject_code:
+            return c.group_label
+    return subject_code
 
 
 def _status_for(earned: float, available: float) -> str:

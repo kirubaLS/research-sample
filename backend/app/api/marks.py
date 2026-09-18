@@ -129,6 +129,8 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
     and the teacher's own (subject-filtered, app.api.admin's teacher_papers) alike, so the
     two screens can never quietly drift into showing different stages for the same paper.
     """
+    from app.api.academics import _subject_label  # local: avoids a circular import at module load
+
     ids = [a.id for a in assessments]
 
     scanned = dict(db.execute(
@@ -168,6 +170,7 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
             "id": a.id,
             "title": a.title,
             "subject_code": a.subject_code,
+            "subject_label": _subject_label(a.subject_code),
             "paper_code": a.paper_code,
             "total_marks": float(a.total_marks) if a.total_marks else None,
             "created_at": a.created_at.isoformat() if a.created_at else None,

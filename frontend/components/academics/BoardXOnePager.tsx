@@ -50,11 +50,11 @@ export function BoardXOnePager({
   return (
     <div className={`boardx-onepager${className ? ` ${className}` : ""}`}>
       <p className="bx-eyebrow">AVAI BoardX</p>
-      <p className="bx-subtitle">{report.subject_code} &nbsp;|&nbsp; Your One-Page Assessment Report</p>
+      <p className="bx-subtitle">{report.subject_label} &nbsp;|&nbsp; Your One-Page Assessment Report</p>
       <p className="bx-meta">
         {report.student_name}
         {rollNo ? ` (Roll ${rollNo})` : ""}
-        {" · "}{report.assessment_title} · {report.subject_code}
+        {" · "}{report.assessment_title} · {report.subject_label}
       </p>
 
       <BxSection n={1} title="Where you stand">

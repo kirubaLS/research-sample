@@ -270,7 +270,7 @@ export default function GridSheetPage() {
               <option value="">Choose a paper…</option>
               {ready.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.title} · {p.subject_code} · {p.questions} questions
+                  {p.title} · {p.subject_label} · {p.questions} questions
                   {p.stage === "mapped" ? "" : " (not linked to the book yet)"}
                 </option>
               ))}

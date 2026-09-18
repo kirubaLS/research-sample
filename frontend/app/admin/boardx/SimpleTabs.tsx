@@ -46,7 +46,7 @@ export function SubjectsTab({ cohort }: { cohort: CohortReport | null }) {
       <div className="bx-trow bx-thead"><span>Subject</span><span>Assessment</span><span>Avg. attainment</span></div>
       {cohort.subject_bars.map((s) => (
         <div className="bx-trow" key={s.subject_code}>
-          <span>{s.subject_code}</span>
+          <span>{s.subject_label}</span>
           <span className="bx-muted bx-small">{s.assessment_title}</span>
           <span>{s.pct.toFixed(0)}%</span>
         </div>

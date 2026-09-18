@@ -207,6 +207,7 @@ def compose_boardx_report(
     (R2: one subject is one calculation boundary -- ``rows`` must already be scoped to
     this assessment's own subject, as every caller of this module already does).
     """
+    from app.api.academics import _subject_label  # local: avoids a circular import at module load
     from app.api.reports import _board_weights  # local: avoids a circular import at module load
 
     nodes_by_code = {n.code: n for n in db.scalars(select(TaxonomyNode))}
@@ -377,6 +378,7 @@ def compose_boardx_report(
     report = {
         "assessment_id": assessment.id, "assessment_title": assessment.title,
         "subject_code": assessment.subject_code,
+        "subject_label": _subject_label(assessment.subject_code),
         "student_id": student.id, "student_name": student.name,
         "assembly_band": band,  # never printed to the student -- spec section 4
         "section1": section1,
@@ -538,12 +540,12 @@ def render_boardx_pdf(report: dict, *, roll_no: str, class_label: str, school_na
     pdf.cell(0, 8, "AVAI BoardX")
     pdf.set_xy(8, 13)
     pdf.set_font("Helvetica", "B", 11)
-    pdf.cell(0, 6, safe(f"{report['subject_code']}  |  Your One-Page Assessment Report"))
+    pdf.cell(0, 6, safe(f"{report['subject_label']}  |  Your One-Page Assessment Report"))
     pdf.set_xy(8, 21)
     pdf.set_font("Helvetica", "", 9.5)
     meta = safe(
         f"{report['student_name']}  |  {class_label} (Roll {roll_no})  |  "
-        f"{report['assessment_title']}  |  {report['subject_code']}"
+        f"{report['assessment_title']}  |  {report['subject_label']}"
     )
     pdf.cell(0, 6, meta)
     pdf.set_text_color(*INK)

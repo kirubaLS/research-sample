@@ -659,7 +659,7 @@ export default function PaperPage() {
                   onClick={() => void openPaper(p)}
                 >
                   <span className="name">{p.title}</span>
-                  <span className="meta">{p.subject_code} · {p.stage}</span>
+                  <span className="meta">{p.subject_label} · {p.stage}</span>
                 </button>
                 <span className="paper-row-actions">
                   <button

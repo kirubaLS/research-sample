@@ -441,8 +441,12 @@ def cohort_report(
     # several subjects' papers as one sitting, so this is each subject's own most recent
     # graded assessment for the same section(s) -- a real number, just not the same thing
     # a school's own internal "Unit Test 2" label would mean.
+    from app.api.academics import _subject_label  # local: avoids a circular import at module load
+
     subject_bars = [{
-        "subject_code": assessment.subject_code, "assessment_title": assessment.title,
+        "subject_code": assessment.subject_code,
+        "subject_label": _subject_label(assessment.subject_code),
+        "assessment_title": assessment.title,
         "pct": round(sum(student_pct.values()) / students_analysed, 1) if students_analysed else 0,
     }]
     if section_totals:
@@ -464,7 +468,9 @@ def cohort_report(
             if total_max <= 0:
                 continue
             subject_bars.append({
-                "subject_code": sibling.subject_code, "assessment_title": sibling.title,
+                "subject_code": sibling.subject_code,
+                "subject_label": _subject_label(sibling.subject_code),
+                "assessment_title": sibling.title,
                 "pct": round(sum(r.earned for r in sibling_rows) / total_max * 100, 1),
             })
             seen_subjects.add(sibling.subject_code)
@@ -513,6 +519,8 @@ def student_assessments(
         .order_by(Assessment.created_at.desc())
     ).all()
 
+    from app.api.academics import _subject_label  # local: avoids a circular import at module load
+
     return {
         "student": {"id": student.id, "name": student.name, "roll_no": student.roll_no},
         "assessments": [
@@ -520,6 +528,7 @@ def student_assessments(
                 "assessment_id": aid,
                 "title": title,
                 "subject_code": subject,
+                "subject_label": _subject_label(subject),
                 "created_at": created.isoformat() if created else None,
                 "questions_marked": marked,
             }

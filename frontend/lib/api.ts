@@ -260,6 +260,7 @@ export interface BoardXReport {
   assessment_id: string;
   assessment_title: string;
   subject_code: string;
+  subject_label: string;
   student_id: string;
   student_name: string;
   assembly_band: "upper" | "lower";
@@ -438,6 +439,7 @@ export interface PaperSummary {
   id: string;
   title: string;
   subject_code: string;
+  subject_label: string;
   paper_code: string | null;
   total_marks: number | null;
   created_at: string | null;
@@ -640,7 +642,7 @@ export interface CohortReport {
   section_bars: { section_id: string; label: string; pct: number; students: number }[];
   /** Each subject's own most recent graded assessment for the same section(s) -- see
    *  subject_bars_note; there is no shared "test occasion" across subjects in this schema. */
-  subject_bars: { subject_code: string; assessment_title: string; pct: number }[];
+  subject_bars: { subject_code: string; subject_label: string; assessment_title: string; pct: number }[];
   subject_bars_note: string;
   top_losses: {
     concept_family: string;
@@ -727,6 +729,7 @@ export interface SatPaper {
   assessment_id: string;
   title: string;
   subject_code: string;
+  subject_label: string;
   created_at: string | null;
   questions_marked: number;
 }
@@ -735,6 +738,7 @@ export interface DashboardPaper {
   id: string;
   title: string;
   subject_code: string;
+  subject_label: string;
   created_at: string | null;
   questions: number;
   mapped: number;
