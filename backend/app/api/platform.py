@@ -48,12 +48,15 @@ class SectionIn(BaseModel):
 
 
 def _key_view(k: StaffKey) -> dict:
-    """Never carries ``api_key``. Listing a key must not be a way of reading it."""
+    # The operator is the top of the trust chain and already holds these keys in the DB
+    # in plain form -- listing one back is not a new exposure, only surfacing what a
+    # principal/admin key issue already handed the operator once and then hid again.
     return {
         "id": k.id,
         "role": k.role,
         "label": k.label,
         "school_id": k.school_id,
+        "api_key": k.api_key,
         "created_at": k.created_at.isoformat() if k.created_at else None,
         "revoked_at": k.revoked_at.isoformat() if k.revoked_at else None,
     }
@@ -208,8 +211,9 @@ def overview(db: Session = Depends(get_session)) -> dict:
 def create_school(body: SchoolIn, db: Session = Depends(get_session)) -> dict:
     """Create a school, its sections, and the school's own admin key.
 
-    The key comes back exactly once, in this response. There is no route that reads it
-    back later -- only ``/rotate``, which replaces it.
+    The key comes back once here as a courtesy copy-now moment; the school's own key
+    itself is not a ``StaffKey`` row, so it does not resurface in the keys listing below
+    -- only ``/rotate`` replaces it.
     """
     if db.scalar(select(School).where(School.name == body.name)):
         raise HTTPException(status.HTTP_409_CONFLICT, "a school with that name already exists")
@@ -267,7 +271,7 @@ def add_section(
 
 @router.get("/keys")
 def list_admin_keys(db: Session = Depends(get_session)) -> list[dict]:
-    """Admin keys, which belong to no school. The secrets are not here."""
+    """Admin keys, which belong to no school, with their live secret included."""
     keys = db.scalars(
         select(StaffKey).where(StaffKey.school_id.is_(None)).order_by(StaffKey.created_at)
     ).all()
@@ -332,10 +336,10 @@ def set_directory_visibility(
 
 @router.get("/schools/{school_id}/keys")
 def list_staff_keys(school_id: str, db: Session = Depends(get_session)) -> list[dict]:
-    """Who holds a key at this school, and with what role. The secrets are not here.
+    """Who holds a key at this school, with what role, and the live secret itself.
 
-    There is no route anywhere that reads a key back. If one is lost it is revoked and a
-    new one issued, which is also the only honest thing to tell a principal who asks.
+    Scoped to one school by the path, same as every other route here -- an operator
+    reading this can never pull another school's keys through it.
     """
     school = db.get(School, school_id)
     if school is None:
@@ -371,8 +375,8 @@ def issue_staff_key(school_id: str, body: StaffKeyIn, db: Session = Depends(get_
     view = _key_view(key)
     view["api_key"] = key.api_key
     view["api_key_notice"] = (
-        "Shown once. Give it to the person named and store it somewhere safe -- there is "
-        "no route that reads it back, only revoke and re-issue."
+        "Give it to the person named now. You can look it up again later from this "
+        "school's staff key list if needed, but treat it as if you couldn't."
     )
     return view
 

@@ -322,6 +322,8 @@ export interface TeacherKeyView {
   id: string;
   role: "teacher";
   label: string;
+  /** A principal already has full authority over their own school's teacher keys. */
+  api_key: string;
   created_at: string | null;
   revoked_at: string | null;
   assignments: TeacherAssignmentView[];
@@ -888,6 +890,8 @@ export interface StaffKeySummary {
   school_id: string | null;
   role: "principal" | "admin";
   label: string;
+  /** The operator is the top of the trust chain, so the listing carries the live key. */
+  api_key: string;
   created_at: string | null;
   revoked_at: string | null;
 }

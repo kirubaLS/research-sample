@@ -945,6 +945,10 @@ def _teacher_view(db: Session, key: StaffKey) -> dict:
         "id": key.id,
         "role": key.role,
         "label": key.label,
+        # A principal already has full authority over their own school (see
+        # Staff.manages_school); they issue and revoke these keys, so seeing the live
+        # value back is not a wider grant, only the same authority surfaced.
+        "api_key": key.api_key,
         "created_at": key.created_at.isoformat() if key.created_at else None,
         "revoked_at": key.revoked_at.isoformat() if key.revoked_at else None,
         "assignments": [_assignment_view(a, sections) for a in rows],
@@ -955,8 +959,11 @@ def _teacher_view(db: Session, key: StaffKey) -> dict:
 def list_teachers(
     school: School = Depends(require_admin), db: Session = Depends(get_session)
 ) -> list[dict]:
-    """Every teacher key issued for this school, with their assignments. Never carries
-    ``api_key`` -- same rule as every other key listing in this codebase."""
+    """Every teacher key issued for this school, with their assignments and live key.
+
+    ``require_admin`` already scopes ``school`` to the caller's own -- this can never
+    surface a teacher key belonging to a different school.
+    """
     keys = db.scalars(
         select(StaffKey)
         .where(StaffKey.school_id == school.id, StaffKey.role == "teacher")
@@ -994,8 +1001,8 @@ def create_teacher(
     view = _teacher_view(db, key)
     view["api_key"] = key.api_key
     view["api_key_notice"] = (
-        "Shown once. Give it to the teacher named and store it somewhere safe -- there "
-        "is no route that reads it back, only revoke and re-issue."
+        "Give it to the teacher named now. It's also visible from Manage Teachers "
+        "later if you need to look it up again."
     )
     return view
 

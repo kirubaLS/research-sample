@@ -6,6 +6,11 @@
  * (skipped when there is exactly one), confirm, then the PIN shown once -- same "shown
  * once" pattern as CopySecret.tsx uses for every other credential this deployment
  * issues, but now a real one, checked by a real student login.
+ *
+ * The same endpoint doubles as "Reset PIN": sharing an already-shared report replaces
+ * its PIN server-side (the old one stops verifying immediately), so picking an
+ * already-shared report here and confirming is a reset, not a second share -- no
+ * separate endpoint needed, just different copy for that state.
  */
 
 import { useEffect, useState } from "react";
@@ -59,10 +64,10 @@ export function ShareWithStudentModal({
       <div className="card sharemodal" onClick={(e) => e.stopPropagation()}>
         {shared ? (
           <>
-            <h3 style={{ marginTop: 0 }}>Report shared</h3>
+            <h3 style={{ marginTop: 0 }}>{picked?.shared ? "New PIN issued" : "Report shared"}</h3>
             <p className="cardnote">
-              Give this PIN to {studentName} (or their parent), along with the class code{" "}
-              <strong>{shared.class_code}</strong> and roll number{" "}
+              Give this {picked?.shared ? "new " : ""}PIN to {studentName} (or their parent), along
+              with the class code <strong>{shared.class_code}</strong> and roll number{" "}
               <strong>{shared.roll_no}</strong>. {shared.pin_notice}
             </p>
             <CopySecret value={shared.pin} />
@@ -72,7 +77,9 @@ export function ShareWithStudentModal({
           </>
         ) : (
           <>
-            <h3 style={{ marginTop: 0 }}>Share a report with {studentName}?</h3>
+            <h3 style={{ marginTop: 0 }}>
+              {picked?.shared ? `Reset ${studentName}'s PIN?` : `Share a report with ${studentName}?`}
+            </h3>
             {error && <p className="error">{error}</p>}
             {!reports && !error && <p className="muted">Loading…</p>}
             {reports && reports.length === 0 && (
@@ -101,14 +108,15 @@ export function ShareWithStudentModal({
             )}
             {picked && (
               <p className="cardnote">
-                This lets {studentName} sign in and see &ldquo;{picked.assessment_title ?? "this report"}&rdquo;.
-                {picked.shared && " Sharing again replaces the PIN already handed out -- the old one stops working."}
+                {picked.shared
+                  ? `This gives ${studentName} a fresh PIN for “${picked.assessment_title ?? "this report"}” -- the PIN already handed out stops working the moment this issues.`
+                  : `This lets ${studentName} sign in and see “${picked.assessment_title ?? "this report"}”.`}
               </p>
             )}
             <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
               <button type="button" className="secondary" onClick={onClose}>Cancel</button>
               <button type="button" disabled={!picked || busy} onClick={share}>
-                {busy ? "Sharing…" : "Share with student"}
+                {busy ? "Working…" : picked?.shared ? "Reset PIN" : "Share with student"}
               </button>
             </div>
           </>

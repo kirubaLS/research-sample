@@ -169,6 +169,70 @@ def test_a_teacher_cannot_share_a_report_outside_their_assignments(client, schoo
     assert r.status_code == 404
 
 
+def test_a_teacher_can_reset_the_pin_for_a_report_they_are_scoped_to(client, school):
+    """Resetting is just sharing again -- same endpoint, same scope check, a fresh PIN
+    that invalidates whatever was handed out before."""
+    student_id, report_id = _make_student_and_report(school, roll_no="15")
+    teacher = client.post(
+        "/admin/teachers", headers=_auth(school),
+        json={"label": "Reset-scope teacher", "assignments": [
+            {"type": "class", "section_id": school["section_id"]},
+        ]},
+    ).json()
+    teacher_headers = {"X-API-Key": teacher["api_key"]}
+
+    first = client.post(
+        f"/admin/teacher/reports/{report_id}/share", headers=teacher_headers, json={},
+    ).json()
+    reset = client.post(
+        f"/admin/teacher/reports/{report_id}/share", headers=teacher_headers, json={},
+    )
+    assert reset.status_code == 201, reset.text
+    second = reset.json()
+    assert "pin" in second and len(second["pin"]) == 6
+
+    old_login = client.post(
+        f"/student/{school['section_id']}/login", json={"roll_no": "15", "pin": first["pin"]},
+    )
+    if first["pin"] != second["pin"]:
+        assert old_login.status_code == 404
+
+    new_login = client.post(
+        f"/student/{school['section_id']}/login", json={"roll_no": "15", "pin": second["pin"]},
+    )
+    assert new_login.status_code == 200
+
+
+def test_a_teacher_cannot_reset_a_pin_outside_their_scope(client, school):
+    from app.db import SessionLocal
+    from app.models import Section, StudentProfile
+
+    db = SessionLocal()
+    other_section = Section(school_id=school["school_id"], grade=9, name="Y")
+    db.add(other_section)
+    db.commit()
+    other_section_id = other_section.id
+    db.close()
+
+    student_id, report_id = _make_student_and_report(school, roll_no="16")
+    db = SessionLocal()
+    student = db.get(StudentProfile, student_id)
+    student.section_id = other_section_id
+    db.commit()
+    db.close()
+
+    teacher = client.post(
+        "/admin/teachers", headers=_auth(school),
+        json={"label": "Out-of-scope teacher", "assignments": [
+            {"type": "class", "section_id": school["section_id"]},
+        ]},
+    ).json()
+    teacher_headers = {"X-API-Key": teacher["api_key"]}
+
+    r = client.post(f"/admin/teacher/reports/{report_id}/share", headers=teacher_headers, json={})
+    assert r.status_code == 404
+
+
 def test_teacher_student_reports_lists_what_can_be_shared(client, school):
     student_id, report_id = _make_student_and_report(school, roll_no="14")
     r = client.get(f"/admin/teacher/students/{student_id}/reports", headers=_auth(school))

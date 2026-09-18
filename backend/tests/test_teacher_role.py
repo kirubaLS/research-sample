@@ -158,7 +158,8 @@ def test_renaming_a_teacher_changes_only_the_label(client, school):
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["label"] == "Ms. R. Rao"
-    assert "api_key" not in body
+    # rename never touches the credential -- the key is unchanged, not gone
+    assert body["api_key"] == original_key
     assert len(body["assignments"]) == 1
 
     # the old key still works -- rename never touches the credential
@@ -208,3 +209,26 @@ def test_a_revoked_teacher_key_cannot_be_reissued(client, school):
 
     r = client.post(f"/admin/teachers/{created['id']}/reissue", headers=_auth(school))
     assert r.status_code == 409
+
+
+def test_principal_sees_their_own_teachers_keys(client, school):
+    created = client.post(
+        "/admin/teachers", headers=_auth(school), json={"label": "Ms. Rao", "assignments": []},
+    ).json()
+
+    rows = client.get("/admin/teachers", headers=_auth(school)).json()
+    row = next(r for r in rows if r["id"] == created["id"])
+    # the whole point: the principal can read the teacher's key back, not just at issuance
+    assert row["api_key"] == created["api_key"]
+
+
+def test_a_revoked_teachers_key_still_shows_but_marked_revoked(client, school):
+    created = client.post(
+        "/admin/teachers", headers=_auth(school), json={"label": "Temp Teacher", "assignments": []},
+    ).json()
+    client.post(f"/admin/teachers/{created['id']}/revoke", headers=_auth(school))
+
+    rows = client.get("/admin/teachers", headers=_auth(school)).json()
+    row = next(r for r in rows if r["id"] == created["id"])
+    assert row["api_key"] == created["api_key"]
+    assert row["revoked_at"] is not None

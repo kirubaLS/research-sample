@@ -132,7 +132,7 @@ def test_a_revoked_key_is_indistinguishable_from_one_that_never_existed(client, 
     assert r.status_code == 404, "telling them it was once real is itself information"
 
 
-def test_the_console_issues_a_principal_key_once_and_never_reads_it_back(client, school):
+def test_the_console_issues_a_principal_key_and_the_operator_can_read_it_back(client, school):
     from app.config import get_settings
 
     settings = get_settings()
@@ -150,7 +150,8 @@ def test_the_console_issues_a_principal_key_once_and_never_reads_it_back(client,
             f"/platform/schools/{school['school_id']}/keys", headers=PLATFORM
         ).json()
         mine = next(k for k in listed if k["label"] == "Mrs Rani")
-        assert "api_key" not in mine, "no route may read a key back"
+        # the operator is the top of the trust chain: this listing carries the live key
+        assert mine["api_key"] == secret
 
         # It works, then it is revoked, then it does not.
         assert client.get("/admin/me", headers={"X-API-Key": secret}).status_code == 200

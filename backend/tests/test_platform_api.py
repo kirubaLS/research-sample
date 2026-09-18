@@ -58,6 +58,49 @@ def test_listing_schools_never_returns_a_key(client):
     assert all("api_key" not in row for row in rows)
 
 
+def test_operator_can_view_a_schools_principal_and_admin_keys(client):
+    school = client.post(
+        "/platform/schools",
+        headers=hdr(),
+        json={"name": "Key Viewing School", "sections": [{"grade": 10, "name": "A"}]},
+    ).json()
+    issued = client.post(
+        f"/platform/schools/{school['id']}/keys",
+        headers=hdr(), json={"role": "principal", "label": "Mrs. Iyer"},
+    ).json()
+
+    rows = client.get(f"/platform/schools/{school['id']}/keys", headers=hdr()).json()
+    assert len(rows) == 1
+    assert rows[0]["id"] == issued["id"]
+    # the whole point: the operator can read the key back after the one-time reveal is gone
+    assert rows[0]["api_key"] == issued["api_key"]
+    assert rows[0]["revoked_at"] is None
+
+    client.post(f"/platform/schools/{school['id']}/keys/{issued['id']}/revoke", headers=hdr())
+    revoked = client.get(f"/platform/schools/{school['id']}/keys", headers=hdr()).json()
+    # a revoked key is still shown, marked revoked, not hidden -- the operator needs the history
+    assert revoked[0]["api_key"] == issued["api_key"]
+    assert revoked[0]["revoked_at"] is not None
+
+
+def test_a_school_cannot_see_another_schools_keys_through_this_route(client):
+    school_a = client.post(
+        "/platform/schools", headers=hdr(),
+        json={"name": "Keys School A", "sections": [{"grade": 10, "name": "A"}]},
+    ).json()
+    school_b = client.post(
+        "/platform/schools", headers=hdr(),
+        json={"name": "Keys School B", "sections": [{"grade": 10, "name": "A"}]},
+    ).json()
+    key_a = client.post(
+        f"/platform/schools/{school_a['id']}/keys",
+        headers=hdr(), json={"role": "principal", "label": "A's principal"},
+    ).json()
+
+    rows = client.get(f"/platform/schools/{school_b['id']}/keys", headers=hdr()).json()
+    assert all(r["id"] != key_a["id"] for r in rows)
+
+
 def test_rotating_replaces_the_key_immediately(client):
     created = client.post(
         "/platform/schools",

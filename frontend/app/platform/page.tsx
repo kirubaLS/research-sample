@@ -400,18 +400,21 @@ export default function PlatformConsole() {
         {adminKeys.length === 0 ? (
           <p className="small muted">None issued yet.</p>
         ) : (
-          <div className="stack" style={{ gap: 6 }}>
+          <div className="stack" style={{ gap: 10 }}>
             {adminKeys.map((entry) => (
-              <div className="row between" key={entry.id}>
-                <span className="small">
-                  {entry.label || <span className="muted">unnamed</span>}
-                  {entry.revoked_at && <span className="muted"> · revoked</span>}
-                </span>
-                {!entry.revoked_at && (
-                  <button className="secondary tiny" onClick={() => revokeAdminKey(entry)}>
-                    Revoke
-                  </button>
-                )}
+              <div key={entry.id} style={entry.revoked_at ? { opacity: 0.55 } : undefined}>
+                <div className="row between">
+                  <span className="small">
+                    {entry.label || <span className="muted">unnamed</span>}
+                    {entry.revoked_at && <span className="muted"> · revoked</span>}
+                  </span>
+                  {!entry.revoked_at && (
+                    <button className="secondary tiny" onClick={() => revokeAdminKey(entry)}>
+                      Revoke
+                    </button>
+                  )}
+                </div>
+                <CopySecret value={entry.api_key} />
               </div>
             ))}
           </div>
@@ -530,25 +533,28 @@ export default function PlatformConsole() {
                 None issued. The school&rsquo;s own key below already works as one.
               </p>
             ) : (
-              <div className="stack" style={{ gap: 6 }}>
+              <div className="stack" style={{ gap: 10 }}>
                 {(staffKeys[school.id] ?? []).map((entry) => (
-                  <div className="row between" key={entry.id}>
-                    <span className="small">
-                      <strong>Principal</strong>
-                      {entry.role === "admin" && (
-                        <span className="muted"> (issued before this label changed)</span>
+                  <div key={entry.id} style={entry.revoked_at ? { opacity: 0.55 } : undefined}>
+                    <div className="row between">
+                      <span className="small">
+                        <strong>Principal</strong>
+                        {entry.role === "admin" && (
+                          <span className="muted"> (issued before this label changed)</span>
+                        )}
+                        {entry.label ? ` · ${entry.label}` : ""}
+                        {entry.revoked_at && <span className="muted"> · revoked</span>}
+                      </span>
+                      {!entry.revoked_at && (
+                        <button
+                          className="secondary tiny"
+                          onClick={() => revokeKey(school, entry)}
+                        >
+                          Revoke
+                        </button>
                       )}
-                      {entry.label ? ` · ${entry.label}` : ""}
-                      {entry.revoked_at && <span className="muted"> · revoked</span>}
-                    </span>
-                    {!entry.revoked_at && (
-                      <button
-                        className="secondary tiny"
-                        onClick={() => revokeKey(school, entry)}
-                      >
-                        Revoke
-                      </button>
-                    )}
+                    </div>
+                    <CopySecret value={entry.api_key} />
                   </div>
                 ))}
               </div>

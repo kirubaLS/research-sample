@@ -57,8 +57,6 @@ export default function ManageTeachers() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const active = teachers.filter((t) => !t.revoked_at);
-
   return (
     <main className="narrow">
       <div className="hero row between" style={{ alignItems: "flex-end" }}>
@@ -69,7 +67,7 @@ export default function ManageTeachers() {
       {error && <p className="error">{error}</p>}
       {loading && <p className="muted">Loading…</p>}
 
-      {!loading && active.length === 0 ? (
+      {!loading && teachers.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 0" }}>
           <p className="lede">No teacher logins yet</p>
           <button type="button" onClick={() => setAdding(true)} style={{ marginTop: 10 }}>
@@ -82,14 +80,21 @@ export default function ManageTeachers() {
             <thead>
               <tr>
                 <th>Label</th>
+                <th>Sign-in key</th>
                 <th>Assignments</th>
                 <th />
               </tr>
             </thead>
             <tbody>
-              {active.map((t) => (
-                <tr key={t.id}>
-                  <td>{t.label || "(unnamed)"}</td>
+              {teachers.map((t) => (
+                <tr key={t.id} style={t.revoked_at ? { opacity: 0.55 } : undefined}>
+                  <td>
+                    {t.label || "(unnamed)"}
+                    {t.revoked_at && <span className="muted"> · revoked</span>}
+                  </td>
+                  <td style={{ minWidth: 220 }}>
+                    <CopySecret value={t.api_key} />
+                  </td>
                   <td>
                     <div className="stack" style={{ gap: 3 }}>
                       {t.assignments.map((a) => (
@@ -99,18 +104,20 @@ export default function ManageTeachers() {
                     </div>
                   </td>
                   <td style={{ position: "relative" }}>
-                    <div className="row" style={{ gap: 6 }}>
-                      <button type="button" className="secondary tiny" onClick={() => setEditing(t)}>
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        className="secondary tiny"
-                        onClick={() => setMenuFor(menuFor === t.id ? null : t.id)}
-                      >
-                        ⋮
-                      </button>
-                    </div>
+                    {!t.revoked_at && (
+                      <div className="row" style={{ gap: 6 }}>
+                        <button type="button" className="secondary tiny" onClick={() => setEditing(t)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className="secondary tiny"
+                          onClick={() => setMenuFor(menuFor === t.id ? null : t.id)}
+                        >
+                          ⋮
+                        </button>
+                      </div>
+                    )}
                     {menuFor === t.id && (
                       <div className="dropdown">
                         <button
