@@ -100,7 +100,7 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
       <StatTileRow>
         <StatTile
           icon={<BarChartIcon />}
-          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "—"}
+          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "N/A"}
           label="Overall Average"
           tone="gold"
         />
@@ -145,11 +145,11 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
               {subjects.map((s) => (
                 <tr key={s.subject_code}>
                   <td className="strong">{s.label}</td>
-                  <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "—"}</td>
+                  <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "N/A"}</td>
                   <td className="num">{s.tests_taken}</td>
                   <td><StatusBadge status={s.status} /></td>
-                  <td className="small">{s.strengths.join(", ") || "—"}</td>
-                  <td className="small">{s.improve.join(", ") || "—"}</td>
+                  <td className="small">{s.strengths.join(", ") || "N/A"}</td>
+                  <td className="small">{s.improve.join(", ") || "N/A"}</td>
                   <td>
                     <Link href={`/admin/academics/students/${studentId}/subjects/${s.subject_code}`}>
                       <button type="button" className="secondary tiny">Details</button>

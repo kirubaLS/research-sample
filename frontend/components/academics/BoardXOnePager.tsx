@@ -66,7 +66,7 @@ export function BoardXOnePager({
             <div className="bx-row" key={r.domain_code}>
               <span className="strong">{r.domain}</span>
               <span>{r.diagnosable ? `${trim(r.scored)} / ${trim(r.available)}` : "Not enough evidence"}</span>
-              <span>{r.diagnosable ? trim(r.not_scored) : "—"}</span>
+              <span>{r.diagnosable ? trim(r.not_scored) : "N/A"}</span>
               <span>
                 {r.board_exposure_verified ? `${trim(r.board_exposure!)} / ${trim(r.board_total!)}` : "Not calibrated"}
               </span>

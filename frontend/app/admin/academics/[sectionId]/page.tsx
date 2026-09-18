@@ -120,7 +120,7 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
             <StatTile icon={<ClipboardIcon />} value={totalTestsTaken} label="Tests Recorded" tone="info" />
             <StatTile
               icon={<BarChartIcon />}
-              value={avgScore != null ? `${avgScore}%` : "—"}
+              value={avgScore != null ? `${avgScore}%` : "N/A"}
               label="Class Avg. Score"
               tone="gold"
             />
@@ -195,9 +195,9 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
                   </span>
                 </td>
                 <td><StatusBadge status={s.status} /></td>
-                <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "—"}</td>
+                <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "N/A"}</td>
                 <td className="num">{s.tests_taken}</td>
-                <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "—"}</td>
+                <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "N/A"}</td>
                 <td>
                   <Link href={`/admin/academics/students/${s.student_id}`}>
                     <button type="button" className="secondary tiny">View</button>

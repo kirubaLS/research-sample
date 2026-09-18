@@ -503,7 +503,7 @@ function GridRow({
                 className={m.problem ? "mark mark-bad" : "mark"}
                 title={row.student ? "Tap to correct this mark" : "Resolve this row to a student before editing its marks"}
               >
-                {m.address}: {m.marks ?? (m.raw_value || "—")}
+                {m.address}: {m.marks ?? (m.raw_value || "N/A")}
                 {row.student && (
                   <button
                     type="button"

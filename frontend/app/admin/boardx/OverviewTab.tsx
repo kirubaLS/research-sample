@@ -23,7 +23,7 @@ const STRENGTH_COPY: Record<PaperReport["diagnostic_strength"], string> = {
 };
 
 function pct(n: number | null | undefined): string {
-  return n == null ? "—" : `${Math.round(n * 100)}%`;
+  return n == null ? "N/A" : `${Math.round(n * 100)}%`;
 }
 
 export function OverviewTab({
@@ -59,7 +59,7 @@ export function OverviewTab({
               <StatTile
                 icon={<TargetIcon />}
                 tone={report.cronbach_alpha == null ? "neutral" : report.cronbach_alpha >= 0.7 ? "verify" : "warn"}
-                value={report.cronbach_alpha == null ? "—" : report.cronbach_alpha.toFixed(2)}
+                value={report.cronbach_alpha == null ? "N/A" : report.cronbach_alpha.toFixed(2)}
                 label="Item Consistency (α)"
               />
               <StatTile
@@ -90,8 +90,8 @@ export function OverviewTab({
           <div className="bx-bandgrid">
             {([
               ["full_mastery", "Full Mastery (90%+)", "verify"],
-              ["band_80_89", "80–89%", "gold"],
-              ["band_60_79", "60–79%", "warn"],
+              ["band_80_89", "80-89%", "gold"],
+              ["band_60_79", "60-79%", "warn"],
               ["below_60", "Below 60%", "risk"],
             ] as const).map(([key, label, tone]) => (
               <button
@@ -161,9 +161,9 @@ export function OverviewTab({
               <button key={f.id} type="button" className="bx-trow bx-trow-click" onClick={() => onOpenDrawer(f)}>
                 <span>{f.topicPath[f.topicPath.length - 1]}</span>
                 <span>{f.avgMarksLost.toFixed(1)}</span>
-                <span>{f.yearsEligible ? `${f.yearsAppeared}/${f.yearsEligible} yrs` : "—"}</span>
+                <span>{f.yearsEligible ? `${f.yearsAppeared}/${f.yearsEligible} yrs` : "N/A"}</span>
                 <span>{f.studentsAffected}</span>
-                <span>{f.urgencyTier ?? "—"}</span>
+                <span>{f.urgencyTier ?? "N/A"}</span>
               </button>
             ))}
           </div>
@@ -252,7 +252,7 @@ export function OverviewTab({
                 {/* TODO(backend): Dependency Index #6 -- pattern label is a mocked
                     classification; the % affected and confidence beside it are real. */}
                 <span className="bx-mocklabel">{mockPatternLabelFor(f.id)}</span>
-                <span>{cohort ? Math.round((f.studentsAffected / cohort.students_analysed) * 100) : "—"}%</span>
+                <span>{cohort ? Math.round((f.studentsAffected / cohort.students_analysed) * 100) : "N/A"}%</span>
                 <span>{f.confidence}</span>
               </div>
             ))}

@@ -42,7 +42,7 @@ export default function StudentHome() {
         <div style={{ textAlign: "center", padding: "40px 0" }}>
           <Mascot pose="hello" size={72} />
           <p className="lede" style={{ marginTop: 14 }}>
-            Nothing shared with you yet — your teacher will let you know when a report is
+            Nothing shared with you yet. Your teacher will let you know when a report is
             ready.
           </p>
         </div>

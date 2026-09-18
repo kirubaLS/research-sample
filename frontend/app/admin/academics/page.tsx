@@ -148,7 +148,7 @@ function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
         <StatTile icon={<ClipboardIcon />} value={totalTests} label="Papers With Marks" tone="info" />
         <StatTile
           icon={<BarChartIcon />}
-          value={schoolAvg != null ? `${schoolAvg}%` : "—"}
+          value={schoolAvg != null ? `${schoolAvg}%` : "N/A"}
           label="School Avg. Score"
           tone="gold"
         />

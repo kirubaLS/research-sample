@@ -20,8 +20,8 @@ export const MOCK_POTENTIAL_LADDER = {
 // band has no backend computation. Mocked band opportunity rows, shaped like what a real
 // endpoint would return once the distance-to-next-band aggregation exists.
 export const MOCK_BAND_OPPORTUNITY = [
-  { band: "60–79%", studentsNearNextBand: 28, commonBlocker: "Application-tier numerical questions" },
-  { band: "80–89%", studentsNearNextBand: 14, commonBlocker: "No dominant common blocker" },
+  { band: "60-79%", studentsNearNextBand: 28, commonBlocker: "Application-tier numerical questions" },
+  { band: "80-89%", studentsNearNextBand: 14, commonBlocker: "No dominant common blocker" },
   { band: "Below 60%", studentsNearNextBand: 19, commonBlocker: "Recall of core formulae" },
 ];
 

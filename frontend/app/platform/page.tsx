@@ -487,7 +487,7 @@ export default function PlatformConsole() {
             <p className="small" style={{ marginTop: 4 }}>
               Public directory:{" "}
               <strong>{school.hidden_from_directory ? "Hidden" : "Visible"}</strong>
-              {" — "}
+              {" - "}
               <button
                 type="button"
                 className="secondary tiny"

@@ -138,7 +138,7 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
               <div className="classoverview-stats">
                 <StatTile icon={<PeopleIcon />} value={students.length} label="Students" tone="violet" />
                 <StatTile icon={<ClipboardIcon />} value={students.reduce((s, r) => s + r.tests_taken, 0)} label="Tests Recorded" tone="info" />
-                <StatTile icon={<BarChartIcon />} value={avg != null ? `${avg}%` : "—"} label="Class Avg. Score" tone="gold" />
+                <StatTile icon={<BarChartIcon />} value={avg != null ? `${avg}%` : "N/A"} label="Class Avg. Score" tone="gold" />
               </div>
             </div>
             <style jsx>{`
@@ -209,9 +209,9 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
                       </span>
                     </td>
                     <td><StatusBadge status={s.status} /></td>
-                    <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "—"}</td>
+                    <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "N/A"}</td>
                     <td className="num">{s.tests_taken}</td>
-                    <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "—"}</td>
+                    <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "N/A"}</td>
                     <td className="row" style={{ gap: 6 }}>
                       <Link href={`/teacher/student/${s.student_id}`}>
                         <button type="button" className="secondary tiny">View</button>
@@ -239,7 +239,7 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
       {tab === "cohort" && (
         <div className="card">
           <p className="cardnote" style={{ marginTop: 0 }}>
-            Cohort snapshot for {section.label} — Holland-code and stream-fit counts
+            Cohort snapshot for {section.label}: Holland-code and stream-fit counts
             across the interest test, scoped to this section only.
           </p>
           {!cohort && <p className="muted">Loading…</p>}

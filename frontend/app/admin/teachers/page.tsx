@@ -19,7 +19,7 @@ import { getApiKey } from "@/lib/session";
 function assignmentLabel(a: TeacherAssignmentSpec | TeacherAssignmentView, sections: SectionSummary[]): string {
   const section = sections.find((s) => s.section_id === a.section_id);
   const label = section?.label ?? a.section_id;
-  return a.type === "class" ? `Class Teacher — ${label}` : `${a.subject_code} — ${label}`;
+  return a.type === "class" ? `Class Teacher - ${label}` : `${a.subject_code} - ${label}`;
 }
 
 export default function ManageTeachers() {
@@ -369,7 +369,7 @@ function EditAssignmentsModal({
 
   return (
     <Overlay onClose={onClose}>
-      <h3 style={{ marginTop: 0 }}>Edit assignments — {teacher.label || "teacher"}</h3>
+      <h3 style={{ marginTop: 0 }}>Edit assignments for {teacher.label || "teacher"}</h3>
       <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
         {existing.map((a) => (
           <span key={a.id} className="badge blue" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>

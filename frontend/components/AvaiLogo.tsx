@@ -17,7 +17,7 @@ export function AvaiLogo({
     // eslint-disable-next-line @next/next/no-img-element
     <img
       src={withTagline ? "/brand/wordmark-tagline.png" : "/brand/wordmark.png"}
-      alt="Avai — Learn, Grow, Achieve"
+      alt="Avai: Learn, Grow, Achieve"
       height={height}
       className={className}
       style={{ height, width: "auto", display: "block" }}

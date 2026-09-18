@@ -122,7 +122,7 @@ export default function StudentSubjectPage({
       <StatTileRow>
         <StatTile
           icon={<BarChartIcon />}
-          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "—"}
+          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "N/A"}
           label="Score"
           tone="gold"
         />
@@ -211,7 +211,7 @@ function FindingsTable({ findings, emptyText }: { findings: AcademicFinding[]; e
                       <span style={{ whiteSpace: "nowrap" }}>{f.earned}/{f.available} ({pct}%)</span>
                     </div>
                   ) : (
-                    "—"
+                    "N/A"
                   )}
                 </td>
                 <td className="num">{f.questions}</td>

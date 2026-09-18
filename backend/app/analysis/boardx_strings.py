@@ -19,9 +19,9 @@ TIER_QUESTION_TYPE = {
     "AEC": "questions asking you to analyse or evaluate",
 }
 
-S1_ATTAINMENT = "{domain} — you scored {scored} of the {available} marks."
+S1_ATTAINMENT = "{domain}: you scored {scored} of the {available} marks."
 S1_NON_DIAGNOSABLE = (
-    "{domain} — you scored {scored} of the {available} marks. This paper did not "
+    "{domain}: you scored {scored} of the {available} marks. This paper did not "
     "carry enough questions in this chapter to say anything more about it."
 )
 S1_BOARD_EXPOSURE = "{domain} carries {board_exposure} of the {board_total} marks in the Board blueprint."

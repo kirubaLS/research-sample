@@ -99,7 +99,7 @@ export function ShareWithStudentModal({
                   <option value="" disabled>Choose a report</option>
                   {reports.map((r) => (
                     <option key={r.report_id} value={r.report_id}>
-                      {r.assessment_title ?? "Report"} — {r.earned}/{r.available}
+                      {r.assessment_title ?? "Report"}: {r.earned}/{r.available}
                       {r.shared ? " (already shared)" : ""}
                     </option>
                   ))}

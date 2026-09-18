@@ -46,7 +46,7 @@ function LoginForm() {
       </div>
 
       <p className="login-sub">
-        Pick the one that&rsquo;s you — the sign-in fields are different for each.
+        Pick the one that&rsquo;s you: the sign-in fields are different for each.
       </p>
 
       <div className="tabbar" role="tablist" aria-label="Sign in as">
@@ -58,7 +58,7 @@ function LoginForm() {
           onClick={() => setTab("staff")}
         >
           <span className="tabtitle">School Staff</span>
-          <span className="tabhint">Principal or teacher — sign in with your key</span>
+          <span className="tabhint">Principal or teacher, sign in with your key</span>
         </button>
         <button
           type="button"
@@ -157,7 +157,7 @@ function StaffSignIn() {
         <input id="key" name="key" type="password" autoComplete="current-password" required
           placeholder="zozx6r94sEf1KWs7fRdXTNJNYXKEteuW" />
         <p className="hint">
-          The key you were personally issued — a principal&rsquo;s school key, or a
+          The key you were personally issued: a principal&rsquo;s school key, or a
           teacher&rsquo;s own sign-in key. Not sure which you have? Ask your school office.
         </p>
       </div>

@@ -78,7 +78,7 @@ export function StudentsTab({
               available: d.total.available,
               rate: d.total.rate,
               marksLost: d.total.available - d.total.earned,
-              mainBlocker: focus ? focus.label : "—",
+              mainBlocker: focus ? focus.label : "N/A",
               attention: attentionFromRate(d.total.rate),
             });
           });
@@ -124,7 +124,7 @@ export function StudentsTab({
         <button type="button" className="bx-back" onClick={() => setSelected(null)}>← Back to Student Intelligence</button>
         <div className="bx-student-heading">
           <Avatar name={selectedRow.name} seed={selectedRow.student_id} size={44} />
-          <h2>{selectedRow.name} — {selectedRow.section_label}</h2>
+          <h2>{selectedRow.name}, {selectedRow.section_label}</h2>
         </div>
         <div className="bx-student-summary">
           <span>{selectedDiagnosis.assessment_title} Attainment: {selectedRow.earned}/{selectedRow.available}</span>
@@ -133,7 +133,7 @@ export function StudentsTab({
         </div>
         {focus?.board && (
           <p className="bx-small bx-muted">
-            Highest-priority gap: <strong>{focus.label}</strong> — Board Urgency{" "}
+            Highest-priority gap: <strong>{focus.label}</strong>, Board Urgency{" "}
             {focus.board.urgency_tier ?? "unscored"}, {focus.confidence.toLowerCase()} confidence.
           </p>
         )}
