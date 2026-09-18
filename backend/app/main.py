@@ -29,6 +29,7 @@ from app.api import (
     reports,
     board,
     student,
+    teacher_academics,
 )
 from app.config import get_settings
 from app.db import engine, init_db
@@ -108,6 +109,7 @@ async def security_headers(request: Request, call_next):
 
 app.include_router(admin.router)
 app.include_router(academics.router)
+app.include_router(teacher_academics.router)
 app.include_router(interest.router)
 app.include_router(marks.router)
 app.include_router(books.router)

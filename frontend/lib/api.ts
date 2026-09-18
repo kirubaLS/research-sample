@@ -148,6 +148,19 @@ export interface AcademicsOverview {
   classes: ClassAcademicSummary[];
 }
 
+/** GET /admin/teacher/academics -- one row per class/subject this teacher key holds
+ * (a class assignment reads every subject; a subject assignment reads only its own). */
+export interface TeacherAcademicClassRow {
+  section_id: string;
+  label: string;
+  subject_code: string | null;
+  subject_label: string;
+  student_count: number;
+  status_counts: ClassAcademicSummary["status_counts"];
+  avg_score_pct: number | null;
+  test_count: number;
+}
+
 export type AcademicStatus = "on_track" | "needs_attention" | "requires_review" | "not_assessed";
 
 /** GET /admin/academics/{sectionId}/students -- one row per student in a class, plus
@@ -1490,6 +1503,30 @@ export const api = {
       `/admin/teacher/cohort/${sectionId}`,
       key,
     ),
+
+  // --- teacher-scoped academics: the same Overview/Test drill-down a principal gets,
+  // narrowed to exactly this key's own class/subject assignments ---
+
+  teacherAcademicsOverview: (key: string) =>
+    authed<{ classes: TeacherAcademicClassRow[] }>("/admin/teacher/academics", key),
+
+  teacherAcademicsStudents: (key: string, sectionId: string, filters?: { subjectCode?: string; status?: AcademicStatus }) =>
+    authed<{
+      section: { id: string; label: string };
+      subject_code: string | null;
+      students: ClassStudentRow[];
+    }>(
+      `/admin/teacher/academics/${sectionId}/students${qs({
+        subject_code: filters?.subjectCode, status: filters?.status,
+      })}`,
+      key,
+    ),
+
+  teacherAcademicsTests: (key: string) =>
+    authed<{ tests: AcademicTestRow[] }>("/admin/teacher/academics/tests", key),
+
+  teacherAcademicsTestSummary: (key: string, assessmentId: string) =>
+    authed<TestSummary>(`/admin/teacher/academics/tests/${assessmentId}`, key),
 
   // --- sharing a report with the student it belongs to ---
 

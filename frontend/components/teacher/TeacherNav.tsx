@@ -20,6 +20,8 @@ export function TeacherNav() {
 
   const items: { href: string; label: string; glyph: string }[] = [
     { href: "/teacher", label: "Home", glyph: "▣" },
+    { href: "/teacher/overview", label: "Overview", glyph: "◧" },
+    { href: "/teacher/tests", label: "Test", glyph: "▤" },
   ];
   if (hasClass) items.push({ href: "/teacher/classes", label: "My Classes", glyph: "▦" });
   if (hasSubject) items.push({ href: "/teacher/subjects", label: "My Subjects", glyph: "▧" });
