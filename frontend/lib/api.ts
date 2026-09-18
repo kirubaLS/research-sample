@@ -1528,6 +1528,14 @@ export const api = {
   teacherAcademicsTestSummary: (key: string, assessmentId: string) =>
     authed<TestSummary>(`/admin/teacher/academics/tests/${assessmentId}`, key),
 
+  /** Every paper this teacher key may author -- narrowed to the subjects it holds a
+   *  subject assignment for. Same row shape as listPapers(); every mutation on one of
+   *  these papers (create/scan/map/etc) goes through the same /assessments/... routes
+   *  listPapers' own results point at -- the scoping is enforced server-side on those
+   *  routes, not by this list being narrower. */
+  teacherPapers: (key: string) =>
+    authed<{ assessments: PaperSummary[] }>("/admin/teacher/papers", key),
+
   // --- sharing a report with the student it belongs to ---
 
   /** Every report issued for a student -- the list a "Share" picker is built from. */

@@ -32,7 +32,12 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_scanner, require_scanner_or_teacher
+from app.api.deps import (
+    require_gridsheet_document_scope,
+    require_gridsheet_job_scope,
+    require_scanner,
+    require_scanner_or_teacher,
+)
 from app.api.documents import content_type_for, store_document
 from app.api.matching import match_address
 from app.api.schemas import StudentCreateIn
@@ -526,7 +531,7 @@ async def upload_single_script(
 def get_gridsheet_job(
     assessment_id: str,
     job_id: str,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_gridsheet_job_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """Poll for the result of reading a grid sheet -- see GridSheetJob and
@@ -546,7 +551,7 @@ def get_gridsheet_job(
 def review_gridsheet(
     assessment_id: str,
     document_id: str,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_gridsheet_document_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """Every row this sheet produced, with what would be confirmed for it."""
@@ -626,7 +631,7 @@ def resolve_row(
     document_id: str,
     row_id: str,
     body: ResolveIn,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_gridsheet_document_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """Point an unmatched or a name-mismatched row at a real student.
@@ -704,7 +709,7 @@ def confirm_gridsheet(
     assessment_id: str,
     document_id: str,
     body: ConfirmGridIn,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_gridsheet_document_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """Confirm every clean row in one call. A flagged row is skipped and named, never
@@ -776,7 +781,7 @@ async def upload_gridsheet_file(
     assessment_id: str,
     section_id: str,
     files: list[UploadFile] = File(...),
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_scanner_or_teacher),
     db: Session = Depends(get_session),
 ) -> dict:
     """A spreadsheet or text-layer PDF naming several students in one file -- the same

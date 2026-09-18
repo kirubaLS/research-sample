@@ -23,7 +23,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_scanner
+from app.api.deps import require_marks_scope_for_student, require_scanner_or_teacher
 from app.api.marks import _question_no_sort_key, _sub_part_sort_key
 from app.api.matching import match_address as _match
 from app.api.upload import IMAGE_SUFFIXES, pages_to_pdf
@@ -64,7 +64,7 @@ async def read_marks(
     assessment_id: str,
     student_id: str,
     files: list[UploadFile] = File(...),
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_marks_scope_for_student),
     db: Session = Depends(get_session),
 ) -> dict:
     """Parse what was uploaded into proposals. Writes nothing to the marks.
@@ -206,7 +206,7 @@ async def read_marks(
 def read_proposals(
     assessment_id: str,
     student_id: str,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_marks_scope_for_student),
     db: Session = Depends(get_session),
 ) -> dict:
     """Every question on the paper, with what was read for it, if anything.
@@ -281,7 +281,7 @@ def edit_proposal(
     student_id: str,
     address: str,
     body: EditIn,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_marks_scope_for_student),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person corrects one proposal, or supplies one the file did not have."""
@@ -342,7 +342,7 @@ def confirm_reading(
     assessment_id: str,
     student_id: str,
     body: ConfirmIn,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_marks_scope_for_student),
     db: Session = Depends(get_session),
 ) -> dict:
     """Turn the confirmed proposals into marks, under the name of whoever confirmed them."""
@@ -405,7 +405,7 @@ def confirm_class_reading(
     assessment_id: str,
     section_id: str,
     body: ConfirmIn,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_scanner_or_teacher),
     db: Session = Depends(get_session),
 ) -> dict:
     """Confirm every student in a class whose reading is clean, in one call.

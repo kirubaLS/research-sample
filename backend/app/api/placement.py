@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.books import clean_sections
-from app.api.deps import require_admin, require_reader, require_scanner
+from app.api.deps import require_admin, require_paper_scope, require_reader, require_scanner
 from app.classify.pipeline import place_paper
 from app.curriculum import group_subjects
 from app.mapping.family import Choice, choose_family
@@ -436,7 +436,8 @@ def place(
     background_tasks: BackgroundTasks,
     # The same permission as reading a paper and mapping it: this is a step of that flow,
     # and an admin-only step in the middle of it is a wall a principal cannot get past.
-    school: School = Depends(require_scanner),
+    # A teacher reaches it too, subject-scoped like every other paper-authoring step.
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> JSONResponse:
     """Queue retrieval, the judge and the constraints over every question in the paper.
@@ -496,7 +497,7 @@ def place(
 def get_placement_job(
     assessment_id: str,
     job_id: str,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """Poll for the result of a queued placement run -- see place() and PlacementJob. A
@@ -562,7 +563,7 @@ def _unit_node_id(db: Session, nodes: dict, unit_code: str) -> str | None:
 @router.get("/{assessment_id}/review")
 def review_queue(
     assessment_id: str,
-    school: School = Depends(require_reader),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """The questions a person still has to settle, with what the machine had to go on."""

@@ -5,13 +5,23 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, UploadFile, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_admin, require_reader, require_scanner
+from app.api.deps import (
+    Staff,
+    current_staff,
+    require_admin,
+    require_marks_scope_for_student,
+    require_paper_scope,
+    require_reader,
+    require_scanner,
+    school_in_scope,
+    teacher_subject_codes,
+)
 from app.api.documents import content_type_for, store_document
 from app.api.schemas import (
     AssessmentIn,
@@ -69,9 +79,23 @@ def _get_assessment(db: Session, school: School, assessment_id: str) -> Assessme
 
 @router.post("")
 def create_assessment(
-    body: AssessmentIn, school: School = Depends(require_scanner), db: Session = Depends(get_session)
+    body: AssessmentIn,
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
 ) -> dict:
     from app.curriculum import CURRICULA
+
+    if staff.is_teacher:
+        # A teacher may create a paper only for a subject they hold a subject assignment
+        # for -- an Assessment names no section, so this is the one place authoring a
+        # paper is checked before an assessment_id exists to check it against.
+        assert staff.home is not None
+        if body.subject_code not in teacher_subject_codes(staff, db):
+            raise HTTPException(404, "not found")
+        school = staff.home
+    else:
+        school = school_in_scope(staff, x_school_id, db)
 
     is_group_code = any(c.group_code == body.subject_code for c in CURRICULA.values())
     if body.subject_code not in CURRICULA and not is_group_code:
@@ -100,23 +124,11 @@ def create_assessment(
     return {"assessment_id": a.id, "status": a.status}
 
 
-@router.get("")
-def list_assessments(
-    school: School = Depends(require_reader), db: Session = Depends(get_session)
-) -> dict:
-    """Every paper this school has, and how far each one has got.
-
-    The stage is derived from what is actually stored rather than from a status column
-    somebody has to remember to update: a paper is mapped when its questions carry
-    chapters, confirmed when the extraction has been signed off, scanned when pages were
-    read, and otherwise empty. Only a mapped paper can take an answer sheet, and the list
-    says so instead of letting someone find out at the point of entry.
+def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dict]:
+    """The list row every /assessments listing shares -- the principal's own (unscoped)
+    and the teacher's own (subject-filtered, app.api.admin's teacher_papers) alike, so the
+    two screens can never quietly drift into showing different stages for the same paper.
     """
-    assessments = list(db.scalars(
-        select(Assessment)
-        .where(Assessment.school_id == school.id)
-        .order_by(Assessment.created_at.desc())
-    ))
     ids = [a.id for a in assessments]
 
     scanned = dict(db.execute(
@@ -167,7 +179,27 @@ def list_assessments(
             #: What the answer-sheet screen needs to know before it offers this paper.
             "ready_for_answer_sheets": n_questions > 0,
         })
-    return {"assessments": rows}
+    return rows
+
+
+@router.get("")
+def list_assessments(
+    school: School = Depends(require_reader), db: Session = Depends(get_session)
+) -> dict:
+    """Every paper this school has, and how far each one has got.
+
+    The stage is derived from what is actually stored rather than from a status column
+    somebody has to remember to update: a paper is mapped when its questions carry
+    chapters, confirmed when the extraction has been signed off, scanned when pages were
+    read, and otherwise empty. Only a mapped paper can take an answer sheet, and the list
+    says so instead of letting someone find out at the point of entry.
+    """
+    assessments = list(db.scalars(
+        select(Assessment)
+        .where(Assessment.school_id == school.id)
+        .order_by(Assessment.created_at.desc())
+    ))
+    return {"assessments": assessment_summaries(db, assessments)}
 
 
 class AssessmentEditIn(BaseModel):
@@ -185,7 +217,7 @@ class AssessmentEditIn(BaseModel):
 @router.patch("/{assessment_id}")
 def edit_assessment(
     assessment_id: str, body: AssessmentEditIn,
-    school: School = Depends(require_scanner), db: Session = Depends(get_session),
+    school: School = Depends(require_paper_scope), db: Session = Depends(get_session),
 ) -> dict:
     a = _get_assessment(db, school, assessment_id)
     if a.scan_confirmed_at:
@@ -792,7 +824,7 @@ async def scan_paper(
     assessment_id: str,
     files: list[UploadFile] = File(...),
     background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict | JSONResponse:
     """Read a question paper -- PDF or photograph -- into staged questions.
@@ -869,7 +901,7 @@ PAPER_SCAN_JOB_STALE_AFTER = timedelta(minutes=15)
 def get_paper_scan_job(
     assessment_id: str,
     job_id: str,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """Poll for the result of a scanned paper's vision read -- see PaperScanJob and
@@ -931,7 +963,7 @@ def _question_no_sort_key(question_no: str) -> tuple[int, int | str]:
 @router.get("/{assessment_id}/scan")
 def read_scan(
     assessment_id: str,
-    school: School = Depends(require_reader),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """The staged questions, and what is stopping each one becoming a real question."""
@@ -1123,7 +1155,7 @@ def edit_scanned_question(
     assessment_id: str,
     address: str,
     body: ScanEditIn,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """Correct what the extractor read, before it becomes fact.
@@ -1187,7 +1219,7 @@ class ConfirmIn(BaseModel):
 def confirm_scan(
     assessment_id: str,
     body: ConfirmIn,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person states that these questions are what the paper says.
@@ -1265,7 +1297,7 @@ def confirm_scan(
 @router.post("/{assessment_id}/map")
 def map_paper_to_book(
     assessment_id: str,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """Place every staged question against the book, and promote what can be placed.
@@ -1526,7 +1558,7 @@ def _student_for(db: Session, school: School, student_id: str) -> StudentProfile
 def read_answer_sheet(
     assessment_id: str,
     student_id: str,
-    school: School = Depends(require_reader),
+    school: School = Depends(require_marks_scope_for_student),
     db: Session = Depends(get_session),
 ) -> dict:
     """Every question on the paper, with this student's mark if one has been recorded.
@@ -1630,7 +1662,7 @@ def confirm_answer_sheet(
     assessment_id: str,
     student_id: str,
     body: AnswerSheetIn,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_marks_scope_for_student),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person puts their name to this student's marks.

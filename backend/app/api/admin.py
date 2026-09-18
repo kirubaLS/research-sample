@@ -26,6 +26,7 @@ from app.api.deps import (
     school_in_scope,
     teacher_assignments,
     teacher_can_read,
+    teacher_subject_codes,
 )
 from app.api.schemas import StudentCreateIn, StudentUpdateIn
 from app.curriculum import subject_groups
@@ -68,6 +69,11 @@ def whoami(
     hiding the wrong one; this way the dashboard and the API cannot disagree.
     """
     school = school_in_scope(staff, x_school_id, db)
+    # A teacher's own paper-authoring/marks/scanning rights turn on holding at least one
+    # *subject* assignment -- a class-only teacher stays read-only, same rule as
+    # teacher_can_enter_marks. Computed once and reused for both flags: they are granted
+    # or refused together, since both routes live behind exactly the same subject check.
+    teacher_has_subject = staff.is_teacher and bool(teacher_subject_codes(staff, db))
     out = {
         "school_id": school.id,
         "name": school.name,
@@ -82,8 +88,8 @@ def whoami(
             "read_results": not staff.is_teacher,
             # Scanning and marks entry are open to any staff. A principal produces marks
             # as well as reading them: a deliberate choice, not an oversight.
-            "scan_papers": not staff.is_teacher,
-            "enter_marks": not staff.is_teacher,
+            "scan_papers": (not staff.is_teacher) or teacher_has_subject,
+            "enter_marks": (not staff.is_teacher) or teacher_has_subject,
             # The roster is now open to a principal too (add/edit/remove a student in
             # their own school) -- the same widening require_scanner already made for
             # scanning and marks. The Q-matrix and the credentials still stay with the
@@ -685,6 +691,34 @@ def teacher_roster(
         raise HTTPException(403, "this route is for teacher keys; use /admin/sections/{id}/students")
     require_teacher_read_scope(staff, db, section_id)
     return _roster_payload(db, _teacher_home(staff), section_id)
+
+
+@router.get("/teacher/papers")
+def teacher_papers(
+    staff: Staff = Depends(current_staff), db: Session = Depends(get_session)
+) -> dict:
+    """Every paper this teacher key may author -- one whose subject_code is one they
+    hold a subject assignment for, whatever section that assignment names. A class-only
+    teacher (no subject assignment at all) gets an empty list, the same as they get no
+    paper-authoring route to act on one anyway.
+
+    Reuses marks.assessment_summaries so this list can never show a different "stage" for
+    a paper than the principal's own /assessments listing does.
+    """
+    if not staff.is_teacher:
+        raise HTTPException(403, "this route is for teacher keys; use GET /assessments")
+    assert staff.home is not None
+    subjects = teacher_subject_codes(staff, db)
+    if not subjects:
+        return {"assessments": []}
+    from app.api.marks import assessment_summaries
+
+    assessments = list(db.scalars(
+        select(Assessment)
+        .where(Assessment.school_id == staff.home.id, Assessment.subject_code.in_(subjects))
+        .order_by(Assessment.created_at.desc())
+    ))
+    return {"assessments": assessment_summaries(db, assessments)}
 
 
 @router.get("/teacher/cohort/{section_id}")

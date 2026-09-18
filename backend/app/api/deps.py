@@ -10,7 +10,16 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.models import Assessment, School, StaffKey, TeacherAssignment
+from app.models import (
+    Assessment,
+    GridSheetJob,
+    GridSheetRow,
+    School,
+    ScanDocument,
+    StaffKey,
+    StudentProfile,
+    TeacherAssignment,
+)
 
 
 @dataclass(frozen=True)
@@ -224,6 +233,170 @@ def require_scanner_or_teacher(
     if assessment is None or assessment.school_id != staff.home.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
     require_teacher_marks_scope(staff, db, section_id, assessment.subject_code)
+    return staff.home
+
+
+def teacher_subject_codes(staff: Staff, db: Session) -> set[str]:
+    """Every subject a teacher key may author a paper for. A class assignment names no
+    subject and grants nothing here -- paper-authoring, like marks entry, is a subject
+    right (spec §10.2's default)."""
+    return {
+        a.subject_code
+        for a in teacher_assignments(staff, db)
+        if a.type == "subject" and a.subject_code
+    }
+
+
+def require_paper_scope(
+    assessment_id: str,
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Authoring one paper: create-questions-aside, this covers scan/edit/confirm/map and
+    reading the same. An Assessment is not section-scoped -- it is shared by every section
+    that sits it -- so a subject assignment on *any* section is enough; unlike marks entry
+    there is no single section to check against. A class-only teacher never reaches this,
+    the same as they never reach marks entry.
+    """
+    if not staff.is_teacher:
+        return school_in_scope(staff, x_school_id, db)
+    assert staff.home is not None, "a teacher key always names its school"
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != staff.home.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    if assessment.subject_code not in teacher_subject_codes(staff, db):
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    return staff.home
+
+
+def require_marks_scope_for_student(
+    assessment_id: str,
+    student_id: str,
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Entering/reading one student's marks for one paper -- the per-student sibling of
+    require_scanner_or_teacher, which is shaped around a whole section instead. Scoped by
+    the student's own section and the paper's subject, exactly the same
+    teacher_can_enter_marks check, just reached from a student id instead of a section id.
+    """
+    if not staff.is_teacher:
+        return school_in_scope(staff, x_school_id, db)
+    assert staff.home is not None
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != staff.home.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    student = db.get(StudentProfile, student_id)
+    if student is None or student.school_id != staff.home.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    require_teacher_marks_scope(staff, db, student.section_id, assessment.subject_code)
+    return staff.home
+
+
+def require_documents_list_scope(
+    assessment_id: str,
+    student_id: str | None = None,
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Listing a paper's stored documents. With no student_id this is the paper's own
+    question-paper upload (Papers screen) -- subject scope. With one, it is that
+    student's own answer-sheet upload (Enter Marks screen) -- that student's
+    section+subject scope. Matches the same two screens' own request shapes; a teacher
+    can never widen this by adding or dropping the query param, since which branch runs
+    is decided here, not by what the caller claims to want.
+    """
+    if not staff.is_teacher:
+        return school_in_scope(staff, x_school_id, db)
+    if student_id:
+        return require_marks_scope_for_student(assessment_id, student_id, staff, x_school_id, db)
+    return require_paper_scope(assessment_id, staff, x_school_id, db)
+
+
+def require_document_scope(
+    document_id: str,
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Confirming or deleting one stored document, reached only by its own id. Which
+    scope rule applies is decided from the document's own ``kind`` -- a question paper is
+    subject-scoped, an answer sheet is that one student's section+subject, a mark grid is
+    its section+subject -- never from anything the caller sends, so a teacher cannot claim
+    a document is one kind to dodge the other kind's check.
+    """
+    if not staff.is_teacher:
+        return school_in_scope(staff, x_school_id, db)
+    assert staff.home is not None
+    document = db.get(ScanDocument, document_id)
+    if document is None or document.school_id != staff.home.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    assessment = db.get(Assessment, document.assessment_id)
+    if assessment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    if document.kind == "question_paper":
+        if assessment.subject_code not in teacher_subject_codes(staff, db):
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    elif document.kind == "answer_sheet":
+        student = db.get(StudentProfile, document.student_id) if document.student_id else None
+        if student is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+        require_teacher_marks_scope(staff, db, student.section_id, assessment.subject_code)
+    elif document.kind == "mark_grid":
+        row = db.scalar(select(GridSheetRow).where(GridSheetRow.document_id == document.id))
+        if row is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+        require_teacher_marks_scope(staff, db, row.section_id, assessment.subject_code)
+    else:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    return staff.home
+
+
+def require_gridsheet_job_scope(
+    assessment_id: str,
+    job_id: str,
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Polling a grid-sheet read job -- the job itself carries the section it was read
+    for, the same section upload_gridsheet/upload_single_script already checked."""
+    if not staff.is_teacher:
+        return school_in_scope(staff, x_school_id, db)
+    assert staff.home is not None
+    job = db.get(GridSheetJob, job_id)
+    if job is None or job.assessment_id != assessment_id or job.school_id != staff.home.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    require_teacher_marks_scope(staff, db, job.section_id, assessment.subject_code)
+    return staff.home
+
+
+def require_gridsheet_document_scope(
+    assessment_id: str,
+    document_id: str,
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Reviewing, resolving a row on, or confirming a grid-sheet document -- the document
+    has no section column of its own, but every row it produced does, and a document is
+    always read for exactly one section."""
+    if not staff.is_teacher:
+        return school_in_scope(staff, x_school_id, db)
+    assert staff.home is not None
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != staff.home.id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    row = db.scalar(select(GridSheetRow).where(GridSheetRow.document_id == document_id))
+    if row is None or row.assessment_id != assessment_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    require_teacher_marks_scope(staff, db, row.section_id, assessment.subject_code)
     return staff.home
 
 

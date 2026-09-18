@@ -25,6 +25,13 @@ export function TeacherNav() {
   ];
   if (hasClass) items.push({ href: "/teacher/classes", label: "My Classes", glyph: "▦" });
   if (hasSubject) items.push({ href: "/teacher/subjects", label: "My Subjects", glyph: "▧" });
+  // Gated the same way SideNav gates the principal's own Papers/Enter Marks/Scan Answer
+  // Sheets links -- role.can comes from the server (GET /admin/me), which only turns
+  // these on for a teacher key holding at least one *subject* assignment, so a
+  // class-only teacher never sees them, same rule as hasSubject above.
+  if (role?.can.scan_papers) items.push({ href: "/teacher/paper", label: "Papers", glyph: "▦" });
+  if (role?.can.enter_marks) items.push({ href: "/teacher/answers", label: "Enter Marks", glyph: "▧" });
+  if (role?.can.enter_marks) items.push({ href: "/teacher/gridsheet", label: "Scan Answer Sheets", glyph: "▥" });
 
   return (
     <nav className="sidenav" aria-label="Teacher sections">

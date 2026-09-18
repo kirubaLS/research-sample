@@ -20,7 +20,13 @@ from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFil
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps import require_reader, require_scanner
+from app.api.deps import (
+    require_document_scope,
+    require_documents_list_scope,
+    require_marks_scope_for_student,
+    require_reader,
+    require_scanner,
+)
 from app.db import get_session
 from app.models import Assessment, ScanDocument, ScanPage, School, StudentProfile
 from app.storage import get_object_store
@@ -153,7 +159,7 @@ async def upload_answer_sheet(
     assessment_id: str,
     student_id: str,
     files: list[UploadFile] = File(...),
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_marks_scope_for_student),
     db: Session = Depends(get_session),
 ) -> dict:
     """One student's answer script, in the order the pages are sent.
@@ -196,7 +202,7 @@ async def upload_answer_sheet(
 def confirm_document(
     document_id: str,
     body: dict | None = None,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_document_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person says these are the right pages, in the right order.
@@ -217,7 +223,7 @@ def confirm_document(
 @router.delete("/documents/{document_id}", status_code=204)
 def delete_document(
     document_id: str,
-    school: School = Depends(require_scanner),
+    school: School = Depends(require_document_scope),
     db: Session = Depends(get_session),
 ) -> None:
     """Remove a scanned document -- a question paper or an answer script -- and its pages.
@@ -239,7 +245,7 @@ def delete_document(
 def list_documents(
     assessment_id: str,
     student_id: str | None = None,
-    school: School = Depends(require_reader),
+    school: School = Depends(require_documents_list_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     assessment = db.get(Assessment, assessment_id)
