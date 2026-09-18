@@ -330,6 +330,17 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 if placed.skill_required:
                     question.skill_required = placed.skill_required
 
+            # Both rows carry a hard FK onto question.id -- a question deleted (the paper
+            # itself removed) between this job's slow classifier call and this write
+            # would otherwise still get a placement/tier row inserted for it here,
+            # landing in the exact window a concurrent delete_assessment's own cleanup
+            # already swept, and failing that delete outright with a foreign key
+            # violation on whichever table it reaches next. Skipped rather than raised:
+            # a question that no longer exists has nothing left to record a judgment
+            # about.
+            if question is None:
+                continue
+
             db.add(QuestionPlacement(
                 question_id=placed.question_id,
                 chapter_id=chapter.id if chapter else None,
