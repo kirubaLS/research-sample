@@ -46,7 +46,6 @@ export function SiteHeader() {
       <div className="inner">
         <Link href="/" className="brand">
           <AvaiLogo height={26} />
-          <span className="sub">Assessment diagnostics</span>
         </Link>
 
         {!hasSideNav && !isStudentFlow && !(isHome && !signedIn) && (

@@ -11,9 +11,7 @@
  * reference sheet) rather than a hand-drawn placeholder.
  */
 
-import {
-  BookOpenCheck, ClipboardCheck, GraduationCap, LayoutDashboard, Sparkles, Target,
-} from "lucide-react";
+import { GraduationCap, LayoutDashboard } from "lucide-react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 
@@ -26,24 +24,6 @@ const rise = {
     transition: { duration: 0.5, delay: i * 0.08, ease: EASE },
   }),
 };
-
-const FEATURES = [
-  {
-    icon: Sparkles,
-    title: "Interest profiling",
-    body: "A validated six-type inventory, scored with the person's own baseline removed, and withheld entirely when a profile is too flat to call.",
-  },
-  {
-    icon: Target,
-    title: "Question-level diagnosis",
-    body: "Every mark maps to a chapter, a sub-topic and a cognitive tier, so “weak in Surface Areas” becomes “knows the formula, can’t apply it”.",
-  },
-  {
-    icon: BookOpenCheck,
-    title: "Paper quality",
-    body: "Whether the paper matches the board's own balance of recall, application and analysis, and which chapters it never tested at all.",
-  },
-];
 
 export default function Home() {
   return (
@@ -100,10 +80,6 @@ export default function Home() {
             </span>
             <p className="eyebrow">For students</p>
             <h2>Take the interest test</h2>
-            <p className="cardnote" style={{ marginBottom: 16 }}>
-              36 short questions, about eight minutes, in English, தமிழ் or हिन्दी. There are no
-              right or wrong answers, and there is no login.
-            </p>
             <span className="arrow">Find your class →</span>
           </Link>
         </motion.div>
@@ -117,37 +93,9 @@ export default function Home() {
               For principals, staff and students
             </p>
             <h2>Sign in</h2>
-            <p className="cardnote" style={{ marginBottom: 16 }}>
-              Class links, marks entry and BoardX for staff; roll number + PIN for a
-              student viewing a report their teacher has shared.
-            </p>
             <span className="arrow">Sign in →</span>
           </Link>
         </motion.div>
-      </div>
-
-      <div className="section-head">
-        <h2>What it does</h2>
-      </div>
-      <div className="grid three">
-        {FEATURES.map(({ icon: Icon, title, body }, i) => (
-          <motion.div
-            key={title}
-            className="card featurecard mo"
-            initial="hidden"
-            whileInView="show"
-            viewport={{ once: true }}
-            custom={i}
-            variants={rise}
-            whileHover={{ y: -3 }}
-          >
-            <span className="featureicon" aria-hidden>
-              <Icon size={20} />
-            </span>
-            <h3>{title}</h3>
-            <p className="cardnote">{body}</p>
-          </motion.div>
-        ))}
       </div>
 
       <style jsx>{`
@@ -163,12 +111,6 @@ export default function Home() {
         }
         .dooricon.student { background: var(--mark-soft); color: var(--mark); }
         .dooricon.staff { background: var(--verify-soft); color: var(--verify); }
-        .featurecard { position: relative; }
-        .featureicon {
-          display: inline-grid; place-items: center; width: 36px; height: 36px;
-          border-radius: var(--radius-sm); background: var(--info-soft); color: var(--info);
-          margin-bottom: 10px;
-        }
       `}</style>
     </main>
   );

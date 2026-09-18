@@ -28,7 +28,7 @@ const mono = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "Avai",
-  description: "Assessment diagnostics for CBSE schools",
+  description: "Turning assessments into brighter futures.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
