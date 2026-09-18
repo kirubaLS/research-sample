@@ -36,6 +36,7 @@ from app.models import (
     Assessment,
     BookChunk,
     DataQualityFlag,
+    GridSheetRow,
     ItemResponse,
     MarkEvent,
     ProfileResult,
@@ -543,12 +544,23 @@ def delete_student(
         db.execute(ItemResponse.__table__.delete().where(ItemResponse.session_id.in_(session_ids)))
         db.execute(ScaleScore.__table__.delete().where(ScaleScore.session_id.in_(session_ids)))
         db.execute(ProfileResult.__table__.delete().where(ProfileResult.session_id.in_(session_ids)))
-    for model in (TestSession, MarkEvent, StudentReport, ProposedMark, DataQualityFlag):
+    # StudentSession: born the moment this student ever signed in with a shared report's
+    # PIN (app.api.student), which is the ordinary path once a report has been shared --
+    # so most students worth deleting have one, and its FK has no DB-level cascade.
+    for model in (TestSession, MarkEvent, StudentReport, ProposedMark, DataQualityFlag, StudentSession):
         db.execute(model.__table__.delete().where(model.student_id == student_id))
     for document in db.scalars(
         select(ScanDocument).where(ScanDocument.student_id == student_id)
     ):
         db.delete(document)
+    # A resolved grid-sheet row is about the sheet, not solely this student -- nulling the
+    # match (back to "unmatched", the same state before it was ever resolved) rather than
+    # deleting the row keeps the sheet's other students' rows intact.
+    db.execute(
+        GridSheetRow.__table__.update()
+        .where(GridSheetRow.student_id == student_id)
+        .values(student_id=None, status="unmatched")
+    )
     db.delete(student)
     db.commit()
 
