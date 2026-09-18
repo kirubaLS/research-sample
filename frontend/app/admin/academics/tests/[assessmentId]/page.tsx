@@ -7,7 +7,9 @@
 
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
+import { Avatar } from "@/components/academics/Avatar";
 import { StatusBadge } from "@/components/academics/StatusBadge";
+import { StatusOverviewBar } from "@/components/academics/StatusOverviewBar";
 import { Mascot } from "@/components/Mascot";
 import { api, type TestSummary } from "@/lib/api";
 import { downloadBlob } from "@/lib/download";
@@ -74,11 +76,8 @@ export default function TestSummaryPage({ params }: { params: Promise<{ assessme
         </div>
       </div>
 
-      <div className="tiles" style={{ marginBottom: 20 }}>
-        <div className="tile tile-good"><span className="tile-n">{counts.on_track}</span><span className="tile-l">On Track</span></div>
-        <div className="tile tile-warn"><span className="tile-n">{counts.needs_attention}</span><span className="tile-l">Needs Attention</span></div>
-        <div className="tile tile-warn"><span className="tile-n">{counts.requires_review}</span><span className="tile-l">Requires Review</span></div>
-        <div className="tile"><span className="tile-n">{counts.not_assessed}</span><span className="tile-l">Not Yet Assessed</span></div>
+      <div className="card" style={{ marginBottom: 20 }}>
+        <StatusOverviewBar counts={counts} title="Test Overview" />
       </div>
 
       <div className="tablewrap">
@@ -96,7 +95,12 @@ export default function TestSummaryPage({ params }: { params: Promise<{ assessme
             {data.students.map((s) => (
               <tr key={s.student_id}>
                 <td>{s.roll_no}</td>
-                <td className="strong">{s.name}</td>
+                <td className="strong">
+                  <span className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
+                    <Avatar name={s.name} seed={s.student_id} size={30} />
+                    {s.name}
+                  </span>
+                </td>
                 <td className="num">{s.earned}/{s.available}{s.avg_score_pct != null ? ` (${s.avg_score_pct}%)` : ""}</td>
                 <td><StatusBadge status={s.status} /></td>
                 <td>

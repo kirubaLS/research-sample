@@ -13,6 +13,9 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { BarChartIcon, ClipboardIcon, PeopleIcon } from "@/components/academics/Icons";
+import { StatTile, StatTileRow } from "@/components/academics/StatTile";
+import { StatusOverviewBar } from "@/components/academics/StatusOverviewBar";
 import { Mascot } from "@/components/Mascot";
 import { api, type AcademicsOverview, type ClassAcademicSummary } from "@/lib/api";
 import { downloadBlob } from "@/lib/download";
@@ -127,6 +130,11 @@ function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
     { on_track: 0, needs_attention: 0, requires_review: 0, not_assessed: 0 },
   );
   const totalStudents = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
+  const totalTests = classes.reduce((sum, c) => sum + c.test_count, 0);
+  const scoredClasses = classes.filter((c) => c.avg_score_pct != null);
+  const schoolAvg = scoredClasses.length
+    ? Math.round(scoredClasses.reduce((sum, c) => sum + (c.avg_score_pct ?? 0), 0) / scoredClasses.length)
+    : null;
 
   const scored = classes
     .filter((c) => c.avg_score_pct != null)
@@ -134,23 +142,22 @@ function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
   const maxScore = Math.max(100, ...scored.map((c) => c.avg_score_pct ?? 0));
 
   return (
-    <div className="insights">
+    <div>
+      <StatTileRow>
+        <StatTile icon={<PeopleIcon />} value={classes.reduce((s, c) => s + c.student_count, 0)} label="Total Students" tone="violet" />
+        <StatTile icon={<ClipboardIcon />} value={totalTests} label="Papers With Marks" tone="info" />
+        <StatTile
+          icon={<BarChartIcon />}
+          value={schoolAvg != null ? `${schoolAvg}%` : "—"}
+          label="School Avg. Score"
+          tone="gold"
+        />
+      </StatTileRow>
+
+      <div className="insights">
       <div className="card insight-card">
-        <h2 style={{ marginTop: 0, fontSize: 15 }}>Status across the whole school</h2>
-        <p className="cardnote" style={{ margin: "0 0 12px" }}>{totalStudents} students, every class combined</p>
-        <div className="insight-stackbar" role="img" aria-label="Status distribution across the whole school">
-          {STATUS_SERIES.map((s) => {
-            const n = totals[s.key];
-            return n > 0 && (
-              <div key={s.key} style={{ width: `${(n / totalStudents) * 100}%`, background: s.color }} title={`${s.label}: ${n}`} />
-            );
-          })}
-        </div>
-        <div className="row" style={{ gap: 16, flexWrap: "wrap", marginTop: 12 }}>
-          {STATUS_SERIES.map((s) => (
-            <Legend key={s.key} label={s.label} n={totals[s.key]} color={s.color} />
-          ))}
-        </div>
+        <StatusOverviewBar counts={totals} title="Status Across the Whole School" />
+        <p className="cardnote" style={{ margin: "10px 0 0" }}>{totalStudents} students, every class combined</p>
       </div>
 
       <div className="card insight-card">
@@ -175,6 +182,7 @@ function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
           </div>
         )}
       </div>
+      </div>
 
       <style jsx>{`
         .insights {
@@ -182,11 +190,6 @@ function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
           gap: 16px; margin-top: 20px;
         }
         .insight-card { margin: 0; }
-        .insight-stackbar {
-          display: flex; height: 14px; border-radius: 999px; overflow: hidden;
-          background: var(--rule);
-        }
-        .insight-stackbar > div { transition: width 0.3s ease; }
         .scorebars { display: flex; flex-direction: column; gap: 9px; }
         .scorebar-row { display: grid; grid-template-columns: 56px 1fr 42px; align-items: center; gap: 10px; }
         .scorebar-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }

@@ -10,7 +10,11 @@
 
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
+import { Avatar } from "@/components/academics/Avatar";
+import { BarChartIcon, ClipboardIcon, PeopleIcon } from "@/components/academics/Icons";
+import { StatTile, StatTileRow } from "@/components/academics/StatTile";
 import { StatusBadge } from "@/components/academics/StatusBadge";
+import { StatusOverviewBar } from "@/components/academics/StatusOverviewBar";
 import { Mascot } from "@/components/Mascot";
 import { api, type AcademicStatus, type ClassStudentsView } from "@/lib/api";
 import { downloadBlob } from "@/lib/download";
@@ -75,6 +79,19 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
 
   const rows = data.students;
 
+  const counts = rows.reduce(
+    (acc, s) => {
+      acc[s.status] += 1;
+      return acc;
+    },
+    { on_track: 0, needs_attention: 0, requires_review: 0, not_assessed: 0 },
+  );
+  const scored = rows.filter((s) => s.avg_score_pct != null);
+  const avgScore = scored.length
+    ? Math.round(scored.reduce((sum, s) => sum + (s.avg_score_pct ?? 0), 0) / scored.length)
+    : null;
+  const totalTestsTaken = rows.reduce((sum, s) => sum + s.tests_taken, 0);
+
   return (
     <main className="wrap">
       <div className="hero row between" style={{ alignItems: "flex-end" }}>
@@ -93,6 +110,30 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
             {downloading === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
+      </div>
+
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div className="classoverview-grid">
+          <StatusOverviewBar counts={counts} title="Class Overview" />
+          <div className="classoverview-stats">
+            <StatTile icon={<PeopleIcon />} value={rows.length} label="Students" tone="violet" />
+            <StatTile icon={<ClipboardIcon />} value={totalTestsTaken} label="Tests Recorded" tone="info" />
+            <StatTile
+              icon={<BarChartIcon />}
+              value={avgScore != null ? `${avgScore}%` : "—"}
+              label="Class Avg. Score"
+              tone="gold"
+            />
+          </div>
+        </div>
+        <style jsx>{`
+          .classoverview-grid { display: flex; gap: 24px; flex-wrap: wrap; align-items: center; }
+          .classoverview-grid > :global(.sob) { flex: 1 1 320px; min-width: 260px; }
+          .classoverview-stats {
+            display: flex; gap: 14px; flex-wrap: wrap; flex: 2 1 420px;
+          }
+          .classoverview-stats > :global(.stattile) { flex: 1 1 130px; border: none; box-shadow: none; padding: 4px 0; }
+        `}</style>
       </div>
 
       <div className="row" style={{ gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
@@ -147,7 +188,12 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
             {rows.map((s) => (
               <tr key={s.student_id}>
                 <td>{s.roll_no}</td>
-                <td className="strong">{s.name}</td>
+                <td className="strong">
+                  <span className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
+                    <Avatar name={s.name} seed={s.student_id} size={30} />
+                    {s.name}
+                  </span>
+                </td>
                 <td><StatusBadge status={s.status} /></td>
                 <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "—"}</td>
                 <td className="num">{s.tests_taken}</td>

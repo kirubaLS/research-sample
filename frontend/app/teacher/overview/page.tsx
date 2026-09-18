@@ -9,6 +9,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { StatusOverviewBar } from "@/components/academics/StatusOverviewBar";
 import { Mascot } from "@/components/Mascot";
 import { api, type TeacherAcademicClassRow } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
@@ -133,24 +134,8 @@ function TeacherInsights({ classes }: { classes: TeacherAcademicClassRow[] }) {
   return (
     <div className="insights">
       <div className="card insight-card">
-        <h2 style={{ marginTop: 0, fontSize: 15 }}>Status across your classes</h2>
-        <p className="cardnote" style={{ margin: "0 0 12px" }}>{totalStudents} students, every class/subject you hold combined</p>
-        <div className="insight-stackbar" role="img" aria-label="Status distribution across your own classes">
-          {STATUS_SERIES.map((s) => {
-            const n = totals[s.key];
-            return n > 0 && (
-              <div key={s.key} style={{ width: `${(n / totalStudents) * 100}%`, background: s.color }} title={`${s.label}: ${n}`} />
-            );
-          })}
-        </div>
-        <div className="row" style={{ gap: 16, flexWrap: "wrap", marginTop: 12 }}>
-          {STATUS_SERIES.map((s) => (
-            <span key={s.key} className="small" style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--ink-2)" }}>
-              <span style={{ width: 8, height: 8, borderRadius: 999, background: s.color, display: "inline-block" }} />
-              {totals[s.key]} {s.label}
-            </span>
-          ))}
-        </div>
+        <StatusOverviewBar counts={totals} title="Status Across Your Classes" />
+        <p className="cardnote" style={{ margin: "10px 0 0" }}>{totalStudents} students, every class/subject you hold combined</p>
       </div>
 
       <div className="card insight-card">

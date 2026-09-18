@@ -8,11 +8,16 @@
 
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
+import { Avatar } from "@/components/academics/Avatar";
+import { BarChartIcon, ClipboardIcon, TargetIcon } from "@/components/academics/Icons";
+import { StatTile, StatTileRow } from "@/components/academics/StatTile";
 import { StatusBadge } from "@/components/academics/StatusBadge";
 import { Mascot } from "@/components/Mascot";
 import { api, type StudentAcademicsOverview } from "@/lib/api";
 import { downloadBlob } from "@/lib/download";
 import { getApiKey } from "@/lib/session";
+
+const STATUS_TONE = { on_track: "verify", needs_attention: "warn", requires_review: "risk", not_assessed: "neutral" } as const;
 
 export default function StudentAcademicsPage({ params }: { params: Promise<{ studentId: string }> }) {
   const { studentId } = use(params);
@@ -76,7 +81,10 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
             )}
             {data.student.name}
           </p>
-          <h1 style={{ margin: 0 }}>{data.student.name}</h1>
+          <h1 className="row" style={{ margin: 0, gap: 12, alignItems: "center" }}>
+            <Avatar name={data.student.name} seed={data.student.id} size={40} />
+            {data.student.name}
+          </h1>
           <p className="lede">Roll {data.student.roll_no}</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
@@ -89,20 +97,21 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
         </div>
       </div>
 
-      <div className="tiles" style={{ marginBottom: 20 }}>
-        <div className="tile">
-          <span className="tile-n">{data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "—"}</span>
-          <span className="tile-l">Overall average</span>
-        </div>
-        <div className="tile">
-          <span className="tile-n">{data.overall.tests_taken}</span>
-          <span className="tile-l">Tests taken</span>
-        </div>
-        <div className="tile">
-          <StatusBadge status={data.overall.status} />
-          <span className="tile-l" style={{ marginTop: 6 }}>Overall status</span>
-        </div>
-      </div>
+      <StatTileRow>
+        <StatTile
+          icon={<BarChartIcon />}
+          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "—"}
+          label="Overall Average"
+          tone="gold"
+        />
+        <StatTile icon={<ClipboardIcon />} value={data.overall.tests_taken} label="Tests Taken" tone="info" />
+        <StatTile
+          icon={<TargetIcon />}
+          value={<StatusBadge status={data.overall.status} />}
+          label="Overall Status"
+          tone={STATUS_TONE[data.overall.status]}
+        />
+      </StatTileRow>
 
       {data.subjects.length > 0 && (
         <div className="field" style={{ maxWidth: 260, marginBottom: 14 }}>

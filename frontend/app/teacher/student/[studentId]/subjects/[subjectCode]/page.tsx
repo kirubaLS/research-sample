@@ -18,11 +18,15 @@
 import Link from "next/link";
 import { use, useEffect, useState } from "react";
 import { BoardXOnePager } from "@/components/academics/BoardXOnePager";
+import { BarChartIcon, ClipboardIcon, TargetIcon } from "@/components/academics/Icons";
+import { StatTile, StatTileRow } from "@/components/academics/StatTile";
 import { StatusBadge } from "@/components/academics/StatusBadge";
 import { Mascot } from "@/components/Mascot";
 import { api, type AcademicFinding, type BoardXReport, type StudentSubjectBreakdown } from "@/lib/api";
 import { downloadBlob } from "@/lib/download";
 import { getApiKey } from "@/lib/session";
+
+const STATUS_TONE = { on_track: "verify", needs_attention: "warn", requires_review: "risk", not_assessed: "neutral" } as const;
 
 export default function TeacherStudentSubjectPage({
   params,
@@ -101,24 +105,22 @@ export default function TeacherStudentSubjectPage({
         </button>
       </div>
 
-      <div className="tiles" style={{ marginBottom: 24 }}>
-        <div className="tile">
-          <span className="tile-n">{data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "—"}</span>
-          <span className="tile-l">Score</span>
-        </div>
-        <div className="tile">
-          <span className="tile-n">{data.overall.earned} / {data.overall.available}</span>
-          <span className="tile-l">Marks</span>
-        </div>
-        <div className="tile">
-          <span className="tile-n">{data.overall.tests_taken}</span>
-          <span className="tile-l">Tests</span>
-        </div>
-        <div className="tile">
-          <StatusBadge status={data.overall.status} />
-          <span className="tile-l" style={{ marginTop: 6 }}>Status</span>
-        </div>
-      </div>
+      <StatTileRow>
+        <StatTile
+          icon={<BarChartIcon />}
+          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "—"}
+          label="Score"
+          tone="gold"
+        />
+        <StatTile icon={<ClipboardIcon />} value={`${data.overall.earned} / ${data.overall.available}`} label="Marks" tone="info" />
+        <StatTile icon={<ClipboardIcon />} value={data.overall.tests_taken} label="Tests" tone="violet" />
+        <StatTile
+          icon={<TargetIcon />}
+          value={<StatusBadge status={data.overall.status} />}
+          label="Status"
+          tone={STATUS_TONE[data.overall.status]}
+        />
+      </StatTileRow>
 
       <div className="section-head"><h2>By Chapter</h2></div>
       <FindingsTable findings={data.by_chapter} emptyText="No chapter-tagged questions yet." />
@@ -171,18 +173,29 @@ function FindingsTable({ findings, emptyText }: { findings: AcademicFinding[]; e
           </tr>
         </thead>
         <tbody>
-          {findings.map((f) => (
-            <tr key={f.key}>
-              <td className="strong">{f.label}</td>
-              <td className="num">
-                {f.sufficient && f.rate != null
-                  ? `${f.earned}/${f.available} (${Math.round(f.rate * 100)}%)`
-                  : "—"}
-              </td>
-              <td className="num">{f.questions}</td>
-              <td className="small muted">{f.message}</td>
-            </tr>
-          ))}
+          {findings.map((f) => {
+            const pct = f.sufficient && f.rate != null ? Math.round(f.rate * 100) : null;
+            const tone = pct == null ? "" : pct >= 75 ? "verify" : pct >= 50 ? "" : "warn";
+            return (
+              <tr key={f.key}>
+                <td className="strong">{f.label}</td>
+                <td className="num" style={{ minWidth: 160 }}>
+                  {pct != null ? (
+                    <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
+                      <div className={`progress${tone ? ` ${tone}` : ""}`} style={{ flex: 1 }}>
+                        <div style={{ width: `${pct}%` }} />
+                      </div>
+                      <span style={{ whiteSpace: "nowrap" }}>{f.earned}/{f.available} ({pct}%)</span>
+                    </div>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="num">{f.questions}</td>
+                <td className="small muted">{f.message}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
