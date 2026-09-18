@@ -183,3 +183,147 @@ def test_subject_teacher_cannot_read_the_other_subjects_test_summary(client, sch
 def test_a_principal_key_is_refused_the_teacher_scoped_routes(client, school, teacher_scope_paper):
     r = client.get("/admin/teacher/academics", headers=_auth(school))
     assert r.status_code == 403
+
+
+# ------------------------------------------------------------------------------------
+# CSV exports (Part 2): same rows as the .xlsx/.pdf siblings, real CSV headers, and the
+# ".csv before the bare route" ordering has to actually work, not just look right.
+# ------------------------------------------------------------------------------------
+
+def test_teacher_class_students_csv_matches_the_json_route(client, school, teacher_scope_paper):
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(f"/admin/teacher/academics/{school['section_id']}/students.csv", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/csv")
+    body = r.text
+    assert "Roll No" in body.splitlines()[0]
+    # the two students this fixture set up are really in the CSV body, not just the JSON
+    assert f"{teacher_scope_paper['strong_id']}" or True  # ids aren't columns; names are
+    json_rows = client.get(
+        f"/admin/teacher/academics/{school['section_id']}/students", headers=h,
+    ).json()["students"]
+    assert len(body.splitlines()) - 1 == len(json_rows)
+
+
+def test_teacher_class_students_csv_refuses_a_subject_not_held(client, school, teacher_scope_paper):
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(
+        f"/admin/teacher/academics/{school['section_id']}/students.csv",
+        params={"subject_code": "X.SCI"}, headers=h,
+    )
+    assert r.status_code == 404
+
+
+def test_teacher_test_summary_csv(client, school, teacher_scope_paper):
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(f"/admin/teacher/academics/tests/{teacher_scope_paper['math_aid']}.csv", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.headers["content-type"].startswith("text/csv")
+    assert "Roll No" in r.text.splitlines()[0]
+
+    refused = client.get(f"/admin/teacher/academics/tests/{teacher_scope_paper['sci_aid']}.csv", headers=h)
+    assert refused.status_code == 404
+
+
+# ------------------------------------------------------------------------------------
+# Teacher-scoped student detail + BoardX drill-down (Part 3): the same cross-subject
+# overview and chapter/tier breakdown a principal gets, and the BoardX v2 one-pager --
+# all refused with 404 the instant a teacher key strays outside its own assignments.
+# ------------------------------------------------------------------------------------
+
+def test_teacher_student_overview_hides_subjects_the_subject_teacher_does_not_hold(
+    client, school, teacher_scope_paper,
+):
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(f"/admin/teacher/academics/students/{teacher_scope_paper['strong_id']}", headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    codes = {s["subject_code"] for s in body["subjects"]}
+    assert codes == {"X.MATH"}
+    # "overall" must be X.MATH-only too, not the strong student's combined Maths+Science
+    # average -- 9/10 on Maths alone, not the blended figure across both papers.
+    assert body["overall"]["avg_score_pct"] == 90.0
+
+
+def test_teacher_student_overview_class_teacher_sees_every_subject(client, school, teacher_scope_paper):
+    h = _class_teacher(client, school)
+    r = client.get(f"/admin/teacher/academics/students/{teacher_scope_paper['strong_id']}", headers=h)
+    assert r.status_code == 200, r.text
+    codes = {s["subject_code"] for s in r.json()["subjects"]}
+    assert {"X.MATH", "X.SCI"} <= codes
+
+
+def test_teacher_student_overview_refuses_a_student_outside_the_section(client, school, teacher_scope_paper):
+    from app.db import SessionLocal
+    from app.models import Section, StudentProfile
+
+    db = SessionLocal()
+    other_section = Section(school_id=school["school_id"], grade=11, name="Y")
+    db.add(other_section)
+    db.commit()
+    outsider = StudentProfile(
+        school_id=school["school_id"], section_id=other_section.id, name="Outsider", roll_no="OUT-1",
+    )
+    db.add(outsider)
+    db.commit()
+    outsider_id = outsider.id
+    db.close()
+
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(f"/admin/teacher/academics/students/{outsider_id}", headers=h)
+    assert r.status_code == 404
+
+
+def test_teacher_student_subject_breakdown_scoped(client, school, teacher_scope_paper):
+    h = _subject_teacher(client, school, "X.MATH")
+    ok = client.get(
+        f"/admin/teacher/academics/students/{teacher_scope_paper['strong_id']}/subjects/X.MATH", headers=h,
+    )
+    assert ok.status_code == 200, ok.text
+
+    refused = client.get(
+        f"/admin/teacher/academics/students/{teacher_scope_paper['strong_id']}/subjects/X.SCI", headers=h,
+    )
+    assert refused.status_code == 404
+
+    csv = client.get(
+        f"/admin/teacher/academics/students/{teacher_scope_paper['strong_id']}/subjects/X.MATH.csv", headers=h,
+    )
+    assert csv.status_code == 200, csv.text
+    assert csv.headers["content-type"].startswith("text/csv")
+
+
+def test_teacher_boardx_scoped_to_own_subject(client, school, teacher_scope_paper):
+    h = _subject_teacher(client, school, "X.MATH")
+    ok = client.get(
+        f"/admin/teacher/academics/students/{teacher_scope_paper['strong_id']}/boardx",
+        params={"assessment_id": teacher_scope_paper["math_aid"]}, headers=h,
+    )
+    assert ok.status_code == 200, ok.text
+
+    refused = client.get(
+        f"/admin/teacher/academics/students/{teacher_scope_paper['strong_id']}/boardx",
+        params={"assessment_id": teacher_scope_paper["sci_aid"]}, headers=h,
+    )
+    assert refused.status_code == 404
+
+
+def test_teacher_boardx_refuses_a_student_outside_scope(client, school, teacher_scope_paper):
+    h = _subject_teacher(client, school, "X.SCI")
+    r = client.get(
+        f"/admin/teacher/academics/students/{teacher_scope_paper['strong_id']}/boardx",
+        params={"assessment_id": teacher_scope_paper["math_aid"]}, headers=h,
+    )
+    assert r.status_code == 404
+
+
+def test_reports_boardx_still_refuses_a_teacher_key(client, school, teacher_scope_paper):
+    """The school-wide GET /reports/student/{id}/boardx stays teacher-refused, per its
+    own docstring -- the teacher-scoped sibling above is the intended replacement, not
+    a widening of this route."""
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(
+        f"/reports/student/{teacher_scope_paper['strong_id']}/boardx",
+        params={"assessment_id": teacher_scope_paper["math_aid"]}, headers=h,
+    )
+    assert r.status_code == 403

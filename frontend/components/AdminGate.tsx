@@ -67,7 +67,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         // /login already gives a fresh sign-in.
         if (me.role === "teacher") {
           setRedirectingRole(true);
-          router.replace("/teacher");
+          router.replace("/teacher/overview");
           return;
         }
         setSchool(me.name);

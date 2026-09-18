@@ -1526,11 +1526,49 @@ export const api = {
       key,
     ),
 
+  teacherAcademicsStudentsCsv: (key: string, sectionId: string, filters?: { subjectCode?: string; status?: AcademicStatus }) =>
+    authedBlob(
+      `/admin/teacher/academics/${sectionId}/students.csv${qs({
+        subject_code: filters?.subjectCode, status: filters?.status,
+      })}`,
+      key,
+    ),
+
   teacherAcademicsTests: (key: string) =>
     authed<{ tests: AcademicTestRow[] }>("/admin/teacher/academics/tests", key),
 
   teacherAcademicsTestSummary: (key: string, assessmentId: string) =>
     authed<TestSummary>(`/admin/teacher/academics/tests/${assessmentId}`, key),
+
+  teacherAcademicsTestSummaryCsv: (key: string, assessmentId: string) =>
+    authedBlob(`/admin/teacher/academics/tests/${assessmentId}.csv`, key),
+
+  // --- teacher-scoped student detail + BoardX drill-down: the same cross-subject
+  // overview, chapter/tier breakdown and BoardX one-pager a principal gets, narrowed
+  // to exactly the subjects this teacher key's own assignments cover ---
+
+  teacherStudentAcademics: (key: string, studentId: string, subjectCode?: string) =>
+    authed<StudentAcademicsOverview>(
+      `/admin/teacher/academics/students/${studentId}${qs({ subject_code: subjectCode })}`, key,
+    ),
+
+  teacherStudentAcademicsCsv: (key: string, studentId: string, subjectCode?: string) =>
+    authedBlob(
+      `/admin/teacher/academics/students/${studentId}.csv${qs({ subject_code: subjectCode })}`, key,
+    ),
+
+  teacherStudentSubjectBreakdown: (key: string, studentId: string, subjectCode: string) =>
+    authed<StudentSubjectBreakdown>(
+      `/admin/teacher/academics/students/${studentId}/subjects/${subjectCode}`, key,
+    ),
+
+  teacherStudentSubjectCsv: (key: string, studentId: string, subjectCode: string) =>
+    authedBlob(`/admin/teacher/academics/students/${studentId}/subjects/${subjectCode}.csv`, key),
+
+  teacherStudentBoardX: (key: string, studentId: string, assessmentId: string) =>
+    authed<BoardXReport>(
+      `/admin/teacher/academics/students/${studentId}/boardx${qs({ assessment_id: assessmentId })}`, key,
+    ),
 
   /** Every paper this teacher key may author -- narrowed to the subjects it holds a
    *  subject assignment for. Same row shape as listPapers(); every mutation on one of

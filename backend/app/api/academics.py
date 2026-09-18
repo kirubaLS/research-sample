@@ -476,10 +476,16 @@ def _student_subjects(db: Session, school: School, student_id: str) -> dict[str,
 
 
 def _student_overview(
-    db: Session, school: School, student: StudentProfile, *, subject_code: str | None = None,
+    db: Session, school: School, student: StudentProfile, *,
+    subject_code: str | None = None, allowed_subjects: set[str] | None = None,
 ) -> dict:
     section = db.get(Section, student.section_id)
     by_subject = _student_subjects(db, school, student.id)
+    if allowed_subjects is not None:
+        # A subject-scoped teacher must never see another subject's marks, not even
+        # folded into the "overall" tiles below -- unlike `subject_code`, which only
+        # narrows the table, this narrows the data itself before "overall" is computed.
+        by_subject = {s: e for s, e in by_subject.items() if s in allowed_subjects}
 
     # The "overall" tiles always cover every subject, regardless of `subject_code` --
     # that filter narrows which subject rows the table (and its download) lists, not
@@ -828,6 +834,23 @@ def academics_test_summary(
 # ------------------------------------------------------------------------------------
 # xlsx / pdf rendering, shared by every route above
 # ------------------------------------------------------------------------------------
+
+def _csv_response(header: list[str], rows: list[list[object]], filename: str) -> Response:
+    """Plain CSV, stdlib only -- no branding to carry (unlike the PDF/xlsx twins above),
+    since a CSV is opened in a spreadsheet tool a teacher already has, not handed to a
+    parent."""
+    import csv
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(header)
+    writer.writerows(rows)
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
 
 def _xlsx_response(header: list[str], rows: list[list[object]], sheet_title: str, filename: str) -> Response:
     from openpyxl import Workbook

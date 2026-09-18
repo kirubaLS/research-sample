@@ -11,12 +11,14 @@ import { use, useEffect, useState } from "react";
 import { StatusBadge } from "@/components/academics/StatusBadge";
 import { Mascot } from "@/components/Mascot";
 import { api, type TestSummary } from "@/lib/api";
+import { downloadBlob } from "@/lib/download";
 import { getApiKey } from "@/lib/session";
 
 export default function TeacherTestSummaryPage({ params }: { params: Promise<{ assessmentId: string }> }) {
   const { assessmentId } = use(params);
   const [data, setData] = useState<TestSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     const key = getApiKey();
@@ -26,6 +28,20 @@ export default function TeacherTestSummaryPage({ params }: { params: Promise<{ a
       .then(setData)
       .catch(() => setError("Could not load this test."));
   }, [assessmentId]);
+
+  async function downloadCsv() {
+    const key = getApiKey();
+    if (!key) return;
+    setDownloading(true);
+    try {
+      const blob = await api.teacherAcademicsTestSummaryCsv(key, assessmentId);
+      downloadBlob(blob, `${data?.assessment.title ?? "test"}-results.csv`);
+    } catch {
+      setError("Could not generate the CSV file.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   if (error) return <main className="wrap"><p className="error">{error}</p></main>;
   if (!data) {
@@ -43,10 +59,15 @@ export default function TeacherTestSummaryPage({ params }: { params: Promise<{ a
 
   return (
     <main className="wrap">
-      <div className="hero">
-        <p className="eyebrow"><Link href="/teacher/tests">Test</Link> &rsaquo; {data.assessment.title}</p>
-        <h1 style={{ margin: 0 }}>{data.assessment.title}</h1>
-        <p className="lede">{data.assessment.subject_label}</p>
+      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+        <div>
+          <p className="eyebrow"><Link href="/teacher/tests">Test</Link> &rsaquo; {data.assessment.title}</p>
+          <h1 style={{ margin: 0 }}>{data.assessment.title}</h1>
+          <p className="lede">{data.assessment.subject_label}</p>
+        </div>
+        <button type="button" className="secondary" disabled={downloading} onClick={downloadCsv}>
+          {downloading ? "Preparing…" : "Download CSV"}
+        </button>
       </div>
 
       <div className="tiles" style={{ marginBottom: 20 }}>
