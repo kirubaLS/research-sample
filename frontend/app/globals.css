@@ -77,52 +77,10 @@
   --dur-slow: 0.4s;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --brand-ink: #b9c3e0;
-    --brand-ink-2: #dbe1f2;
-    --brand-ink-soft: rgba(185, 195, 224, 0.14);
-    --brand-teal: #52d3e0;
-    --brand-teal-soft: rgba(82, 211, 224, 0.14);
-    --brand-gold: #f2b95e;
-    --brand-gold-soft: rgba(242, 185, 94, 0.14);
-    --brand-green: #4fceac;
-    --brand-green-soft: rgba(79, 206, 172, 0.12);
-    --brand-cream: #181425;
-    --paper: #14111f;
-    --surface: #1c1830;
-    --surface-2: #241f3b;
-    --surface-glass: #1c1830;
-    --ink: #f1eefb;
-    --ink-2: #c6c1e0;
-    --ink-3: #948fb5;
-    --rule: #322a4d;
-    --rule-2: #423a60;
-    --mark: var(--brand-ink);
-    --mark-2: var(--brand-ink-2);
-    --mark-soft: var(--brand-ink-soft);
-    --verify: var(--brand-green);
-    --verify-2: #7fe6c6;
-    --verify-soft: var(--brand-green-soft);
-    --warn: #e8b955;
-    --warn-soft: rgba(232, 185, 85, 0.12);
-    --violet: var(--brand-teal);
-    --violet-soft: var(--brand-teal-soft);
-    --info: #7aa4f7;
-    --info-soft: rgba(122, 164, 247, 0.14);
-    --risk: #ef8fb6;
-    --risk-soft: rgba(239, 143, 182, 0.14);
-    --grad-mesh:
-      radial-gradient(circle at 10% 6%, rgba(165, 150, 242, 0.12), transparent 44%),
-      radial-gradient(circle at 90% 2%, rgba(122, 164, 247, 0.1), transparent 46%),
-      radial-gradient(circle at 50% 100%, rgba(239, 143, 182, 0.08), transparent 52%);
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
-    --shadow-sm: 0 2px 6px rgba(0, 0, 0, 0.35);
-    --shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.5), 0 2px 8px -2px rgba(0, 0, 0, 0.35);
-    --shadow-lg: 0 24px 56px -16px rgba(0, 0, 0, 0.6), 0 8px 24px -8px rgba(0, 0, 0, 0.45);
-    --glow-mark: 0 0 0 4px var(--mark-soft);
-  }
-}
+/* Always the light palette above, regardless of the visitor's OS/browser theme --
+   Avai's brand identity is the pastel-cream light design, not a theme users pick, so
+   there is deliberately no dark-mode override here. */
+:root { color-scheme: light; }
 
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
