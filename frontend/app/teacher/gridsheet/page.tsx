@@ -297,14 +297,19 @@ export default function GridSheetPage() {
             </select>
           </label>
           <label>
-            <span>{photoMode === "class" ? "Photograph" : "Photo of the script"}</span>
+            <span>{photoMode === "class" ? "Photograph" : "Photo(s) of the script"}</span>
             <input
               type="file"
-              multiple={photoMode === "class"}
+              multiple
               accept="image/*"
               disabled={!paperId || !sectionId || !!busy}
               onChange={(e) => void uploadPhoto(Array.from(e.target.files ?? []))}
             />
+            {photoMode === "single" && (
+              <span className="small muted">
+                Select every page of this student&rsquo;s script at once -- they&rsquo;re stored and read together as one script.
+              </span>
+            )}
           </label>
           <label>
             <span>Spreadsheet or PDF</span>
