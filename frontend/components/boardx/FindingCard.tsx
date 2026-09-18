@@ -87,9 +87,19 @@ export function FindingCard({
           background: var(--brand-ink); color: #fff; border: none; border-radius: 8px;
           padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
         }
+        /* The global button:hover rule (globals.css) beats this on specificity for
+           background alone, so without an explicit hover rule here the secondary button
+           picks up that dark hover background while keeping its own dark text -- navy on
+           navy. Pin both color and background together on hover so they never diverge. */
+        .bx-btn-primary:hover {
+          background: var(--brand-ink-2); color: #fff;
+        }
         .bx-btn-secondary {
           background: none; border: 1.5px solid var(--brand-ink); color: var(--brand-ink);
           border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 700; cursor: pointer;
+        }
+        .bx-btn-secondary:hover {
+          background: var(--brand-ink-soft); color: var(--brand-ink);
         }
       `}</style>
     </div>
