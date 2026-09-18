@@ -9,6 +9,10 @@ import { findingsFromTopLosses } from "@/components/boardx/findings";
 import {
   MOCK_POTENTIAL_LADDER, MOCK_BAND_OPPORTUNITY, mockPatternLabelFor, INTERVENTION_PRIORITY_NOTE,
 } from "@/components/boardx/mock";
+import { StatTile, StatTileRow } from "@/components/academics/StatTile";
+import {
+  ClipboardIcon, BarChartIcon, TargetIcon, PuzzleIcon, BrainIcon, PeopleIcon,
+} from "@/components/academics/Icons";
 
 const STRENGTH_COPY: Record<PaperReport["diagnostic_strength"], string> = {
   STRONG: "This paper is a solid basis for the findings below.",
@@ -49,12 +53,22 @@ export function OverviewTab({
               <p className="bx-strength-v">{report.diagnostic_strength}</p>
             </div>
             <p className="bx-small">{STRENGTH_COPY[report.diagnostic_strength]}</p>
-            <div className="bx-statrow">
-              <div><p className="bx-statv">{pct(report.application_share)}</p><p className="bx-small bx-muted">Application Questions</p></div>
-              <div><p className="bx-statv">{pct(report.higher_order_share)}</p><p className="bx-small bx-muted">Higher-Order Questions</p></div>
-              <div><p className="bx-statv">{report.cronbach_alpha == null ? "—" : report.cronbach_alpha.toFixed(2)}</p><p className="bx-small bx-muted">Item Consistency (α)</p></div>
-              <div><p className="bx-statv">{report.flagged_items.length}</p><p className="bx-small bx-muted">Items Flagged</p></div>
-            </div>
+            <StatTileRow>
+              <StatTile icon={<PuzzleIcon />} tone="info" value={pct(report.application_share)} label="Application Questions" />
+              <StatTile icon={<BrainIcon />} tone="violet" value={pct(report.higher_order_share)} label="Higher-Order Questions" />
+              <StatTile
+                icon={<TargetIcon />}
+                tone={report.cronbach_alpha == null ? "neutral" : report.cronbach_alpha >= 0.7 ? "verify" : "warn"}
+                value={report.cronbach_alpha == null ? "—" : report.cronbach_alpha.toFixed(2)}
+                label="Item Consistency (α)"
+              />
+              <StatTile
+                icon={<ClipboardIcon />}
+                tone={report.flagged_items.length > 0 ? "risk" : "verify"}
+                value={report.flagged_items.length}
+                label="Items Flagged"
+              />
+            </StatTileRow>
             <p className="bx-verdict">{report.typology_alignment.verdict}</p>
             {report.application_share != null && report.application_share < 0.15 && (
               <div style={{ marginTop: 10 }}>
@@ -75,15 +89,15 @@ export function OverviewTab({
         {cohort && (
           <div className="bx-bandgrid">
             {([
-              ["full_mastery", "Full Mastery (90%+)"],
-              ["band_80_89", "80–89%"],
-              ["band_60_79", "60–79%"],
-              ["below_60", "Below 60%"],
-            ] as const).map(([key, label]) => (
+              ["full_mastery", "Full Mastery (90%+)", "verify"],
+              ["band_80_89", "80–89%", "gold"],
+              ["band_60_79", "60–79%", "warn"],
+              ["below_60", "Below 60%", "risk"],
+            ] as const).map(([key, label, tone]) => (
               <button
                 key={key}
                 type="button"
-                className="bx-bandcard"
+                className={`bx-bandcard bx-bandcard-${tone}`}
                 onClick={() => onGoToStudents({ band: key })}
               >
                 <p className="bx-bandcard-n">{cohort.band_counts[key]}</p>
@@ -103,30 +117,15 @@ export function OverviewTab({
             <p className="bx-small bx-muted">{cohort.subject_bars_note}</p>
             <div className="bx-table">
               <div className="bx-trow bx-thead">
-                <span>Subject</span><span>Assessment</span><span>Avg. attainment</span><span>Cause</span>
+                <span>Subject</span><span>Assessment</span><span>Avg. attainment</span>
               </div>
-              {cohort.subject_bars.map((s, i) => {
-                const isWorst = i === cohort.subject_bars.length - 1
-                  || s.pct === Math.min(...cohort.subject_bars.map((b) => b.pct));
-                return (
-                  <div className="bx-trow" key={s.subject_code}>
-                    <span>{s.subject_label}</span>
-                    <span className="bx-muted bx-small">{s.assessment_title}</span>
-                    <span>{s.pct.toFixed(0)}%</span>
-                    <span>
-                      {isWorst ? (
-                        // Demo of the §5.7 / Dependency Index #3 "Cause Could Not Be
-                        // Localized" state -- attached here to the lowest-attainment
-                        // subject purely to illustrate the treatment. Not a real backend
-                        // flag: TODO(backend) Dependency Index #3.
-                        <span className="bx-inlinepill">Investigation required</span>
-                      ) : (
-                        <span className="bx-inlinepill bx-inlinepill-ok">Cause identified</span>
-                      )}
-                    </span>
-                  </div>
-                );
-              })}
+              {cohort.subject_bars.map((s) => (
+                <div className="bx-trow" key={s.subject_code}>
+                  <span className="bx-subject">{s.subject_label}</span>
+                  <span className="bx-muted bx-small">{s.assessment_title}</span>
+                  <span className="bx-pct">{s.pct.toFixed(0)}%</span>
+                </div>
+              ))}
             </div>
             {cohort.subject_bars.length > 0 && (
               <div style={{ marginTop: 10 }}>
@@ -222,16 +221,22 @@ export function OverviewTab({
         {cohort && (
           <div className="bx-riskgrid">
             <div className="bx-riskcard">
-              <p className="bx-riskcard-n">{cohort.band_counts.below_60}</p>
-              <p className="bx-riskcard-l">High Academic Risk (below 60%)</p>
+              <span className="bx-riskcard-icon bx-riskcard-icon-risk"><PeopleIcon /></span>
+              <div className="bx-riskcard-body">
+                <p className="bx-riskcard-n">{cohort.band_counts.below_60}</p>
+                <p className="bx-riskcard-l">High Academic Risk (below 60%)</p>
+              </div>
               <AttentionPill state={attentionFromRate(0.4)} />
             </div>
             <div className="bx-riskcard">
               {/* TODO(backend): Dependency Index #4 -- "High Potential Gap" (near-band
                   students at real risk of falling) needs the same distance-to-next-band
                   computation as the Potential Ladder; mocked here. */}
-              <p className="bx-riskcard-n">{MOCK_POTENTIAL_LADDER.within1Mark}</p>
-              <p className="bx-riskcard-l">High Potential Gap (mocked)</p>
+              <span className="bx-riskcard-icon bx-riskcard-icon-warn"><TargetIcon /></span>
+              <div className="bx-riskcard-body">
+                <p className="bx-riskcard-n">{MOCK_POTENTIAL_LADDER.within1Mark}</p>
+                <p className="bx-riskcard-l">High Potential Gap (mocked)</p>
+              </div>
               <AttentionPill state="WATCH" />
             </div>
           </div>
@@ -310,7 +315,7 @@ export function OverviewTab({
         .bx-hero { background: var(--surface-2); border-radius: var(--radius); padding: 18px 20px; }
         .bx-panel {
           background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius);
-          padding: 18px 20px;
+          padding: 18px 20px; box-shadow: var(--shadow-xs);
         }
         .bx-small { font-size: 13px; }
         .bx-muted { color: var(--ink-3); }
@@ -318,43 +323,59 @@ export function OverviewTab({
         .bx-strength-strong { background: var(--verify-soft); }
         .bx-strength-moderate { background: var(--warn-soft); }
         .bx-strength-limited { background: var(--risk-soft); }
-        .bx-strength-v { font-size: 20px; font-weight: 700; margin: 0; }
-        .bx-statrow { display: flex; flex-wrap: wrap; gap: 26px; margin: 14px 0; }
-        .bx-statv { font-size: 20px; font-weight: 700; margin: 0; }
+        .bx-strength-v { font-size: 20px; font-weight: 700; margin: 0; color: var(--brand-ink); }
         .bx-verdict { color: var(--ink-2); font-size: 14px; margin: 10px 0 0; }
         .bx-empty-inline { background: var(--info-soft); border-radius: 8px; padding: 10px 14px; margin: 0; font-size: 13.5px; }
 
         .bx-bandgrid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); }
         .bx-bandcard {
           text-align: left; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius);
-          padding: 14px 16px; cursor: pointer; font: inherit;
+          padding: 14px 16px; cursor: pointer; font: inherit; border-left: 4px solid var(--rule-2);
+          transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
         }
-        .bx-bandcard:hover { border-color: var(--brand-ink-2); }
-        .bx-bandcard-n { margin: 0; font-size: 24px; font-weight: 800; font-family: var(--font-display), sans-serif; }
-        .bx-bandcard-l { margin: 2px 0; font-size: 12.5px; color: var(--ink-2); }
+        .bx-bandcard:hover { border-color: var(--brand-ink-2); box-shadow: var(--shadow-sm); }
+        .bx-bandcard-verify { border-left-color: var(--verify); }
+        .bx-bandcard-gold { border-left-color: var(--brand-gold); }
+        .bx-bandcard-warn { border-left-color: var(--warn); }
+        .bx-bandcard-risk { border-left-color: var(--risk); }
+        .bx-bandcard-n { margin: 0; font-size: 24px; font-weight: 800; font-family: var(--font-display), sans-serif; color: var(--ink); }
+        .bx-bandcard-l { margin: 2px 0; font-size: 12.5px; color: var(--ink-2); font-weight: 600; }
         .bx-bandcard-pct { margin: 0; font-size: 12px; color: var(--ink-3); }
 
-        .bx-table { display: flex; flex-direction: column; gap: 2px; overflow-x: auto; }
+        .bx-table { display: flex; flex-direction: column; gap: 6px; overflow-x: auto; }
         .bx-trow {
           display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px;
-          padding: 10px 12px; align-items: center; background: var(--surface); border: 1px solid var(--rule);
-          border-radius: 8px; font-size: 13.5px;
+          padding: 12px 14px; align-items: center; background: var(--surface); border: 1px solid var(--rule);
+          border-radius: var(--radius-sm, 10px); font-size: 13.5px;
+          transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
         }
-        .bx-thead { background: none; border: none; font-size: 11.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.03em; padding: 0 12px; }
+        .bx-thead { background: none; border: none; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.05em; padding: 0 14px; font-weight: 700; }
         .bx-trow-click { text-align: left; font: inherit; cursor: pointer; width: 100%; }
-        .bx-trow-click:hover { border-color: var(--brand-ink-2); }
-        .bx-inlinepill { background: #efe7f7; color: #6b4fa0; border-radius: 999px; padding: 2px 9px; font-size: 11.5px; font-weight: 700; }
-        .bx-inlinepill-ok { background: var(--verify-soft); color: var(--verify); }
+        .bx-trow-click:hover, .bx-trow:not(.bx-thead):hover { border-color: var(--brand-ink-2); box-shadow: var(--shadow-xs); }
         .bx-mocklabel { font-style: italic; color: var(--ink-2); }
+        .bx-subject { font-weight: 700; color: var(--ink); }
+        .bx-pct { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--brand-ink); }
 
         .bx-ladder { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 8px; }
-        .bx-rung { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 14px 20px; text-align: center; min-width: 140px; }
-        .bx-rung-n { display: block; font-size: 26px; font-weight: 800; font-family: var(--font-display), sans-serif; }
+        .bx-rung {
+          background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius);
+          padding: 14px 20px; text-align: center; min-width: 140px; box-shadow: var(--shadow-xs);
+        }
+        .bx-rung-n { display: block; font-size: 26px; font-weight: 800; font-family: var(--font-display), sans-serif; color: var(--brand-ink); }
         .bx-rung-l { display: block; font-size: 12.5px; color: var(--ink-3); margin-top: 4px; }
 
-        .bx-riskgrid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
-        .bx-riskcard { background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px 18px; display: flex; flex-direction: column; gap: 8px; }
-        .bx-riskcard-n { margin: 0; font-size: 24px; font-weight: 800; font-family: var(--font-display), sans-serif; }
+        .bx-riskgrid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+        .bx-riskcard {
+          background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius); padding: 16px 18px;
+          display: flex; align-items: center; gap: 14px; flex-wrap: wrap; box-shadow: var(--shadow-xs);
+        }
+        .bx-riskcard-icon {
+          flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+        }
+        .bx-riskcard-icon-risk { background: var(--risk-soft); color: var(--risk); }
+        .bx-riskcard-icon-warn { background: var(--warn-soft); color: var(--warn); }
+        .bx-riskcard-body { flex: 1; min-width: 120px; }
+        .bx-riskcard-n { margin: 0; font-size: 24px; font-weight: 800; font-family: var(--font-display), sans-serif; color: var(--ink); }
         .bx-riskcard-l { margin: 0; font-size: 13px; color: var(--ink-2); }
 
         .bx-findings { display: grid; gap: 14px; }

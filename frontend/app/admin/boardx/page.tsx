@@ -31,6 +31,8 @@ import { findingsFromTopLosses } from "@/components/boardx/findings";
 import { OverviewTab } from "./OverviewTab";
 import { StudentsTab } from "./StudentsTab";
 import { SectionsTab, SubjectsTab, InterventionsTab } from "./SimpleTabs";
+import { StatTile, StatTileRow } from "@/components/academics/StatTile";
+import { PeopleIcon, ClipboardIcon, BookIcon, TargetIcon } from "@/components/academics/Icons";
 
 type TabKey = "overview" | "sections" | "subjects" | "students" | "interventions";
 const TABS: { key: TabKey; label: string }[] = [
@@ -140,13 +142,18 @@ export default function BoardXPage() {
         </div>
 
         {assessment && cohort && (
-          <div className="bx-context">
-            <span><strong>{cohort.students_analysed}</strong> Students Analysed</span>
-            <span><strong>{cohort.section_bars.length}</strong> Sections Analysed</span>
-            <span><strong>{cohort.subject_bars.length}</strong> Subjects Analysed</span>
-            <span>Board Blueprint Mapping: <strong>{blueprintMappingEnabled ? "Enabled" : "Disabled"}</strong></span>
-            <span>Assessment Evidence: <strong>1</strong></span>
-          </div>
+          <StatTileRow>
+            <StatTile icon={<PeopleIcon />} tone="info" value={cohort.students_analysed} label="Students Analysed" />
+            <StatTile icon={<ClipboardIcon />} tone="violet" value={cohort.section_bars.length} label="Sections Analysed" />
+            <StatTile icon={<BookIcon />} tone="gold" value={cohort.subject_bars.length} label="Subjects Analysed" />
+            <StatTile
+              icon={<TargetIcon />}
+              tone={blueprintMappingEnabled ? "verify" : "neutral"}
+              value={blueprintMappingEnabled ? "Enabled" : "Disabled"}
+              label="Board Blueprint Mapping"
+            />
+            <StatTile icon={<ClipboardIcon />} tone="neutral" value={1} label="Assessment Evidence" />
+          </StatTileRow>
         )}
 
         {assessment && showEarlyIntelligence && (
@@ -206,10 +213,12 @@ export default function BoardXPage() {
           font-family: var(--font-display), sans-serif; font-size: 24px; font-weight: 800;
           color: var(--brand-ink); margin: 0 0 14px;
         }
-        .bx-filterbar { margin-bottom: 12px; }
+        .bx-filterbar { margin-bottom: 16px; }
         .bx-filterbar label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; max-width: 360px; }
-        .bx-filterbar select { padding: 8px 10px; font-size: 15px; }
-        .bx-context { display: flex; flex-wrap: wrap; gap: 18px; font-size: 13.5px; color: var(--ink-2); margin-bottom: 12px; }
+        .bx-filterbar select {
+          padding: 8px 10px; font-size: 15px; border-radius: var(--radius-sm, 10px); border: 1px solid var(--rule-2);
+          background: var(--surface); color: var(--ink);
+        }
         .bx-earlyintel {
           background: var(--info-soft); border-radius: var(--radius, 12px); padding: 12px 16px;
           font-size: 13.5px; color: var(--ink-2); margin-bottom: 6px;
@@ -221,8 +230,10 @@ export default function BoardXPage() {
         .bx-tab {
           background: none; border: none; padding: 10px 16px; font-size: 14px; font-weight: 700;
           color: var(--ink-3); cursor: pointer; border-bottom: 3px solid transparent; font-family: inherit;
+          border-radius: 8px 8px 0 0; transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
         }
-        .bx-tab.active { color: var(--brand-ink); border-bottom-color: var(--brand-ink); }
+        .bx-tab:hover { color: var(--brand-ink-2); background: var(--surface-2); }
+        .bx-tab.active { color: var(--brand-ink); border-bottom-color: var(--brand-teal); background: var(--surface-2); }
         .error { color: var(--risk); }
       `}</style>
     </main>

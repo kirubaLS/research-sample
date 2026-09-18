@@ -5,6 +5,7 @@ import { Diagnosis } from "@/components/Diagnosis";
 import { api, type Overview, type StudentDiagnosis } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 import { AttentionPill, attentionFromRate, type Attention } from "@/components/boardx/Status";
+import { Avatar } from "@/components/academics/Avatar";
 
 interface StudentRow {
   student_id: string;
@@ -121,7 +122,10 @@ export function StudentsTab({
     return (
       <div className="bx-student-detail">
         <button type="button" className="bx-back" onClick={() => setSelected(null)}>← Back to Student Intelligence</button>
-        <h2>{selectedRow.name} — {selectedRow.section_label}</h2>
+        <div className="bx-student-heading">
+          <Avatar name={selectedRow.name} seed={selectedRow.student_id} size={44} />
+          <h2>{selectedRow.name} — {selectedRow.section_label}</h2>
+        </div>
         <div className="bx-student-summary">
           <span>{selectedDiagnosis.assessment_title} Attainment: {selectedRow.earned}/{selectedRow.available}</span>
           <span>Marks Lost: {selectedRow.marksLost}</span>
@@ -189,8 +193,14 @@ export function StudentsTab({
         </div>
         {filtered.map((r, i) => (
           <button key={r.student_id} type="button" className="bx-trow bx-trow-click" onClick={() => setSelected(r.student_id)}>
-            <span>{i + 1}</span>
-            <span>{r.name}</span>
+            <span className="bx-rank">{i + 1}</span>
+            <span className="bx-student">
+              <Avatar name={r.name} seed={r.student_id} size={30} />
+              <span className="bx-student-info">
+                <span className="bx-student-name">{r.name}</span>
+                <span className="bx-student-roll">{r.roll_no}</span>
+              </span>
+            </span>
             <span>{r.section_label}</span>
             <span>{r.earned}/{r.available}</span>
             <span>{r.marksLost}</span>
@@ -207,25 +217,31 @@ export function StudentsTab({
 
 const tableCss = `
   .bx-filters { display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 16px; position: sticky; top: 48px; background: var(--paper); padding: 10px 0; z-index: 4; }
-  .bx-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-3); }
-  .bx-filters input, .bx-filters select { padding: 7px 10px; font-size: 14px; border-radius: 8px; border: 1px solid var(--rule); }
-  .bx-table { display: flex; flex-direction: column; gap: 2px; overflow-x: auto; }
-  .bx-trow { display: grid; grid-template-columns: 50px 1.4fr 1fr 1fr 1fr 1.4fr 1.4fr; gap: 10px; padding: 10px 12px; align-items: center; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; font-size: 13.5px; }
-  .bx-thead { background: none; border: none; font-size: 11.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.03em; padding: 0 12px; }
+  .bx-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 12.5px; color: var(--ink-3); font-weight: 600; }
+  .bx-filters input, .bx-filters select { padding: 7px 10px; font-size: 14px; border-radius: var(--radius-sm, 10px); border: 1px solid var(--rule-2); background: var(--surface); color: var(--ink); }
+  .bx-table { display: flex; flex-direction: column; gap: 6px; overflow-x: auto; }
+  .bx-trow { display: grid; grid-template-columns: 50px 1.6fr 1fr 1fr 1fr 1.4fr 1.4fr; gap: 10px; padding: 10px 12px; align-items: center; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm, 10px); font-size: 13.5px; transition: border-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease); }
+  .bx-thead { background: none; border: none; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.05em; padding: 0 12px; font-weight: 700; }
   .bx-trow-click { text-align: left; font: inherit; cursor: pointer; width: 100%; }
-  .bx-trow-click:hover { border-color: var(--brand-ink-2); }
+  .bx-trow-click:hover { border-color: var(--brand-ink-2); box-shadow: var(--shadow-xs); }
+  .bx-rank { color: var(--ink-3); font-variant-numeric: tabular-nums; font-weight: 700; }
+  .bx-student { display: flex; align-items: center; gap: 10px; min-width: 0; }
+  .bx-student-info { display: flex; flex-direction: column; min-width: 0; }
+  .bx-student-name { font-weight: 700; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bx-student-roll { font-size: 11.5px; color: var(--ink-3); }
   .bx-small { font-size: 13px; }
   .bx-muted { color: var(--ink-3); }
 `;
 
 const studentDetailCss = `
-  .bx-back { background: none; border: none; color: var(--brand-ink); font-weight: 700; font-size: 13px; cursor: pointer; padding: 0; margin-bottom: 12px; }
-  .bx-student-detail h2 { font-family: var(--font-display), sans-serif; margin: 0 0 10px; }
-  .bx-student-summary { display: flex; gap: 20px; flex-wrap: wrap; font-size: 14px; margin-bottom: 10px; }
+  .bx-back { background: none; border: none; color: var(--brand-ink); font-weight: 700; font-size: 13px; cursor: pointer; padding: 0; margin-bottom: 14px; }
+  .bx-student-heading { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
+  .bx-student-detail h2 { font-family: var(--font-display), sans-serif; margin: 0; color: var(--brand-ink); }
+  .bx-student-summary { display: flex; gap: 20px; flex-wrap: wrap; font-size: 14px; margin-bottom: 10px; color: var(--ink-2); }
   .bx-mock { color: var(--ink-3); font-style: italic; }
   .bx-small { font-size: 13px; }
   .bx-muted { color: var(--ink-3); }
-  .bx-panel { border: 1px solid var(--rule); border-radius: var(--radius, 12px); padding: 14px 16px; margin: 12px 0 18px; }
+  .bx-panel { border: 1px solid var(--rule); border-radius: var(--radius, 12px); padding: 14px 16px; margin: 12px 0 18px; box-shadow: var(--shadow-xs); }
   .bx-summary-panel { background: var(--surface-2); }
   .bx-panel-title { font-weight: 700; font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--ink-3); margin: 0 0 6px; }
 `;

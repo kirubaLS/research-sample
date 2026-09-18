@@ -46,9 +46,9 @@ export function SubjectsTab({ cohort }: { cohort: CohortReport | null }) {
       <div className="bx-trow bx-thead"><span>Subject</span><span>Assessment</span><span>Avg. attainment</span></div>
       {cohort.subject_bars.map((s) => (
         <div className="bx-trow" key={s.subject_code}>
-          <span>{s.subject_label}</span>
+          <span className="bx-subject">{s.subject_label}</span>
           <span className="bx-muted bx-small">{s.assessment_title}</span>
-          <span>{s.pct.toFixed(0)}%</span>
+          <span className="bx-pct">{s.pct.toFixed(0)}%</span>
         </div>
       ))}
       <style jsx>{tabCss}</style>
@@ -84,10 +84,13 @@ export function InterventionsTab({
 }
 
 const tabCss = `
-  .bx-table { display: flex; flex-direction: column; gap: 2px; overflow-x: auto; }
-  .bx-trow { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px; padding: 10px 12px; align-items: center; background: var(--surface); border: 1px solid var(--rule); border-radius: 8px; font-size: 13.5px; }
-  .bx-thead { background: none; border: none; font-size: 11.5px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.03em; padding: 0 12px; }
+  .bx-table { display: flex; flex-direction: column; gap: 6px; overflow-x: auto; }
+  .bx-trow { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 10px; padding: 12px 14px; align-items: center; background: var(--surface); border: 1px solid var(--rule); border-radius: var(--radius-sm, 10px); font-size: 13.5px; transition: border-color var(--dur-fast, 0.16s) var(--ease, ease); }
+  .bx-trow:not(.bx-thead):hover { border-color: var(--brand-ink-2); }
+  .bx-thead { background: none; border: none; font-size: 11px; color: var(--ink-3); text-transform: uppercase; letter-spacing: 0.05em; padding: 0 14px; font-weight: 700; }
   .bx-small { font-size: 13px; }
   .bx-muted { color: var(--ink-3); }
+  .bx-subject { font-weight: 700; color: var(--ink); }
+  .bx-pct { font-variant-numeric: tabular-nums; font-weight: 700; color: var(--brand-ink); }
   .bx-btn-secondary { background: none; border: 1.5px solid var(--brand-ink); color: var(--brand-ink); border-radius: 8px; padding: 5px 10px; font-size: 12.5px; font-weight: 700; cursor: pointer; justify-self: start; }
 `;
