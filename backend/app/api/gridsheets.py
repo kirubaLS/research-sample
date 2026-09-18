@@ -236,6 +236,37 @@ def _write_proposed_marks(
         ))
 
 
+def _supersede_pending_gridsheet_jobs(
+    db: Session, assessment_id: str, section_id: str, *, except_job_id: str | None = None,
+) -> None:
+    """A fresh photo of this section's grid sheet (or single script) is about to be read.
+    Any other GridSheetJob still pending for the same assessment+section was queued
+    before this one and, left running, would eventually write its stale rows and
+    ProposedMarks over whatever this newer upload produces -- _write_proposed_marks
+    deletes and replaces a student's ProposedMark rows by (assessment_id, student_id)
+    alone, with no document_id in that key, so an older job finishing after a newer one
+    silently wins for any student both photos happened to cover. Flipped to failed here,
+    the moment the newer upload is queued, so _run_gridsheet_job's own status re-check
+    sees itself superseded and discards its result instead of writing it.
+    """
+    query = select(GridSheetJob).where(
+        GridSheetJob.assessment_id == assessment_id,
+        GridSheetJob.section_id == section_id,
+        GridSheetJob.status == "pending",
+    )
+    if except_job_id:
+        query = query.where(GridSheetJob.id != except_job_id)
+    for stale in db.scalars(query):
+        stale.status = "failed"
+        stale.error_status = 409
+        stale.error_detail = (
+            "a newer grid sheet for this section was uploaded before this one finished "
+            "reading; this read's result was discarded so it could not overwrite the "
+            "newer one"
+        )
+        stale.finished_at = datetime.now(UTC)
+
+
 def _finish_gridsheet_job(
     job_id: str, *, status_value: str, result: dict | None = None,
     error_status: int | None = None, error_detail: str | None = None,
@@ -362,6 +393,14 @@ def _run_gridsheet_job(job_id: str) -> None:
 
     db = SessionLocal()
     try:
+        # Locked and re-read fresh, not the `job` loaded before the (possibly
+        # minutes-long) vision call above: a newer upload for this same assessment and
+        # section may have been queued and already finished while this job was in
+        # flight, flipping this row to "failed" via _supersede_pending_gridsheet_jobs.
+        # The lock closes the window between that check and this job's own write below.
+        current = db.get(GridSheetJob, job_id, with_for_update=True)
+        if current is None or current.status != "pending":
+            return
         school = db.get(School, school_id)
         assessment = db.get(Assessment, assessment_id)
         if school is None or assessment is None:
@@ -477,6 +516,10 @@ async def _queue_vision_reading(
         document_id=document.id, kind=kind,
     )
     db.add(job)
+    db.flush()
+    # This upload is now the newest read queued for this section; any earlier job still
+    # pending for it is stale and must not be allowed to write over this one later.
+    _supersede_pending_gridsheet_jobs(db, assessment.id, section.id, except_job_id=job.id)
     db.commit()
     background_tasks.add_task(_run_gridsheet_job, job.id)
 

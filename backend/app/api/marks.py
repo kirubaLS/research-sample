@@ -655,6 +655,33 @@ def _text_route_is_confident(extract) -> bool:
     return not any(q.max_marks is None and not q.is_context for q in extract.questions)
 
 
+def _supersede_pending_paper_jobs(
+    db: Session, assessment_id: str, *, except_job_id: str | None = None,
+) -> None:
+    """A fresh read of this paper -- the synchronous text route, or the job just queued
+    for the vision route -- is what a person is about to see and confirm against. Any
+    other PaperScanJob still pending for the same assessment was started before this one
+    and, left alone, would write its now-stale result over this one whenever its own slow
+    vision call happens to finish (a person can dislike a scan and re-scan long before the
+    first read comes back). Flipped to failed here, at the moment the newer attempt
+    begins, so _run_paper_scan_job's own status re-check sees itself superseded and skips
+    its write instead of clobbering what the newer attempt already produced.
+    """
+    query = select(PaperScanJob).where(
+        PaperScanJob.assessment_id == assessment_id, PaperScanJob.status == "pending",
+    )
+    if except_job_id:
+        query = query.where(PaperScanJob.id != except_job_id)
+    for stale in db.scalars(query):
+        stale.status = "failed"
+        stale.error_status = 409
+        stale.error_detail = (
+            "a newer scan of this paper was read before this one finished; this read's "
+            "result was discarded so it could not overwrite the newer one"
+        )
+        stale.finished_at = datetime.now(UTC)
+
+
 def _finish_paper_scan(
     db: Session, school: School, assessment: Assessment, extract, originals, source_sha: str,
 ) -> dict:
@@ -846,6 +873,14 @@ def _run_paper_scan_job(job_id: str) -> None:
 
     db = SessionLocal()
     try:
+        # Locked and re-read fresh, not the `job` loaded at the top of this function
+        # before the (possibly minutes-long) vision call: a newer scan of this same
+        # paper may have started and finished entirely while this job was in flight,
+        # flipping this row to "failed" via _supersede_pending_paper_jobs. The lock
+        # closes the window between that check and this job's own write below.
+        current = db.get(PaperScanJob, job_id, with_for_update=True)
+        if current is None or current.status != "pending":
+            return
         school = db.get(School, school_id)
         assessment = db.get(Assessment, assessment_id)
         if school is None or assessment is None:
@@ -897,6 +932,13 @@ async def scan_paper(
     assessment = _get_assessment(db, school, assessment_id)
     if assessment.qmatrix_frozen_at:
         raise HTTPException(409, "the Q-matrix is frozen; create a new version to re-scan")
+
+    # This request is about to produce the newest read of this paper, whether it writes
+    # synchronously below or queues a job to do it -- either way any earlier vision job
+    # still pending for this paper is now stale and must not be allowed to write over
+    # what this request produces once it eventually finishes.
+    _supersede_pending_paper_jobs(db, assessment.id)
+    db.commit()
 
     # One page or twenty, PDFs or photographs, in the order the caller sent them.
     #: Read once, before pages_to_pdf consumes the uploads, because the pages are kept:
