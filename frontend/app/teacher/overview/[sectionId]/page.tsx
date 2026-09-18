@@ -242,14 +242,52 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
             Cohort snapshot for {section.label} — Holland-code and stream-fit counts
             across the interest test, scoped to this section only.
           </p>
-          {cohort ? (
+          {!cohort && <p className="muted">Loading…</p>}
+          {cohort && cohort.counted === 0 && (
+            <p className="muted">
+              No student in this section has a countable interest profile yet
+              {cohort.withheld > 0 && ` (${cohort.withheld} withheld as too undifferentiated to call)`}.
+            </p>
+          )}
+          {cohort && cohort.counted > 0 && (
             <>
-              <p><strong>Counted:</strong> {cohort.counted} &nbsp; <strong>Withheld:</strong> {cohort.withheld}</p>
-              <p className="cardnote">Holland: {JSON.stringify(cohort.holland)}</p>
-              <p className="cardnote">Streams: {JSON.stringify(cohort.streams)}</p>
+              <div className="section-head" style={{ marginTop: 4 }}>
+                <h3 style={{ margin: 0 }}>Where this class leans</h3>
+              </div>
+              {Object.entries(cohort.streams)
+                .sort((a, b) => b[1] - a[1])
+                .map(([stream, n]) => (
+                  <div className="scalerow" key={stream}>
+                    <span className="nm">{stream}</span>
+                    <div className="scaletrack">
+                      <div className="scalefill" style={{ width: `${(n / cohort.counted) * 100}%` }} />
+                    </div>
+                    <span className="pct">{n}</span>
+                  </div>
+                ))}
+
+              <div className="section-head" style={{ marginTop: 18 }}>
+                <h3 style={{ margin: 0 }}>Holland codes</h3>
+              </div>
+              {Object.entries(cohort.holland)
+                .sort((a, b) => b[1] - a[1])
+                .map(([code, n]) => (
+                  <div className="scalerow" key={code}>
+                    <span className="nm">{code}</span>
+                    <div className="scaletrack">
+                      <div className="scalefill" style={{ width: `${(n / cohort.counted) * 100}%` }} />
+                    </div>
+                    <span className="pct">{n}</span>
+                  </div>
+                ))}
+
+              <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
+                {cohort.counted} profile{cohort.counted === 1 ? "" : "s"} counted
+                {cohort.withheld > 0 && (
+                  <> · {cohort.withheld} withheld as too undifferentiated to call</>
+                )}
+              </p>
             </>
-          ) : (
-            <p className="muted">Loading…</p>
           )}
         </div>
       )}
