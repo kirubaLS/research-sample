@@ -876,12 +876,29 @@ def _split_oversized_body(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[s
 #: 'Exercises' in title case, at a bold size (100pt in the real file) bigger than any of
 #: its real headings -- an exact-caps-only match let it through as a candidate, and being
 #: the only line at that size, it became the chapter's entire heading list.
+#:
+#: 'NOTES FOR (THE )?TEACHERS?' -- both forms appear, sometimes on the very same page
+#: ('NOTES FOR TEACHERS' as a running strap, 'NOTES FOR THE TEACHER' as the block title
+#: right under it) -- confirmed against Economics' own "Development" chapter, where the
+#: front-matter note is drawn at 24pt against the chapter's real headings at 14pt: the
+#: THE-less form used to slip through this pattern entirely, so 'largest bold text in the
+#: chapter' picked the teacher's note over every real heading and returned it as the
+#: chapter's ONLY section -- not a smaller list, an empty one wearing a section's shape.
+#:
+#: 'ACTIVITY \d+' / 'TABLE \d+(\.\d+)* ...' -- confirmed on the same chapter: a table
+#: caption ('TABLE 1.3 PER CAPITA INCOME OF SELECT STATES') and a numbered activity
+#: ('ACTIVITY 1') are drawn at the identical 14pt the chapter's real headings use, so once
+#: the 24pt note above stopped winning outright, these numbered captions would have
+#: entered the candidate list beside the real headings, at the same size, with nothing
+#: left to tell them apart by size alone.
 _NOT_A_HEADING = re.compile(
     r"^(EXERCISES|QUESTIONS|PROJECT|ACTIVITY|PROJECT/ACTIVITY|PROJECT WORK|DISCUSS|"
     r"MAP SKILLS|MAP WORK|WRITE IN BRIEF|SUGGESTED READINGS|ADDITIONAL PROJECTS\s*/\s*"
-    r"ACTIVITIES|BIBLIOGRAPHY|FURTHER READING|GLOSSARY|LET.S WORK (?:THESE|THIS) OUT|"
-    r"NOTES? FOR THE TEACHERS?)"
-    r"(\s+\1)*$",
+    r"ACTIVITIES|ADDITIONAL PROJECT\s*/\s*ACTIVITY|BIBLIOGRAPHY|FURTHER READING|GLOSSARY|"
+    r"LET.S WORK (?:THESE|THIS) OUT|NOTES? FOR (?:THE )?TEACHERS?)"
+    r"(\s+\1)*$"
+    r"|^ACTIVITY\s+\d+$"
+    r"|^TABLE\s+\d+(?:\.\d+)*\b.*$",
     re.I,
 )
 
@@ -993,14 +1010,36 @@ def _pick_sections(
     # in a chapter called 'Federalism'), and a cover repeating the title after the chapter
     # number ('Chapter 5 : Consumer Rights') is caught by _CHAPTER_COVER already, not by
     # this.
+    # A caption that wraps to a second line ('TABLE 1.2 COMPARISON OF TWO' / 'COUNTRIES')
+    # is excluded by _NOT_A_HEADING on its first line only -- the wrapped continuation
+    # carries none of the words that matched. Confirmed on Economics' own "Development"
+    # chapter: 'CATEGORIES OF PERSONS', 'COUNTRIES' and 'HARYANA, KERALA AND BIHAR' each
+    # rode in as their own bare candidate this way, once the caption's own first line
+    # stopped winning outright. A line inherits the exclusion of the line right above it
+    # on the same page, at the same size, close enough together to be the same visual
+    # caption -- the identical adjacency test the merge step below uses to join a real
+    # heading's own wrapped second line, applied here to keep an excluded line's tail out
+    # rather than to join a kept one's.
+    excluded_lines: set[int] = set()
+    previous: tuple[int, float, float] | None = None
+    for i, (page_index, y, size, line_text, _colour) in enumerate(lines):
+        if _NOT_A_HEADING.match(line_text) or _CHAPTER_COVER.match(line_text):
+            excluded_lines.add(i)
+        elif (
+            previous is not None and previous[0] == page_index
+            and previous[2] == size and 0 < y - previous[1] < 20
+            and (i - 1) in excluded_lines
+        ):
+            excluded_lines.add(i)
+        previous = (page_index, y, size)
+
     title_key_ = title_key(chapter_title) if chapter_title else None
     candidates = [
         (page_index, y, size, line_text)
-        for page_index, y, size, line_text, colour in lines
+        for i, (page_index, y, size, line_text, colour) in enumerate(lines)
         if not re.fullmatch(r"\d{1,3}\.?", line_text)
         and re.search(r"[A-Za-z]", line_text)   # a decorative glyph ('+') has no letters
-        and not _NOT_A_HEADING.match(line_text)
-        and not _CHAPTER_COVER.match(line_text)
+        and i not in excluded_lines
         and (heading_colour is None or colour == heading_colour)
         and (title_key_ is None or title_key(line_text) not in title_key_)
     ]
