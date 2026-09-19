@@ -560,6 +560,87 @@ def _process_contents(
     }
 
 
+class ExpectedSectionIn(BaseModel):
+    number: str = Field(max_length=16)
+    title: str = Field(max_length=200)
+
+
+class ExpectedSectionsIn(BaseModel):
+    """A hand-typed section list for chapters this book's own contents page cannot supply
+    one for -- every Social Science book except Maths/Science. Keyed by chapter number,
+    a string because JSON object keys always are.
+    """
+
+    chapters: dict[str, list[ExpectedSectionIn]] = Field(min_length=1, max_length=40)
+
+
+@router.post("/{subject}/expected-sections", status_code=status.HTTP_201_CREATED)
+def set_expected_sections(
+    subject: str, body: ExpectedSectionsIn, db: Session = Depends(get_session),
+) -> dict:
+    """Give a chapter a real verification oracle by hand, for a book whose own contents
+    page cannot supply one -- Geography, Political Science and Economics publish chapter
+    titles only, and Social Science's own book codes (X.HIST, X.GEO, X.POL, X.ECO) share
+    one group but are four separate subject_codes, each needing this called once per book.
+
+    Maths and Science get this for free from `_process_contents` parsing their own
+    contents page (`parse_toc`); every other subject falls back to `verify_structure`'s
+    weaker heuristics -- real, but unable to catch a heading the extractor never saw at
+    all, which is exactly the shape every bug found against the real Economics, Political
+    Science and History chapters took. Once a chapter's sections are set here,
+    `_process_chapter` checks a real upload against this list with `verify_against_toc`,
+    the same hard check Maths already gets: a missing or extra section rejects the
+    upload instead of loading silently.
+
+    Additive per chapter, like `create_families`: a chapter named here replaces only its
+    OWN entry in `expected_sections`, never another chapter's, so setting up chapter 4
+    cannot accidentally wipe out chapter 1's list from an earlier call.
+
+    The numbers given must be exactly what the extractor itself would find for this
+    subject's own convention -- History's own bare '1', '2', decimal '2.1' (see
+    BOOK_NUMBERED_SECTION), or plain reading-order '1', '2', '3'... for a book with no
+    numbering of its own at all (Geography, Political Science, Economics -- see
+    `_sections_by_boldness`). A number invented to match some other scheme (the book's own
+    printed numbering, say) will never match what gets extracted and every chapter will
+    permanently fail verification against its own true content.
+    """
+    curriculum = CURRICULA.get(subject)
+    if curriculum is None:
+        raise HTTPException(
+            422,
+            f"no curriculum defined for {subject!r}. Known: {sorted(CURRICULA)}. Set up "
+            f"the curriculum first -- POST /platform/books/{subject}/curriculum.",
+        )
+    version = "CBSE-2026-27"
+    source = _source(db, subject, version)
+    if source is None:
+        source = BookSource(
+            curriculum_version=version, subject_code=subject,
+            expected_sections={}, expected_chapters={}, files={},
+        )
+        db.add(source)
+
+    expected = dict(source.expected_sections)
+    for chapter_number, sections in body.chapters.items():
+        expected[chapter_number] = [
+            {"number": s.number, "title": s.title} for s in sections
+        ]
+    source.expected_sections = expected
+    db.commit()
+
+    return {
+        "subject": subject,
+        "chapters_set": sorted(body.chapters, key=int),
+        "sections_set": {k: len(v) for k, v in body.chapters.items()},
+        "next": (
+            "Upload each chapter now (or re-upload one already loaded): it will be "
+            "checked against this list with verify_against_toc instead of the weaker "
+            "structural heuristics, and a missing or mismatched section will reject the "
+            "upload instead of loading silently."
+        ),
+    }
+
+
 def _process_chapter(
     db: Session, subject: str, version: str, name: str, pdf_bytes: bytes,
     *, hindi_text: str | None = None,
