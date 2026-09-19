@@ -25,32 +25,19 @@ HEAD = {"X-Platform-Key": KEY}
 
 FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_history_age_of_industrialisation.pdf"
 real_fixture = pytest.mark.skipif(not FIXTURE.exists(), reason="regression fixture not present")
+PARTIES_FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_polsci_political_parties.pdf"
+real_parties_fixture = pytest.mark.skipif(not PARTIES_FIXTURE.exists(), reason="regression fixture not present")
 
-# The real section list for jess304.pdf ("The Age of Industrialisation"), exactly as
-# given for the whole Social Science curriculum -- History's own headings are numbered
-# independently of the chapter (see bare_headings), which is why these numbers are bare
-# '1'..'6' and decimal subsections under them, not '4.1' scoped to this being chapter 4.
-INDUSTRIALISATION_SECTIONS = [
-    {"number": "1", "title": "Before the Industrial Revolution"},
-    {"number": "1.1", "title": "The Coming Up of the Factory"},
-    {"number": "1.2", "title": "The Pace of Industrial Change"},
-    {"number": "2", "title": "Hand Labour and Steam Power"},
-    # Not in the user's own hand-typed list for this chapter -- found only by running the
-    # real extraction against the real file, which is exactly why this endpoint checks a
-    # chapter against verify_against_toc rather than trusting a typed list blindly: a
-    # human list can omit a real heading the same way an extractor can invent a fake one.
-    {"number": "2.1", "title": "Life of the Workers"},
-    {"number": "3", "title": "Industrialisation in the Colonies"},
-    {"number": "3.1", "title": "The Age of Indian Textiles"},
-    {"number": "3.2", "title": "What Happened to Weavers?"},
-    {"number": "3.3", "title": "Manchester Comes to India"},
-    {"number": "4", "title": "Factories Come Up"},
-    {"number": "4.1", "title": "The Early Entrepreneurs"},
-    {"number": "4.2", "title": "Where Did the Workers Come From?"},
-    {"number": "5", "title": "The Peculiarities of Industrial Growth"},
-    {"number": "5.1", "title": "Small-scale Industries Predominate"},
-    {"number": "6", "title": "Market for Goods"},
-]
+# The real section list for jess304.pdf ("The Age of Industrialisation"), read from the
+# same data scripts/load_expected_sections.py actually loads -- one source of truth,
+# checked against the real file rather than duplicated by hand a second time here.
+# Imported lazily (see the tests that use these) because scripts.load_expected_sections
+# imports app.api.books, which touches app.db's engine at import time -- unsafe at test
+# module collection, before conftest's _tmp_db fixture has set YAADHUM_DATABASE_URL.
+def _expected_sections():
+    from scripts.load_expected_sections import EXPECTED_SECTIONS
+
+    return EXPECTED_SECTIONS
 
 
 @pytest.fixture(autouse=True)
@@ -72,6 +59,7 @@ def test_a_subject_with_no_curriculum_is_refused(client):
 
 
 def test_setting_one_chapter_does_not_erase_another(client, school):
+    industrialisation_sections = _expected_sections()["X.HIST"]["4"]
     client.post("/platform/books/X.HIST/curriculum", headers=HEAD)
 
     client.post(
@@ -80,7 +68,7 @@ def test_setting_one_chapter_does_not_erase_another(client, school):
     )
     second = client.post(
         "/platform/books/X.HIST/expected-sections", headers=HEAD,
-        json={"chapters": {"4": INDUSTRIALISATION_SECTIONS}},
+        json={"chapters": {"4": industrialisation_sections}},
     )
     assert second.status_code == 201
     assert second.json()["chapters_set"] == ["4"]
@@ -99,7 +87,7 @@ def test_setting_one_chapter_does_not_erase_another(client, school):
             )
         )
         assert "1" in source.expected_sections, "the first call's chapter must survive"
-        assert len(source.expected_sections["4"]) == len(INDUSTRIALISATION_SECTIONS)
+        assert len(source.expected_sections["4"]) == len(industrialisation_sections)
     finally:
         db.close()
 
@@ -109,10 +97,11 @@ def test_a_real_chapter_verifies_clean_against_its_own_hand_typed_oracle(client,
     """The exact real section list the user gave for this exact real chapter file --
     proof the hand-typed oracle and the (now-fixed) bare_headings extraction actually
     agree on a real book, not just on each other's assumptions."""
+    industrialisation_sections = _expected_sections()["X.HIST"]["4"]
     client.post("/platform/books/X.HIST/curriculum", headers=HEAD)
     client.post(
         "/platform/books/X.HIST/expected-sections", headers=HEAD,
-        json={"chapters": {"4": INDUSTRIALISATION_SECTIONS}},
+        json={"chapters": {"4": industrialisation_sections}},
     )
 
     with open(FIXTURE, "rb") as fh:
@@ -122,7 +111,7 @@ def test_a_real_chapter_verifies_clean_against_its_own_hand_typed_oracle(client,
         )
     assert r.status_code == 201, r.json()
     body = r.json()
-    assert body["sections"] == len(INDUSTRIALISATION_SECTIONS)
+    assert body["sections"] == len(industrialisation_sections)
     assert body["verified_against"] is not None, (
         "a subject with a hand-typed oracle must be verified, not left unverified the "
         "way a subject with no section list at all is"
@@ -134,8 +123,9 @@ def test_a_chapter_missing_from_its_own_oracle_is_rejected_not_loaded_silently(c
     """The whole point: an oracle that expects a section the real upload does not have
     must reject the chapter, the same way Maths already does -- not load a partial
     result and call it done."""
+    industrialisation_sections = _expected_sections()["X.HIST"]["4"]
     client.post("/platform/books/X.HIST/curriculum", headers=HEAD)
-    incomplete = [s for s in INDUSTRIALISATION_SECTIONS if s["number"] != "6"]
+    incomplete = [s for s in industrialisation_sections if s["number"] != "6"]
     incomplete.append({"number": "7", "title": "A Section This Book Does Not Have"})
     client.post(
         "/platform/books/X.HIST/expected-sections", headers=HEAD,
@@ -150,3 +140,37 @@ def test_a_chapter_missing_from_its_own_oracle_is_rejected_not_loaded_silently(c
     assert r.status_code == 422
     assert "missing section 7" in r.json()["detail"]
     assert "section 6 is not in the contents page" in r.json()["detail"]
+
+
+@real_fixture
+@real_parties_fixture
+def test_the_loader_scripts_full_dataset_verifies_both_proven_chapters(client, school):
+    """scripts.load_expected_sections is what actually ships this to a real deployment
+    (`python -m scripts.load_expected_sections`, no dry-run) -- this runs its own
+    EXPECTED_SECTIONS data, unmodified, through the same set_expected_sections path the
+    HTTP endpoint uses, then re-uploads both chapters it claims are proven and checks
+    both come back verified clean. Anyone editing that data (adding a subject once its
+    PDF is checked, say) gets this test failing the moment the new entry disagrees with
+    a real file, rather than a silent bad oracle reaching a real deployment."""
+    from scripts.load_expected_sections import main as load_all
+
+    client.post("/platform/books/X.HIST/curriculum", headers=HEAD)
+    client.post("/platform/books/X.POL/curriculum", headers=HEAD)
+    load_all([])
+
+    with open(FIXTURE, "rb") as fh:
+        history = client.post(
+            "/platform/books/X.HIST/chapters", headers=HEAD,
+            files={"file": ("jess304.pdf", fh, "application/pdf")},
+        )
+    assert history.status_code == 201, history.json()
+    assert history.json()["verified_against"] is not None
+
+    with open(PARTIES_FIXTURE, "rb") as fh:
+        parties = client.post(
+            "/platform/books/X.POL/chapters", headers=HEAD,
+            files={"file": ("jess404.pdf", fh, "application/pdf")},
+        )
+    assert parties.status_code == 201, parties.json()
+    assert parties.json()["verified_against"] is not None
+    assert parties.json()["sections"] == len(_expected_sections()["X.POL"]["4"])
