@@ -503,6 +503,40 @@ def test_structural_verification_cannot_see_a_missing_last_section():
     assert verify_structure(extract).ok
 
 
+def test_a_lone_section_spanning_a_long_chapter_is_flagged_as_suspicious():
+    """The exact shape of a real, silent extraction failure: a decorative element (a
+    front-matter note, a cover title) beats every real heading on size alone and
+    _sections_by_boldness returns it as the chapter's ONLY section. A missing-exercises
+    problem alone would not have caught this -- the fake section's own text can still
+    contain a real EXERCISE marker if it swallowed the whole chapter, front matter and
+    all, exactly as it did for the real Economics chapter this was measured against
+    (thousands of characters, one section, named after a note to the teacher)."""
+    from app.ingest.book import ChapterExtract, Chunk, Section, verify_structure
+
+    extract = ChapterExtract(
+        number=1, title="Development", source_path="x", sha256="y",
+        sections=[Section("1", "NOTES FOR TEACHERS", 0, 5000)],
+        chunks=[Chunk("E", "exercise", "Exercises", "t", "h", section="1")],
+    )
+    verify_structure(extract)
+    assert any("only one section was found" in w for w in extract.warnings)
+    # A warning, not a rejection -- a genuinely single-section chapter (English, Hindi,
+    # Tamil) must still load; exercises_required=False is what actually exempts those.
+    assert extract.ok
+
+
+def test_a_short_genuinely_single_section_chapter_is_not_flagged():
+    from app.ingest.book import ChapterExtract, Chunk, Section, verify_structure
+
+    extract = ChapterExtract(
+        number=2, title="A Short Poem", source_path="x", sha256="y",
+        sections=[Section("1", "A Short Poem", 0, 500)],
+        chunks=[Chunk("E", "exercise", "Exercises", "t", "h", section="1")],
+    )
+    verify_structure(extract)
+    assert extract.warnings == []
+
+
 def test_the_science_contents_page_yields_chapters_where_it_yields_no_sections():
     from app.ingest.book import TOC_CHAPTER
 

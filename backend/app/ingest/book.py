@@ -711,6 +711,15 @@ def parse_toc_chapters(contents_pdf: str | Path, *, text: str | None = None) -> 
     return found
 
 
+#: A real NCERT chapter with genuine subheadings (not single_section) runs several
+#: thousand characters. Below this, one section is plausibly the whole, short chapter;
+#: above it, one section is far more likely a heading-detection failure than a book that
+#: really has no internal divisions -- see verify_structure's own note on the real
+#: Economics chapter this was measured against (several thousand characters, six real
+#: headings, all beaten by a 24pt front-matter note).
+SUSPICIOUS_SINGLE_SECTION_CHARS = 3000
+
+
 def verify_structure(extract: ChapterExtract, *, exercises_required: bool = True) -> ChapterExtract:
     """The checks that survive when the book publishes no section list.
 
@@ -768,6 +777,30 @@ def verify_structure(extract: ChapterExtract, *, exercises_required: bool = True
             f"chapter {extract.number}: no exercises or questions were found, so no "
             f"question from it could ever be judged PRACTISED"
         )
+
+    # One section covering a chapter this long is the exact shape of a real, silent
+    # failure: a decorative element (a front-matter note, the chapter's own cover title,
+    # an oversized drill label) outscored every real heading and became "the chapter's
+    # largest bold text" on its own, so _sections_by_boldness returned it as the ONLY
+    # section -- not a smaller heading list, one wearing a heading's shape. Confirmed on
+    # a real Economics chapter: "NOTES FOR TEACHERS" at 24pt beat six real headings at
+    # 14pt and the whole chapter, several thousand characters, came back as one section
+    # named after the front matter. `exercises_required` gates this the same way it gates
+    # the missing-exercise check above: single_section subjects (English, Hindi, Tamil)
+    # are GENUINELY one continuous piece with no subheading of any kind, so one section
+    # there is the true shape of the chapter, not a failure to find more of them.
+    if exercises_required and len(numbers) == 1:
+        span = extract.sections[0].end - extract.sections[0].start
+        if span > SUSPICIOUS_SINGLE_SECTION_CHARS:
+            extract.warnings.append(
+                f"chapter {extract.number}: only one section was found "
+                f"({extract.sections[0].title!r}) across {span} characters of text -- "
+                f"this usually means a decorative or front-matter line outscored every "
+                f"real heading, not that the chapter genuinely has only one. Check "
+                f"GET /platform/books/{{subject}}/concept-families for "
+                f"uncovered_sections after loading, and consider re-checking this "
+                f"chapter's heading detection before trusting any family proposed from it."
+            )
     return extract
 
 
