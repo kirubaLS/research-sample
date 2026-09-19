@@ -29,11 +29,12 @@ from pathlib import Path
 
 import pytest
 
-from app.ingest.book import _sections_by_boldness, read_text
+from app.ingest.book import _sections_by_boldness, extract_chapter, read_text
 
 FIXTURES = Path(__file__).parent / "fixtures" / "regression"
 DEVELOPMENT_PDF = FIXTURES / "sst_economics_development.pdf"
 POLITICAL_PARTIES_PDF = FIXTURES / "sst_polsci_political_parties.pdf"
+INDUSTRIALISATION_PDF = FIXTURES / "sst_history_age_of_industrialisation.pdf"
 
 
 @pytest.mark.skipif(not DEVELOPMENT_PDF.exists(), reason="regression fixture not present")
@@ -65,3 +66,29 @@ def test_a_chapter_title_drawn_bigger_than_every_real_heading_is_still_excluded(
     assert "Political Parties" not in titles
     assert any("reformed" in t.lower() for t in titles)
     assert any("national parties" in t.lower() for t in titles)
+
+
+@pytest.mark.skipif(not INDUSTRIALISATION_PDF.exists(), reason="regression fixture not present")
+def test_a_bare_heading_matching_the_chapter_number_does_not_hide_the_rest():
+    """History numbers its own headings independently of the chapter (a bare '1', or a
+    decimal subsection under it, per BOOK_NUMBERED_SECTION's own docstring) -- never tied
+    to the file's own chapter number. extract_sections's pattern is scoped to THIS
+    chapter's number, `{chapter}\\.\\d+`, so on the real chapter 4 file it silently matched
+    heading 4's own subsections ('4.1 The Early Entrepreneurs', '4.2 Where Did the Workers
+    Come From?') by coincidence -- a wrong but non-empty result that skipped the boldness
+    fallback outright, leaving the chapter's other five real top-level headings (bare '1'
+    through '6') without a section at all. bare_headings=True skips extract_sections for
+    History entirely, so this must find every real heading, not just the two that happen
+    to share the chapter's own number.
+    """
+    extract = extract_chapter(
+        INDUSTRIALISATION_PDF, number=4, name="04-the-age-of-industrialisation.pdf",
+        title="The Age of Industrialisation", bare_headings=True,
+    )
+    numbers = {s.number for s in extract.sections}
+    assert {"1", "2", "3", "4", "5", "6"} <= numbers, (
+        f"missing top-level headings not tied to the chapter's own number 4: {numbers!r}"
+    )
+    titles = [s.title for s in extract.sections]
+    assert any("Factories Come Up" == t for t in titles)
+    assert any("The Early Entrepreneurs" == t for t in titles)

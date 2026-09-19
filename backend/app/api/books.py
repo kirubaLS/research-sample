@@ -615,6 +615,12 @@ def _process_chapter(
             path, number=number, name=name,
             title=chapter_title(subject, number) or "",
             single_section=subject.startswith("X.ENG") or is_hindi or is_tamil,
+            # History numbers its own headings independently of the chapter (a bare '1',
+            # or a decimal subsection under it) -- see extract_chapter's own docstring on
+            # bare_headings for the real chapter this coincidentally broke: extract_sections
+            # scoped to chapter 4 quietly matched chapter 4's own unrelated heading "4.1",
+            # returning a wrong non-empty result that skipped the boldness fallback outright.
+            bare_headings=subject.startswith("X.HIST"),
             body_bucket="E" if subject == "X.ENG.WB" else "T",
             text_override=text_override,
         )

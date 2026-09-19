@@ -1276,7 +1276,8 @@ def extract_chunks(
 
 def extract_chapter(
     path: str | Path, *, number: int | None = None, name: str = "", title: str = "",
-    single_section: bool = False, body_bucket: str = "T", text_override: str | None = None,
+    single_section: bool = False, bare_headings: bool = False, body_bucket: str = "T",
+    text_override: str | None = None,
 ) -> ChapterExtract:
     """``title`` should come from the contents page where available: matching an existing
     chapter node depends on using the book's own words, not a slug turned back into prose.
@@ -1304,6 +1305,22 @@ def extract_chapter(
     Gemini and hands it in here rather than letting this call read_text(path) and get the
     PDF's own broken layer back. ``path`` is still the real file -- used for its sha256 and
     as the ChapterExtract's provenance -- just not for its text.
+
+    ``bare_headings`` is for History: its headings are numbered independently of the
+    chapter they are in (BOOK_NUMBERED_SECTION's own docstring -- a bare '1', or a decimal
+    subsection under it like '2.1', neither tied to the file's own chapter number), found
+    only through boldness. `extract_sections`'s pattern is `{chapter}\.\d+` -- scoped to
+    THIS chapter's own number -- and a book that numbers its OWN headings from 1 can
+    coincidentally contain a heading numbered the same as the file's chapter: chapter 4's
+    real heading '4.1 The Early Entrepreneurs' is heading 4's own first subsection, nothing
+    to do with being chapter 4, but it satisfies `{4}\.\d+` all the same. Confirmed on that
+    exact real file: extract_sections(text, 4) silently returned two sections ('4.1', '4.2')
+    that look like a legitimate, if short, chapter -- not empty, so the boldness fallback
+    below never ran -- while the chapter's other five real headings (bare '1', '2', '3',
+    '5', '6', all its genuine top-level ones) went missing entirely, and their content was
+    never split into a section at all. A wrong non-empty answer defeats the fallback that
+    exists precisely for "found nothing" -- so History skips `extract_sections` outright
+    rather than risk it succeeding for the wrong reason.
     """
     display = name or Path(path).name
     number = number if number is not None else chapter_number(display)
@@ -1318,6 +1335,8 @@ def extract_chapter(
     text = text_override if text_override is not None else read_text(path)
     if single_section:
         sections = [Section("1", resolved_title, 0, len(text))]
+    elif bare_headings:
+        sections = _sections_by_boldness(path, text, resolved_title)
     else:
         sections = extract_sections(text, number)
         if not sections:
