@@ -9,13 +9,18 @@ Scoped deliberately to what has actually been checked against a real chapter fil
 everything a topic list could contain:
 
 * History (X.HIST), all five chapters -- confirmed loadable straight from the given list
-  with no PDF needed, because History numbers its own headings IN THE TEXT ITSELF (a bare
-  '1', or a decimal subsection under it -- see app.ingest.book.BOOK_NUMBERED_SECTION). The
-  number is not something this script invents from position; it is read off the same
-  string the book prints, so there is nothing here for a missing PDF to leave ambiguous.
-  Chapter 4 (jess304.pdf) is additionally proven against the real file in
-  tests/test_expected_sections.py -- including one heading ("2.1 Life of the Workers")
-  the original hand-typed list omitted and this process caught.
+  with no PDF needed for MOST of it, because History numbers its own headings IN THE TEXT
+  ITSELF (a bare '1', or a decimal subsection under it -- see
+  app.ingest.book.BOOK_NUMBERED_SECTION). The number is not something this script invents
+  from position; it is read off the same string the book prints. All five chapters have
+  since been checked against their real files (tests/test_sst_heading_detection.py and
+  tests/test_expected_sections.py) and each caught something real: chapter 4 was missing
+  a heading the original list omitted ("2.1 Life of the Workers"); chapter 3 named '2.4'
+  twice for two different real headings, both genuinely printed in the book, not a
+  transcription slip -- kept as two entries, the second disambiguated to '2.4-2'; chapter
+  3 also exposed a running page-banner bug (a section's own number and title, printed
+  once as page furniture at a page break, was mistaken for a real heading and split real
+  content in two) fixed in app.ingest.book directly, not just worked around here.
 
 * Political Science chapter 4 ("Political Parties", jess404.pdf) -- proven against the
   real file in tests/test_sst_heading_detection.py.
@@ -24,13 +29,18 @@ Deliberately NOT included: Geography, Economics, and Political Science chapters 
 Those books number NONE of their own headings -- _sections_by_boldness assigns plain
 reading-order numbers ('1', '2', '3'...) to whatever it finds -- and the topic list given
 for them flattens every level of the book's outline (chapter title, major heading, and
-sub-point) into one column with no marker saying which is which. Guessing which lines are
-real top-level headings without the actual PDF to check boldness against is exactly the
-kind of unverified assumption this whole exercise exists to avoid: a wrong guess loaded
-here would not silently do nothing, it would PERMANENTLY reject every future upload of
-that chapter (verify_against_toc rejects a mismatch), which is worse than the weaker
-heuristic check it would replace. Add a chapter here only once its real PDF has been
-checked, the same way X.HIST and X.POL.PARTIES were.
+sub-point) into one column with no marker saying which is which. Three of them (Economics
+jess202/203/205) have been checked against their real files already, and each turned up a
+DIFFERENT real gap in _sections_by_boldness itself (a chapter that bolds only some of its
+headings and not others, which used to make the bold pass's sparse-but-non-empty result
+look trustworthy on its own -- fixed in app.ingest.book, see test_sst_heading_detection.py)
+but none of the three is complete enough yet to safely become a hard oracle: a chapter
+that mixes bold and plain headings needs both signals merged, not one chosen over the
+other, and that merge is not built yet. Loading a partial or wrong list here would not
+silently do nothing, it would PERMANENTLY reject every future upload of that chapter
+(verify_against_toc rejects a mismatch), which is worse than the weaker heuristic check
+it would replace. Add a chapter here only once its real PDF extraction is complete and
+checked, the same way every chapter above was.
 """
 
 from __future__ import annotations
@@ -80,15 +90,47 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "3.3", "title": "The Limits of Civil Disobedience"},
             {"number": "4", "title": "The Sense of Collective Belonging"},
         ],
-        # Chapter 3 (jess303.pdf, "The Making of a Global World") deliberately left out:
-        # the given list names '2.4' twice, for two different headings ("Rinderpest, or
-        # the Cattle Plague" and "Indentured Labour Migration from India"). That is either
-        # a real duplicate in the book itself or a typo in the list, and there is no way
-        # to tell which, or how the numbers after it actually run, without the real PDF --
-        # guessing a renumbering here is exactly the unverified assumption this script
-        # exists to avoid, and a wrong guess would permanently reject every future upload
-        # of this chapter rather than silently do nothing. Add it once jess303.pdf itself
-        # has been checked.
+        "3": [  # jess303.pdf -- The Making of a Global World -- proven against the real file
+            {"number": "1", "title": "The Pre-modern World"},
+            {"number": "1.1", "title": "Silk Routes Link the World"},
+            {"number": "1.2", "title": "Food Travels: Spaghetti and Potato"},
+            {"number": "1.3", "title": "Conquest, Disease and Trade"},
+            {"number": "2.1", "title": "A World Economy Takes Shape"},
+            {"number": "2.2", "title": "Role of Technology"},
+            {"number": "2.3", "title": "Late nineteenth-century Colonialism"},
+            {"number": "2.4", "title": "Rinderpest, or the Cattle Plague"},
+            # The given list names '2.4' twice -- confirmed a real duplicate IN THE BOOK
+            # ITSELF, not a transcription slip: both titles appear verbatim in the real
+            # PDF's own text, under the same printed number. Kept as two entries, the
+            # second disambiguated to '2.4-2' -- the same disambiguation
+            # _pick_sections's own numbered-heading dedup now applies for exactly this
+            # case (see BOOK_NUMBERED_SECTION's dedup comment), so both keep their real
+            # content instead of the second silently vanishing into the first's span.
+            {"number": "2.4-2", "title": "Indentured Labour Migration from India"},
+            {"number": "2.5", "title": "Indian Entrepreneurs Abroad"},
+            {"number": "2.6", "title": "Indian Trade, Colonialism and the Global System"},
+            {"number": "3", "title": "The Inter-war Economy"},
+            {"number": "3.1", "title": "Wartime Transformations"},
+            {"number": "3.2", "title": "Post-war Recovery"},
+            {"number": "3.3", "title": "Rise of Mass Production and Consumption"},
+            {"number": "3.4", "title": "The Great Depression"},
+            {"number": "3.5", "title": "India and the Great Depression"},
+            {"number": "4", "title": "Rebuilding a World Economy: The Post-war Era"},
+            # Titles truncated at their real wrapped second line -- a known, accepted gap:
+            # _pick_sections merges a wrapped title back together for the SIZE-based path
+            # only, not the NUMBERED one History uses (see extract_sections' own note on
+            # why merging there is unsafe: this same chapter also has bold map-legend
+            # labels and multi-line photo captions stacked just as close together, and a
+            # naive merge glued entire legends onto the nearest heading and corrupted the
+            # text search that locates it -- silently dropping OTHER real headings
+            # entirely, which is worse than one truncated title). The oracle has to match
+            # what the extractor actually produces, not the book's own full-length title,
+            # or a correct upload would be rejected over a cosmetic mismatch.
+            {"number": "4.1", "title": "Post-war Settlement and the"},
+            {"number": "4.2", "title": "The Early Post-war Years"},
+            {"number": "4.3", "title": "Decolonisation and Independence"},
+            {"number": "4.4", "title": "End of Bretton Woods and the Beginning of"},
+        ],
         "4": [  # jess304.pdf -- The Age of Industrialisation -- proven against the real file
             {"number": "1", "title": "Before the Industrial Revolution"},
             {"number": "1.1", "title": "The Coming Up of the Factory"},

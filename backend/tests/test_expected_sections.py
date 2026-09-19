@@ -27,6 +27,10 @@ FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_history_age_o
 real_fixture = pytest.mark.skipif(not FIXTURE.exists(), reason="regression fixture not present")
 PARTIES_FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_polsci_political_parties.pdf"
 real_parties_fixture = pytest.mark.skipif(not PARTIES_FIXTURE.exists(), reason="regression fixture not present")
+GLOBAL_WORLD_FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_history_making_of_a_global_world.pdf"
+real_global_world_fixture = pytest.mark.skipif(
+    not GLOBAL_WORLD_FIXTURE.exists(), reason="regression fixture not present"
+)
 
 # The real section list for jess304.pdf ("The Age of Industrialisation"), read from the
 # same data scripts/load_expected_sections.py actually loads -- one source of truth,
@@ -174,3 +178,26 @@ def test_the_loader_scripts_full_dataset_verifies_both_proven_chapters(client, s
     assert parties.status_code == 201, parties.json()
     assert parties.json()["verified_against"] is not None
     assert parties.json()["sections"] == len(_expected_sections()["X.POL"]["4"])
+
+
+@real_global_world_fixture
+def test_the_loader_scripts_data_verifies_the_chapter_with_a_real_duplicate_number(client, school):
+    """Chapter 3 ("The Making of a Global World") is the hardest case in the loaded
+    dataset: it has a real, book-printed duplicate ('2.4' twice, for two different
+    headings) and it originally surfaced a running-page-banner bug in the extractor
+    itself (see app.ingest.book's BOOK_NUMBERED_SECTION dedup comment). This proves the
+    fixed extractor and the disambiguated oracle ('2.4-2') actually agree on the real
+    file end to end, the same way the other proven chapters do."""
+    from scripts.load_expected_sections import main as load_all
+
+    client.post("/platform/books/X.HIST/curriculum", headers=HEAD)
+    load_all([])
+
+    with open(GLOBAL_WORLD_FIXTURE, "rb") as fh:
+        r = client.post(
+            "/platform/books/X.HIST/chapters", headers=HEAD,
+            files={"file": ("jess303.pdf", fh, "application/pdf")},
+        )
+    assert r.status_code == 201, r.json()
+    assert r.json()["verified_against"] is not None
+    assert r.json()["sections"] == len(_expected_sections()["X.HIST"]["3"])

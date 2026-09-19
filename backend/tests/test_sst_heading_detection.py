@@ -35,21 +35,35 @@ FIXTURES = Path(__file__).parent / "fixtures" / "regression"
 DEVELOPMENT_PDF = FIXTURES / "sst_economics_development.pdf"
 POLITICAL_PARTIES_PDF = FIXTURES / "sst_polsci_political_parties.pdf"
 INDUSTRIALISATION_PDF = FIXTURES / "sst_history_age_of_industrialisation.pdf"
+GLOBAL_WORLD_PDF = FIXTURES / "sst_history_making_of_a_global_world.pdf"
+real_global_world = pytest.mark.skipif(not GLOBAL_WORLD_PDF.exists(), reason="regression fixture not present")
+MONEY_AND_CREDIT_PDF = FIXTURES / "sst_economics_money_and_credit.pdf"
+real_money_and_credit = pytest.mark.skipif(not MONEY_AND_CREDIT_PDF.exists(), reason="regression fixture not present")
 
 
 @pytest.mark.skipif(not DEVELOPMENT_PDF.exists(), reason="regression fixture not present")
 def test_a_front_matter_note_bigger_than_every_real_heading_is_not_the_whole_chapter():
+    """Only 3 of this chapter's 7 real headings are drawn bold ("How to Compare...",
+    "Income and Other Criteria", "Public Facilities") -- the other 4 ("What Development
+    Promises...", "Income and Other Goals", "National Development", "Sustainability of
+    Development") are plain text at a larger-than-body size, the same convention
+    _sections_by_boldness's own docstring already describes for this book. The bold pass
+    alone used to return those first 3 as a non-empty, plausible-looking result and stop
+    there -- correct on their own, but silently missing more than half the chapter,
+    exactly the shape test_a_lone_section... in test_ingest_book.py exists to catch when
+    it collapses all the way to one. This is that same failure at a smaller scale: not
+    zero real headings surviving, not one, but three real ones standing in for seven."""
     text = read_text(DEVELOPMENT_PDF)
     sections = _sections_by_boldness(DEVELOPMENT_PDF, text, "Development")
 
     titles = [s.title for s in sections]
-    assert len(sections) > 1, (
-        "the chapter's real headings must survive, not just its front-matter note: "
-        f"got {titles!r}"
-    )
+    assert len(sections) == 7, f"got {titles!r}"
     assert not any("NOTES FOR" in t.upper() for t in titles)
     assert any("PUBLIC FACILITIES" in t.upper() for t in titles)
     assert any("INCOME AND OTHER CRITERIA" in t.upper() for t in titles)
+    assert any("WHAT DEVELOPMENT PROMISES" in t.upper() for t in titles)
+    assert any(t.upper() == "NATIONAL DEVELOPMENT" for t in titles)
+    assert any("SUSTAINABILITY OF DEVELOPMENT" in t.upper() for t in titles)
     # A table caption's wrapped second line ('OF SELECT STATES', 'COUNTRIES', ...) must
     # not survive as a bare section of its own once the caption's own first line is
     # excluded.
@@ -92,3 +106,64 @@ def test_a_bare_heading_matching_the_chapter_number_does_not_hide_the_rest():
     titles = [s.title for s in extract.sections]
     assert any("Factories Come Up" == t for t in titles)
     assert any("The Early Entrepreneurs" == t for t in titles)
+
+
+@real_global_world
+def test_a_running_page_banner_does_not_split_the_section_it_interrupts():
+    """The real chapter "The Making of a Global World" prints '2  The Nineteenth Century
+    (1815-1914)' exactly once in the extracted text -- not as a real heading, but as a
+    running page-top banner glued to a page break, immediately followed by 'Reprint
+    2026-27' and the book's own title. Confirmed by position: it appears in the text
+    AFTER '2.1 A World Economy Takes Shape' has already started, which a real book would
+    never print out of numeric order. Taking it as a heading anyway invented a phantom
+    '2' section that stole the back half of 2.1's real content (a food-price discussion
+    that plainly continues 2.1's own topic)."""
+    extract = extract_chapter(
+        GLOBAL_WORLD_PDF, number=3, name="jess303.pdf",
+        title="The Making of a Global World", bare_headings=True,
+    )
+    numbers = [s.number for s in extract.sections]
+    assert "2" not in numbers, "the page banner must not become its own section"
+    a_world_economy = next(s for s in extract.sections if s.number == "2.1")
+    assert a_world_economy.end - a_world_economy.start > 4000, (
+        "2.1's real content must not have been cut short by the banner"
+    )
+
+
+@real_global_world
+def test_a_number_the_book_itself_reuses_for_two_headings_keeps_both():
+    """The same real chapter prints '2.4' twice, for two different real headings --
+    'Rinderpest, or the Cattle Plague' and, later, 'Indentured Labour Migration from
+    India' -- confirmed as genuine text in the book, not a transcription slip in the
+    topic list this was checked against. The old dedup (a bare set of numbers already
+    seen) could not tell a real second heading apart from a running header repeating the
+    first, and silently dropped the second heading's content into the first's span."""
+    extract = extract_chapter(
+        GLOBAL_WORLD_PDF, number=3, name="jess303.pdf",
+        title="The Making of a Global World", bare_headings=True,
+    )
+    titles_by_number = {s.number: s.title for s in extract.sections}
+    assert titles_by_number.get("2.4") == "Rinderpest, or the Cattle Plague"
+    assert "Indentured Labour Migration from India" in titles_by_number.values(), (
+        "the second, differently-titled '2.4' must keep its own section, not vanish "
+        "into the first one's"
+    )
+
+
+@real_money_and_credit
+def test_a_bold_pass_that_finds_only_a_few_of_many_real_headings_is_not_trusted_alone():
+    """Only 2 of this chapter's ~15 real headings ("Loan Activities of Banks", "Formal
+    Sector Credit in India") are drawn bold; the rest ("Currency", "Deposits with Banks",
+    "Formal and Informal Credit: Who gets what?", ...) are plain text at a larger size.
+    The bold pass alone returns those 2 as a plausible, non-empty result and used to stop
+    there -- correct as far as they go, but standing in for a chapter more than seven
+    times their combined length. Not every real heading is recovered yet this way (see
+    the module docstring on _sections_by_boldness for the open gap: a book that MIXES
+    bold and plain headings within one chapter still needs both signals merged, not one
+    chosen over the other) -- this only proves the sparse, bold-only answer is no longer
+    trusted on its own.
+    """
+    text = read_text(MONEY_AND_CREDIT_PDF)
+    sections = _sections_by_boldness(MONEY_AND_CREDIT_PDF, text, "Money and Credit")
+    titles = [s.title for s in sections]
+    assert len(sections) > 2, f"got {titles!r}"

@@ -928,10 +928,12 @@ _NOT_A_HEADING = re.compile(
     r"^(EXERCISES|QUESTIONS|PROJECT|ACTIVITY|PROJECT/ACTIVITY|PROJECT WORK|DISCUSS|"
     r"MAP SKILLS|MAP WORK|WRITE IN BRIEF|SUGGESTED READINGS|ADDITIONAL PROJECTS\s*/\s*"
     r"ACTIVITIES|ADDITIONAL PROJECT\s*/\s*ACTIVITY|BIBLIOGRAPHY|FURTHER READING|GLOSSARY|"
-    r"LET.S WORK (?:THESE|THIS) OUT|NOTES? FOR (?:THE )?TEACHERS?)"
+    r"LET.S WORK (?:THESE|THIS) OUT|NOTES? FOR (?:THE )?TEACHERS?|SOURCES FOR INFORMATION|"
+    r"EXAMPLE|WHAT DOES THIS SHOW\??)"
     r"(\s+\1)*$"
     r"|^ACTIVITY\s+\d+$"
-    r"|^TABLE\s+\d+(?:\.\d+)*\b.*$",
+    r"|^TABLE\s+\d+(?:\.\d+)*\b.*$"
+    r"|^GRAPH\s+\d+(?:\.\d+)*\s*[:.].*$",
     re.I,
 )
 
@@ -1088,22 +1090,67 @@ def _pick_sections(
     # numbered exhibit or footnote happening to be styled the same way), so the
     # largest-size convention gets a chance instead of taking a lone false positive as
     # the whole answer.
+    # A numbered heading that wraps to a second line ('4.1 Post-war Settlement and the' /
+    # 'Bretton Woods Institutions') keeps only its first line's text here -- unlike the
+    # size-based path below, which merges a wrapped continuation back in. Tried and
+    # reverted: the same real chapter that has wrapped numbered headings also has bold
+    # map-legend labels stacked as several separate close-together lines (BRITISH,
+    # FRENCH, GERMAN, ...) and multi-line photo captions at the same size, indistinguish-
+    # able by position alone from a genuine wrapped title -- merging on proximity glued
+    # entire legends and captions onto the nearest heading's title and corrupted the text
+    # search that locates it (`text.find` on a title that was never contiguous prose),
+    # which silently dropped OTHER real headings entirely rather than just truncating one
+    # title. A truncated display title is a cosmetic loss; a dropped section is not.
     numbered = [
         (page_index, y, m.group(1), m.group(2).strip())
         for page_index, y, _size, line_text in candidates
         if (m := BOOK_NUMBERED_SECTION.match(line_text))
     ]
     if len(numbered) >= 2:
-        seen_numbers: set[str] = set()
+        # Keyed by number -> the FIRST title seen under it, which is what tells a running
+        # header repeating the same heading apart from the book itself genuinely reusing a
+        # number for a second, different heading -- confirmed on the real History chapter
+        # "The Making of a Global World": '2.4' is printed twice, once for 'Rinderpest, or
+        # the Cattle Plague' and again, later, for 'Indentured Labour Migration from
+        # India' -- two real, different headings in the book's own text, not a
+        # transcription slip. The OLD dedup here (a bare `set` of numbers already seen)
+        # could not tell that apart from a running header and silently dropped the second
+        # heading entirely, folding its real content into the first's span.
+        seen_titles: dict[str, str] = {}
         found: list[tuple[str, str, int]] = []
         cursor = 0
         for _page_index, _y, number, title in numbered:
-            if number in seen_numbers:
-                continue
-            seen_numbers.add(number)
+            if seen_titles.get(number) == title:
+                continue          # the same heading's own running-header repeat
             pos = text.find(title, cursor)
             if pos == -1:
                 continue
+            # A running page-top banner repeating the CURRENT section's own number and
+            # title, printed once at the start of that section's first new page --
+            # confirmed on the same real chapter: "2 The Nineteenth Century (1815-1914)"
+            # appears in the extracted text exactly once, mid-paragraph, immediately
+            # followed by "Reprint 2026-27" and the book title -- the page's own running
+            # furniture, not a second real heading. Taking it as one invented a phantom
+            # "2" section that stole the back half of "2.1"'s real content (the food-price
+            # discussion right after it plainly continues 2.1's own topic, not a new
+            # one), and its own out-of-place position -- AFTER "2.1" has already started
+            # -- is only possible for furniture glued to a page break, never a genuine
+            # heading a book would print out of numeric order.
+            if text[pos + len(title):pos + len(title) + 20].lstrip().startswith("Reprint"):
+                continue
+            # A number already used for a DIFFERENT title is the book reusing it for a
+            # second real heading, not a repeat of the first -- disambiguated so both
+            # keep their own content and their own dict key downstream
+            # (verify_against_toc keys sections by number; two sections sharing one would
+            # silently collide, the second overwriting the first). The disambiguated form
+            # is reported as a real problem by verify_structure/verify_against_toc rather
+            # than hidden, since it is not what a hand-typed oracle would ever expect.
+            if number in seen_titles:
+                suffix = 2
+                while f"{number}-{suffix}" in seen_titles:
+                    suffix += 1
+                number = f"{number}-{suffix}"
+            seen_titles[number] = title
             found.append((number, title, pos))
             cursor = pos + len(title)
         sections = []
@@ -1157,8 +1204,22 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
     used anywhere in the chapter, tried first since it is what every book but one uses.
     Economics sets its real headings in a custom embedded subset font that carries no
     bold flag at all -- only a size visibly larger than the body -- so a second attempt
-    on that looser signal runs only when the bold one finds nothing usable at all, never
-    blended into it.
+    on that looser signal used to run only when the bold one found nothing usable at all.
+
+    That "nothing at all" test was too easy to satisfy. Confirmed on the real "Money and
+    Credit" chapter: exactly two of its real headings ("Loan Activities of Banks", "Formal
+    Sector Credit in India") happen to be drawn bold, and the other dozen -- "Currency",
+    "Terms of Credit", "Variety of Credit Arrangements", "Self-Help Groups for the Poor",
+    all real, all present as plain (non-bold) text at larger-than-body sizes -- are not.
+    The bold pass returned a non-empty, plausible-looking two-section list, which used to
+    end the search right there: not the silent single-section collapse the note above
+    describes, but the same failure in miniature, spread across the whole chapter instead
+    of concentrated at its start. Now, whenever the bold pass looks sparse for how long the
+    chapter actually is (average span per section over the same threshold a lone section
+    is judged suspicious by), the looser size-based pass is tried too, and whichever finds
+    more real headings wins -- checked against Political Parties, whose correctly-bold
+    six-section chapter also clears that span threshold: the size-based pass there finds
+    only one ('Overview'), so the comparison still keeps the right answer.
 
     Section 'numbers' are just 1, 2, 3... in reading order: the book gives none, so
     inventing a false one there would be worse than admitting there isn't one. Found by
@@ -1169,7 +1230,11 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
     with pymupdf.open(path) as doc:
         bold_lines = _heading_styled_lines(doc, require_bold=True)
         by_bold = _pick_sections(bold_lines, text, chapter_title, filter_by_cover_colour=False)
-        if by_bold:
+        sparse = (
+            not by_bold
+            or len(text) / len(by_bold) > SUSPICIOUS_SINGLE_SECTION_CHARS
+        )
+        if by_bold and not sparse:
             return by_bold
 
         body_chars: dict[float, int] = {}
@@ -1181,7 +1246,8 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
                         body_chars[size] = body_chars.get(size, 0) + len(s["text"])
         body_size = max(body_chars, key=lambda s: body_chars[s]) if body_chars else 0.0
         sized_lines = _heading_styled_lines(doc, require_bold=False, body_size=body_size)
-        return _pick_sections(sized_lines, text, chapter_title, filter_by_cover_colour=True)
+        by_size = _pick_sections(sized_lines, text, chapter_title, filter_by_cover_colour=True)
+        return by_size if len(by_size) > len(by_bold) else by_bold
 
 
 def extract_chunks(

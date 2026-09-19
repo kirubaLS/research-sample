@@ -1040,13 +1040,26 @@ def test_status_counts_expected_chapters_for_a_book_with_no_section_list(client)
     from app.db import SessionLocal
     from app.models import BookSource
 
+    from sqlalchemy import select
+
     client.post("/platform/books/X.HIST/curriculum", headers=HEAD)
 
     db = SessionLocal()
-    db.add(BookSource(
-        curriculum_version="CBSE-2026-27", subject_code="X.HIST",
-        expected_sections={}, expected_chapters={"1": "x", "2": "y", "3": "z"}, files={},
-    ))
+    # get-or-create, not a blind insert: another test in this session (expected-sections)
+    # may already have created X.HIST's one BookSource row (curriculum_version,
+    # subject_code) is a unique constraint, so a second unconditional insert here would
+    # violate it whenever that test happens to run first.
+    source = db.scalar(
+        select(BookSource).where(
+            BookSource.curriculum_version == "CBSE-2026-27",
+            BookSource.subject_code == "X.HIST",
+        )
+    )
+    if source is None:
+        source = BookSource(curriculum_version="CBSE-2026-27", subject_code="X.HIST", files={})
+        db.add(source)
+    source.expected_sections = {}
+    source.expected_chapters = {"1": "x", "2": "y", "3": "z"}
     db.commit()
     db.close()
 
