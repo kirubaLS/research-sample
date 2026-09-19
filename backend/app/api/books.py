@@ -1191,6 +1191,34 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
     ]
     proposals = _dedupe_and_flag(proposals)
     proposals.sort(key=lambda r: (r["chapter_label"], r["label"]))
+
+    # A section the book was actually chunked into (chunk.section_number, set at
+    # ingestion) that no family -- applied or proposed -- claims in its from_sections.
+    # This is exactly the gap a question can silently fail to map against: mapping
+    # cannot choose a family for a section nothing on this list names, and until now
+    # nobody found out until a teacher's paper came back unmapped. Computed from the
+    # book's own chunks, not from the heading list `propose()` walks, so it also catches
+    # a section whose heading detection failed at ingestion but whose text still landed
+    # under the chapter (see `_load`'s note on section_number reconciliation) -- that
+    # text would otherwise sit invisible to every family a proposal run ever offers.
+    chunk_sections: dict[str, set[str]] = {}
+    for chapter_id, chapter in chapters.items():
+        for chunk in db.scalars(
+            select(BookChunk.section_number)
+            .where(BookChunk.subject_code == subject)
+            .where(BookChunk.node_id == chapter_id)
+        ):
+            if chunk:
+                chunk_sections.setdefault(chapter.code, set()).add(chunk)
+    claimed_sections: dict[str, set[str]] = {}
+    for row in stored + proposals:
+        claimed_sections.setdefault(row["chapter_code"], set()).update(row["from_sections"])
+    uncovered = [
+        {"chapter_code": chapter_code, "sections": sorted(sections - claimed_sections.get(chapter_code, set()))}
+        for chapter_code, sections in chunk_sections.items()
+        if sections - claimed_sections.get(chapter_code, set())
+    ]
+
     return {
         "subject": subject,
         "existing": len(existing),
@@ -1200,6 +1228,10 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
         #: proposals that name no section a question could be matched against. They can
         #: still be created; they just cannot be chosen by section afterwards.
         "without_a_section": sum(1 for p in proposals if not p["from_sections"]),
+        #: sections the book was actually loaded with that no family, existing or
+        #: proposed, claims -- a question landing here has nothing to be mapped to no
+        #: matter how the family list is reviewed. See the note above computing this.
+        "uncovered_sections": uncovered,
         "families": proposals,
         "note": (
             "A family is the axis a report compares against itself over time. Chapter is "

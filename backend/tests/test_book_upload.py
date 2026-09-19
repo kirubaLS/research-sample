@@ -269,6 +269,24 @@ def test_families_are_proposed_from_the_books_own_sections(client, school):
     assert "Summary" not in labels
 
 
+def test_a_section_no_family_claims_is_reported_as_uncovered(client, school, book):
+    """Section 13.3 (Mode of Grouped Data) has a loaded chunk but no family claims it --
+    the fixture's only Statistics family, Mean by step-deviation, covers 13.2 alone, and
+    once a chapter has any stored proposal the heading-based fallback stops proposing for
+    its other sections (see `covered` in propose_families). That is exactly the shape of
+    the real gap a teacher only ever discovered when a question in that section came back
+    unmapped: nothing here should have to fail a paper to be found."""
+    r = client.get("/platform/books/X.MATH/concept-families", headers=HEAD)
+    assert r.status_code == 200
+    uncovered = {u["chapter_code"]: u["sections"] for u in r.json()["uncovered_sections"]}
+    assert uncovered.get("X.MATH.STATS") == ["13.3"]
+    # 13.2 is claimed by the fixture's own family and must not also be flagged.
+    assert "13.2" not in uncovered.get("X.MATH.STATS", [])
+    # A chapter with no stored proposal falls back to the heading proposals, which do
+    # claim their own sections, so it must not be flagged as having any gap at all.
+    assert "X.MATH.CIRCLE" not in uncovered
+
+
 def test_a_family_is_created_once_and_never_renamed(client, school):
     """Held constant across cycles is the whole property. Renaming one after a class has
     been tested breaks every trend that references it."""
