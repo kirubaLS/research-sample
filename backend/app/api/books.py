@@ -1145,7 +1145,15 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
 #: every question, even though the model had correctly read "1" off the book every time.
 #: What is still rejected is a sentence -- one run returned "Section on spherical mirror
 #: introduction" -- which this pattern never matches either way.
-SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,2}$")
+#:
+#: '2.4-2' -- the disambiguated form _pick_sections's own numbered-heading dedup mints
+#: when a book reuses one printed number for two different real headings (confirmed on
+#: the real History chapter "The Making of a Global World": '2.4' is printed twice, for
+#: two different headings, both genuine). Without the trailing '-\d+' here, that section
+#: number itself read as an invalid, non-section value and got silently stripped from
+#: its own family's from_sections -- reported as still uncovered even though a proposal
+#: for it existed and named it correctly right up until this filter ran.
+SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,2}(?:-\d+)?$")
 
 
 def clean_sections(values) -> list[str]:

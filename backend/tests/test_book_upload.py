@@ -296,6 +296,23 @@ def test_families_are_proposed_from_the_books_own_sections(client, school):
     assert "Summary" not in labels
 
 
+def test_a_disambiguated_duplicate_section_number_is_a_valid_section():
+    """'2.4-2' is the form _pick_sections's own numbered-heading dedup mints when a book
+    reuses one printed number for two different real headings (confirmed on the real
+    History chapter "The Making of a Global World": '2.4' printed twice for two
+    different, genuine headings). Without the trailing '-\\d+' in SECTION_NUMBER, that
+    string read as an invalid section value and was silently stripped from its own
+    family's from_sections by clean_sections -- the family existed, correctly named the
+    section it was proposed from, and still showed up in uncovered_sections because this
+    filter disagreed with its own proposer about what a section number looks like."""
+    from app.api.books import clean_sections
+
+    assert clean_sections(["2.4-2"]) == ["2.4-2"]
+    assert clean_sections(["2.4-2", "13.2", "2.4"]) == ["2.4-2", "13.2", "2.4"]
+    # still rejects a real sentence, the reason this allowlist exists at all
+    assert clean_sections(["Section on spherical mirror introduction"]) == []
+
+
 def test_a_partially_covered_chapter_still_gets_its_other_sections_proposed(client, school, book):
     """Section 13.3 (Mode of Grouped Data) has a loaded chunk and its own subtopic node,
     but the fixture's only stored proposal for this chapter, Mean by step-deviation,
