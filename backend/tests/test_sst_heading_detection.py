@@ -29,7 +29,7 @@ from pathlib import Path
 
 import pytest
 
-from app.ingest.book import _sections_by_boldness, extract_chapter, read_text
+from app.ingest.book import _NOT_A_HEADING, _sections_by_boldness, extract_chapter, read_text
 
 FIXTURES = Path(__file__).parent / "fixtures" / "regression"
 DEVELOPMENT_PDF = FIXTURES / "sst_economics_development.pdf"
@@ -208,3 +208,16 @@ def test_a_full_chapter_of_mixed_case_and_plain_headings_is_recovered():
     assert len(sections) == 15, f"got {titles!r}"
     assert "THE CONSUMER IN THE MARKETPLACE" in titles
     assert "Where should consumers go to get justice?" in titles
+
+
+def test_an_exercise_label_followed_by_its_own_section_number_is_still_excluded():
+    """A real production upload of History's 'Nationalism in Europe' chapter left three
+    stray book_chunk rows behind under section_number '9': 'Discuss 1.9', 'Write In Brief
+    1.11', 'Project 1.12'. _NOT_A_HEADING already excludes the bare words 'DISCUSS',
+    'WRITE IN BRIEF' and 'PROJECT', but its trailing-number chapter.section label (the
+    same 'N.M' shape a real numbered heading carries) was never accounted for, so a line
+    that pairs the exclusion word with its own number sailed through as a fake heading."""
+    for text in ("Discuss 1.9", "Write In Brief 1.11", "Project 1.12", "Activity 4.2"):
+        assert _NOT_A_HEADING.match(text), text
+    # A real heading that merely starts with a similar word must not be swept up.
+    assert not _NOT_A_HEADING.match("Discussing the Treaty of Versailles")

@@ -930,7 +930,7 @@ _NOT_A_HEADING = re.compile(
     r"ACTIVITIES|ADDITIONAL PROJECT\s*/\s*ACTIVITY|BIBLIOGRAPHY|FURTHER READING|GLOSSARY|"
     r"LET.S WORK (?:THESE|THIS) OUT|LET.S RECALL|NOTES? FOR (?:THE )?TEACHERS?|"
     r"SOURCES FOR INFORMATION|EXAMPLE|WHAT DOES THIS SHOW\??)"
-    r"(\s+\1)*$"
+    r"(\s+\1)*(\s+\d{1,2}(?:\.\d{1,2}){0,2})?$"
     r"|^ACTIVITY\s+\d+$"
     r"|^TABLE\s+\d+(?:\.\d+)*\b.*$"
     r"|^GRAPH\s+\d+(?:\.\d+)*\s*[:.].*$",
