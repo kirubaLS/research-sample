@@ -39,6 +39,10 @@ GLOBAL_WORLD_PDF = FIXTURES / "sst_history_making_of_a_global_world.pdf"
 real_global_world = pytest.mark.skipif(not GLOBAL_WORLD_PDF.exists(), reason="regression fixture not present")
 MONEY_AND_CREDIT_PDF = FIXTURES / "sst_economics_money_and_credit.pdf"
 real_money_and_credit = pytest.mark.skipif(not MONEY_AND_CREDIT_PDF.exists(), reason="regression fixture not present")
+SECTORS_PDF = FIXTURES / "sst_economics_sectors.pdf"
+real_sectors = pytest.mark.skipif(not SECTORS_PDF.exists(), reason="regression fixture not present")
+CONSUMER_RIGHTS_PDF = FIXTURES / "sst_economics_consumer_rights.pdf"
+real_consumer_rights = pytest.mark.skipif(not CONSUMER_RIGHTS_PDF.exists(), reason="regression fixture not present")
 
 
 @pytest.mark.skipif(not DEVELOPMENT_PDF.exists(), reason="regression fixture not present")
@@ -57,7 +61,16 @@ def test_a_front_matter_note_bigger_than_every_real_heading_is_not_the_whole_cha
     sections = _sections_by_boldness(DEVELOPMENT_PDF, text, "Development")
 
     titles = [s.title for s in sections]
-    assert len(sections) == 7, f"got {titles!r}"
+    # 11, not 7: the chapter has real sub-headings ("Average Income", "Human Development
+    # Report") beyond its 7 major ones, at yet another size level multi_size now also
+    # recognises. Not asserted as an exact upper bound elsewhere in this file on purpose --
+    # what matters is that none of the garbage this fix specifically had to clean up
+    # (overlapping fake-bold draws, a table caption's wrapped tail) survives, checked below.
+    assert len(sections) == 11, f"got {titles!r}"
+    assert "HUMAN DEVELOPMENT REPORT" in titles, (
+        "a fake-bold overlap ('HUMAN' x4, 'HUMAN DEVELOPMENT', 'REPOR' x4, 'REPORT') must "
+        "collapse into one real heading, not survive as several fragments"
+    )
     assert not any("NOTES FOR" in t.upper() for t in titles)
     assert any("PUBLIC FACILITIES" in t.upper() for t in titles)
     assert any("INCOME AND OTHER CRITERIA" in t.upper() for t in titles)
@@ -151,19 +164,47 @@ def test_a_number_the_book_itself_reuses_for_two_headings_keeps_both():
 
 
 @real_money_and_credit
-def test_a_bold_pass_that_finds_only_a_few_of_many_real_headings_is_not_trusted_alone():
-    """Only 2 of this chapter's ~15 real headings ("Loan Activities of Banks", "Formal
-    Sector Credit in India") are drawn bold; the rest ("Currency", "Deposits with Banks",
-    "Formal and Informal Credit: Who gets what?", ...) are plain text at a larger size.
-    The bold pass alone returns those 2 as a plausible, non-empty result and used to stop
-    there -- correct as far as they go, but standing in for a chapter more than seven
-    times their combined length. Not every real heading is recovered yet this way (see
-    the module docstring on _sections_by_boldness for the open gap: a book that MIXES
-    bold and plain headings within one chapter still needs both signals merged, not one
-    chosen over the other) -- this only proves the sparse, bold-only answer is no longer
-    trusted on its own.
-    """
+def test_a_chapter_with_three_real_heading_sizes_keeps_all_of_them():
+    """Only 2 of this chapter's 19 real headings ("Loan Activities of Banks", "Formal
+    Sector Credit in India") are drawn bold; the rest print at two other plain,
+    larger-than-body sizes -- 18pt for a named case study ("Cheque Payments", "A House
+    Loan", "Grameen Bank of Bangladesh", ...) and 12pt for a finer level ("Currency",
+    "Deposits with Banks", "Formal and Informal Credit: Who gets what?"). The bold pass
+    alone used to return those 2 as a plausible, non-empty result and stop there; the
+    size-based pass alone used to take only its own single largest size and discard the
+    other two real levels. _sections_by_boldness's ``multi_size`` combines every real
+    size cohort instead of picking one, which is what actually recovers all 19."""
     text = read_text(MONEY_AND_CREDIT_PDF)
     sections = _sections_by_boldness(MONEY_AND_CREDIT_PDF, text, "Money and Credit")
     titles = [s.title for s in sections]
-    assert len(sections) > 2, f"got {titles!r}"
+    assert len(sections) == 19, f"got {titles!r}"
+    assert "Currency" in titles and "Cheque Payments" in titles and "LOAN ACTIVITIES OF BANKS" in titles
+    # A running header repeating the chapter's own title on every page ('De moc ra tic
+    # Polit ics', letter-spaced by the page design) must not survive as a heading now
+    # that more than one size cohort is let through -- confirmed as a real regression
+    # against Political Parties before the repeat-count filter was added.
+    assert not any("De moc ra tic" in t or "Polit ics" in t for t in titles)
+
+
+@real_sectors
+def test_a_noise_phrase_split_across_its_own_wrap_is_still_excluded():
+    """"LET'S WORK THESE OUT" is already an excluded phrase, but this chapter draws it
+    wrapped across two separate lines ('LET'S WORK THESE' / 'OUT') -- the exclusion check
+    on each raw line before merging never sees the whole phrase, only after the two are
+    joined back into one heading. Checked again post-merge for exactly this gap."""
+    text = read_text(SECTORS_PDF)
+    sections = _sections_by_boldness(SECTORS_PDF, text, "Sectors of the Indian Economy")
+    titles = [s.title for s in sections]
+    assert len(sections) == 14, f"got {titles!r}"
+    assert not any("LET" in t.upper() for t in titles)
+    assert "Kanta" in titles and "Kamal" in titles
+
+
+@real_consumer_rights
+def test_a_full_chapter_of_mixed_case_and_plain_headings_is_recovered():
+    text = read_text(CONSUMER_RIGHTS_PDF)
+    sections = _sections_by_boldness(CONSUMER_RIGHTS_PDF, text, "Consumer Rights")
+    titles = [s.title for s in sections]
+    assert len(sections) == 15, f"got {titles!r}"
+    assert "THE CONSUMER IN THE MARKETPLACE" in titles
+    assert "Where should consumers go to get justice?" in titles

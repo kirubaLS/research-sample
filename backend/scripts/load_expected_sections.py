@@ -23,24 +23,43 @@ everything a topic list could contain:
   content in two) fixed in app.ingest.book directly, not just worked around here.
 
 * Political Science chapter 4 ("Political Parties", jess404.pdf) -- proven against the
-  real file in tests/test_sst_heading_detection.py.
+  real file. Its list grew from 6 headings to 11 once app.ingest.book learned to combine
+  more than one real heading size in a chapter (see below): "Meaning", "Functions",
+  "Necessity", "Overview" and one truncated by a real PDF layout quirk ("Popular",
+  short for "Popular participation in political parties") were real headings the first
+  pass over this chapter never saw at all, not new content -- all five are named in the
+  user's own topic list.
 
-Deliberately NOT included: Geography, Economics, and Political Science chapters 1-3/5.
-Those books number NONE of their own headings -- _sections_by_boldness assigns plain
-reading-order numbers ('1', '2', '3'...) to whatever it finds -- and the topic list given
-for them flattens every level of the book's outline (chapter title, major heading, and
-sub-point) into one column with no marker saying which is which. Three of them (Economics
-jess202/203/205) have been checked against their real files already, and each turned up a
-DIFFERENT real gap in _sections_by_boldness itself (a chapter that bolds only some of its
-headings and not others, which used to make the bold pass's sparse-but-non-empty result
-look trustworthy on its own -- fixed in app.ingest.book, see test_sst_heading_detection.py)
-but none of the three is complete enough yet to safely become a hard oracle: a chapter
-that mixes bold and plain headings needs both signals merged, not one chosen over the
-other, and that merge is not built yet. Loading a partial or wrong list here would not
-silently do nothing, it would PERMANENTLY reject every future upload of that chapter
-(verify_against_toc rejects a mismatch), which is worse than the weaker heuristic check
-it would replace. Add a chapter here only once its real PDF extraction is complete and
-checked, the same way every chapter above was.
+* Economics, chapters 1, 2, 3 and 5 ("Development", "Sectors of the Indian Economy",
+  "Money and Credit", "Consumer Rights") -- these are the chapters that forced the fix
+  above. None of them bolds ALL of its real headings uniformly, unlike every book tried
+  before: "Money and Credit" prints its real headings at three different sizes in the
+  same chapter (18pt for a named case study, 14pt for its major divisions, 12pt for a
+  finer level), and the old "take only the single largest size" rule kept one of those
+  three levels and silently discarded the other two -- not a smaller, incomplete list of
+  headings, but a differently-shaped wrong one, since the one surviving level read as
+  "the whole chapter" with nothing left to contradict it. Fixed generally in
+  app.ingest.book's _sections_by_boldness (multi_size), with two more real fixes it
+  needed along the way: a fake-bold heading drawn as several overlapping fragments
+  ('HUMAN' / 'HUMAN DEVELOPMENT' / 'REPOR' / 'REPORT', all one real heading, "Human
+  Development Report") had to be reassembled the same way _collapse_bold already does
+  for the plain-text extraction path; and a running header/footer repeating the
+  chapter's own title on every page had to be recognised and excluded once more than one
+  heading level could let it through. All four chapters are proven against their real
+  files in tests/test_sst_heading_detection.py, and each one's list below includes real
+  content the user's own hand-typed list did not (a "Summing Up" closer, a small
+  "Average Income" callout, a dialogue-style illustration named after its two
+  characters) -- kept, not suppressed back to match the shorter original list, because
+  the entire point of this fix was to stop missing real content.
+
+Deliberately NOT included: Geography (all 7 chapters), Economics chapter 4
+("Globalisation and the Indian Economy" -- a different real file from an earlier,
+smaller sample analysed before this fix existed, not yet re-checked against it), and
+Political Science chapters 1, 2, 3 and 5. Add a chapter here only once its real PDF has
+actually been run through the current extractor and checked, the same way every chapter
+above was -- loading an untested guess would not silently do nothing, it would
+PERMANENTLY reject every future upload of that chapter (verify_against_toc rejects a
+mismatch), which is worse than the weaker heuristic check it would replace.
 """
 
 from __future__ import annotations
@@ -179,13 +198,114 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
     },
     "X.POL": {
         "4": [  # jess404.pdf -- Political Parties -- proven against the real file
-            {"number": "1", "title": "Why do we need political parties?"},
-            {"number": "2", "title": "How many parties should we have?"},
-            {"number": "3", "title": "National parties"},
-            {"number": "4", "title": "State parties"},
-            {"number": "5", "title": "Challenges to political parties"},
-            {"number": "6", "title": "How can parties be reformed?"},
+            {"number": "1", "title": "Overview"},
+            {"number": "2", "title": "Why do we need political parties?"},
+            # These four (3-7) were invisible to the first pass over this chapter, which
+            # only ever found the bold path's largest single size cohort -- 6 major
+            # headings. Once _sections_by_boldness could recognise more than one real
+            # heading size in the same chapter (see its own docstring), these real,
+            # finer-grained headings -- all named in the user's own topic list --
+            # appeared too. Kept, not suppressed back down to 6: the point of the fix was
+            # to stop missing real content, and an oracle that rejected this chapter for
+            # finding MORE of its real structure than before would be exactly backwards.
+            {"number": "3", "title": "Meaning"},
+            {"number": "4", "title": "Functions"},
+            {"number": "5", "title": "Necessity"},
+            {"number": "6", "title": "How many parties should we have?"},
+            # The real heading here is "Popular participation in political parties", laid
+            # out across a narrow column in a word order pymupdf's text extraction does
+            # not reassemble ('Popular / in / political parties / participation It is
+            # often sai...') -- a real PDF layout quirk, not a bug introduced here. The
+            # oracle has to match what the extractor actually produces, the same
+            # accepted-truncation reasoning as History's own wrapped titles.
+            {"number": "7", "title": "Popular"},
+            {"number": "8", "title": "National parties"},
+            {"number": "9", "title": "State parties"},
+            {"number": "10", "title": "Challenges to political parties"},
+            {"number": "11", "title": "How can parties be reformed?"},
         ],
+    },
+    "X.ECO": {
+        "1": [  # jess201.pdf -- Development -- proven against the real file
+            {"number": "1", "title": "WHAT DEVELOPMENT PROMISES — DIFFERENT PEOPLE, DIFFERENT GOALS"},
+            {"number": "2", "title": "INCOME AND OTHER GOALS"},
+            {"number": "3", "title": "NATIONAL DEVELOPMENT"},
+            {"number": "4", "title": "HOW TO COMPARE DIFFERENT COUNTRIES OR STATES?"},
+            {"number": "5", "title": "Average Income"},
+            {"number": "6", "title": "INCOME AND OTHER CRITERIA"},
+            {"number": "7", "title": "PUBLIC FACILITIES"},
+            # Reassembled from four overlapping fake-bold draws ('HUMAN' x4, 'HUMAN
+            # DEVELOPMENT' x1, 'REPOR' x4, 'REPORT' x1) -- one real heading, not four
+            # fragments -- the same _collapse_bold-style merge the plain-text extraction
+            # path already used, now applied to this per-span heading-detection view too.
+            {"number": "8", "title": "HUMAN DEVELOPMENT REPORT"},
+            {"number": "9", "title": "Example 1: Groundwater in India"},
+            {"number": "10", "title": "SUSTAINABILITY OF DEVELOPMENT"},
+            {"number": "11", "title": "Example 2: Exhaustion of Natural Resources"},
+        ],
+        "2": [  # jess202.pdf -- Sectors of the Indian Economy -- proven against the real file
+            {"number": "1", "title": "SECTORS OF ECONOMIC ACTIVITIES"},
+            {"number": "2", "title": "How do we count the various goods and services and know the total production in each sector?"},
+            {"number": "3", "title": "COMPARING THE THREE SECTORS"},
+            {"number": "4", "title": "Historical Change in Sectors"},
+            {"number": "5", "title": "PRIMARY, SECONDARY AND TERTIARY SECTORS IN INDIA"},
+            {"number": "6", "title": "Rising Importance of the Tertiary Sector in Production"},
+            {"number": "7", "title": "Where are most of the people employed?"},
+            {"number": "8", "title": "How to Create More Employment?"},
+            {"number": "9", "title": "DIVISION OF SECTORS AS ORGANISED AND UNORGANISED"},
+            # A real dialogue-style illustration, an unorganised-sector worker (Kanta)
+            # contrasted with an organised-sector one (Kamal) -- not in the user's own
+            # topic list for this chapter, but genuinely printed content under this
+            # section, the same "kept, not suppressed" reasoning as Money and Credit's
+            # own named case studies below.
+            {"number": "10", "title": "Kanta"},
+            {"number": "11", "title": "Kamal"},
+            {"number": "12", "title": "How to Protect Workers in the Unorganised Sector?"},
+            {"number": "13", "title": "SECTORS IN TERMS OF OWNERSHIP: PUBLIC AND PRIVATE SECTORS"},
+            {"number": "14", "title": "SUMMING UP"},
+        ],
+        "3": [  # jess203.pdf -- Money and Credit -- proven against the real file
+            {"number": "1", "title": "MONEY AS A MEDIUM OF EXCHANGE"},
+            {"number": "2", "title": "Currency"},
+            {"number": "3", "title": "Deposits with Banks"},
+            {"number": "4", "title": "MODERN FORMS OF  MONEY"},
+            {"number": "5", "title": "Cheque Payments"},
+            {"number": "6", "title": "LOAN ACTIVITIES OF BANKS"},
+            {"number": "7", "title": "(1) Festival Season"},
+            {"number": "8", "title": "(2) Swapna’s Problem"},
+            {"number": "9", "title": "TWO DIFFERENT CREDIT SITUATIONS"},
+            {"number": "10", "title": "TERMS OF CREDIT"},
+            {"number": "11", "title": "A House Loan"},
+            {"number": "12", "title": "Variety of Credit Arrangements"},
+            {"number": "13", "title": "Example of a Village"},
+            {"number": "14", "title": "Loans from Cooperatives"},
+            {"number": "15", "title": "FORMAL SECTOR CREDIT IN INDIA"},
+            {"number": "16", "title": "Formal and Informal Credit: Who gets what?"},
+            {"number": "17", "title": "SELF-HELP GROUPS FOR THE POOR"},
+            {"number": "18", "title": "Grameen Bank of Bangladesh"},
+            {"number": "19", "title": "SUMMING UP"},
+        ],
+        "5": [  # jess205.pdf -- Consumer Rights -- proven against the real file
+            {"number": "1", "title": "THE CONSUMER IN THE MARKETPLACE"},
+            {"number": "2", "title": "CONSUMER MOVEMENT"},
+            {"number": "3", "title": "Consumers International"},
+            {"number": "4", "title": "SAFETY IS EVERYONE’S RIGHT"},
+            {"number": "5", "title": "Reji’s Suffering"},
+            {"number": "6", "title": "Information about goods and services"},
+            {"number": "7", "title": "Waiting..."},
+            {"number": "8", "title": "When choice is denied"},
+            {"number": "9", "title": "A Refund"},
+            {"number": "10", "title": "Where should consumers go to get justice?"},
+            {"number": "11", "title": "LEARNING TO BECOME WELL-INFORMED CONSUMERS"},
+            {"number": "12", "title": "ISI and Agmark"},
+            {"number": "13", "title": "TAKING THE CONSUMER MOVEMENT FORWARD"},
+            {"number": "14", "title": "Books"},
+            {"number": "15", "title": "Government Publications"},
+        ],
+        # Chapter 4 ("Globalisation and the Indian Economy") deliberately left out: it was
+        # analysed from a different, smaller sample file earlier in this project, before
+        # this multi-size fix existed, and has not been re-checked against it since. Add
+        # it once it has been, the same way the four chapters above were.
     },
 }
 

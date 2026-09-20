@@ -31,6 +31,14 @@ GLOBAL_WORLD_FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_
 real_global_world_fixture = pytest.mark.skipif(
     not GLOBAL_WORLD_FIXTURE.exists(), reason="regression fixture not present"
 )
+DEVELOPMENT_FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_economics_development.pdf"
+SECTORS_FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_economics_sectors.pdf"
+MONEY_AND_CREDIT_FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_economics_money_and_credit.pdf"
+CONSUMER_RIGHTS_FIXTURE = Path(__file__).parent / "fixtures" / "regression" / "sst_economics_consumer_rights.pdf"
+ECO_FIXTURES = [DEVELOPMENT_FIXTURE, SECTORS_FIXTURE, MONEY_AND_CREDIT_FIXTURE, CONSUMER_RIGHTS_FIXTURE]
+real_eco_fixtures = pytest.mark.skipif(
+    not all(f.exists() for f in ECO_FIXTURES), reason="regression fixture not present"
+)
 
 # The real section list for jess304.pdf ("The Age of Industrialisation"), read from the
 # same data scripts/load_expected_sections.py actually loads -- one source of truth,
@@ -201,3 +209,31 @@ def test_the_loader_scripts_data_verifies_the_chapter_with_a_real_duplicate_numb
     assert r.status_code == 201, r.json()
     assert r.json()["verified_against"] is not None
     assert r.json()["sections"] == len(_expected_sections()["X.HIST"]["3"])
+
+
+@real_eco_fixtures
+def test_the_loader_scripts_data_verifies_all_four_economics_chapters(client, school):
+    """The four Economics chapters that forced the multi-size fix in the first place
+    (see app.ingest.book's _sections_by_boldness docstring) -- each proven individually
+    in test_sst_heading_detection.py, this proves the SAME data the loader script ships
+    verifies clean end to end for all four together, the way a real deployment would
+    actually load them."""
+    from scripts.load_expected_sections import main as load_all
+
+    client.post("/platform/books/X.ECO/curriculum", headers=HEAD)
+    load_all([])
+
+    for chapter_number, filename, fixture in [
+        ("1", "jess201.pdf", DEVELOPMENT_FIXTURE),
+        ("2", "jess202.pdf", SECTORS_FIXTURE),
+        ("3", "jess203.pdf", MONEY_AND_CREDIT_FIXTURE),
+        ("5", "jess205.pdf", CONSUMER_RIGHTS_FIXTURE),
+    ]:
+        with open(fixture, "rb") as fh:
+            r = client.post(
+                "/platform/books/X.ECO/chapters", headers=HEAD,
+                files={"file": (filename, fh, "application/pdf")},
+            )
+        assert r.status_code == 201, (chapter_number, r.json())
+        assert r.json()["verified_against"] is not None
+        assert r.json()["sections"] == len(_expected_sections()["X.ECO"][chapter_number])

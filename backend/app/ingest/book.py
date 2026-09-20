@@ -928,8 +928,8 @@ _NOT_A_HEADING = re.compile(
     r"^(EXERCISES|QUESTIONS|PROJECT|ACTIVITY|PROJECT/ACTIVITY|PROJECT WORK|DISCUSS|"
     r"MAP SKILLS|MAP WORK|WRITE IN BRIEF|SUGGESTED READINGS|ADDITIONAL PROJECTS\s*/\s*"
     r"ACTIVITIES|ADDITIONAL PROJECT\s*/\s*ACTIVITY|BIBLIOGRAPHY|FURTHER READING|GLOSSARY|"
-    r"LET.S WORK (?:THESE|THIS) OUT|NOTES? FOR (?:THE )?TEACHERS?|SOURCES FOR INFORMATION|"
-    r"EXAMPLE|WHAT DOES THIS SHOW\??)"
+    r"LET.S WORK (?:THESE|THIS) OUT|LET.S RECALL|NOTES? FOR (?:THE )?TEACHERS?|"
+    r"SOURCES FOR INFORMATION|EXAMPLE|WHAT DOES THIS SHOW\??)"
     r"(\s+\1)*$"
     r"|^ACTIVITY\s+\d+$"
     r"|^TABLE\s+\d+(?:\.\d+)*\b.*$"
@@ -992,6 +992,7 @@ def _pick_sections(
     chapter_title: str,
     *,
     filter_by_cover_colour: bool,
+    multi_size: bool = False,
 ) -> list[Section]:
     """The shared second half of both heading-detection attempts: dedupe, exclude noise,
     prefer the book's own numbering if it has one, and otherwise take the largest
@@ -1010,14 +1011,25 @@ def _pick_sections(
     # overlapping draws, the same fake-bold trick Science uses on single headings, which
     # read_text's own collapsing (_collapse_bold) was built for but never runs on this
     # per-span view. Collapsed here to the same effect: keep the first, drop the repeats.
+    #
+    # A near-identical draw that EXTENDS the previous one rather than repeating it verbatim
+    # ('HUMAN' x4, then 'HUMAN DEVELOPMENT' once, then 'REPOR' x4, then 'REPORT' once) is
+    # the same fake-bold trick's other shape -- confirmed on the real Economics
+    # "Development" chapter's own 'HUMAN DEVELOPMENT REPORT' banner. `_overlap` (already
+    # used by `_collapse_bold` for exactly this) merges a draw onto the previous one when
+    # it shares a suffix/prefix rather than repeating it outright, which the exact-match
+    # rule above cannot catch on its own.
     deduped: list[tuple[int, float, float, str, int | None]] = []
     for entry in lines:
-        page_index, y, _size, line_text, _colour = entry
-        if (
-            deduped and deduped[-1][3] == line_text and deduped[-1][0] == page_index
-            and abs(y - deduped[-1][1]) < 3
-        ):
-            continue
+        page_index, y, size, line_text, colour = entry
+        if deduped and deduped[-1][0] == page_index and abs(y - deduped[-1][1]) < 5:
+            if deduped[-1][3] == line_text:
+                continue
+            shared = _overlap(deduped[-1][3], line_text)
+            if shared and deduped[-1][2] == size:
+                p, y0, s, acc, c = deduped[-1]
+                deduped[-1] = (p, y0, s, acc + line_text[shared:], c)
+                continue
         deduped.append(entry)
     lines = deduped
 
@@ -1027,12 +1039,20 @@ def _pick_sections(
     # PROJECT is. The bold attempt never reaches here with this on -- it doesn't need it,
     # and a book whose cover happens to share a colour with something else entirely
     # would otherwise lose real headings to a filter it never asked for.
+    # NOT applied when ``multi_size``: this assumes every real heading in the chapter is
+    # drawn in one uniform colour matching the cover's -- true for a chapter with one real
+    # heading level, false the moment there is more than one. Confirmed on the real
+    # "Money and Credit" chapter: its 12pt headings ("Currency", "Deposits with Banks")
+    # happen to share the cover's own colour, but its 18pt case-study headings ("Cheque
+    # Payments", "A House Loan", "Grameen Bank of Bangladesh") do not -- this filter alone
+    # silently threw away that entire heading level, the same shape of loss as taking only
+    # the largest size (see the multi_size branch below) but from the opposite direction.
     heading_colour = (
         next(
             (c for _p, _y, _s, t, c in lines if c is not None and _CHAPTER_COVER.match(t)),
             None,
         )
-        if filter_by_cover_colour
+        if filter_by_cover_colour and not multi_size
         else None
     )
 
@@ -1062,11 +1082,32 @@ def _pick_sections(
             excluded_lines.add(i)
         elif (
             previous is not None and previous[0] == page_index
-            and previous[2] == size and 0 < y - previous[1] < 20
+            and 0 < y - previous[1] < 20
             and (i - 1) in excluded_lines
         ):
+            # No size match required here (unlike the wrap-title merge below): a
+            # caption's own wrapped continuation is not always drawn at exactly the same
+            # size as its first line -- confirmed on the real Economics "Development"
+            # chapter, where 'TABLE ... PER CAPITA INCOME' sits at 14.0pt and its
+            # continuation 'OF SELECT STATES' at 13.5pt. Requiring an exact match here
+            # left that continuation eligible to survive as its own bare candidate once
+            # more than one size cohort could produce a section (see ``multi_size``).
             excluded_lines.add(i)
         previous = (page_index, y, size)
+
+    # A running header/footer repeating the chapter's own name on every page -- confirmed
+    # on the real "Political Parties" chapter, where 'De moc ra tic Polit ics' (the book's
+    # own title, its letters spaced out by the page design) and 'Po lit ica l Pa r tie s'
+    # (the chapter's own name, same treatment) each appear 8-9 times, once per page, at a
+    # size that clears the body-size floor. A real heading appears once; only page
+    # furniture repeats itself verbatim across many different pages. Only matters once
+    # ``multi_size`` lets more than one size cohort through -- a single wrong cohort could
+    # already dominate "the largest size" on its own before, but never diluted a
+    # genuinely correct cohort the way it can now that several are combined.
+    repeat_counts: dict[str, int] = {}
+    if multi_size:
+        for _p, _y, _s, t, _c in lines:
+            repeat_counts[t] = repeat_counts.get(t, 0) + 1
 
     title_key_ = title_key(chapter_title) if chapter_title else None
     candidates = [
@@ -1074,6 +1115,12 @@ def _pick_sections(
         for i, (page_index, y, size, line_text, colour) in enumerate(lines)
         if not re.fullmatch(r"\d{1,3}\.?", line_text)
         and re.search(r"[A-Za-z]", line_text)   # a decorative glyph ('+') has no letters
+        # A running corner mark -- confirmed on a real Economics chapter, a single bold
+        # letter ('E', 'D', 'C', ...) repeated on every page, the book's own department
+        # watermark spelled one character per page. No real heading is one or two
+        # characters long, so nothing here excludes a genuine short one.
+        and len(line_text.strip()) >= 3
+        and repeat_counts.get(line_text, 0) < 3
         and i not in excluded_lines
         and (heading_colour is None or colour == heading_colour)
         and (title_key_ is None or title_key(line_text) not in title_key_)
@@ -1159,27 +1206,65 @@ def _pick_sections(
             sections.append(Section(number, title, start, end))
         return sections
 
-    heading_size = max(size for _p, _y, size, _t in candidates)
-    headings = [
-        (page_index, y, line_text)
-        for page_index, y, size, line_text in candidates
-        if size == heading_size
-    ]
+    if multi_size:
+        # Every remaining candidate is a real heading, not only the single largest size --
+        # ``multi_size`` only, i.e. only for the size-based (non-bold) pass. Confirmed
+        # wrong on a real Economics chapter ("Money and Credit"): its real headings print
+        # at THREE different sizes, not one -- 18pt for a named illustrative case
+        # ("Cheque Payments", "A House Loan", "Grameen Bank of Bangladesh"), 14pt for the
+        # chapter's own major divisions ("Loan Activities of Banks", "Formal Sector
+        # Credit in India"), and 12pt for a third, finer level ("Currency", "Deposits
+        # with Banks"). Taking only the max (18pt) kept the case studies and discarded
+        # the other two-thirds of the chapter's real structure -- not a smaller,
+        # incomplete list, but a differently-shaped wrong one, since 18pt alone reads as
+        # "this chapter's only headings" with nothing left to contradict it. Safe for a
+        # chapter with just one real heading size (Development, ...): there is only one
+        # cohort to take, so this is a no-op for them.
+        #
+        # NOT extended to the bold pass: bold text there is used far more loosely, for
+        # diagram labels and table captions at all sorts of small sizes ('DEPOSITORS',
+        # 'BORROWERS', 10pt bold labels beside a bank diagram, confirmed on the same real
+        # chapter) that the size-based pass's own `size > body_size + 1.0` floor already
+        # excludes on its own -- the bold pass has no such floor, so doing this there
+        # pulled in every bold caption in the chapter as if it were a heading.
+        headings = [
+            (page_index, y, size, line_text)
+            for page_index, y, size, line_text in candidates
+        ]
+    else:
+        heading_size = max(size for _p, _y, size, _t in candidates)
+        headings = [
+            (page_index, y, heading_size, line_text)
+            for page_index, y, size, line_text in candidates
+            if size == heading_size
+        ]
 
     # A title that wraps to a second line is still one heading: merge it into the line
-    # above when the two are close together on the same page, but keep the FIRST line's
-    # own text for locating the heading in `text` -- the join here is cosmetic only, and
-    # searching for a two-line title as one string would depend on exactly how read_text
-    # rejoins lines, which this function has no reason to assume.
+    # above when the two are close together on the same page AT THE SAME SIZE, but keep
+    # the FIRST line's own text for locating the heading in `text` -- the join here is
+    # cosmetic only, and searching for a two-line title as one string would depend on
+    # exactly how read_text rejoins lines, which this function has no reason to assume.
+    # The size check matters now that headings spans multiple real size cohorts (see
+    # above): two DIFFERENT headings at different sizes sitting close together on the
+    # page (a 12pt heading's last line just above an unrelated 18pt heading's first)
+    # would otherwise glue into one nonsense title instead of staying two real ones.
     merged: list[tuple[str, str]] = []   # (locate_by, display_title)
-    previous: tuple[int, float] | None = None
-    for page_index, y, line_text in headings:
-        if previous is not None and previous[0] == page_index and 0 < y - previous[1] < 20:
+    previous: tuple[int, float, float] | None = None
+    for page_index, y, size, line_text in headings:
+        if (
+            previous is not None and previous[0] == page_index
+            and previous[2] == size and 0 < y - previous[1] < 20
+        ):
             locate_by, title = merged[-1]
             merged[-1] = (locate_by, f"{title} {line_text}")
         else:
             merged.append((line_text, line_text))
-        previous = (page_index, y)
+        previous = (page_index, y, size)
+
+    # A noise phrase split across the wrap itself ('LET'S WORK THESE' / 'OUT', two
+    # separate lines) matches no exclusion pattern until they are joined -- checked again
+    # here, after merging, not only on each raw line before it, for exactly that gap.
+    merged = [(locate_by, title) for locate_by, title in merged if not _NOT_A_HEADING.match(title)]
 
     sections: list[Section] = []
     cursor = 0
@@ -1246,7 +1331,9 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
                         body_chars[size] = body_chars.get(size, 0) + len(s["text"])
         body_size = max(body_chars, key=lambda s: body_chars[s]) if body_chars else 0.0
         sized_lines = _heading_styled_lines(doc, require_bold=False, body_size=body_size)
-        by_size = _pick_sections(sized_lines, text, chapter_title, filter_by_cover_colour=True)
+        by_size = _pick_sections(
+            sized_lines, text, chapter_title, filter_by_cover_colour=True, multi_size=True,
+        )
         return by_size if len(by_size) > len(by_bold) else by_bold
 
 

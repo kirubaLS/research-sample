@@ -52,7 +52,7 @@ def _economics_chapter_pdf(tmp_path):
     _custom_heading_font(page, 60, 100, "NOTES FOR THE TEACHER", size=24.0)
     _custom_heading_font(page, 60, 160, "SAFETY IS EVERYONE'S RIGHT", size=12.0)
     page.insert_text((60, 180), "Manufacturers must follow safety rules " * 4, fontsize=10.5)
-    _repeated(page, 60, 300, "Reji's Suffering", size=18.0)        # a story caption
+    _repeated(page, 60, 300, "Running Page Banner", size=18.0)    # repeats itself, page furniture
     _custom_heading_font(page, 60, 340, "When choice is denied", size=12.0)
     page.insert_text((60, 360), "Consumers have the right to choose " * 4, fontsize=10.5)
     page.insert_text((60, 500), "Let’s Work These Out", fontsize=14.0)
@@ -77,11 +77,21 @@ def test_non_bold_headings_are_found_when_nothing_bold_is_usable(tmp_path):
 
 
 def test_repeated_overlapping_draws_do_not_multiply_a_single_heading(tmp_path):
+    """Five identical overlapping draws of the same real heading/caption must collapse to
+    at most one section, never five duplicates -- NOT the same claim as "this text is
+    never a heading at all". The real jess205.pdf (Consumer Rights) has its own genuine,
+    once-printed heading named "Reji's Suffering" (confirmed against the real file in
+    tests/test_sst_heading_detection.py, and named in the source book's own topic list),
+    so a synthetic fixture reusing that exact string to mean "definitely not a heading"
+    would be testing against a wrong assumption about the real book, not a real rule.
+    "Running Page Banner" here stands for the shape of the bug (repetition), not a claim
+    about what any specific real string in any real chapter is or is not.
+    """
     extract = extract_chapter(
         _economics_chapter_pdf(tmp_path), number=5, title="Consumer Rights",
     )
     titles = [s.title for s in extract.sections]
-    assert titles.count("Reji's Suffering") == 0   # a story caption, not a heading at all
+    assert titles.count("Running Page Banner") <= 1
     assert "74" not in titles
 
 
