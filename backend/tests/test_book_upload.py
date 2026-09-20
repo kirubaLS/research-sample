@@ -296,21 +296,42 @@ def test_families_are_proposed_from_the_books_own_sections(client, school):
     assert "Summary" not in labels
 
 
-def test_a_section_no_family_claims_is_reported_as_uncovered(client, school, book):
-    """Section 13.3 (Mode of Grouped Data) has a loaded chunk but no family claims it --
-    the fixture's only Statistics family, Mean by step-deviation, covers 13.2 alone, and
-    once a chapter has any stored proposal the heading-based fallback stops proposing for
-    its other sections (see `covered` in propose_families). That is exactly the shape of
-    the real gap a teacher only ever discovered when a question in that section came back
-    unmapped: nothing here should have to fail a paper to be found."""
+def test_a_partially_covered_chapter_still_gets_its_other_sections_proposed(client, school, book):
+    """Section 13.3 (Mode of Grouped Data) has a loaded chunk and its own subtopic node,
+    but the fixture's only stored proposal for this chapter, Mean by step-deviation,
+    covers section 13.2 alone. `covered` used to be tracked per CHAPTER, so a chapter
+    with even one stored proposal skipped heading-based proposals for the whole chapter
+    -- not just the section already covered. Confirmed as a real production bug on a
+    real deployment: History's five chapters each had a handful of old proposals, and
+    once the extractor found dozens more real sections per chapter, every one of them
+    stayed invisible here forever, no matter how many uncovered_sections
+    GET .../concept-families went on to report -- the fallback that would have proposed
+    them never got the chance to look. Tracking coverage per (chapter, section) instead
+    means 13.3 -- covered by nothing -- now gets its own heading-based proposal here,
+    the same as it would in a chapter with no stored proposals at all."""
     r = client.get("/platform/books/X.MATH/concept-families", headers=HEAD)
     assert r.status_code == 200
-    uncovered = {u["chapter_code"]: u["sections"] for u in r.json()["uncovered_sections"]}
-    assert uncovered.get("X.MATH.STATS") == ["13.3"]
-    # 13.2 is claimed by the fixture's own family and must not also be flagged.
-    assert "13.2" not in uncovered.get("X.MATH.STATS", [])
-    # A chapter with no stored proposal falls back to the heading proposals, which do
-    # claim their own sections, so it must not be flagged as having any gap at all.
+    body = r.json()
+    thirteen_three = [
+        f for f in body["families"]
+        if f["chapter_code"] == "X.MATH.STATS" and "13.3" in f["from_sections"]
+    ]
+    assert thirteen_three, "13.3 must get its own proposal now, not be silently skipped"
+    assert thirteen_three[0]["source"] == "headings"
+
+    # 13.2 is claimed by the fixture's own stored family and must not ALSO get a
+    # redundant heading-based proposal alongside it.
+    thirteen_two_headings = [
+        f for f in body["families"]
+        if f["chapter_code"] == "X.MATH.STATS" and f["from_sections"] == ["13.2"]
+        and f["source"] == "headings"
+    ]
+    assert not thirteen_two_headings
+
+    uncovered = {u["chapter_code"]: u["sections"] for u in body["uncovered_sections"]}
+    assert "13.3" not in uncovered.get("X.MATH.STATS", []), (
+        "a section with a real proposal is no longer an unaddressed gap"
+    )
     assert "X.MATH.CIRCLE" not in uncovered
 
 

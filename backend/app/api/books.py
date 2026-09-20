@@ -1325,8 +1325,22 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
         )
         if row.chapter_id in chapters
     ]
-    #: a chapter a run has already covered does not need its headings suggesting as well
-    covered = {row["chapter_code"] for row in stored}
+    # A section a stored run has already covered does not need its heading suggesting as
+    # well -- but a SECTION, not the whole chapter. This used to skip a chapter entirely
+    # the moment it had even one stored proposal, on the assumption that a run covers a
+    # chapter completely or not at all. Confirmed wrong on a real deployment: History's
+    # five chapters each had a handful of stored proposals from an earlier, narrower
+    # extraction pass (a handful of sub-headings, e.g. section '2.2' of one chapter), and
+    # once the extractor was fixed to find dozens more real sections per chapter, every
+    # one of those new sections stayed permanently invisible here -- "28 proposed, 28
+    # existing, 0 new" on every re-check, no matter how many real uncovered_sections
+    # GET .../concept-families went on to report, because the chapter-level skip never
+    # let the heading-based fallback even look at them.
+    covered_sections = {
+        (row["chapter_code"], section)
+        for row in stored
+        for section in row["from_sections"]
+    }
     proposals = stored + [
         {
             "code": p.code, "label": p.label,
@@ -1338,7 +1352,7 @@ def propose_families(subject: str, db: Session = Depends(get_session)) -> dict:
             "already_exists": p.code in existing,
         }
         for p in propose(rows, subject)
-        if p.chapter_code not in covered
+        if (p.chapter_code, p.from_section) not in covered_sections
     ]
     proposals = _dedupe_and_flag(proposals)
     proposals.sort(key=lambda r: (r["chapter_label"], r["label"]))
