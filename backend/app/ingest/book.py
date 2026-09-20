@@ -1544,7 +1544,15 @@ def _locate_known_sections(
                 candidates.append((f"{line_text} {next_text}", line_text))
 
     def key(s: str) -> str:
-        return _APOSTROPHES.sub("'", normalise(s)).casefold()
+        # A leading bullet ('• Golden Quadrilateral Super Highways:') is real formatting
+        # on a real heading, not a different string -- confirmed on the real "Lifelines
+        # of National Economy" chapter, whose own sub-headings are all bulleted list
+        # items. Dash variants get the same _DASHES fold title_key already uses
+        # elsewhere, confirmed necessary on the real "Agriculture" chapter's own
+        # 'Bhoodan – Gramdan' (an en dash), typed here with a plain hyphen.
+        s = re.sub(r"^[•\-*]\s*", "", s.strip())
+        folded = _APOSTROPHES.sub("'", normalise(s))
+        return _DASHES.sub(" - ", folded).casefold()
 
     cursor = 0
     found: list[tuple[str, str, int]] = []   # (title, locate_by, position)
