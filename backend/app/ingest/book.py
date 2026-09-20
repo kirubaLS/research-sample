@@ -942,7 +942,8 @@ _NOT_A_HEADING = re.compile(
     r"(\s+\1)*(\s+\d{1,2}(?:\.\d{1,2}){0,2})?$"
     r"|^ACTIVITY\s+\d+$"
     r"|^TABLE\s+\d+(?:\.\d+)*\b.*$"
-    r"|^GRAPH\s+\d+(?:\.\d+)*\s*[:.].*$",
+    r"|^GRAPH\s+\d+(?:\.\d+)*\s*[:.].*$"
+    r"|^FIG(?:URE)?\.?\s+\d+(?:\.\d+)*\b.*$",
     re.I,
 )
 
