@@ -1582,12 +1582,23 @@ def edit_family_sections(
     if not node.code.startswith(f"{subject}."):
         raise HTTPException(404, f"{code!r} does not belong to {subject}")
 
-    proposal = db.scalar(
-        select(ConceptFamilyProposal).where(ConceptFamilyProposal.code == code)
+    # A code is unique per RUN (see ConceptFamilyProposal's own uq_family_proposal), not
+    # per subject -- a chapter re-proposed after a heading-detection fix leaves its OLD
+    # run's row sitting right next to the new one, both under the same code. `.scalar()`
+    # here used to fetch only one of them, arbitrarily, and correct only that one: the
+    # listing endpoint unions every row sharing a code back together (see
+    # _dedupe_and_flag), so the untouched old run's wrong section silently came right
+    # back the moment this returned -- confirmed on a real deployment, where
+    # correcting X.POL.CF.WHAT_IS_FEDERALISM from "1" to "2" came back reporting
+    # ["1", "2"], because an earlier run's row still said "1" and nothing had told it
+    # otherwise. Every row for this code needs the same correction, not just one.
+    proposals = list(
+        db.scalars(select(ConceptFamilyProposal).where(ConceptFamilyProposal.code == code))
     )
     sections = clean_sections(body.from_sections)
-    if proposal is not None:
-        proposal.from_sections = sections
+    if proposals:
+        for proposal in proposals:
+            proposal.from_sections = sections
     else:
         # A family created before any proposal tracked it (the oldest ones, or one typed
         # in by hand) has no row to correct -- add one, so this and every future read of

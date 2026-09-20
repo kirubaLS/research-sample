@@ -567,6 +567,59 @@ def test_a_familys_sections_can_be_corrected_without_renaming_it(client):
     assert family["chapter_code"] == "X.MATH.STATS"
 
 
+def test_correcting_a_familys_sections_fixes_every_run_that_ever_proposed_it(client, school):
+    """The bug this fixes: a code is unique per RUN (see ConceptFamilyProposal's own
+    uq_family_proposal), not per subject -- a chapter re-proposed after a
+    heading-detection fix leaves its OLD run's row sitting right next to the new one,
+    both under the same code. PATCH used to fetch and correct only one of them
+    (`db.scalar` picks one arbitrarily), and GET .../concept-families unions every row
+    sharing a code back together (`_dedupe_and_flag`), so the untouched old run's wrong
+    section silently reappeared the moment the correction was queried -- confirmed on a
+    real deployment, where correcting a family from "1" to "2" came back reporting
+    ["1", "2"] with no error to explain why the fix had not stuck."""
+    from app.models import ConceptFamilyProposal, TaxonomyNode
+    from app.db import SessionLocal
+    from sqlalchemy import select
+
+    with SessionLocal() as setup_db:
+        chapter = setup_db.scalar(
+            select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS")
+        )
+        setup_db.add(TaxonomyNode(
+            kind="concept_family", code="X.MATH.CF.MULTI_RUN_TEST", label="Multi-run test",
+            parent_id=chapter.id, path="X.MATH.CF.MULTI_RUN_TEST",
+            curriculum_version=chapter.curriculum_version,
+        ))
+        setup_db.add(ConceptFamilyProposal(
+            curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+            run_id="old-run", source="headings", model=None,
+            code="X.MATH.CF.MULTI_RUN_TEST", label="Multi-run test", chapter_id=chapter.id,
+            rationale="an earlier, since-corrected extraction pass",
+            evidence=["1"], from_sections=["1"],
+        ))
+        setup_db.add(ConceptFamilyProposal(
+            curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+            run_id="new-run", source="headings", model=None,
+            code="X.MATH.CF.MULTI_RUN_TEST", label="Multi-run test", chapter_id=chapter.id,
+            rationale="the corrected extraction pass",
+            evidence=["1"], from_sections=["1"],
+        ))
+        setup_db.commit()
+
+    patched = client.patch(
+        "/platform/books/X.MATH/concept-families/X.MATH.CF.MULTI_RUN_TEST",
+        headers=HEAD, json={"from_sections": ["2"]},
+    )
+    assert patched.status_code == 200, patched.text
+    assert patched.json()["from_sections"] == ["2"]
+
+    body = client.get("/platform/books/X.MATH/concept-families", headers=HEAD).json()
+    [family] = [f for f in body["families"] if f["code"] == "X.MATH.CF.MULTI_RUN_TEST"]
+    # Both the old and new run's rows must carry the correction -- not just one, which
+    # would silently union back in as ["1", "2"] the way the real bug did.
+    assert family["from_sections"] == ["2"], family
+
+
 def test_correcting_a_family_that_does_not_exist_says_so(client):
     r = client.patch(
         "/platform/books/X.MATH/concept-families/X.MATH.CF.NO_SUCH_FAMILY",
