@@ -39,6 +39,33 @@ def test_the_upload_surface_needs_the_operator_key(client):
     assert r.status_code in (401, 403, 404, 422)
 
 
+def test_the_subject_dropdown_works_with_only_a_platform_key(client):
+    """The Books screen's own subject dropdown used to call GET /admin/subjects, which
+    needs `current_staff` -- a real school's api_key or a StaffKey. A deployment with a
+    platform key and no school yet created (exactly the state right after standing up a
+    new environment) got an empty dropdown, silently: the frontend's own fetch swallows
+    the failure into `setSubjects([])`. GET /platform/books is the fix -- same shape,
+    same data, but gated on require_platform_admin like the rest of this router, so a
+    bare platform key is enough on its own.
+    """
+    r = client.get("/platform/books", headers=HEAD)
+    assert r.status_code == 200, r.json()
+    body = r.json()
+    assert body["subjects"], "the deployment's curriculum must produce at least one subject"
+    codes = {s["subject_code"] for s in body["subjects"]}
+    assert "X.MATH" in codes
+
+    # The trailing-slash form some HTTP clients normalise to must work identically.
+    r2 = client.get("/platform/books/", headers=HEAD)
+    assert r2.status_code == 200
+    assert r2.json() == body
+
+
+def test_the_subject_list_is_refused_without_any_key(client):
+    r = client.get("/platform/books")
+    assert r.status_code in (401, 403, 404, 422)
+
+
 def test_status_says_the_curriculum_comes_first(client):
     """Board units and weightage come from the syllabus, not the book, so a subject with
     no curriculum has nowhere to put a chapter's marks."""

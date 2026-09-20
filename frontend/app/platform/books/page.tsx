@@ -48,7 +48,7 @@ export default function BooksPage() {
     const key = getPlatformKey();
     if (!key) return;
     api
-      .subjects(key)
+      .platformSubjects(key)
       // Uploading a book is per physical book (a group like English has 3), so this
       // screen wants the books flattened out of their groups, not the group-level entries.
       .then(({ subjects: groups }) => {

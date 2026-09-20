@@ -36,7 +36,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_platform_admin
 from app.api.upload import to_tempfile
 from app.config import get_settings
-from app.curriculum import CURRICULA, chapter_title
+from app.curriculum import CURRICULA, chapter_title, subject_groups
 from app.curriculum.apply import apply as apply_curriculum
 from app.db import get_session
 from app.ingest.book import (
@@ -71,6 +71,70 @@ router = APIRouter(
     prefix="/platform/books", tags=["knowledge-base"],
     dependencies=[Depends(require_platform_admin)],
 )
+
+
+@router.get("")
+@router.get("/")
+def list_subjects(db: Session = Depends(get_session)) -> dict:
+    """The subjects this deployment carries, and how far each one is loaded -- the
+    console's own subject dropdown asks this, not a list written into the screen (see
+    that screen's own comment on why).
+
+    A near-duplicate of GET /admin/subjects, which this console used to call instead:
+    that route requires `current_staff` (a real school's api_key, or a StaffKey), which a
+    bare platform operator key was never one of, and never had to be until an unrelated
+    fix (see app.api.deps.current_staff's own comment: "The operator key now opens only
+    require_platform_admin") revoked the operator key's access to it -- silently
+    breaking this exact screen's dropdown for a platform-only deployment with no school
+    yet created. Its own docstring even promises "so the operator console isn't shut
+    out", a promise that fix broke without anyone noticing here. A platform-scoped
+    version, under this router's own require_platform_admin, doesn't have that
+    dependency to break out from under it.
+    """
+    out = []
+    for group in subject_groups():
+        books = []
+        group_chapters = group_board_units = group_chunks = group_embedded = 0
+        for curriculum in group.members:
+            chunks = db.scalar(
+                select(func.count(BookChunk.id)).where(
+                    BookChunk.subject_code == curriculum.subject_code
+                )
+            ) or 0
+            embedded = db.scalar(
+                select(func.count(BookChunk.id)).where(
+                    BookChunk.subject_code == curriculum.subject_code,
+                    BookChunk.embedding.isnot(None),
+                )
+            ) or 0
+            books.append({
+                "subject_code": curriculum.subject_code,
+                "label": curriculum.subject_label,
+                "grade": curriculum.grade,
+                "chapters": len(curriculum.chapters),
+                "board_units": len(curriculum.units),
+                "book_loaded": embedded > 0,
+                "chunks": chunks,
+                "chunks_embedded": embedded,
+            })
+            group_chapters += len(curriculum.chapters)
+            group_board_units += len(curriculum.units)
+            group_chunks += chunks
+            group_embedded += embedded
+        out.append({
+            "group_code": group.group_code,
+            "group_label": group.group_label,
+            "subject_code": group.group_code,
+            "label": group.group_label,
+            "grade": group.members[0].grade,
+            "chapters": group_chapters,
+            "board_units": group_board_units,
+            "book_loaded": group_embedded > 0,
+            "chunks": group_chunks,
+            "chunks_embedded": group_embedded,
+            "books": books,
+        })
+    return {"subjects": out}
 
 
 def _subjects_with_families(db: Session) -> list[str]:

@@ -1692,6 +1692,14 @@ export const api = {
     ),
 
   // --- knowledge base ---
+  /** The subjects this deployment carries -- platform-scoped, so a bare operator key
+   * with no school yet created can still populate this screen's own dropdown. Not
+   * `admin.subjects`: that route needs `current_staff` (a real school's key), which a
+   * platform key was quietly locked out of by an unrelated fix, breaking that route for
+   * this exact screen. */
+  platformSubjects: (key: string) =>
+    operator<{ subjects: Subject[] }>("/platform/books", key),
+
   bookStatus: (key: string, subject: string) =>
     operator<BookStatus>(`/platform/books/${subject}`, key),
 
