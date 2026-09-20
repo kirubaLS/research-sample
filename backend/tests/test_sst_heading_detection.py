@@ -243,13 +243,18 @@ def test_a_boxed_example_laid_out_ahead_of_its_own_heading_does_not_drop_every_s
     sits BELOW its section heading ('Production Across Countries') on the page, but
     read_text's plain text extraction lays its content out ahead of that heading. Once
     the shared cursor got past that boxed example while still looking for the heading
-    above it, every real heading still to come in the chapter silently vanished -- 22
-    real headings collapsed to 9, not just the one out of order. All 22 must survive."""
+    above it, every real heading still to come in the chapter silently vanished -- 21
+    real headings collapsed to 9, not just the one out of order. All 21 must survive.
+    ('Spreading of Production' / 'by an MNC' -- once two separate entries because their
+    real 21.2pt gap narrowly missed the old flat 20pt wrap-merge threshold -- are one
+    real two-line heading and now merge into one, see _pick_sections' own note on
+    scaling that threshold with the heading's size.)"""
     text = read_text(GLOBALISATION_PDF)
     sections = _sections_by_boldness(GLOBALISATION_PDF, text, "Globalisation and the Indian Economy")
     titles = [s.title for s in sections]
-    assert len(sections) == 22, f"got {titles!r}"
+    assert len(sections) == 21, f"got {titles!r}"
     assert not any("ADDITIONAL" in t.upper() for t in titles)
+    assert "Spreading  of Production by an MNC" in titles
     assert "WORLD TRADE ORGANISATION" in titles
     assert "A Garment Worker" in titles
     assert "THE STRUGGLE FOR A FAIR GLOBALISATION" in titles

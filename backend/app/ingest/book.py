@@ -1272,12 +1272,19 @@ def _pick_sections(
     # above): two DIFFERENT headings at different sizes sitting close together on the
     # page (a 12pt heading's last line just above an unrelated 18pt heading's first)
     # would otherwise glue into one nonsense title instead of staying two real ones.
+    #
+    # The gap allowed between the two lines scales with the heading's own size rather
+    # than a flat 20pt: confirmed on the real "Power-sharing" chapter, whose own 24pt
+    # illustration title ("Khalil's" / "dilemma") wraps with a 24.6pt gap between lines,
+    # narrowly over the old flat threshold, because a bigger font naturally sets a bigger
+    # line height. A fixed threshold split it into two fragments instead of the one real
+    # heading it is.
     merged: list[tuple[str, str]] = []   # (locate_by, display_title)
     previous: tuple[int, float, float] | None = None
     for page_index, y, size, line_text in headings:
         if (
             previous is not None and previous[0] == page_index
-            and previous[2] == size and 0 < y - previous[1] < 20
+            and previous[2] == size and 0 < y - previous[1] < max(20.0, size * 1.2)
         ):
             locate_by, title = merged[-1]
             merged[-1] = (locate_by, f"{title} {line_text}")
