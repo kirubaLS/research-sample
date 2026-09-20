@@ -351,6 +351,14 @@ def read_text(path: str | Path) -> str:
     Both are no-ops on a book that does not use them: Maths has no vertical headings and
     no repeated draws, so nothing in it matches either rule.
     """
+    # Tried ``sort=True`` here to fix a real page-order bug (see _heading_styled_lines'
+    # own note on "Globalisation and the Indian Economy"): it does reorder spans into the
+    # page's true reading order, but it also runs every fake-bold repeated draw of the
+    # same text together onto ONE line with no separator ('ChineseChineseChineseChinese
+    # ToysToysToysToys ininininin IndiaIndiaIndiaIndia' -- confirmed against the real
+    # file), instead of the default mode's one-repeat-per-line layout that
+    # ``_collapse_bold`` below depends on to dedupe them. That is corrupted chunk text
+    # reaching students, a far worse failure than a mis-ordered heading -- reverted.
     with pymupdf.open(path) as doc:
         raw = "\n".join(page.get_text() for page in doc)
     return "\n".join(_collapse_bold(_collapse_vertical(raw.split("\n"))))
@@ -927,7 +935,8 @@ def _split_oversized_body(text: str, max_chars: int = MAX_CHUNK_CHARS) -> list[s
 _NOT_A_HEADING = re.compile(
     r"^(EXERCISES|QUESTIONS|PROJECT|ACTIVITY|PROJECT/ACTIVITY|PROJECT WORK|DISCUSS|"
     r"MAP SKILLS|MAP WORK|WRITE IN BRIEF|SUGGESTED READINGS|ADDITIONAL PROJECTS\s*/\s*"
-    r"ACTIVITIES|ADDITIONAL PROJECT\s*/\s*ACTIVITY|BIBLIOGRAPHY|FURTHER READING|GLOSSARY|"
+    r"ACTIVITIES|ADDITIONAL PROJECT\s*/\s*ACTIVITY|ADDITIONAL ACTIVITY\s*/\s*PROJECT|"
+    r"BIBLIOGRAPHY|FURTHER READING|GLOSSARY|"
     r"LET.S WORK (?:THESE|THIS) OUT|LET.S RECALL|NOTES? FOR (?:THE )?TEACHERS?|"
     r"SOURCES FOR INFORMATION|EXAMPLE|WHAT DOES THIS SHOW\??)"
     r"(\s+\1)*(\s+\d{1,2}(?:\.\d{1,2}){0,2})?$"
@@ -1031,6 +1040,20 @@ def _pick_sections(
                 deduped[-1] = (p, y0, s, acc + line_text[shared:], c)
                 continue
         deduped.append(entry)
+    # Tried sorting this list by (page, y) here, to fix a real page-order bug: a page's
+    # blocks come back from PyMuPDF in the order they sit in the PDF's own content
+    # stream, not necessarily top-to-bottom (confirmed on the real "Globalisation and the
+    # Indian Economy" chapter, where a boxed example sits below its own section heading
+    # visually but is returned first). Reverted: this function's other adjacency checks
+    # (the fake-bold-overlap dedup above, the caption-exclusion inheritance and the
+    # wrap-title merge below) all assume list-adjacent entries are also stream-adjacent,
+    # and a y-sort breaks that whenever unrelated content's own y happens to fall between
+    # two fragments of the same real heading -- confirmed on the real Development
+    # chapter, where sorting put an excluded 'ACTIVITY 3' label between 'HUMAN
+    # DEVELOPMENT' and 'REPORT' (two halves of one heading) purely by y-coordinate, which
+    # then made 'REPORT' wrongly inherit 'ACTIVITY 3'-s own exclusion. The heading-order
+    # bug this was meant to fix is real but not fixed here -- see _pick_sections' own
+    # final numbering step, which locates each heading independently instead.
     lines = deduped
 
     # Only used on the size-based attempt: the cover repeats the chapter's own title in
@@ -1266,19 +1289,47 @@ def _pick_sections(
     # here, after merging, not only on each raw line before it, for exactly that gap.
     merged = [(locate_by, title) for locate_by, title in merged if not _NOT_A_HEADING.match(title)]
 
-    sections: list[Section] = []
+    # A single shared cursor, advanced monotonically as ``merged`` is walked in ITS OWN
+    # order, assumes that order already matches where each title actually sits in
+    # ``text``. Usually true (``text`` comes from read_text's plain ``get_text()``, whose
+    # own block order usually agrees with this function's own heading order), but not
+    # always -- confirmed on the real "Globalisation and the Indian Economy" chapter,
+    # where a boxed example ('Spreading of Production by an MNC') is laid out by
+    # ``get_text()`` AHEAD of its own section heading ('PRODUCTION ACROSS COUNTRIES'),
+    # which sits above it on the page. Once the shared cursor got ahead of where that
+    # later heading's real position was, every real heading still to come silently
+    # vanished (``pos == -1``), not just the one out of order -- 23 real headings
+    # collapsed to 9.
+    #
+    # Recovered on failure by searching from the very start instead, but ONLY on
+    # failure, and WITHOUT moving the shared cursor for every other heading still to
+    # come: searching from 0 unconditionally for every title reintroduced a different
+    # real bug, confirmed on the real "Sectors of the Indian Economy" chapter -- its own
+    # "Kanta" is a name mentioned once in ordinary prose ("What are\nKanta works in the
+    # organised sector...") BEFORE her own heading of the same one word, and searching
+    # unconditionally from 0 matched that earlier prose mention instead of the real
+    # heading every time, silently mispositioning a section that the plain monotonic
+    # cursor already located correctly. Falling back to an unrestricted search only for
+    # the rare heading the cursor genuinely could not find keeps the common case (cursor
+    # order already correct) untouched, and only ever reorders the rare recovered one.
     cursor = 0
-    found: list[tuple[str, str, int]] = []
+    found: list[tuple[str, int]] = []
     for locate_by, title in merged:
         pos = text.find(locate_by, cursor)
-        if pos == -1:      # read_text folded whitespace this function did not predict
+        if pos == -1:
+            pos = text.find(locate_by, 0)
+            if pos == -1:      # read_text folded whitespace this function did not predict
+                continue
+            found.append((title, pos))
             continue
-        found.append((str(len(found) + 1), title, pos))
+        found.append((title, pos))
         cursor = pos + len(locate_by)
+    found.sort(key=lambda pair: pair[1])
 
-    for i, (number, title, start) in enumerate(found):
-        end = found[i + 1][2] if i + 1 < len(found) else len(text)
-        sections.append(Section(number, title, start, end))
+    sections: list[Section] = []
+    for i, (title, start) in enumerate(found):
+        end = found[i + 1][1] if i + 1 < len(found) else len(text)
+        sections.append(Section(str(i + 1), title, start, end))
     return sections
 
 

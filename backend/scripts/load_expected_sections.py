@@ -309,10 +309,42 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "14", "title": "Books"},
             {"number": "15", "title": "Government Publications"},
         ],
-        # Chapter 4 ("Globalisation and the Indian Economy") deliberately left out: it was
-        # analysed from a different, smaller sample file earlier in this project, before
-        # this multi-size fix existed, and has not been re-checked against it since. Add
-        # it once it has been, the same way the four chapters above were.
+        "4": [  # jess204.pdf -- Globalisation and the Indian Economy -- proven against the real file
+            # This chapter's own boxed example ("Spreading of Production by an MNC") is
+            # laid out by read_text's plain text extraction AHEAD of its own section
+            # heading ("Production Across Countries"), even though it prints BELOW that
+            # heading on the page -- a real PyMuPDF reading-order quirk for this page's
+            # two-column-intro-then-full-width-box layout, not a transcription slip. Kept
+            # in the order the extractor actually produces (see _pick_sections' own note
+            # on why a shared search cursor can no longer assume list order matches text
+            # order), the same "the oracle matches what the extractor produces"
+            # reasoning as every truncated title elsewhere in this file.
+            {"number": "1", "title": "Spreading  of Production"},
+            {"number": "2", "title": "by an MNC"},
+            {"number": "3", "title": "PRODUCTION ACROSS COUNTRIES"},
+            {"number": "4", "title": "INTERLINKING PRODUCTION ACROSS COUNTRIES"},
+            {"number": "5", "title": "FOREIGN TRADE AND INTEGRATION OF MARKETS"},
+            {"number": "6", "title": "Chinese Toys in India"},
+            {"number": "7", "title": "WHAT IS GLOBALISATION?"},
+            {"number": "8", "title": "Technology"},
+            {"number": "9", "title": "Containers for transport of goods"},
+            {"number": "10", "title": "FACTORS THAT HAVE ENABLED GLOBALISATION"},
+            # Truncated at its real wrapped second line, the same accepted gap History's
+            # own numbered headings have (see EXPECTED_SECTIONS["X.HIST"]'s own note):
+            # the real heading is "Using IT in Globalisation".
+            {"number": "11", "title": "Using IT in"},
+            {"number": "12", "title": "Liberalisation of foreign trade and foreign investment policy"},
+            {"number": "13", "title": "WORLD TRADE ORGANISATION"},
+            {"number": "14", "title": "Debate on Trade Practices"},
+            {"number": "15", "title": "IMPACT OF GLOBALISATION IN INDIA"},
+            {"number": "16", "title": "Steps to Attract Foreign Investment"},
+            {"number": "17", "title": "Small producers: Compete or perish"},
+            {"number": "18", "title": "Rising Competition"},
+            {"number": "19", "title": "Competition and Uncertain Employment"},
+            {"number": "20", "title": "A Garment Worker"},
+            {"number": "21", "title": "THE STRUGGLE FOR A FAIR GLOBALISATION"},
+            {"number": "22", "title": "SUMMING UP"},
+        ],
     },
 }
 

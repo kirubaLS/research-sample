@@ -43,6 +43,8 @@ SECTORS_PDF = FIXTURES / "sst_economics_sectors.pdf"
 real_sectors = pytest.mark.skipif(not SECTORS_PDF.exists(), reason="regression fixture not present")
 CONSUMER_RIGHTS_PDF = FIXTURES / "sst_economics_consumer_rights.pdf"
 real_consumer_rights = pytest.mark.skipif(not CONSUMER_RIGHTS_PDF.exists(), reason="regression fixture not present")
+GLOBALISATION_PDF = FIXTURES / "sst_economics_globalisation.pdf"
+real_globalisation = pytest.mark.skipif(not GLOBALISATION_PDF.exists(), reason="regression fixture not present")
 
 
 @pytest.mark.skipif(not DEVELOPMENT_PDF.exists(), reason="regression fixture not present")
@@ -221,3 +223,27 @@ def test_an_exercise_label_followed_by_its_own_section_number_is_still_excluded(
         assert _NOT_A_HEADING.match(text), text
     # A real heading that merely starts with a similar word must not be swept up.
     assert not _NOT_A_HEADING.match("Discussing the Treaty of Versailles")
+
+
+@real_globalisation
+def test_a_boxed_example_laid_out_ahead_of_its_own_heading_does_not_drop_every_section_after_it():
+    """A shared, monotonically-advancing search cursor used to assume every heading's own
+    position in ``text`` came in the same order this function's own heading list did.
+    False here: this chapter's own boxed example ('Spreading of Production by an MNC')
+    sits BELOW its section heading ('Production Across Countries') on the page, but
+    read_text's plain text extraction lays its content out ahead of that heading. Once
+    the shared cursor got past that boxed example while still looking for the heading
+    above it, every real heading still to come in the chapter silently vanished -- 22
+    real headings collapsed to 9, not just the one out of order. All 22 must survive."""
+    text = read_text(GLOBALISATION_PDF)
+    sections = _sections_by_boldness(GLOBALISATION_PDF, text, "Globalisation and the Indian Economy")
+    titles = [s.title for s in sections]
+    assert len(sections) == 22, f"got {titles!r}"
+    assert not any("ADDITIONAL" in t.upper() for t in titles)
+    assert "WORLD TRADE ORGANISATION" in titles
+    assert "A Garment Worker" in titles
+    assert "THE STRUGGLE FOR A FAIR GLOBALISATION" in titles
+    # Content boundaries must stay valid (non-overlapping, strictly increasing) even
+    # though this chapter's own extracted text order does not match its visual layout.
+    starts = [s.start for s in sections]
+    assert starts == sorted(starts) and len(set(starts)) == len(starts)
