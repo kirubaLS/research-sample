@@ -52,14 +52,21 @@ everything a topic list could contain:
   characters) -- kept, not suppressed back to match the shorter original list, because
   the entire point of this fix was to stop missing real content.
 
-Deliberately NOT included: Geography (all 7 chapters), Economics chapter 4
-("Globalisation and the Indian Economy" -- a different real file from an earlier,
-smaller sample analysed before this fix existed, not yet re-checked against it), and
-Political Science chapters 1, 2, 3 and 5. Add a chapter here only once its real PDF has
-actually been run through the current extractor and checked, the same way every chapter
-above was -- loading an untested guess would not silently do nothing, it would
-PERMANENTLY reject every future upload of that chapter (verify_against_toc rejects a
-mismatch), which is worse than the weaker heuristic check it would replace.
+UNVERIFIED_EXPECTED_SECTIONS, below, is the rest of what the user typed out for the whole
+Social Science curriculum -- Geography's 7 chapters, Economics chapter 4
+("Globalisation"), and Political Science chapters 1, 2, 3 and 5 -- none of it checked
+against a real chapter file the way everything above was. Loaded anyway, on request:
+these books number none of their own headings, so the list mixes chapter titles, major
+headings and finer sub-points in one flat column with no marker for which is which, and
+a wrong guess here does not fail silently -- `verify_against_toc` REJECTS the real
+upload outright and names the exact section it expected but did not find, or found but
+did not expect. That rejection is the point, not a bug to work around: it is the
+loud, specific, checkable failure this whole exercise exists to produce instead of a
+chapter that loads quietly wrong. Uploading these chapters and reading what comes back
+(clean, or a named mismatch) is itself how the rest of Social Science gets verified --
+send the mismatch (or the PDF, if the reason is not obvious from the error alone) and it
+gets fixed and moved up into EXPECTED_SECTIONS above, the same way every chapter there
+started out as somebody's typed list and ended up checked.
 """
 
 from __future__ import annotations
@@ -310,35 +317,199 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
 }
 
 
+def _sequential(titles: list[str]) -> list[dict[str, str]]:
+    """Plain reading-order numbers ('1', '2', '3'...), matching what
+    _sections_by_boldness itself assigns for a book that numbers none of its own
+    headings -- see its own docstring. Only a convenience for typing this file in; it
+    invents nothing _sections_by_boldness would not invent the same way on its own.
+    """
+    return [{"number": str(i), "title": t} for i, t in enumerate(titles, start=1)]
+
+
+#: The rest of the user's own topic list for the whole Social Science curriculum, NOT
+#: checked against a real chapter file -- see this module's own docstring for exactly
+#: what that means and why it is loaded anyway. Every list here mixes chapter titles,
+#: major headings and finer sub-points with no marker for which is which (these books
+#: number none of their own headings), so `_sequential`'s numbering is a best-effort
+#: guess at reading order, not a verified fact -- a real upload against this may well
+#: come back 422, naming the exact section it expected but the book does not have (or
+#: has, but not by that exact name/position). That is the intended, informative failure
+#: mode, not a bug: report it and the entry gets corrected and moved up into
+#: EXPECTED_SECTIONS above, the same way every chapter there started out.
+UNVERIFIED_EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
+    "X.GEO": {
+        "1": _sequential([  # jess101.pdf -- Resources and Development
+            "Resources and Development", "Development of Resources", "Sustainable development",
+            "Rio de Janeiro Earth Summit, 1992", "Agenda 21", "Resource Planning",
+            "Conservation of Resources", "Resource Planning in India", "Land Resources",
+            "Land Utilisation", "Land Use Pattern in India",
+            "Land Degradation and Conservation Measures", "Soil as a Resource",
+            "Classification of Soils", "Alluvial Soils", "Black Soil",
+            "Red and Yellow Soils", "Laterite Soil", "Arid Soils", "Forest Soils",
+            "Soil Erosion and Soil Conservation",
+        ]),
+        "2": _sequential([  # jess102.pdf -- Forest and Wildlife Resources
+            "Forest and Wildlife Resources", "Flora and Fauna in India",
+            "Conservation of Forest and Wildlife in India", "Project Tiger",
+            "Reserved Forests", "Protected Forests", "Unclassed Forests",
+            "Types and Distribution of Forest and Wildlife Resources",
+            "Community and Conservation",
+            "Sacred groves - a wealth of diverse and rare species",
+            "Joint Forest Management",
+        ]),
+        "3": _sequential([  # jess103.pdf -- Water Resources
+            "Water Resources",
+            "Water Scarcity and the Need for Water Conservation and Management",
+            "Multi-purpose River Projects and Integrated Water Resources Management",
+            "Hydraulic Structures in Ancient India", "Rainwater Harvesting",
+            "Bamboo Drip Irrigation System",
+        ]),
+        "4": _sequential([  # jess104.pdf -- Agriculture
+            "Agriculture", "Types of Farming", "Primitive Subsistence Farming",
+            "Jhumming: The 'slash and burn' agriculture", "Intensive Subsistence Farming",
+            "Commercial Farming", "Cropping Pattern", "Major Crops", "Rice", "Wheat",
+            "Millets", "Maize", "Pulses", "Food Crops other than Grains", "Sugarcane",
+            "Oil Seeds", "Tea", "Coffee", "Horticulture Crops", "Non-Food Crops",
+            "Rubber", "Jute", "Fibre Crops", "Cotton",
+            "Technological and Institutional Reforms", "Bhoodan – Gramdan",
+        ]),
+        "5": _sequential([  # jess105.pdf -- Minerals and Energy Resources
+            "Minerals and Energy Resources", "A bright smile from toothpaste and minerals",
+            "All living things need minerals", "What is a mineral?",
+            "Study of Minerals by Geographers and Geologists",
+            "Mode of Occurrence of Minerals", "Rat-Hole Mining", "Ferrous Minerals",
+            "Iron Ore", "Manganese", "Non-Ferrous Minerals", "Copper", "Bauxite",
+            "Non-Metallic Minerals", "Mica", "Rock Minerals", "Hazards of Mining",
+            "Conservation of Minerals", "Energy Resources",
+            "Conventional Sources of Energy", "Coal", "Petroleum", "Natural Gas",
+            "Electricity", "Non-Conventional Sources of Energy",
+            "Nuclear or Atomic Energy", "Solar Energy", "Wind power", "Biogas",
+            "Tidal Energy", "Geo Thermal Energy", "Conservation of Energy Resources",
+        ]),
+        "6": _sequential([  # jess106.pdf -- Manufacturing Industries
+            "Manufacturing Industries", "Importance of Manufacturing",
+            "Classification of Industries", "Agro-based Industries", "Textile Industry",
+            "Cotton Textiles", "Jute Textiles", "Mineral-based Industries",
+            "Iron and Steel Industry", "Sugar Industry", "Aluminium Smelting",
+            "Chemical Industries", "Fertilizer Industry", "Cement Industry",
+            "Automobile Industry", "Information Technology and Electronics Industry",
+            "Industrial Pollution and Environmental Degradation",
+            "Control of Environmental Degradation", "NTPC shows the way",
+        ]),
+        "7": _sequential([  # jess107.pdf -- Lifelines of National Economy
+            "Lifelines of National Economy", "Transport", "Roadways",
+            "Golden Quadrilateral Super Highways", "National Highways", "State Highways",
+            "District Roads", "Other Roads", "Border Roads", "Railways", "Pipelines",
+            "Waterways", "Major Sea Ports", "Airways",
+            "Regional Connectivity Scheme (RCS) – UDAN", "Communication",
+            "International Trade", "Digital India", "Tourism as a Trade",
+        ]),
+    },
+    "X.ECO": {
+        "4": _sequential([  # jess204.pdf -- Globalisation and the Indian Economy
+            "Globalisation and the Indian Economy", "Production Across Countries",
+            "Spreading of Production by an MNC", "Interlinking Production Across Countries",
+            "Foreign Trade and Integration of Markets", "Chinese Toys in India",
+            "What is Globalisation?", "Factors that have Enabled Globalisation",
+            "Technology", "Using IT in Globalisation",
+            "Liberalisation of Foreign Trade and Foreign Investment Policy",
+            "World Trade Organisation", "Debate on Trade Practices",
+            "Impact of Globalisation in India", "Steps to Attract Foreign Investment",
+            "Rising Competition", "Small Producers: Compete or Perish",
+            "Competition and Uncertain Employment", "A Garment Worker",
+            "The Struggle for a Fair Globalisation", "Summing Up",
+        ]),
+    },
+    "X.POL": {
+        "1": _sequential([  # jess401.pdf -- Power-sharing
+            "Power-sharing", "Belgium and Sri Lanka", "Majoritarianism in Sri Lanka",
+            "Accommodation in Belgium", "Why power sharing is desirable?",
+            "Khalil's dilemma", "Forms of power-sharing",
+        ]),
+        "2": _sequential([  # jess402.pdf -- Federalism
+            "Federalism", "What is federalism?", "What makes India a federal country?",
+            "Linguistic States", "How is federalism practised?", "Language policy",
+            "Centre-State relations", "Linguistic diversity of India",
+            "Scheduled Languages of India", "Decentralisation in India",
+        ]),
+        "3": _sequential([  # jess403.pdf -- Gender, Religion and Caste
+            "Gender, Religion and Caste", "Gender and politics", "Public/private division",
+            "Women's political representation", "Religion, communalism and politics",
+            "Communalism", "Secular state", "Caste and politics", "Caste inequalities",
+            "Social and Religious Diversity of India", "Caste in politics",
+            "Caste inequality today", "Politics in caste",
+        ]),
+        "5": _sequential([  # jess405.pdf -- Outcomes of Democracy
+            "Outcomes of Democracy", "How do we assess democracy's outcomes?",
+            "Accountable, responsive and legitimate government",
+            "Economic growth and development", "Reduction of inequality and poverty",
+            "Accommodation of social diversity", "Dignity and freedom of the citizens",
+        ]),
+    },
+}
+
+
+def _merged(*dicts: dict[str, dict[str, list[dict[str, str]]]]) -> dict[str, dict[str, list[dict[str, str]]]]:
+    out: dict[str, dict[str, list[dict[str, str]]]] = {}
+    for d in dicts:
+        for subject, chapters in d.items():
+            out.setdefault(subject, {}).update(chapters)
+    return out
+
+
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--dry-run", action="store_true",
         help="Print what would be set, without writing anything.",
     )
+    parser.add_argument(
+        "--verified-only", action="store_true",
+        help=(
+            "Load only the chapters already checked against a real file "
+            "(EXPECTED_SECTIONS), skipping UNVERIFIED_EXPECTED_SECTIONS entirely."
+        ),
+    )
     args = parser.parse_args(argv)
 
-    total_chapters = sum(len(v) for v in EXPECTED_SECTIONS.values())
-    total_sections = sum(
-        len(sections) for chapters in EXPECTED_SECTIONS.values() for sections in chapters.values()
+    to_load = EXPECTED_SECTIONS if args.verified_only else _merged(
+        EXPECTED_SECTIONS, UNVERIFIED_EXPECTED_SECTIONS,
     )
-    print(f"{len(EXPECTED_SECTIONS)} subjects, {total_chapters} chapters, "
-          f"{total_sections} sections total")
+    verified_chapters = {
+        (subject, chapter) for subject, chapters in EXPECTED_SECTIONS.items() for chapter in chapters
+    }
+
+    total_chapters = sum(len(v) for v in to_load.values())
+    total_sections = sum(len(s) for chapters in to_load.values() for s in chapters.values())
+    print(f"{len(to_load)} subjects, {total_chapters} chapters, {total_sections} sections total "
+          f"({'verified only' if args.verified_only else 'verified + unverified'})")
 
     if args.dry_run:
-        for subject, chapters in EXPECTED_SECTIONS.items():
+        for subject, chapters in to_load.items():
             for chapter_number, sections in chapters.items():
-                print(f"  {subject} chapter {chapter_number}: {len(sections)} sections")
+                tag = "verified" if (subject, chapter_number) in verified_chapters else "UNVERIFIED"
+                print(f"  {subject} chapter {chapter_number}: {len(sections)} sections [{tag}]")
         return
 
     db = SessionLocal()
     try:
-        for subject, chapters in EXPECTED_SECTIONS.items():
+        for subject, chapters in to_load.items():
             body = ExpectedSectionsIn(chapters=chapters)
             result = set_expected_sections(subject, body, db)
-            print(f"{subject}: set chapters {result['chapters_set']}")
+            unverified_here = [c for c in result["chapters_set"] if (subject, c) not in verified_chapters]
+            print(f"{subject}: set chapters {result['chapters_set']}"
+                  + (f" (unverified: {unverified_here})" if unverified_here else ""))
     finally:
         db.close()
+
+    if not args.verified_only:
+        print(
+            "\nUnverified chapters above are a best-effort guess, not a checked fact -- "
+            "upload their real PDFs next. A clean verify means it matched; a 422 means "
+            "it didn't, and names the exact section it expected or didn't expect. Either "
+            "way, report the result so it can be corrected and moved into "
+            "EXPECTED_SECTIONS for good."
+        )
 
 
 if __name__ == "__main__":
