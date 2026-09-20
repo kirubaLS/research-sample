@@ -346,6 +346,42 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "22", "title": "SUMMING UP"},
         ],
     },
+    "X.GEO": {
+        "1": [  # jess101.pdf -- Resources and Development -- proven against the real file
+            # Geography publishes no section numbers of its own, and none of the usual
+            # typographic signals (boldness, size-above-body, colour) reliably separate a
+            # real heading from a diagram caption, a table cell or the chapter's own body
+            # prose in this book -- see app.ingest.book's _locate_known_sections, which
+            # this chapter is the reason for. Uploaded with `?locate_known_sections=true`,
+            # which locates these titles directly in the chapter's own text instead of
+            # guessing structure from typography, then renumbers by where each was
+            # actually FOUND -- not the order given here, which is why this list's own
+            # order (matching the user's original topic list) does not match the numbers
+            # a real upload reports: "Land Resources" is typed before "Land Utilisation"
+            # here, but genuinely printed after it in the book.
+            {"number": "1", "title": "Resources and Development"},
+            {"number": "2", "title": "Development of Resources"},
+            {"number": "3", "title": "Sustainable development"},
+            {"number": "4", "title": "Rio de Janeiro Earth Summit, 1992"},
+            {"number": "5", "title": "Agenda 21"},
+            {"number": "6", "title": "Resource Planning"},
+            {"number": "7", "title": "Conservation of Resources"},
+            {"number": "8", "title": "Resource Planning in India"},
+            {"number": "9", "title": "Land Resources"},
+            {"number": "10", "title": "Land Utilisation"},
+            {"number": "11", "title": "Land Use Pattern in India"},
+            {"number": "12", "title": "Land Degradation and Conservation Measures"},
+            {"number": "13", "title": "Soil as a Resource"},
+            {"number": "14", "title": "Classification of Soils"},
+            {"number": "15", "title": "Alluvial Soils"},
+            {"number": "16", "title": "Black Soil"},
+            {"number": "17", "title": "Red and Yellow Soils"},
+            {"number": "18", "title": "Laterite Soil"},
+            {"number": "19", "title": "Arid Soils"},
+            {"number": "20", "title": "Forest Soils"},
+            {"number": "21", "title": "Soil Erosion and Soil Conservation"},
+        ],
+    },
 }
 
 
@@ -370,16 +406,6 @@ def _sequential(titles: list[str]) -> list[dict[str, str]]:
 #: EXPECTED_SECTIONS above, the same way every chapter there started out.
 UNVERIFIED_EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
     "X.GEO": {
-        "1": _sequential([  # jess101.pdf -- Resources and Development
-            "Resources and Development", "Development of Resources", "Sustainable development",
-            "Rio de Janeiro Earth Summit, 1992", "Agenda 21", "Resource Planning",
-            "Conservation of Resources", "Resource Planning in India", "Land Resources",
-            "Land Utilisation", "Land Use Pattern in India",
-            "Land Degradation and Conservation Measures", "Soil as a Resource",
-            "Classification of Soils", "Alluvial Soils", "Black Soil",
-            "Red and Yellow Soils", "Laterite Soil", "Arid Soils", "Forest Soils",
-            "Soil Erosion and Soil Conservation",
-        ]),
         "2": _sequential([  # jess102.pdf -- Forest and Wildlife Resources
             "Forest and Wildlife Resources", "Flora and Fauna in India",
             "Conservation of Forest and Wildlife in India", "Project Tiger",

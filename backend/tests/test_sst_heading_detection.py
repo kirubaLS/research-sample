@@ -29,7 +29,13 @@ from pathlib import Path
 
 import pytest
 
-from app.ingest.book import _NOT_A_HEADING, _sections_by_boldness, extract_chapter, read_text
+from app.ingest.book import (
+    _NOT_A_HEADING,
+    _locate_known_sections,
+    _sections_by_boldness,
+    extract_chapter,
+    read_text,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures" / "regression"
 DEVELOPMENT_PDF = FIXTURES / "sst_economics_development.pdf"
@@ -45,6 +51,10 @@ CONSUMER_RIGHTS_PDF = FIXTURES / "sst_economics_consumer_rights.pdf"
 real_consumer_rights = pytest.mark.skipif(not CONSUMER_RIGHTS_PDF.exists(), reason="regression fixture not present")
 GLOBALISATION_PDF = FIXTURES / "sst_economics_globalisation.pdf"
 real_globalisation = pytest.mark.skipif(not GLOBALISATION_PDF.exists(), reason="regression fixture not present")
+RESOURCES_DEVELOPMENT_PDF = FIXTURES / "sst_geography_resources_and_development.pdf"
+real_resources_development = pytest.mark.skipif(
+    not RESOURCES_DEVELOPMENT_PDF.exists(), reason="regression fixture not present"
+)
 
 
 @pytest.mark.skipif(not DEVELOPMENT_PDF.exists(), reason="regression fixture not present")
@@ -245,5 +255,40 @@ def test_a_boxed_example_laid_out_ahead_of_its_own_heading_does_not_drop_every_s
     assert "THE STRUGGLE FOR A FAIR GLOBALISATION" in titles
     # Content boundaries must stay valid (non-overlapping, strictly increasing) even
     # though this chapter's own extracted text order does not match its visual layout.
+    starts = [s.start for s in sections]
+    assert starts == sorted(starts) and len(set(starts)) == len(starts)
+
+
+@real_resources_development
+def test_a_chapter_no_typographic_signal_can_parse_is_located_by_its_own_known_titles():
+    """"Resources and Development" is the real chapter that exhausted every typographic
+    signal tried: real headings span three different bold sizes, several are plain
+    (non-bold) text at exactly the chapter's own body size, one ('Conservation of
+    Resources') is an inline lead-in glued to its own paragraph on the same physical
+    line, and a soil-profile diagram draws its own layer labels bold at a real heading's
+    own size. _locate_known_sections sidesteps all of it: the chapter's own real
+    headings are already known (typed from the contents page), so it matches them
+    against the page's own styled spans by STRING instead of guessing which spans are
+    headings from typography."""
+    text = read_text(RESOURCES_DEVELOPMENT_PDF)
+    titles = [
+        "Resources and Development", "Development of Resources", "Sustainable development",
+        "Rio de Janeiro Earth Summit, 1992", "Agenda 21", "Resource Planning",
+        "Conservation of Resources", "Resource Planning in India", "Land Resources",
+        "Land Utilisation", "Land Use Pattern in India",
+        "Land Degradation and Conservation Measures", "Soil as a Resource",
+        "Classification of Soils", "Alluvial Soils", "Black Soil",
+        "Red and Yellow Soils", "Laterite Soil", "Arid Soils", "Forest Soils",
+        "Soil Erosion and Soil Conservation",
+    ]
+    sections, missing = _locate_known_sections(RESOURCES_DEVELOPMENT_PDF, text, titles)
+    assert missing == []
+    assert len(sections) == 21
+    # The given list types "Land Resources" before "Land Utilisation", but the book
+    # genuinely prints "LAND UTILISATION" first -- renumbered by where each was actually
+    # found, not the order given, so the real book order must survive here.
+    numbers_by_title = {s.title: s.number for s in sections}
+    assert int(numbers_by_title["Land Utilisation"]) < int(numbers_by_title["Land Resources"])
+    # Content boundaries must stay valid (non-overlapping, strictly increasing).
     starts = [s.start for s in sections]
     assert starts == sorted(starts) and len(set(starts)) == len(starts)

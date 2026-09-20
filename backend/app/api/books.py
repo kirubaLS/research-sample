@@ -707,7 +707,7 @@ def set_expected_sections(
 
 def _process_chapter(
     db: Session, subject: str, version: str, name: str, pdf_bytes: bytes,
-    *, hindi_text: str | None = None,
+    *, hindi_text: str | None = None, locate_known_sections: bool = False,
 ) -> dict:
     """Everything upload_chapter does once it has the bytes -- see _process_contents for
     why this is split out from the route handler, and for what ``hindi_text`` is for.
@@ -756,6 +756,26 @@ def _process_chapter(
         # started as before a real upload disagreed with it.
         # Scoped by subject code, not guessed from what the normal section detection
         # happens to find on a given file.
+        # An explicit opt-in, never a silent replacement for the usual typographic
+        # detection -- see extract_chapter's own note on known_section_titles for why:
+        # it only runs where a chapter's own real headings are already typed up as an
+        # oracle AND the typographic passes have already been tried and shown not to work
+        # for this book (Geography's own "Resources and Development", confirmed against
+        # the real file -- boldness, size and colour each fail to separate a real heading
+        # from a diagram caption, a table cell or the chapter's own body prose somewhere
+        # in the chapter).
+        known_titles = None
+        if locate_known_sections:
+            stored = source.expected_sections.get(str(number))
+            if not stored:
+                raise HTTPException(
+                    422,
+                    f"locate_known_sections was requested but no expected section list "
+                    f"is set for {subject} chapter {number} -- POST "
+                    f"/{subject}/expected-sections first.",
+                )
+            known_titles = [s["title"] for s in stored]
+
         extract = extract_chapter(
             path, number=number, name=name,
             title=chapter_title(subject, number) or "",
@@ -768,13 +788,24 @@ def _process_chapter(
             bare_headings=subject.startswith("X.HIST"),
             body_bucket="E" if subject == "X.ENG.WB" else "T",
             text_override=text_override,
+            known_section_titles=known_titles,
         )
         toc = {
             int(k): [Section(s["number"], s["title"]) for s in v]
             for k, v in source.expected_sections.items()
         }
         expected_title = (source.expected_chapters or {}).get(str(number))
-        if toc:
+        if locate_known_sections:
+            # verify_against_toc compares by NUMBER, assigned by the position each title
+            # was TYPED at -- but _locate_known_sections renumbers by the position each
+            # title was actually FOUND at, which can legitimately differ (confirmed on
+            # the real "Resources and Development" chapter: "Land Resources" is typed
+            # before "Land Utilisation" but printed after it in the book). Comparing
+            # those two numberings would flag a real, correctly-found chapter as
+            # disagreeing with itself. known_titles' own "all requested titles were
+            # found" check (already in extract.problems) is this mode's verification.
+            extract.verified_against = source.edition or "contents page (by known titles)"
+        elif toc:
             verify_against_toc(extract, toc)
             extract.verified_against = source.edition or "contents page"
         else:
@@ -895,12 +926,19 @@ async def upload_contents(
 async def upload_chapter(
     subject: str,
     file: UploadFile = File(...),
+    locate_known_sections: bool = False,
     background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
     db: Session = Depends(get_session),
 ) -> dict:
     """One chapter PDF, verified against the contents page before anything is written.
 
     See upload_contents: a Hindi subject is backgrounded the same way.
+
+    ``locate_known_sections``: an explicit opt-in for a book whose real headings cannot
+    be told apart from everything else on the page by boldness, size or colour (see
+    extract_chapter's own note on ``known_section_titles``). Requires this chapter's
+    expected section list to already be set via POST /expected-sections -- refused
+    with 422 otherwise, not silently ignored.
     """
     version = "CBSE-2026-27"
     name = file.filename or ""
@@ -924,7 +962,9 @@ async def upload_chapter(
             },
         )
 
-    return _process_chapter(db, subject, version, name, pdf_bytes)
+    return _process_chapter(
+        db, subject, version, name, pdf_bytes, locate_known_sections=locate_known_sections,
+    )
 
 
 @router.get("/{subject}/jobs/{job_id}")

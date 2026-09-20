@@ -1479,10 +1479,108 @@ def extract_chunks(
     return chunks
 
 
+def _locate_known_sections(
+    path: str | Path, text: str, titles: list[str],
+) -> tuple[list[Section], list[str]]:
+    """Locate a chapter's own real headings by STRING, not by typography -- for a book
+    where boldness, size and colour genuinely cannot tell a real heading apart from
+    everything else on the page.
+
+    Confirmed necessary on the real "Resources and Development" chapter: its headings
+    span three bold sizes, several are plain (non-bold) text at exactly the chapter's own
+    body size, one ("Conservation of Resources") is an inline lead-in glued to its own
+    paragraph on the same line rather than a standalone line at all, and a soil-profile
+    diagram draws its own layer labels bold at a real heading's own size. No combination
+    of the typographic signals _sections_by_boldness has tried told these apart safely
+    (see its own docstring's note on the multi_size-bold and colour-only attempts tried
+    and reverted here) -- but the book's own real headings are already known, typed from
+    the contents page and checked chapter by chapter, the same oracle History and
+    Economics verify their OWN independently-detected sections against.
+
+    Used only where that oracle exists and only on request (a caller opts in), never as a
+    silent replacement for the typographic passes: those stay the default because they
+    catch a REAL extraction bug when a chapter's own detected structure disagrees with
+    the oracle (verify_against_toc). Locating by the oracle's own strings instead removes
+    that independent check entirely for the chapter it runs on, so it is only worth doing
+    where the typographic passes have already been tried and proven not to work.
+
+    A known title is matched against the page's own text spans, not searched for blindly
+    in ``text``: a short, common title ("Land Resources") searched for directly matched
+    an EARLIER, incidental mention buried in an unrelated paragraph ("Land resources are
+    used for...") rather than the real heading further down, on the real file -- the same
+    class of false match ``_pick_sections``' own per-title cursor exists to avoid for a
+    genuinely repeated heading. Matching against the page's own STYLED spans first (any
+    style, since none can be trusted alone here) and only then locating that specific
+    span's text in ``text`` avoids it: incidental prose is one span among a paragraph's
+    many, essentially never identical to or beginning with the heading's own short title.
+
+    Returns ``(sections, missing)`` -- ``missing`` names every title this could not find
+    at all, the loud, specific failure this whole approach exists to produce instead of a
+    section that silently never happened.
+    """
+    with pymupdf.open(path) as doc:
+        raw_lines: list[tuple[int, float, str]] = []
+        for page_index, page in enumerate(doc):
+            for block in page.get_text("dict")["blocks"]:
+                for line in block.get("lines", []):
+                    spans = line.get("spans") or []
+                    if not spans:
+                        continue
+                    line_text = "".join(s["text"] for s in spans).strip()
+                    if not line_text:
+                        continue
+                    raw_lines.append((page_index, line["bbox"][1], line_text))
+
+    # A title that wraps to two physical lines on the page ("LAND DEGRADATION AND
+    # CONSERVATION" / "MEASURES") needs both joined into one candidate to match at all --
+    # the same adjacency test _pick_sections' own wrap-merge uses, applied here to build
+    # candidates rather than to merge an already-chosen heading's continuation.
+    candidates: list[tuple[str, str]] = []   # (span_text, locate_by)
+    for i, (page_index, y, line_text) in enumerate(raw_lines):
+        candidates.append((line_text, line_text))
+        if i + 1 < len(raw_lines):
+            next_page, next_y, next_text = raw_lines[i + 1]
+            if next_page == page_index and 0 < next_y - y < 20:
+                candidates.append((f"{line_text} {next_text}", line_text))
+
+    def key(s: str) -> str:
+        return _APOSTROPHES.sub("'", normalise(s)).casefold()
+
+    cursor = 0
+    found: list[tuple[str, str, int]] = []   # (title, locate_by, position)
+    missing: list[str] = []
+    for wanted_title in titles:
+        wanted_key = key(wanted_title)
+        exact = [c for c in candidates if key(c[0]) == wanted_key]
+        starting = exact or sorted(
+            (c for c in candidates if key(c[0]).startswith(wanted_key)),
+            key=lambda c: len(c[0]),
+        )
+        if not starting:
+            missing.append(wanted_title)
+            continue
+        locate_by = starting[0][1]
+        pos = text.find(locate_by, cursor)
+        if pos == -1:
+            pos = text.find(locate_by, 0)
+        if pos == -1:
+            missing.append(wanted_title)
+            continue
+        cursor = pos + len(locate_by)
+        found.append((wanted_title, locate_by, pos))
+    found.sort(key=lambda item: item[2])
+
+    sections: list[Section] = []
+    for i, (title, _locate_by, start) in enumerate(found):
+        end = found[i + 1][2] if i + 1 < len(found) else len(text)
+        sections.append(Section(str(i + 1), title, start, end))
+    return sections, missing
+
+
 def extract_chapter(
     path: str | Path, *, number: int | None = None, name: str = "", title: str = "",
     single_section: bool = False, bare_headings: bool = False, body_bucket: str = "T",
-    text_override: str | None = None,
+    text_override: str | None = None, known_section_titles: list[str] | None = None,
 ) -> ChapterExtract:
     """``title`` should come from the contents page where available: matching an existing
     chapter node depends on using the book's own words, not a slug turned back into prose.
@@ -1538,7 +1636,20 @@ def extract_chapter(
     resolved_title = title or derived
 
     text = text_override if text_override is not None else read_text(path)
-    if single_section:
+    problems: list[str] = []
+    if known_section_titles is not None:
+        # Opt-in only -- see _locate_known_sections' own docstring for why this is never
+        # the silent default. Missing titles go straight into ``problems``, the same
+        # field verify_against_toc populates, so a chapter whose real headings could not
+        # all be found is refused exactly the way a TOC disagreement already is, not
+        # loaded with some of its real sections quietly absent.
+        sections, missing = _locate_known_sections(path, text, known_section_titles)
+        if missing:
+            problems.append(
+                f"{len(missing)} known section(s) could not be found in the chapter's "
+                f"own text: {missing!r}"
+            )
+    elif single_section:
         sections = [Section("1", resolved_title, 0, len(text))]
     elif bare_headings:
         sections = _sections_by_boldness(path, text, resolved_title)
@@ -1555,6 +1666,7 @@ def extract_chapter(
         source_path=str(path),
         sha256=file_sha256(path),
         sections=sections,
+        problems=problems,
         chunks=extract_chunks(
             text, number, sections=sections, body_bucket=body_bucket,
             bare_numbered_questions=single_section,
