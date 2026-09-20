@@ -597,8 +597,19 @@ def _process_contents(
         )
         db.add(source)
     else:
-        # re-uploading the contents page replaces the oracle but keeps what is loaded
-        source.expected_sections = expected
+        # Re-uploading the contents page updates only the chapters THIS page itself
+        # supplies a section oracle for (Maths, Science) -- it must never wipe out a
+        # hand-typed oracle a chapter already has from set_expected_sections, which is
+        # exactly what a flat replace used to do. Political Science's own contents page
+        # lists chapter titles only, no section numbers at all (`expected` comes back
+        # {}), so a flat `source.expected_sections = expected` here silently erased
+        # every X.POL chapter's hand-typed list on the next contents-page re-upload --
+        # a real production bug, discovered when chapters that had just been verified
+        # started coming back "no expected section list is set" again with no upload,
+        # edit, or error in between to explain it.
+        merged_sections = dict(source.expected_sections)
+        merged_sections.update(expected)
+        source.expected_sections = merged_sections
         source.expected_chapters = expected_chapters
         if edition:
             source.edition = edition

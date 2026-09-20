@@ -14,6 +14,7 @@ subject is checked with `verify_against_toc` -- the same hard oracle Maths alrea
 
 from __future__ import annotations
 
+import io
 from pathlib import Path
 
 import pytest
@@ -65,6 +66,52 @@ def _enable_platform():
     settings.platform_admin_key = KEY
     yield
     settings.platform_admin_key = before
+
+
+def test_reuploading_a_contents_page_with_no_sections_does_not_erase_a_hand_typed_oracle(
+    client, school, monkeypatch,
+):
+    """Political Science's own contents page lists chapter titles only, no section
+    numbers at all -- `parse_toc` finds nothing for it, the same shape this test forces
+    with a monkeypatch rather than a real prelims PDF. A flat `source.expected_sections =
+    expected` in `_process_contents` used to replace the WHOLE oracle with that empty
+    dict on every contents-page (re-)upload, silently erasing chapter 1's hand-typed list
+    from an earlier `set_expected_sections` call with no error and no upload of chapter 1
+    itself to explain it -- a real production bug, not a hypothetical one."""
+    from app.api import books as books_api
+
+    client.post("/platform/books/X.POL/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.POL/expected-sections", headers=HEAD,
+        json={"chapters": {"1": [{"number": "1", "title": "Power-sharing"}]}},
+    )
+
+    monkeypatch.setattr(books_api, "parse_toc", lambda path, text=None: {})
+    monkeypatch.setattr(
+        books_api, "parse_toc_chapters", lambda path, text=None: {1: "Power-sharing", 2: "Federalism"},
+    )
+    r = client.post(
+        "/platform/books/X.POL/contents", headers=HEAD,
+        files={"file": ("00-contents.pdf", io.BytesIO(b"%PDF-1.4 fake"), "application/pdf")},
+    )
+    assert r.status_code == 201, r.json()
+    assert r.json()["sections_expected"] == 0
+
+    from sqlalchemy import select
+
+    from app.models import BookSource
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        row = db.scalar(
+            select(BookSource).where(
+                BookSource.subject_code == "X.POL", BookSource.curriculum_version == "CBSE-2026-27",
+            )
+        )
+        assert row.expected_sections.get("1") == [{"number": "1", "title": "Power-sharing"}]
+    finally:
+        db.close()
 
 
 def test_a_subject_with_no_curriculum_is_refused(client):
