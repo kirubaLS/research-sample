@@ -30,6 +30,12 @@ export default function BooksPage() {
   const [busy, setBusy] = useState(false);
   const [families, setFamilies] = useState<FamilyProposals | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  // For a book whose real headings cannot be told apart from a diagram caption, a table
+  // cell or its own body prose by boldness, size or colour (Geography's own "Resources
+  // and Development", confirmed against the real file) -- locates each chapter's known
+  // headings by string instead of guessing structure from typography. Requires that
+  // chapter's expected section list to already be set; refused with 422 otherwise.
+  const [locateKnownSections, setLocateKnownSections] = useState(false);
 
   const say = (text: string, bad = false) => setLog((l) => [...l, { text, bad }]);
 
@@ -152,7 +158,7 @@ export default function BooksPage() {
     // and parallel requests would race to create the same chapter node
     for (const file of files.sort((a, b) => a.name.localeCompare(b.name))) {
       try {
-        const r = await api.uploadChapter(key, subject, file);
+        const r = await api.uploadChapter(key, subject, file, locateKnownSections);
         say(
           `ch${r.chapter} ${r.title} - ${r.sections} sections, ${r.chunks} chunks` +
             (r.board_unit_mapped ? "" : " - no board unit yet"),
@@ -309,6 +315,20 @@ export default function BooksPage() {
           page, the answers and the appendices are refused: the answers file matches
           &ldquo;EXERCISE&rdquo; 31 times and would load the answer key as practice content.
         </p>
+        <label style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
+          <input
+            type="checkbox"
+            checked={locateKnownSections}
+            onChange={(e) => setLocateKnownSections(e.target.checked)}
+            disabled={busy}
+          />
+          <span className="cardnote">
+            Locate known sections by string (for a book like Geography, where boldness,
+            size and colour can&apos;t reliably tell a real heading apart from everything
+            else on the page). Requires this chapter&apos;s expected section list to
+            already be set, or the upload is refused.
+          </span>
+        </label>
         <input
           type="file"
           accept="application/pdf"

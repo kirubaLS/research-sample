@@ -1828,9 +1828,10 @@ export const api = {
       `/platform/books/${subject}/contents?edition=${encodeURIComponent(edition)}`, key, file,
     ),
 
-  uploadChapter: (key: string, subject: string, file: File) =>
+  uploadChapter: (key: string, subject: string, file: File, locateKnownSections = false) =>
     upload<{ chapter: number; title: string; sections: number; chunks: number; board_unit_mapped: boolean }>(
-      `/platform/books/${subject}/chapters`, key, file,
+      `/platform/books/${subject}/chapters` + (locateKnownSections ? "?locate_known_sections=true" : ""),
+      key, file,
     ),
 
   embedBatch: (key: string, subject: string) =>
