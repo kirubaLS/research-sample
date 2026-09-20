@@ -1526,7 +1526,7 @@ def _locate_known_sections(
     section that silently never happened.
     """
     with pymupdf.open(path) as doc:
-        raw_lines: list[tuple[int, float, str]] = []
+        raw_lines: list[tuple[int, float, float, str]] = []
         for page_index, page in enumerate(doc):
             for block in page.get_text("dict")["blocks"]:
                 for line in block.get("lines", []):
@@ -1536,19 +1536,32 @@ def _locate_known_sections(
                     line_text = "".join(s["text"] for s in spans).strip()
                     if not line_text:
                         continue
-                    raw_lines.append((page_index, line["bbox"][1], line_text))
+                    raw_lines.append((page_index, line["bbox"][1], spans[0]["size"], line_text))
 
-    # A title that wraps to two physical lines on the page ("LAND DEGRADATION AND
-    # CONSERVATION" / "MEASURES") needs both joined into one candidate to match at all --
-    # the same adjacency test _pick_sections' own wrap-merge uses, applied here to build
-    # candidates rather than to merge an already-chosen heading's continuation.
+    # A title that wraps to two, or more, physical lines on the page ("LAND DEGRADATION
+    # AND CONSERVATION" / "MEASURES") needs all of them joined into one candidate to match
+    # at all -- the same adjacency test _pick_sections' own wrap-merge uses, applied here
+    # to build candidates rather than to merge an already-chosen heading's continuation.
+    # Confirmed necessary on the real "Gender, Religion and Caste" chapter's own cover
+    # title, which wraps to THREE lines ("Gender," / "Religion and" / "Caste"), not just
+    # two -- a fixed two-line join left it unmatchable by any candidate. Chained up to 4
+    # lines, matching how many a real chapter title has been seen to wrap to plus one.
+    # The allowed gap scales with the line's own size, the same fix and reasoning
+    # _pick_sections' own wrap-merge uses: that same cover title draws each line 60pt
+    # apart at 65pt type, comfortably beyond a flat 20pt gap but well inside a font that
+    # size's own natural line height.
     candidates: list[tuple[str, str]] = []   # (span_text, locate_by)
-    for i, (page_index, y, line_text) in enumerate(raw_lines):
+    for i, (page_index, y, size, line_text) in enumerate(raw_lines):
         candidates.append((line_text, line_text))
-        if i + 1 < len(raw_lines):
-            next_page, next_y, next_text = raw_lines[i + 1]
-            if next_page == page_index and 0 < next_y - y < 20:
-                candidates.append((f"{line_text} {next_text}", line_text))
+        joined = line_text
+        prev_y = y
+        for j in range(i + 1, min(i + 4, len(raw_lines))):
+            next_page, next_y, next_size, next_text = raw_lines[j]
+            if next_page != page_index or not (0 < next_y - prev_y < max(20.0, size * 1.2)):
+                break
+            joined = f"{joined} {next_text}"
+            candidates.append((joined, line_text))
+            prev_y = next_y
 
     def key(s: str) -> str:
         # A leading bullet ('• Golden Quadrilateral Super Highways:') is real formatting

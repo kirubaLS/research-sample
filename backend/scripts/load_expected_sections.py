@@ -204,6 +204,56 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
         ],
     },
     "X.POL": {
+        "1": [  # jess401.pdf -- Power-sharing -- proven against the real file
+            # This chapter's real headings ARE typographically detectable (bold pass,
+            # not sparse), but two of its map captions -- "Communities and regions of
+            # Belgium", "Ethnic Communities of Sri Lanka" -- are drawn bold at the same
+            # size as a real heading and sit inline among them, exactly the class of
+            # false positive Fig./Table/Graph captions are already excluded for, but
+            # with no shared prefix to pattern-match against. Uploaded with
+            # `?locate_known_sections=true` instead, which locates only these titles
+            # directly and never considers the two captions at all.
+            {"number": "1", "title": "Power-sharing"},
+            {"number": "2", "title": "Belgium and Sri Lanka"},
+            {"number": "3", "title": "Majoritarianism in Sri Lanka"},
+            {"number": "4", "title": "Accommodation in Belgium"},
+            {"number": "5", "title": "Why power sharing is desirable?"},
+            {"number": "6", "title": "Khalil's dilemma"},
+            {"number": "7", "title": "Forms of power-sharing"},
+        ],
+        "2": [  # jess402.pdf -- Federalism -- proven against the real file
+            {"number": "1", "title": "Overview"},
+            {"number": "2", "title": "What is federalism?"},
+            {"number": "3", "title": "What makes India a federal country?"},
+            {"number": "4", "title": "Linguistic States"},
+            {"number": "5", "title": "How is federalism practised?"},
+            {"number": "6", "title": "Language policy"},
+            {"number": "7", "title": "Centre-State relations"},
+            {"number": "8", "title": "Linguistic diversity of India"},
+            {"number": "9", "title": "Scheduled Languages of India"},
+            {"number": "10", "title": "Decentralisation in India"},
+        ],
+        "3": [  # jess403.pdf -- Gender, Religion and Caste -- proven against the real file
+            # This chapter's bold pass finds only its 3 largest headings (sparse), so
+            # the size-based fallback runs -- and that fallback also picks up two chart
+            # captions, "Daily time use (hours: minutes)" and "Population of different
+            # religious communities in India, 2011", each immediately followed by its
+            # own "Source: ..." citation line rather than body prose. Uploaded with
+            # `?locate_known_sections=true`, which never considers either caption.
+            {"number": "1", "title": "Gender, Religion and Caste"},
+            {"number": "2", "title": "Gender and politics"},
+            {"number": "3", "title": "Public/private division"},
+            {"number": "4", "title": "Women's political representation"},
+            {"number": "5", "title": "Religion, communalism and politics"},
+            {"number": "6", "title": "Communalism"},
+            {"number": "7", "title": "Secular state"},
+            {"number": "8", "title": "Caste and politics"},
+            {"number": "9", "title": "Caste inequalities"},
+            {"number": "10", "title": "Social and Religious Diversity of India"},
+            {"number": "11", "title": "Caste in politics"},
+            {"number": "12", "title": "Caste inequality today"},
+            {"number": "13", "title": "Politics in caste"},
+        ],
         "4": [  # jess404.pdf -- Political Parties -- proven against the real file
             {"number": "1", "title": "Overview"},
             {"number": "2", "title": "Why do we need political parties?"},
@@ -230,6 +280,19 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "9", "title": "State parties"},
             {"number": "10", "title": "Challenges to political parties"},
             {"number": "11", "title": "How can parties be reformed?"},
+        ],
+        "5": [  # jess405.pdf -- Outcomes of Democracy -- proven against the real file
+            # Same sparse-bold-pass-falls-back-to-size-based-pass issue as chapter 3:
+            # one extra heading-shaped line, "Economic outcomes" (112 characters --
+            # far too short to be its own section), gets pulled in alongside the real
+            # headings. Uploaded with `?locate_known_sections=true`.
+            {"number": "1", "title": "Outcomes of Democracy"},
+            {"number": "2", "title": "How do we assess democracy's outcomes?"},
+            {"number": "3", "title": "Accountable, responsive and legitimate government"},
+            {"number": "4", "title": "Economic growth and development"},
+            {"number": "5", "title": "Reduction of inequality and poverty"},
+            {"number": "6", "title": "Accommodation of social diversity"},
+            {"number": "7", "title": "Dignity and freedom of the citizens"},
         ],
     },
     "X.ECO": {
@@ -521,53 +584,16 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
 }
 
 
-def _sequential(titles: list[str]) -> list[dict[str, str]]:
-    """Plain reading-order numbers ('1', '2', '3'...), matching what
-    _sections_by_boldness itself assigns for a book that numbers none of its own
-    headings -- see its own docstring. Only a convenience for typing this file in; it
-    invents nothing _sections_by_boldness would not invent the same way on its own.
-    """
-    return [{"number": str(i), "title": t} for i, t in enumerate(titles, start=1)]
-
-
-#: The rest of the user's own topic list for the whole Social Science curriculum, NOT
-#: checked against a real chapter file -- see this module's own docstring for exactly
-#: what that means and why it is loaded anyway. Every list here mixes chapter titles,
-#: major headings and finer sub-points with no marker for which is which (these books
-#: number none of their own headings), so `_sequential`'s numbering is a best-effort
-#: guess at reading order, not a verified fact -- a real upload against this may well
-#: come back 422, naming the exact section it expected but the book does not have (or
-#: has, but not by that exact name/position). That is the intended, informative failure
-#: mode, not a bug: report it and the entry gets corrected and moved up into
-#: EXPECTED_SECTIONS above, the same way every chapter there started out.
-UNVERIFIED_EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
-    "X.POL": {
-        "1": _sequential([  # jess401.pdf -- Power-sharing
-            "Power-sharing", "Belgium and Sri Lanka", "Majoritarianism in Sri Lanka",
-            "Accommodation in Belgium", "Why power sharing is desirable?",
-            "Khalil's dilemma", "Forms of power-sharing",
-        ]),
-        "2": _sequential([  # jess402.pdf -- Federalism
-            "Federalism", "What is federalism?", "What makes India a federal country?",
-            "Linguistic States", "How is federalism practised?", "Language policy",
-            "Centre-State relations", "Linguistic diversity of India",
-            "Scheduled Languages of India", "Decentralisation in India",
-        ]),
-        "3": _sequential([  # jess403.pdf -- Gender, Religion and Caste
-            "Gender, Religion and Caste", "Gender and politics", "Public/private division",
-            "Women's political representation", "Religion, communalism and politics",
-            "Communalism", "Secular state", "Caste and politics", "Caste inequalities",
-            "Social and Religious Diversity of India", "Caste in politics",
-            "Caste inequality today", "Politics in caste",
-        ]),
-        "5": _sequential([  # jess405.pdf -- Outcomes of Democracy
-            "Outcomes of Democracy", "How do we assess democracy's outcomes?",
-            "Accountable, responsive and legitimate government",
-            "Economic growth and development", "Reduction of inequality and poverty",
-            "Accommodation of social diversity", "Dignity and freedom of the citizens",
-        ]),
-    },
-}
+#: Every chapter typed in here starts life unverified against any real file -- see this
+#: module's own docstring for exactly what that means and why it is loaded anyway. A real
+#: upload against an unverified entry may well come back 422, naming the exact section it
+#: expected but the book does not have (or has, but not by that exact name/position).
+#: That is the intended, informative failure mode, not a bug: report it and the entry
+#: gets corrected and moved up into EXPECTED_SECTIONS above, the same way every chapter
+#: there started out.
+#: Every X.POL chapter has now been verified against a real file and moved up into
+#: EXPECTED_SECTIONS -- nothing unverified remains for any subject at the moment.
+UNVERIFIED_EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {}
 
 
 def _merged(*dicts: dict[str, dict[str, list[dict[str, str]]]]) -> dict[str, dict[str, list[dict[str, str]]]]:

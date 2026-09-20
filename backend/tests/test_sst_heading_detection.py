@@ -55,6 +55,18 @@ RESOURCES_DEVELOPMENT_PDF = FIXTURES / "sst_geography_resources_and_development.
 real_resources_development = pytest.mark.skipif(
     not RESOURCES_DEVELOPMENT_PDF.exists(), reason="regression fixture not present"
 )
+POWER_SHARING_PDF = FIXTURES / "sst_polsci_power_sharing.pdf"
+real_power_sharing = pytest.mark.skipif(not POWER_SHARING_PDF.exists(), reason="regression fixture not present")
+FEDERALISM_PDF = FIXTURES / "sst_polsci_federalism.pdf"
+real_federalism = pytest.mark.skipif(not FEDERALISM_PDF.exists(), reason="regression fixture not present")
+GENDER_RELIGION_CASTE_PDF = FIXTURES / "sst_polsci_gender_religion_caste.pdf"
+real_gender_religion_caste = pytest.mark.skipif(
+    not GENDER_RELIGION_CASTE_PDF.exists(), reason="regression fixture not present"
+)
+OUTCOMES_OF_DEMOCRACY_PDF = FIXTURES / "sst_polsci_outcomes_of_democracy.pdf"
+real_outcomes_of_democracy = pytest.mark.skipif(
+    not OUTCOMES_OF_DEMOCRACY_PDF.exists(), reason="regression fixture not present"
+)
 
 
 @pytest.mark.skipif(not DEVELOPMENT_PDF.exists(), reason="regression fixture not present")
@@ -295,5 +307,109 @@ def test_a_chapter_no_typographic_signal_can_parse_is_located_by_its_own_known_t
     numbers_by_title = {s.title: s.number for s in sections}
     assert int(numbers_by_title["Land Utilisation"]) < int(numbers_by_title["Land Resources"])
     # Content boundaries must stay valid (non-overlapping, strictly increasing).
+    starts = [s.start for s in sections]
+    assert starts == sorted(starts) and len(set(starts)) == len(starts)
+
+
+@real_power_sharing
+def test_a_two_line_illustration_title_at_a_bigger_font_still_merges_into_one_heading():
+    """"Khalil's dilemma" is a real 24pt two-line illustration title whose lines sit
+    24.6pt apart on the page -- just over the old flat 20pt wrap-merge threshold, because
+    a bigger font naturally sets a bigger line height. Scaling the allowed gap with the
+    heading's own size (max(20.0, size * 1.2)) merges it into the one heading it is."""
+    text = read_text(POWER_SHARING_PDF)
+    sections = _sections_by_boldness(POWER_SHARING_PDF, text, "Power-sharing")
+    titles = [s.title for s in sections]
+    assert "Khalil’s dilemma" in titles or "Khalil's dilemma" in titles, f"got {titles!r}"
+    assert not any(t in ("Khalil’s", "Khalil's", "dilemma") for t in titles)
+
+
+@real_power_sharing
+def test_map_captions_bold_at_a_real_headings_own_size_are_excluded_by_known_titles():
+    """Two map captions -- "Communities and regions of Belgium", "Ethnic Communities of
+    Sri Lanka" -- are drawn bold at this chapter's own real heading size and sit inline
+    among them, with no shared prefix a pattern could exclude by (unlike TABLE/GRAPH/FIG).
+    _locate_known_sections sidesteps the whole problem: it only ever looks for the titles
+    it is given, so a caption that is not one of them is never considered at all."""
+    text = read_text(POWER_SHARING_PDF)
+    titles = [
+        "Power-sharing", "Belgium and Sri Lanka", "Majoritarianism in Sri Lanka",
+        "Accommodation in Belgium", "Why power sharing is desirable?",
+        "Khalil's dilemma", "Forms of power-sharing",
+    ]
+    sections, missing = _locate_known_sections(POWER_SHARING_PDF, text, titles)
+    assert missing == []
+    assert len(sections) == 7
+    starts = [s.start for s in sections]
+    assert starts == sorted(starts) and len(set(starts)) == len(starts)
+
+
+@real_federalism
+def test_a_chapter_with_no_typographic_false_positives_still_finds_every_heading():
+    """"Federalism" is the control case: every one of its real headings is typographically
+    clean (no rogue map/table/chart caption at the same bold size), so the normal
+    _sections_by_boldness path alone -- no known-title opt-in needed -- must already
+    return exactly the 10 real headings, "Overview" standing in for the chapter's own
+    title the same way every other typographically-detected chapter's first section
+    does."""
+    text = read_text(FEDERALISM_PDF)
+    sections = _sections_by_boldness(FEDERALISM_PDF, text, "Federalism")
+    titles = [s.title for s in sections]
+    assert len(sections) == 10, f"got {titles!r}"
+    assert titles[0] == "Overview"
+    for expected in [
+        "What is federalism?", "What makes India a federal country?",
+        "Linguistic States", "How is federalism practised?", "Language policy",
+        "Centre-State relations", "Linguistic diversity of India",
+        "Scheduled Languages of India", "Decentralisation in India",
+    ]:
+        assert expected in titles
+
+
+@real_gender_religion_caste
+def test_chart_captions_followed_by_a_source_citation_are_excluded_by_known_titles():
+    """This chapter's bold pass finds only its 3 largest headings (sparse), so the
+    size-based fallback runs -- and that fallback also picks up two chart captions,
+    "Daily time use (hours: minutes)" and "Population of different religious communities
+    in India, 2011", each immediately followed by its own "Source: ..." citation rather
+    than body prose. _locate_known_sections never considers either, since neither is one
+    of the titles it is given. The chapter's own cover title also wraps to THREE physical
+    lines ("Gender," / "Religion and" / "Caste") at 65pt with a 60pt gap between them --
+    over the old flat 20pt candidate-join threshold and past the old two-line-only join --
+    so finding it here also exercises the scaled, chained line-join fix."""
+    text = read_text(GENDER_RELIGION_CASTE_PDF)
+    titles = [
+        "Gender, Religion and Caste", "Gender and politics", "Public/private division",
+        "Women's political representation", "Religion, communalism and politics",
+        "Communalism", "Secular state", "Caste and politics", "Caste inequalities",
+        "Social and Religious Diversity of India", "Caste in politics",
+        "Caste inequality today", "Politics in caste",
+    ]
+    sections, missing = _locate_known_sections(GENDER_RELIGION_CASTE_PDF, text, titles)
+    assert missing == []
+    assert len(sections) == 13
+    starts = [s.start for s in sections]
+    assert starts == sorted(starts) and len(set(starts)) == len(starts)
+
+
+@real_outcomes_of_democracy
+def test_a_short_heading_shaped_line_among_real_headings_is_excluded_by_known_titles():
+    """Same sparse-bold-pass-falls-back-to-size-based-pass issue as Gender, Religion and
+    Caste: one extra heading-shaped line, "Economic outcomes" (112 characters -- far too
+    short to be its own real section), gets pulled in alongside the real headings by the
+    size-based fallback. _locate_known_sections never considers it, since it is not one
+    of the titles it is given."""
+    text = read_text(OUTCOMES_OF_DEMOCRACY_PDF)
+    titles = [
+        "Outcomes of Democracy", "How do we assess democracy's outcomes?",
+        "Accountable, responsive and legitimate government",
+        "Economic growth and development", "Reduction of inequality and poverty",
+        "Accommodation of social diversity", "Dignity and freedom of the citizens",
+    ]
+    sections, missing = _locate_known_sections(OUTCOMES_OF_DEMOCRACY_PDF, text, titles)
+    assert missing == []
+    assert len(sections) == 7
+    titles_found = [s.title for s in sections]
+    assert "Economic outcomes" not in titles_found
     starts = [s.start for s in sections]
     assert starts == sorted(starts) and len(set(starts)) == len(starts)
