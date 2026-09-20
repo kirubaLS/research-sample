@@ -693,6 +693,62 @@ def test_a_family_already_carrying_marks_is_refused_deletion(client, school, boo
     assert "orphan" in r.json()["detail"]
 
 
+def test_a_merge_survivor_can_still_be_deleted_afterwards(client, school):
+    """A real production bug: merging two families adds a TaxonomyAlias remembering the
+    removed one's label, pointed at the survivor -- and taxonomy_alias.node_id is a
+    foreign key with no cascade. Deleting that survivor afterwards (its own label turned
+    out to be wrong too, as happened for real with 'Notes for teachers'/'Notes for the
+    teacher' in X.ECO) used to violate that constraint at the database level in Postgres
+    and surface as an unhandled 500, not the ordinary 404/409 this route otherwise
+    returns. The test suite runs on SQLite, which does not enforce this foreign key by
+    default -- the orphaned alias row is checked directly rather than relying on the
+    constraint to raise, so this test would have caught the bug on either engine."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyAlias, TaxonomyNode
+
+    created = client.post(
+        "/platform/books/X.MATH/concept-families", headers=HEAD,
+        json={"families": [
+            {"code": "X.MATH.CF.KEEP_ME", "label": "Keep me", "chapter_code": "X.MATH.STATS"},
+            {"code": "X.MATH.CF.LOSE_ME", "label": "Lose me", "chapter_code": "X.MATH.STATS"},
+        ]},
+    )
+    assert created.json()["created"] == 2, created.text
+
+    merged = client.post(
+        "/platform/books/X.MATH/concept-families/merge", headers=HEAD,
+        json={"keep": "X.MATH.CF.KEEP_ME", "remove": ["X.MATH.CF.LOSE_ME"]},
+    )
+    assert merged.status_code == 200, merged.text
+
+    db = SessionLocal()
+    try:
+        keep_id = db.scalar(
+            select(TaxonomyNode.id).where(TaxonomyNode.code == "X.MATH.CF.KEEP_ME")
+        )
+        assert db.scalar(
+            select(TaxonomyAlias).where(TaxonomyAlias.node_id == keep_id)
+        ) is not None, "the merge should have left an alias remembering 'Lose me'"
+    finally:
+        db.close()
+
+    deleted = client.delete(
+        "/platform/books/X.MATH/concept-families/X.MATH.CF.KEEP_ME", headers=HEAD,
+    )
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json() == {"code": "X.MATH.CF.KEEP_ME", "deleted": True}
+
+    db = SessionLocal()
+    try:
+        assert db.scalar(
+            select(TaxonomyAlias).where(TaxonomyAlias.node_id == keep_id)
+        ) is None, "deleting the node must not leave its aliases dangling"
+    finally:
+        db.close()
+
+
 def test_a_chapter_that_fails_does_not_throw_away_the_chapters_already_paid_for(
     client, school
 ):

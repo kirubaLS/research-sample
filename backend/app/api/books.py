@@ -1594,6 +1594,15 @@ def delete_family(subject: str, code: str, db: Session = Depends(get_session)) -
 
     for p in db.scalars(select(ConceptFamilyProposal).where(ConceptFamilyProposal.code == code)):
         db.delete(p)
+    # A family that survived a merge (POST /concept-families/merge) carries a
+    # TaxonomyAlias row for every family folded into it, recording what it used to be
+    # called -- taxonomy_alias.node_id is a foreign key with no cascade, so deleting the
+    # node while one of these still points at it violates that constraint at the DB level
+    # and surfaces as an unhandled 500, not the 404/409 this route otherwise returns.
+    # Confirmed on a real merge survivor (X.ECO.CF.NOTES_FOR_TEACHERS, kept over
+    # X.ECO.CF.NOTES_FOR_TEACHER) that itself turned out to need deleting afterwards.
+    for a in db.scalars(select(TaxonomyAlias).where(TaxonomyAlias.node_id == node.id)):
+        db.delete(a)
     db.delete(node)
     db.commit()
     return {"code": code, "deleted": True}
