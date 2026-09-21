@@ -696,6 +696,71 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "5.5.1", "title": "Excretion in Human Beings"},
             {"number": "5.5.2", "title": "Excretion in Plants"},
         ],
+        "6": [  # jesc106.pdf -- Control and Coordination
+            {"number": "6.1", "title": "ANIMALS – NERVOUS SYSTEM"},
+            {"number": "6.1.1", "title": "What happens in Reflex Actions?"},
+            {"number": "6.1.2", "title": "Human Brain"},
+            {"number": "6.1.3", "title": "How are these Tissues protected?"},
+            {"number": "6.1.4", "title": "How does the Nervous Tissue cause Action?"},
+            {"number": "6.2", "title": "COORDINATION IN PLANTS"},
+            {"number": "6.2.1", "title": "Immediate Response to Stimulus"},
+            {"number": "6.2.2", "title": "Movement Due to Growth"},
+            {"number": "6.3", "title": "HORMONES IN ANIMALS"},
+        ],
+        "7": [  # jesc107.pdf -- How do Organisms Reproduce?
+            # A THIRD level under a two-decimal section switches from another digit to a
+            # parenthesised letter instead ('7.3.3 (a)', '(b)', '(c)', '(d)') -- confirmed
+            # necessary here: 4 real headings under "Reproduction in Human Beings" (7.3.3)
+            # were invisible until extract_sections matched this convention as its own
+            # alternative. See extract_sections' own docstring.
+            {"number": "7.1", "title": "DO ORGANISMS CREATE EXACT COPIES OF THEMSELVES?"},
+            {"number": "7.1.1", "title": "The Importance of Variation"},
+            {"number": "7.2", "title": "MODES OF REPRODUCTION USED BY SINGLE ORGANISMS"},
+            {"number": "7.2.1", "title": "Fission"},
+            {"number": "7.2.2", "title": "Fragmentation"},
+            {"number": "7.2.3", "title": "Regeneration"},
+            {"number": "7.2.4", "title": "Budding"},
+            {"number": "7.2.5", "title": "Vegetative Propagation"},
+            {"number": "7.2.6", "title": "Spore Formation"},
+            {"number": "7.3", "title": "SEXUAL REPRODUCTION"},
+            {"number": "7.3.1", "title": "Why the Sexual Mode of Reproduction?"},
+            {"number": "7.3.2", "title": "Sexual Reproduction in Flowering Plants"},
+            {"number": "7.3.3", "title": "Reproduction in Human Beings"},
+            {"number": "7.3.3 (a)", "title": "Male Reproductive System"},
+            {"number": "7.3.3 (b)", "title": "Female Reproductive System"},
+            {"number": "7.3.3 (c)", "title": "What happens when the Egg is not Fertilised?"},
+            {"number": "7.3.3 (d)", "title": "Reproductive Health"},
+        ],
+        "9": [  # jesc109.pdf -- Light -- Reflection and Refraction
+            {"number": "9.1", "title": "REFLECTION OF LIGHT"},
+            {"number": "9.2", "title": "SPHERICAL MIRRORS"},
+            {"number": "9.2.1", "title": "Image Formation by Spherical Mirrors"},
+            # Wraps to a second physical line ("Mirrors Using Ray Diagrams") -- same
+            # accepted truncation as chapters 2 and 3's own wrapped titles.
+            {"number": "9.2.2", "title": "Representation of Images Formed by Spherical"},
+            {"number": "9.2.3", "title": "Sign Convention for Reflection by Spherical Mirrors"},
+            {"number": "9.2.4", "title": "Mirror Formula and  Magnification"},
+            {"number": "9.3", "title": "REFRACTION OF LIGHT"},
+            {"number": "9.3.1", "title": "Refraction through a Rectangular Glass Slab"},
+            {"number": "9.3.2", "title": "The Refractive Index"},
+            {"number": "9.3.3", "title": "Refraction by Spherical Lenses"},
+            {"number": "9.3.4", "title": "Image Formation by Lenses"},
+            {"number": "9.3.5", "title": "Image Formation in Lenses Using Ray Diagrams"},
+            {"number": "9.3.6", "title": "Sign Convention for Spherical Lenses"},
+            {"number": "9.3.7", "title": "Lens Formula and Magnification"},
+            {"number": "9.3.8", "title": "Power of a Lens"},
+        ],
+        "10": [  # jesc110.pdf -- The Human Eye and the Colourful World
+            {"number": "10.1", "title": "THE HUMAN EYE"},
+            {"number": "10.1.1", "title": "Power of Accommodation"},
+            {"number": "10.2", "title": "DEFECTS OF VISION AND THEIR CORRECTION"},
+            {"number": "10.3", "title": "REFRACTION OF LIGHT THROUGH A PRISM"},
+            {"number": "10.4", "title": "DISPERSION OF WHITE LIGHT BY A GLASS PRISM"},
+            {"number": "10.5", "title": "ATMOSPHERIC REFRACTION"},
+            {"number": "10.6", "title": "SCATTERING OF LIGHT"},
+            {"number": "10.6.1", "title": "Tyndall Effect"},
+            {"number": "10.6.2", "title": "Why is the colour of the clear Sky Blue?"},
+        ],
     },
 }
 

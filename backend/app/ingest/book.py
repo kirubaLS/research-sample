@@ -842,13 +842,22 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
     every real subsection a chapter has, confirmed on the real "Chemical Reactions and
     Equations" chapter (12 real numbered subheadings, only the 3 top-level ones found).
 
+    A THIRD level under a two-decimal section switches from another digit to a
+    parenthesised letter instead ('7.3.3 (a) Male Reproductive System', '7.3.3 (b)
+    Female Reproductive System' -- four real headings under 'Reproduction in Human
+    Beings' on the real "How do Organisms Reproduce?" chapter), matched as its own
+    alternative rather than folded into the two-decimal case since it is a genuinely
+    different convention, not a third digit.
+
     A title normally starts with a capital letter, except a real heading that legitimately
     starts with the chemistry symbol 'pH' ('2.4.2 pH of Salts') -- correct notation, not a
     typo, so it is its own explicit exception rather than forcing every book's convention
     to fit one heading.
     """
     pattern = re.compile(
-        rf"^\s*({chapter}\.\d+(?:\.\d+)?)\s+([A-Z][^\n]{{2,120}}|pH[^\n]{{2,120}})$", re.M
+        rf"^\s*({chapter}\.\d+\.\d+\s*\([a-z]\)|{chapter}\.\d+(?:\.\d+)?)"
+        rf"\s+([A-Z][^\n]{{2,120}}|pH[^\n]{{2,120}})$",
+        re.M,
     )
     # A heading can be rendered as several overlapping, differently-truncated copies at
     # nearly the same position -- a faux-bold trick some PDF generators use, confirmed on

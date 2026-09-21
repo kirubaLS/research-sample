@@ -73,6 +73,14 @@ CARBON_PDF = SCIENCE_FIXTURES_DIR / "science_carbon_and_its_compounds.pdf"
 real_carbon = pytest.mark.skipif(not CARBON_PDF.exists(), reason="regression fixture not present")
 LIFEPROC_PDF = SCIENCE_FIXTURES_DIR / "science_life_processes.pdf"
 real_lifeproc = pytest.mark.skipif(not LIFEPROC_PDF.exists(), reason="regression fixture not present")
+CONTROL_PDF = SCIENCE_FIXTURES_DIR / "science_control_and_coordination.pdf"
+real_control = pytest.mark.skipif(not CONTROL_PDF.exists(), reason="regression fixture not present")
+REPRODUCE_PDF = SCIENCE_FIXTURES_DIR / "science_how_do_organisms_reproduce.pdf"
+real_reproduce = pytest.mark.skipif(not REPRODUCE_PDF.exists(), reason="regression fixture not present")
+LIGHT_PDF = SCIENCE_FIXTURES_DIR / "science_light_reflection_and_refraction.pdf"
+real_light = pytest.mark.skipif(not LIGHT_PDF.exists(), reason="regression fixture not present")
+EYE_PDF = SCIENCE_FIXTURES_DIR / "science_human_eye_and_colourful_world.pdf"
+real_eye = pytest.mark.skipif(not EYE_PDF.exists(), reason="regression fixture not present")
 
 
 @real_chemrxn
@@ -169,6 +177,52 @@ def test_life_processes_finds_every_two_level_subsection():
     text = read_text(LIFEPROC_PDF)
     sections = extract_sections(text, chapter=5)
     assert len(sections) == 13, [s.number for s in sections]
+
+
+@real_control
+def test_control_and_coordination_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(CONTROL_PDF)
+    sections = extract_sections(text, chapter=6)
+    assert len(sections) == 9, [s.number for s in sections]
+
+
+@real_reproduce
+def test_a_third_level_lettered_subsection_is_found_not_just_the_decimal_levels():
+    """'How do Organisms Reproduce?' is the real chapter that exposed a THIRD numbering
+    convention: a level under a two-decimal section switches from another digit to a
+    parenthesised letter instead ('7.3.3 (a) Male Reproductive System', through '(d)
+    Reproductive Health', all four under '7.3.3 Reproduction in Human Beings') -- 13
+    sections used to come back for a chapter with 17 real numbered headings."""
+    from app.ingest.book import read_text
+
+    text = read_text(REPRODUCE_PDF)
+    sections = extract_sections(text, chapter=7)
+    numbers = [s.number for s in sections]
+    assert numbers[-4:] == ["7.3.3 (a)", "7.3.3 (b)", "7.3.3 (c)", "7.3.3 (d)"], numbers
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["7.3.3 (a)"] == "Male Reproductive System"
+    assert by_number["7.3.3 (d)"] == "Reproductive Health"
+    assert len(sections) == 17, numbers
+
+
+@real_light
+def test_light_reflection_and_refraction_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(LIGHT_PDF)
+    sections = extract_sections(text, chapter=9)
+    assert len(sections) == 15, [s.number for s in sections]
+
+
+@real_eye
+def test_human_eye_and_colourful_world_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(EYE_PDF)
+    sections = extract_sections(text, chapter=10)
+    assert len(sections) == 9, [s.number for s in sections]
 
 
 # --- buckets --------------------------------------------------------------------------
