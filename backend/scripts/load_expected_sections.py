@@ -809,6 +809,59 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "13.2.2", "title": "Managing the Garbage we Produce"},
         ],
     },
+    "X.MATH": {
+        # Maths' own contents page lists every section of every chapter, so a real
+        # upload already gets checked against it "for free" by parse_toc/verify_against_
+        # toc without needing this oracle at all. Filled in anyway, the same as every
+        # other subject, so the chapters that reach here are proven a second, independent
+        # way and every future extraction fix has a real regression to run against.
+        # Numbers here are exactly what the fixed extract_sections finds, proven against
+        # the real files -- one decimal level ('1.1'), except chapter 3's own '3.3.1' /
+        # '3.3.2', which the book itself numbers one level deeper under '3.3'.
+        "1": [  # jemh101.pdf -- Real Numbers
+            {"number": "1.1", "title": "Introduction"},
+            {"number": "1.2", "title": "The Fundamental Theorem of Arithmetic"},
+            {"number": "1.3", "title": "Revisiting Irrational Numbers"},
+            {"number": "1.4", "title": "Summary"},
+        ],
+        "2": [  # jemh102.pdf -- Polynomials
+            {"number": "2.1", "title": "Introduction"},
+            {"number": "2.2", "title": "Geometrical Meaning of the Zeroes of a Polynomial"},
+            {"number": "2.3", "title": "Relationship between Zeroes and Coefficients of a Polynomial"},
+            {"number": "2.4", "title": "Summary"},
+        ],
+        "3": [  # jemh103.pdf -- Pair of Linear Equations in Two Variables
+            {"number": "3.1", "title": "Introduction"},
+            {"number": "3.2", "title": "Graphical Method of Solution of a Pair of Linear Equations"},
+            {"number": "3.3", "title": "Algebraic Methods of Solving a Pair of Linear Equations"},
+            # The PDF's own text layer runs this heading onto the same physical line as
+            # its opening sentence ("Substitution Method : We shall explain the method of
+            # substitution by taking") -- extract_sections used to keep the whole line as
+            # the title. Fixed to truncate at NCERT's own ' : ' separator; see
+            # extract_sections' own docstring.
+            {"number": "3.3.1", "title": "Substitution Method"},
+            {"number": "3.3.2", "title": "Elimination Method"},
+            {"number": "3.4", "title": "Summary"},
+        ],
+        "4": [  # jemh104.pdf -- Quadratic Equations
+            {"number": "4.1", "title": "Introduction"},
+            {"number": "4.2", "title": "Quadratic Equations"},
+            {"number": "4.3", "title": "Solution of a Quadratic Equation by Factorisation"},
+            {"number": "4.4", "title": "Nature of Roots"},
+            {"number": "4.5", "title": "Summary"},
+        ],
+        "5": [  # jemh105.pdf -- Arithmetic Progressions
+            {"number": "5.1", "title": "Introduction"},
+            {"number": "5.2", "title": "Arithmetic Progressions"},
+            # 'nth' is standard mathematical notation, not a typo -- extract_sections
+            # used to require a capital first letter and silently dropped this section
+            # entirely, the same way Science's 'pH of Salts' did before its own
+            # exception was added.
+            {"number": "5.3", "title": "nth Term of an AP"},
+            {"number": "5.4", "title": "Sum of First n Terms of an AP"},
+            {"number": "5.5", "title": "Summary"},
+        ],
+    },
 }
 
 

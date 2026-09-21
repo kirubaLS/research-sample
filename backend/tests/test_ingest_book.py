@@ -88,6 +88,17 @@ real_magnetic = pytest.mark.skipif(not MAGNETIC_PDF.exists(), reason="regression
 ENVIRONMENT_PDF = SCIENCE_FIXTURES_DIR / "science_our_environment.pdf"
 real_environment = pytest.mark.skipif(not ENVIRONMENT_PDF.exists(), reason="regression fixture not present")
 
+REALNUM_PDF = SCIENCE_FIXTURES_DIR / "maths_real_numbers.pdf"
+real_realnum = pytest.mark.skipif(not REALNUM_PDF.exists(), reason="regression fixture not present")
+MATHPOLY_PDF = SCIENCE_FIXTURES_DIR / "maths_polynomials.pdf"
+real_mathpoly = pytest.mark.skipif(not MATHPOLY_PDF.exists(), reason="regression fixture not present")
+LINEQ_PDF = SCIENCE_FIXTURES_DIR / "maths_pair_linear_equations.pdf"
+real_lineq = pytest.mark.skipif(not LINEQ_PDF.exists(), reason="regression fixture not present")
+MATHQUAD_PDF = SCIENCE_FIXTURES_DIR / "maths_quadratic_equations.pdf"
+real_mathquad = pytest.mark.skipif(not MATHQUAD_PDF.exists(), reason="regression fixture not present")
+AP_PDF = SCIENCE_FIXTURES_DIR / "maths_arithmetic_progressions.pdf"
+real_ap = pytest.mark.skipif(not AP_PDF.exists(), reason="regression fixture not present")
+
 
 @real_chemrxn
 def test_a_two_level_decimal_subsection_is_found_not_just_the_top_level():
@@ -126,6 +137,36 @@ def test_a_heading_drawn_as_several_truncated_copies_keeps_its_longest_copy():
     by_number = {s.number: s.title for s in sections}
     assert by_number["2.3.1"] != "Impor"
     assert by_number["2.3.1"].startswith("Importance of pH")
+
+
+@real_lineq
+def test_a_heading_run_onto_the_same_line_as_its_opening_sentence_is_truncated():
+    """'Pair of Linear Equations in Two Variables' renders '3.3.1 Substitution Method'
+    and the sentence that follows it on one physical line in the PDF's text layer --
+    'Substitution Method : We shall explain the method of substitution by taking' used
+    to be kept whole as the title, swallowing the opening sentence because the pattern
+    only anchors to end-of-line. NCERT's own ' : ' separator (the same one Theorem and
+    Example labels use) is where the real heading actually ends."""
+    from app.ingest.book import read_text
+
+    text = read_text(LINEQ_PDF)
+    sections = extract_sections(text, chapter=3)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["3.3.1"] == "Substitution Method"
+
+
+@real_ap
+def test_a_heading_starting_with_lowercase_mathematical_notation_is_still_found():
+    """'Arithmetic Progressions' numbers a real section '5.3 nth Term of an AP' --
+    'nth' is standard mathematical notation, not a typo, but the title pattern used to
+    require a capital first letter and silently dropped this section entirely, the same
+    way Science's 'pH of Salts' did before its own exception was added."""
+    from app.ingest.book import read_text
+
+    text = read_text(AP_PDF)
+    sections = extract_sections(text, chapter=5)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["5.3"] == "nth Term of an AP"
 
 
 @real_acids

@@ -852,11 +852,13 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
     A title normally starts with a capital letter, except a real heading that legitimately
     starts with the chemistry symbol 'pH' ('2.4.2 pH of Salts') -- correct notation, not a
     typo, so it is its own explicit exception rather than forcing every book's convention
-    to fit one heading.
+    to fit one heading. Maths has the same case for its own notation: '5.3 nth Term of an
+    AP' on the real "Arithmetic Progressions" chapter -- 'nth' is standard mathematical
+    shorthand, not a typo either.
     """
     pattern = re.compile(
         rf"^\s*({chapter}\.\d+\.\d+\s*\([a-z]\)|{chapter}\.\d+(?:\.\d+)?)"
-        rf"\s+([A-Z][^\n]{{2,120}}|pH[^\n]{{2,120}})$",
+        rf"\s+([A-Z][^\n]{{2,120}}|pH[^\n]{{2,120}}|nth[^\n]{{2,120}})$",
         re.M,
     )
     # A heading can be rendered as several overlapping, differently-truncated copies at
@@ -871,6 +873,16 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
     for m in pattern.finditer(text):
         number = m.group(1)
         title = m.group(2).strip()
+        # A PDF's text layer sometimes runs a subsection heading and its opening
+        # sentence onto one physical line with no newline between them -- confirmed on
+        # the real "Pair of Linear Equations" chapter, where "3.3.1 Substitution Method
+        # : We shall explain the method..." is one line in the extracted text. NCERT's
+        # own convention marks that boundary with " : ", the same separator it uses for
+        # Theorem/Example labels, so truncating there recovers the real heading
+        # ("Substitution Method") instead of swallowing the sentence after it.
+        colon = title.find(" : ")
+        if colon != -1:
+            title = title[:colon].strip()
         current = best.get(number)
         if current is None or len(title) > len(current[0]):
             best[number] = (title, m.start(), m.end())
