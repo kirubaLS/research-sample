@@ -761,6 +761,41 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "10.6.1", "title": "Tyndall Effect"},
             {"number": "10.6.2", "title": "Why is the colour of the clear Sky Blue?"},
         ],
+        "11": [  # jesc111.pdf -- Electricity
+            {"number": "11.1", "title": "ELECTRIC CURRENT AND CIRCUIT"},
+            {"number": "11.2", "title": "ELECTRIC POTENTIAL AND POTENTIAL DIFFERENCE"},
+            {"number": "11.3", "title": "CIRCUIT DIAGRAM"},
+            {"number": "11.4", "title": "OHM’S LAW"},
+            {"number": "11.5", "title": "FACTORS ON WHICH THE RESISTANCE OF A CONDUCTOR DEPENDS"},
+            {"number": "11.6", "title": "RESISTANCE OF A SYSTEM OF RESISTORS"},
+            {"number": "11.6.1", "title": "Resistors in Series"},
+            {"number": "11.6.2", "title": "Resistors in Parallel"},
+            {"number": "11.7", "title": "HEATING EFFECT OF ELECTRIC CURRENT"},
+            # Wraps to a second physical line ("Electric Current") -- same accepted
+            # truncation as earlier chapters' own wrapped titles.
+            {"number": "11.7.1", "title": "Practical Applications of Heating Effect of"},
+            {"number": "11.8", "title": "ELECTRIC POWER"},
+        ],
+        "12": [  # jesc112.pdf -- Magnetic Effects of Electric Current
+            {"number": "12.1", "title": "MAGNETIC FIELD AND FIELD LINES"},
+            {"number": "12.2", "title": "MAGNETIC FIELD DUE TO A CURRENT-CARRYING CONDUCTOR"},
+            # Wraps to a second physical line ("Conductor") -- same accepted truncation.
+            {"number": "12.2.1", "title": "Magnetic Field due to a Current through a Straight"},
+            {"number": "12.2.2", "title": "Right-Hand Thumb Rule"},
+            # Wraps to a second physical line ("Circular Loop") -- same accepted
+            # truncation.
+            {"number": "12.2.3", "title": "Magnetic Field due to a Current through a"},
+            {"number": "12.2.4", "title": "Magnetic Field due to a Current in a Solenoid"},
+            {"number": "12.3", "title": "FORCE ON A CURRENT-CARRYING CONDUCTOR IN A MAGNETIC FIELD"},
+            {"number": "12.4", "title": "DOMESTIC ELECTRIC CIRCUITS"},
+        ],
+        "13": [  # jesc113.pdf -- Our Environment
+            {"number": "13.1", "title": "ECO-SYSTEM — WHAT ARE ITS COMPONENTS?"},
+            {"number": "13.1.1", "title": "Food Chains and Webs"},
+            {"number": "13.2", "title": "HOW DO OUR ACTIVITIES AFFECT THE ENVIRONMENT?"},
+            {"number": "13.2.1", "title": "Ozone Layer and How it is Getting Depleted"},
+            {"number": "13.2.2", "title": "Managing the Garbage we Produce"},
+        ],
     },
 }
 

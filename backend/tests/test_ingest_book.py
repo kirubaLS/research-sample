@@ -81,6 +81,12 @@ LIGHT_PDF = SCIENCE_FIXTURES_DIR / "science_light_reflection_and_refraction.pdf"
 real_light = pytest.mark.skipif(not LIGHT_PDF.exists(), reason="regression fixture not present")
 EYE_PDF = SCIENCE_FIXTURES_DIR / "science_human_eye_and_colourful_world.pdf"
 real_eye = pytest.mark.skipif(not EYE_PDF.exists(), reason="regression fixture not present")
+ELECTRICITY_PDF = SCIENCE_FIXTURES_DIR / "science_electricity.pdf"
+real_electricity = pytest.mark.skipif(not ELECTRICITY_PDF.exists(), reason="regression fixture not present")
+MAGNETIC_PDF = SCIENCE_FIXTURES_DIR / "science_magnetic_effects_of_electric_current.pdf"
+real_magnetic = pytest.mark.skipif(not MAGNETIC_PDF.exists(), reason="regression fixture not present")
+ENVIRONMENT_PDF = SCIENCE_FIXTURES_DIR / "science_our_environment.pdf"
+real_environment = pytest.mark.skipif(not ENVIRONMENT_PDF.exists(), reason="regression fixture not present")
 
 
 @real_chemrxn
@@ -223,6 +229,33 @@ def test_human_eye_and_colourful_world_finds_every_two_level_subsection():
     text = read_text(EYE_PDF)
     sections = extract_sections(text, chapter=10)
     assert len(sections) == 9, [s.number for s in sections]
+
+
+@real_electricity
+def test_electricity_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(ELECTRICITY_PDF)
+    sections = extract_sections(text, chapter=11)
+    assert len(sections) == 11, [s.number for s in sections]
+
+
+@real_magnetic
+def test_magnetic_effects_of_electric_current_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(MAGNETIC_PDF)
+    sections = extract_sections(text, chapter=12)
+    assert len(sections) == 8, [s.number for s in sections]
+
+
+@real_environment
+def test_our_environment_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(ENVIRONMENT_PDF)
+    sections = extract_sections(text, chapter=13)
+    assert len(sections) == 5, [s.number for s in sections]
 
 
 # --- buckets --------------------------------------------------------------------------
