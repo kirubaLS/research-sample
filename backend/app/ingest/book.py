@@ -855,9 +855,22 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
     to fit one heading. Maths has the same case for its own notation: '5.3 nth Term of an
     AP' on the real "Arithmetic Progressions" chapter -- 'nth' is standard mathematical
     shorthand, not a typo either.
+
+    A number and its title are usually on one physical line, but not always -- pymupdf's
+    real text layer for the "Circles" chapter splits '10.4 Summary' onto two lines ('10.4'
+    then 'Summary' below it), which a same-line-only pattern would silently lose. '\s+'
+    between them (allowing a single line break) recovers that real heading. But the same
+    chapter ALSO splits 'EXERCISE 10.2' across two lines ('EXERCISE' then '10.2' alone),
+    leaving a bare '10.2' immediately followed by the exercise's own instruction line ('In
+    Q.1 to 3, choose the correct option and give justification.') -- '\s+' reads that as a
+    heading too, and since the instruction sentence is longer than the real '10.2 Tangent
+    to a Circle' heading found elsewhere in the chapter, the longest-wins dedup (see its
+    own comment below) picked the fake one. The negative lookbehind excludes only that
+    specific shape: a number whose immediately preceding line is the literal word
+    'EXERCISE', the one place a bare number is never a section heading.
     """
     pattern = re.compile(
-        rf"^\s*({chapter}\.\d+\.\d+\s*\([a-z]\)|{chapter}\.\d+(?:\.\d+)?)"
+        rf"^\s*(?<!EXERCISE\n)({chapter}\.\d+\.\d+\s*\([a-z]\)|{chapter}\.\d+(?:\.\d+)?)"
         rf"\s+([A-Z][^\n]{{2,120}}|pH[^\n]{{2,120}}|nth[^\n]{{2,120}})$",
         re.M,
     )

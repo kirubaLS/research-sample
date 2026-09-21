@@ -98,6 +98,8 @@ MATHQUAD_PDF = SCIENCE_FIXTURES_DIR / "maths_quadratic_equations.pdf"
 real_mathquad = pytest.mark.skipif(not MATHQUAD_PDF.exists(), reason="regression fixture not present")
 AP_PDF = SCIENCE_FIXTURES_DIR / "maths_arithmetic_progressions.pdf"
 real_ap = pytest.mark.skipif(not AP_PDF.exists(), reason="regression fixture not present")
+MATHCIRCLE_PDF = SCIENCE_FIXTURES_DIR / "maths_circles.pdf"
+real_mathcircle = pytest.mark.skipif(not MATHCIRCLE_PDF.exists(), reason="regression fixture not present")
 
 
 @real_chemrxn
@@ -167,6 +169,28 @@ def test_a_heading_starting_with_lowercase_mathematical_notation_is_still_found(
     sections = extract_sections(text, chapter=5)
     by_number = {s.number: s.title for s in sections}
     assert by_number["5.3"] == "nth Term of an AP"
+
+
+@real_mathcircle
+def test_a_bare_exercise_number_split_onto_its_own_line_is_not_a_heading():
+    """'Circles' renders 'EXERCISE 10.2' across two physical lines ('EXERCISE' then
+    '10.2' alone), leaving a bare '10.2' immediately followed by the exercise's own
+    instruction sentence ('In Q.1 to 3, choose the correct option and give
+    justification.'). The number/title gap allows crossing one line break to recover a
+    genuine two-line heading like this chapter's own '10.4 Summary' -- but that same
+    allowance used to read the exercise number and its instruction sentence as a
+    heading too, and since the sentence is longer than the real '10.2 Tangent to a
+    Circle' heading elsewhere in the chapter, the longest-wins dedup kept the fake one
+    and the real upload was rejected outright: 'section 10.2 reads 'In Q.1 to 3, choose
+    the correct option and give justification.', contents page says 'Tangent to a
+    Circle''."""
+    from app.ingest.book import read_text
+
+    text = read_text(MATHCIRCLE_PDF)
+    sections = extract_sections(text, chapter=10)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["10.2"] == "Tangent to a Circle"
+    assert by_number["10.4"] == "Summary"
 
 
 @real_acids
