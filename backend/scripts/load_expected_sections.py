@@ -731,6 +731,18 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "7.3.3 (c)", "title": "What happens when the Egg is not Fertilised?"},
             {"number": "7.3.3 (d)", "title": "Reproductive Health"},
         ],
+        "8": [  # jesc108.pdf -- Heredity -- proven against the real file. Typed from
+            # real page images rather than run through the extractor here directly (the
+            # real file itself could not be uploaded to this session), but a real
+            # production upload of the actual PDF verified clean against this exact
+            # list -- no 422, so the extractor's own read of the real bytes agrees.
+            {"number": "8.1", "title": "ACCUMULATION OF VARIATION DURING REPRODUCTION"},
+            {"number": "8.2", "title": "HEREDITY"},
+            {"number": "8.2.1", "title": "Inherited Traits"},
+            {"number": "8.2.2", "title": "Rules for the Inheritance of Traits –"},
+            {"number": "8.2.3", "title": "How do these Traits get Expressed?"},
+            {"number": "8.2.4", "title": "Sex Determination"},
+        ],
         "9": [  # jesc109.pdf -- Light -- Reflection and Refraction
             {"number": "9.1", "title": "REFLECTION OF LIGHT"},
             {"number": "9.2", "title": "SPHERICAL MIRRORS"},
@@ -807,26 +819,9 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
 #: That is the intended, informative failure mode, not a bug: report it and the entry
 #: gets corrected and moved up into EXPECTED_SECTIONS above, the same way every chapter
 #: there started out.
-UNVERIFIED_EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
-    "X.SCI": {
-        "8": [  # jesc108.pdf -- Heredity -- read from real page images (129-133), not
-            # run through the actual extractor against real PDF bytes the way every
-            # other X.SCI chapter above was -- the real file itself was never
-            # successfully uploaded here. Move to EXPECTED_SECTIONS once a real upload
-            # confirms this against the actual file.
-            {"number": "8.1", "title": "ACCUMULATION OF VARIATION DURING REPRODUCTION"},
-            {"number": "8.2", "title": "HEREDITY"},
-            {"number": "8.2.1", "title": "Inherited Traits"},
-            # Wraps to a second physical line ("Mendel's Contributions") in the page
-            # image -- same accepted truncation every other chapter's own wrapped
-            # titles get, though unconfirmed here against the real PDF's own line
-            # breaks.
-            {"number": "8.2.2", "title": "Rules for the Inheritance of Traits –"},
-            {"number": "8.2.3", "title": "How do these Traits get Expressed?"},
-            {"number": "8.2.4", "title": "Sex Determination"},
-        ],
-    },
-}
+#: Every X.SCI chapter has now been verified against a real file and moved up into
+#: EXPECTED_SECTIONS -- nothing unverified remains for any subject at the moment.
+UNVERIFIED_EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {}
 
 
 def _merged(*dicts: dict[str, dict[str, list[dict[str, str]]]]) -> dict[str, dict[str, list[dict[str, str]]]]:
