@@ -897,6 +897,33 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "10.3", "title": "Number of Tangents from a Point on a Circle"},
             {"number": "10.4", "title": "Summary"},
         ],
+        "11": [  # jemh111.pdf -- Areas Related to Circles
+            # No separate numbered "Introduction" -- 11.1 opens directly as "Areas of
+            # Sector and Segment of a Circle", the chapter's only real section besides
+            # Summary.
+            {"number": "11.1", "title": "Areas of Sector and Segment of a Circle"},
+            {"number": "11.2", "title": "Summary"},
+        ],
+        "12": [  # jemh112.pdf -- Surface Areas and Volumes
+            {"number": "12.1", "title": "Introduction"},
+            {"number": "12.2", "title": "Surface Area of a Combination of Solids"},
+            {"number": "12.3", "title": "Volume of a Combination of Solids"},
+            {"number": "12.4", "title": "Summary"},
+        ],
+        "13": [  # jemh113.pdf -- Statistics
+            {"number": "13.1", "title": "Introduction"},
+            {"number": "13.2", "title": "Mean of Grouped Data"},
+            {"number": "13.3", "title": "Mode of Grouped Data"},
+            {"number": "13.4", "title": "Median of Grouped Data"},
+            {"number": "13.5", "title": "Summary"},
+        ],
+        "14": [  # jemh114.pdf -- Probability
+            # No separate numbered "Introduction" -- 14.1 opens directly as
+            # "Probability -- A Theoretical Approach", the chapter's only real section
+            # besides Summary.
+            {"number": "14.1", "title": "Probability — A Theoretical Approach"},
+            {"number": "14.2", "title": "Summary"},
+        ],
     },
 }
 
