@@ -765,6 +765,10 @@ def test_two_different_chapters_sharing_a_heading_title_both_get_proposed():
     # title keeps the plain, un-suffixed code -- only the later collision is
     # disambiguated, not both.
     assert by_chapter["X.SCI.CHEMRXN"].code == "X.SCI.CF.CORROSION"
+    # The disambiguating suffix must stay upper case, matching every other code --
+    # confirmed against a real production response where an earlier version of this
+    # appended the chapter slug lower case (X.SCI.CF.CORROSION_metals).
+    assert by_chapter["X.SCI.METALS"].code == "X.SCI.CF.CORROSION_METALS"
 
 
 def test_a_running_header_within_one_chapter_is_still_deduped():

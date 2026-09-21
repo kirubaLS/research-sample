@@ -168,7 +168,7 @@ def propose(
             # uncovered -- not a smaller family list, one missing a real learning
             # area with nothing to explain why. Each chapter's own instance is a
             # distinct family; disambiguating the code by chapter keeps both.
-            code = f"{code}_{chapter_code.rsplit('.', 1)[-1].lower()}"
+            code = f"{code}_{chapter_code.rsplit('.', 1)[-1].upper()}"
         if (chapter_code, code) in seen:  # a running header repeats within one chapter
             continue
         seen.add((chapter_code, code))
