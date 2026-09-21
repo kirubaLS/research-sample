@@ -313,6 +313,24 @@ def test_a_disambiguated_duplicate_section_number_is_a_valid_section():
     assert clean_sections(["Section on spherical mirror introduction"]) == []
 
 
+def test_a_lettered_third_level_section_number_is_a_valid_section():
+    """'7.3.3 (a)' is Science's own third-level convention under a two-decimal section --
+    a parenthesised letter instead of another digit (see extract_sections' own docstring
+    for the real chapter, "How do Organisms Reproduce?", with four real headings
+    numbered '7.3.3 (a)' through '(d)'). The same bug as the disambiguated-duplicate
+    case above: propose() correctly worked out each section, and clean_sections alone
+    disagreed and silently dropped it, reporting all four sections uncovered despite a
+    correctly-labelled proposal existing for each."""
+    from app.api.books import clean_sections
+
+    assert clean_sections(["7.3.3 (a)"]) == ["7.3.3 (a)"]
+    assert clean_sections(["7.3.3 (a)", "7.3.3 (b)", "7.3.3 (c)", "7.3.3 (d)"]) == [
+        "7.3.3 (a)", "7.3.3 (b)", "7.3.3 (c)", "7.3.3 (d)",
+    ]
+    # still rejects a real sentence, the reason this allowlist exists at all
+    assert clean_sections(["Section on spherical mirror introduction"]) == []
+
+
 def test_a_partially_covered_chapter_still_gets_its_other_sections_proposed(client, school, book):
     """Section 13.3 (Mode of Grouped Data) has a loaded chunk and its own subtopic node,
     but the fixture's only stored proposal for this chapter, Mean by step-deviation,

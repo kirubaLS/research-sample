@@ -1231,7 +1231,15 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
 #: number itself read as an invalid, non-section value and got silently stripped from
 #: its own family's from_sections -- reported as still uncovered even though a proposal
 #: for it existed and named it correctly right up until this filter ran.
-SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,2}(?:-\d+)?$")
+#:
+#: '7.3.3 (a)' -- Science's own third-level convention under a two-decimal section: a
+#: parenthesised letter instead of another digit (extract_sections' own docstring has
+#: the real chapter this came from, "How do Organisms Reproduce?", with four real
+#: headings numbered '7.3.3 (a)' through '(d)'). The same silent-strip bug as '2.4-2'
+#: above: propose() correctly worked out each one's real section, and this filter alone
+#: threw it away again before it ever reached a family's own from_sections, reporting
+#: all four sections uncovered despite a correctly-labelled proposal existing for each.
+SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,2}(?:-\d+)?(?:\s*\([a-z]\))?$")
 
 
 def clean_sections(values) -> list[str]:
