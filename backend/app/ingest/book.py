@@ -834,15 +834,41 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
 
     The scoping is the whole point: 'Example 5 : ... = 28.5 m\nTherefore, ...' produced a
     phantom section '28.5 Therefore,' when the pattern was chapter-agnostic.
+
+    Matches up to TWO decimal levels ('1.2' and '1.2.3') -- Science numbers real
+    subsections one level deeper than its own top-level sections (e.g. '1.1.1 Writing a
+    Chemical Equation' under '1.1 Chemical Equations'), which a one-level-only pattern
+    left entirely invisible: not a smaller heading list, an emptier one silently missing
+    every real subsection a chapter has, confirmed on the real "Chemical Reactions and
+    Equations" chapter (12 real numbered subheadings, only the 3 top-level ones found).
+
+    A title normally starts with a capital letter, except a real heading that legitimately
+    starts with the chemistry symbol 'pH' ('2.4.2 pH of Salts') -- correct notation, not a
+    typo, so it is its own explicit exception rather than forcing every book's convention
+    to fit one heading.
     """
-    pattern = re.compile(rf"^\s*({chapter}\.\d+)\s+([A-Z][^\n]{{2,120}})$", re.M)
-    seen: set[str] = set()
-    found: list[tuple[str, str, int, int]] = []
+    pattern = re.compile(
+        rf"^\s*({chapter}\.\d+(?:\.\d+)?)\s+([A-Z][^\n]{{2,120}}|pH[^\n]{{2,120}})$", re.M
+    )
+    # A heading can be rendered as several overlapping, differently-truncated copies at
+    # nearly the same position -- a faux-bold trick some PDF generators use, confirmed on
+    # the real "2.3.1 Importance of pH in Everyday Life" heading, drawn as four truncated
+    # "2.3.1 Impor" duplicates plus the one real, longer line. The FIRST copy in the text
+    # stream must not win just because it came first -- keeping the LONGEST candidate for
+    # a given number instead fixes that case and does no harm to the ordinary one (a
+    # running header repeating the exact same short title on every page), since the
+    # longest of several identical copies is still that same text.
+    best: dict[str, tuple[str, int, int]] = {}
     for m in pattern.finditer(text):
-        if m.group(1) in seen:      # a running header repeats the section on every page
-            continue
-        seen.add(m.group(1))
-        found.append((m.group(1), m.group(2).strip(), m.start(), m.end()))
+        number = m.group(1)
+        title = m.group(2).strip()
+        current = best.get(number)
+        if current is None or len(title) > len(current[0]):
+            best[number] = (title, m.start(), m.end())
+    found = sorted(
+        ((number, title, start, end) for number, (title, start, end) in best.items()),
+        key=lambda item: item[2],
+    )
 
     # A real book's first subsection index is 1, 2, or 3 -- never a book with genuine
     # chapter.section numbering opens at .74. A table cell (a percentage in a language

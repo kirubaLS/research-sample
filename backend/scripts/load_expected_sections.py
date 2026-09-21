@@ -581,6 +581,122 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "18", "title": "Tourism as a Trade"},
         ],
     },
+    "X.SCI": {
+        # Unlike every Social Science book above, Science genuinely numbers its own
+        # headings two decimal levels deep (chapter.section AND chapter.section.
+        # subsection, e.g. '1.1.1 Writing a Chemical Equation' under '1.1 Chemical
+        # Equations') -- extract_sections used to match only the first level, silently
+        # missing every real subsection a chapter has. Fixed to match both levels; see
+        # extract_sections' own docstring. These numbers are exactly what the fixed
+        # extractor finds, proven against the real files.
+        "1": [  # jesc101.pdf -- Chemical Reactions and Equations
+            {"number": "1.1", "title": "CHEMICAL EQUATIONS"},
+            {"number": "1.1.1", "title": "Writing a Chemical Equation"},
+            {"number": "1.1.2", "title": "Balanced Chemical Equations"},
+            {"number": "1.2", "title": "TYPES OF CHEMICAL REACTIONS"},
+            {"number": "1.2.1", "title": "Combination Reaction"},
+            {"number": "1.2.2", "title": "Decomposition Reaction"},
+            {"number": "1.2.3", "title": "Displacement Reaction"},
+            {"number": "1.2.4", "title": "Double Displacement Reaction"},
+            {"number": "1.2.5", "title": "Oxidation and Reduction"},
+            {"number": "1.3", "title": "HAVE YOU OBSERVED THE EFFECTS OF OXIDATION REACTIONS IN EVERYDAY LIFE?"},
+            {"number": "1.3.1", "title": "Corrosion"},
+            {"number": "1.3.2", "title": "Rancidity"},
+        ],
+        "2": [  # jesc102.pdf -- Acids, Bases and Salts
+            {"number": "2.1", "title": "UNDERSTANDING THE CHEMICAL PROPERTIES OF ACIDS AND BASES"},
+            {"number": "2.1.1", "title": "Acids and Bases in the Laboratory"},
+            {"number": "2.1.2", "title": "How do Acids and Bases React with Metals?"},
+            # Real title wraps to a second physical line ("Hydrogencarbonates React with
+            # Acids?") that a single-line pattern cannot reach -- the same accepted
+            # truncation this project already keeps for other subjects' own wrapped
+            # titles (History, Political Parties' "Popular") rather than a bug to chase.
+            {"number": "2.1.3", "title": "How do Metal Carbonates and Metal"},
+            # Printed out of numeric order in the book's own two-column layout: 2.1.5's
+            # real text sits ahead of 2.1.4's in the plain-text extraction, the same
+            # class of layout quirk Economics' "Spreading of Production" chapter has.
+            # verify_against_toc compares by NUMBER, never by order, so this is harmless.
+            {"number": "2.1.4", "title": "How do Acids and Bases React with each other?"},
+            {"number": "2.1.5", "title": "Reaction of Metallic Oxides with Acids"},
+            {"number": "2.1.6", "title": "Reaction of a Non-metallic Oxide with Base"},
+            {"number": "2.2", "title": "WHAT DO ALL ACIDS AND ALL BASES HAVE IN COMMON?"},
+            {"number": "2.2.1", "title": "What Happens to an Acid or a Base in a Water Solution?"},
+            {"number": "2.3", "title": "HOW STRONG ARE ACID OR BASE SOLUTIONS?"},
+            # This one heading is drawn on the page as four overlapping, truncated
+            # "2.3.1 Impor" copies (a faux-bold rendering trick) plus one real, longer
+            # line, itself wrapped -- extract_sections now keeps the longest candidate
+            # for a repeated number rather than the first, but the real title still
+            # wraps past what one line can reach; see extract_sections' own note.
+            {"number": "2.3.1", "title": "Importance of pH in Ever"},
+            {"number": "2.4", "title": "MORE ABOUT SALTS"},
+            {"number": "2.4.1", "title": "Family of Salts"},
+            # Real heading correctly starts with a lowercase 'p' -- 'pH' is the actual
+            # chemistry notation, not a typo, and extract_sections now allows it as an
+            # explicit exception to the usual capital-letter-first rule.
+            {"number": "2.4.2", "title": "pH of Salts"},
+            {"number": "2.4.3", "title": "Chemicals from Common Salt"},
+            {"number": "2.4.4", "title": "Are the Crystals of Salts really Dry?"},
+        ],
+        "3": [  # jesc103.pdf -- Metals and Non-metals
+            {"number": "3.1", "title": "PHYSICAL PROPERTIES"},
+            {"number": "3.1.1", "title": "Metals"},
+            {"number": "3.1.2", "title": "Non-metals"},
+            {"number": "3.2", "title": "CHEMICAL PROPERTIES OF METALS"},
+            {"number": "3.2.1", "title": "What happens when Metals are burnt in Air?"},
+            {"number": "3.2.2", "title": "What happens when Metals react with Water?"},
+            {"number": "3.2.3", "title": "What happens when Metals react with Acids?"},
+            # Wraps to a second physical line ("Salts?") -- same accepted truncation as
+            # 2.1.3 above.
+            {"number": "3.2.4", "title": "How do Metals react with Solutions of other Metal"},
+            {"number": "3.2.5", "title": "The Reactivity Series"},
+            {"number": "3.3", "title": "HOW DO METALS AND NON-METALS REACT?"},
+            {"number": "3.3.1", "title": "Properties of Ionic Compounds"},
+            {"number": "3.4", "title": "OCCURRENCE OF METALS"},
+            {"number": "3.4.1", "title": "Extraction of Metals"},
+            {"number": "3.4.2", "title": "Enrichment of Ores"},
+            {"number": "3.4.3", "title": "Extracting Metals Low in the Activity Series"},
+            {"number": "3.4.4", "title": "Extracting Metals in the Middle of the Activity Series"},
+            # Wraps to a second physical line ("Activity Series") -- same accepted
+            # truncation as 2.1.3 above.
+            {"number": "3.4.5", "title": "Extracting Metals towards the Top of the"},
+            {"number": "3.4.6", "title": "Refining of Metals"},
+            {"number": "3.5", "title": "CORROSION"},
+            {"number": "3.5.1", "title": "Prevention of Corrosion"},
+        ],
+        "4": [  # jesc104.pdf -- Carbon and its Compounds
+            {"number": "4.1", "title": "BONDING IN CARBON – THE COVALENT BOND"},
+            {"number": "4.2", "title": "VERSATILE NATURE OF CARBON"},
+            {"number": "4.2.1", "title": "Saturated and Unsaturated Carbon Compounds"},
+            {"number": "4.2.2", "title": "Chains, Branches and Rings"},
+            {"number": "4.2.3", "title": "Will you be my Friend?"},
+            {"number": "4.2.4", "title": "Homologous Series"},
+            {"number": "4.2.5", "title": "Nomenclature of Carbon Compounds"},
+            {"number": "4.3", "title": "CHEMICAL PROPERTIES OF CARBON COMPOUNDS"},
+            {"number": "4.3.1", "title": "Combustion"},
+            {"number": "4.3.2", "title": "Oxidation"},
+            {"number": "4.3.3", "title": "Addition Reaction"},
+            {"number": "4.3.4", "title": "Substitution Reaction"},
+            {"number": "4.4", "title": "SOME IMPORTANT CARBON COMPOUNDS – ETHANOL"},
+            {"number": "4.4.1", "title": "Properties of Ethanol"},
+            {"number": "4.4.2", "title": "Properties of Ethanoic Acid"},
+            {"number": "4.5", "title": "SOAPS AND DETERGENTS"},
+        ],
+        "5": [  # jesc105.pdf -- Life Processes
+            {"number": "5.1", "title": "WHAT ARE LIFE PROCESSES?"},
+            {"number": "5.2", "title": "NUTRITION"},
+            {"number": "5.2.1", "title": "Autotrophic Nutrition"},
+            {"number": "5.2.2", "title": "Heterotrophic Nutrition"},
+            {"number": "5.2.3", "title": "How do Organisms obtain their Nutrition?"},
+            {"number": "5.2.4", "title": "Nutrition in Human Beings"},
+            {"number": "5.3", "title": "RESPIRATION"},
+            {"number": "5.4", "title": "TRANSPORTATION"},
+            {"number": "5.4.1", "title": "Transportation in Human Beings"},
+            {"number": "5.4.2", "title": "Transportation in Plants"},
+            {"number": "5.5", "title": "EXCRETION"},
+            {"number": "5.5.1", "title": "Excretion in Human Beings"},
+            {"number": "5.5.2", "title": "Excretion in Plants"},
+        ],
+    },
 }
 
 

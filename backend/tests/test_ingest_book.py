@@ -49,6 +49,128 @@ def test_sections_of_another_chapter_are_ignored():
     assert [s.number for s in extract_sections(text, chapter=8)] == ["8.1"]
 
 
+def test_a_running_header_repeated_verbatim_still_keeps_its_short_title():
+    """The 'keep the longest candidate' fix for a heading drawn as several truncated
+    copies (see the real Science fixture below) must not change the ordinary running-
+    header case: several IDENTICAL short copies of the same title are still just one
+    section, at that same short title -- not accidentally "won" by nothing longer."""
+    text = "12.2 Volume\nbody\n12.2 Volume\nmore body\n12.2 Volume\n"
+    sections = extract_sections(text, chapter=12)
+    assert len(sections) == 1
+    assert sections[0].title == "Volume"
+
+
+# --- a real Science chapter, numbered two decimal levels deep --------------------------
+
+SCIENCE_FIXTURES_DIR = Path(__file__).parent / "fixtures" / "regression"
+CHEMRXN_PDF = SCIENCE_FIXTURES_DIR / "science_chemical_reactions_and_equations.pdf"
+real_chemrxn = pytest.mark.skipif(not CHEMRXN_PDF.exists(), reason="regression fixture not present")
+ACIDS_PDF = SCIENCE_FIXTURES_DIR / "science_acids_bases_and_salts.pdf"
+real_acids = pytest.mark.skipif(not ACIDS_PDF.exists(), reason="regression fixture not present")
+METALS_PDF = SCIENCE_FIXTURES_DIR / "science_metals_and_non_metals.pdf"
+real_metals = pytest.mark.skipif(not METALS_PDF.exists(), reason="regression fixture not present")
+CARBON_PDF = SCIENCE_FIXTURES_DIR / "science_carbon_and_its_compounds.pdf"
+real_carbon = pytest.mark.skipif(not CARBON_PDF.exists(), reason="regression fixture not present")
+LIFEPROC_PDF = SCIENCE_FIXTURES_DIR / "science_life_processes.pdf"
+real_lifeproc = pytest.mark.skipif(not LIFEPROC_PDF.exists(), reason="regression fixture not present")
+
+
+@real_chemrxn
+def test_a_two_level_decimal_subsection_is_found_not_just_the_top_level():
+    """'Chemical Reactions and Equations' is the real chapter that exposed the gap:
+    extract_sections used to match only 'chapter.section' ('1.1', '1.2', '1.3'), never
+    'chapter.section.subsection' ('1.1.1 Writing a Chemical Equation'), so every one of
+    this chapter's 9 real subheadings -- everything the book itself numbers one level
+    deeper than its own top-level sections -- was silently missing. 3 sections used to
+    come back for a chapter with 12 real numbered headings."""
+    from app.ingest.book import read_text
+
+    text = read_text(CHEMRXN_PDF)
+    sections = extract_sections(text, chapter=1)
+    numbers = [s.number for s in sections]
+    assert numbers == [
+        "1.1", "1.1.1", "1.1.2", "1.2", "1.2.1", "1.2.2", "1.2.3", "1.2.4", "1.2.5",
+        "1.3", "1.3.1", "1.3.2",
+    ], numbers
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["1.1.1"] == "Writing a Chemical Equation"
+    assert by_number["1.3.2"] == "Rancidity"
+
+
+@real_acids
+def test_a_heading_drawn_as_several_truncated_copies_keeps_its_longest_copy():
+    """'Acids, Bases and Salts' draws its own '2.3.1 Importance of pH in Everyday Life'
+    heading as FOUR overlapping, truncated '2.3.1 Impor' copies (a faux-bold rendering
+    trick) plus the one real, longer line -- keeping the FIRST copy in the text stream,
+    the ordinary running-header convention, used to keep the worst, most truncated one.
+    Longest-wins fixes it without changing the ordinary case (see the running-header
+    test above)."""
+    from app.ingest.book import read_text
+
+    text = read_text(ACIDS_PDF)
+    sections = extract_sections(text, chapter=2)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["2.3.1"] != "Impor"
+    assert by_number["2.3.1"].startswith("Importance of pH")
+
+
+@real_acids
+def test_a_heading_starting_with_the_chemistry_symbol_ph_is_not_excluded():
+    """'2.4.2 pH of Salts' is a real heading that correctly starts with a lowercase 'p'
+    -- 'pH' is the actual chemistry notation, not a typo -- which the usual
+    capital-letter-first rule would otherwise silently exclude."""
+    from app.ingest.book import read_text
+
+    text = read_text(ACIDS_PDF)
+    sections = extract_sections(text, chapter=2)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["2.4.2"] == "pH of Salts"
+
+
+@real_acids
+def test_a_heading_printed_out_of_numeric_order_is_still_correctly_bounded():
+    """This chapter's own two-column layout prints '2.1.5's real text ahead of 2.1.4's
+    in the plain-text extraction -- verify_against_toc compares by NUMBER, never by
+    order, so both sections must still come back complete and correctly bounded despite
+    the reversed physical order."""
+    from app.ingest.book import read_text
+
+    text = read_text(ACIDS_PDF)
+    sections = extract_sections(text, chapter=2)
+    by_number = {s.number: s for s in sections}
+    assert by_number["2.1.4"].title == "How do Acids and Bases React with each other?"
+    assert by_number["2.1.5"].title == "Reaction of Metallic Oxides with Acids"
+    starts = [s.start for s in sections]
+    assert starts == sorted(starts) and len(set(starts)) == len(starts)
+
+
+@real_metals
+def test_metals_and_non_metals_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(METALS_PDF)
+    sections = extract_sections(text, chapter=3)
+    assert len(sections) == 20, [s.number for s in sections]
+
+
+@real_carbon
+def test_carbon_and_its_compounds_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(CARBON_PDF)
+    sections = extract_sections(text, chapter=4)
+    assert len(sections) == 16, [s.number for s in sections]
+
+
+@real_lifeproc
+def test_life_processes_finds_every_two_level_subsection():
+    from app.ingest.book import read_text
+
+    text = read_text(LIFEPROC_PDF)
+    sections = extract_sections(text, chapter=5)
+    assert len(sections) == 13, [s.number for s in sections]
+
+
 # --- buckets --------------------------------------------------------------------------
 
 def test_theorems_and_examples_are_taught_content_exercises_are_practice():
