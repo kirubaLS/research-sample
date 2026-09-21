@@ -70,21 +70,36 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
                 parent_id=chapter.id, path=code, curriculum_version=version,
             ))
 
-    written = {"chunks": 0, "procedures": 0}
+    # This function used to diverge from app.api.books._load, the HTTP upload path for
+    # the exact same pipeline: it never wrote section_number at all (every chunk this
+    # script loaded came out with no topic a question could be matched to), and never
+    # cleaned up a chunk that the CURRENT extraction no longer produces (a chapter this
+    # script loaded before a heading-detection fix got fixed still carried its old,
+    # coarser chunks forever, alongside the new finer ones, since a stale chunk's hash
+    # matches nothing freshly extracted and a hash-keyed lookup can never find it to
+    # remove it). Real, confirmed production data: several Science chapters loaded
+    # through this script back in August still show far fewer than half their stored
+    # chunks with any section at all. Brought to parity with _load's own fix here.
+    written = {"chunks": 0, "procedures": 0, "sections_filled": 0}
     for chunk in extract.chunks:
-        if db.scalar(
+        existing = db.scalar(
             select(BookChunk).where(
                 BookChunk.stem_hash == chunk.stem_hash,
                 BookChunk.curriculum_version == version,
             )
-        ) is None:
+        )
+        if existing is None:
             db.add(BookChunk(
                 curriculum_version=version, subject_code=subject, node_id=chapter.id,
                 bucket=chunk.bucket, reference=chunk.reference,
+                section_number=(chunk.section or None),
                 text=chunk.text, normalised=chunk.text,
                 stem_hash=chunk.stem_hash,
             ))
             written["chunks"] += 1
+        elif chunk.section and existing.section_number != chunk.section:
+            existing.section_number = chunk.section
+            written["sections_filled"] += 1
 
         # Theorems and worked examples also get an exact-match row: familiarity has to
         # answer "is this literally Theorem 1.3?" with yes or no, not a similarity score
@@ -102,6 +117,20 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
                 taught_verbatim=True,
             ))
             written["procedures"] += 1
+
+    fresh_hashes = {chunk.stem_hash for chunk in extract.chunks}
+    stale_removed = 0
+    if fresh_hashes:
+        for stale in db.scalars(
+            select(BookChunk).where(
+                BookChunk.node_id == chapter.id,
+                BookChunk.curriculum_version == version,
+                BookChunk.stem_hash.notin_(fresh_hashes),
+            )
+        ):
+            db.delete(stale)
+            stale_removed += 1
+    written["stale_chunks_removed"] = stale_removed
 
     return written
 

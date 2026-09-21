@@ -1068,6 +1068,33 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
             ))
             written["procedures"] += 1
 
+    # A chunk is matched for reuse by its own CONTENT hash, which only finds a chunk
+    # whose text is unchanged since the last upload -- it can never find a chunk that no
+    # longer exists at all, because heading detection got fixed and the book now splits
+    # into different, finer pieces than it used to. Those old, coarser chunks from the
+    # earlier pass are never touched by the loop above (their hash matches nothing
+    # freshly extracted) and used to sit there forever: still filed under this same
+    # chapter, still embedded, still returned to a retrieval query, most of them with no
+    # section at all -- real, confirmed production data (a Science chapter carrying 25
+    # stored chunks when its own fixed extraction produces 10). Removing every chunk
+    # under this chapter that the CURRENT extraction does not produce is the other half
+    # of "re-uploading fixes it" the section-correcting branch above already promises;
+    # gated on the fresh set being non-empty so a chapter that (wrongly) extracted to
+    # nothing can never wipe out everything already stored for it.
+    fresh_hashes = {chunk.stem_hash for chunk in extract.chunks}
+    stale_removed = 0
+    if fresh_hashes:
+        for stale in db.scalars(
+            select(BookChunk).where(
+                BookChunk.node_id == chapter.id,
+                BookChunk.curriculum_version == version,
+                BookChunk.stem_hash.notin_(fresh_hashes),
+            )
+        ):
+            db.delete(stale)
+            stale_removed += 1
+    written["stale_chunks_removed"] = stale_removed
+
     unmapped = db.scalar(
         select(func.count(ChapterBoardUnit.id)).where(
             ChapterBoardUnit.chapter_id == chapter.id

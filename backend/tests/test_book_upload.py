@@ -1406,6 +1406,94 @@ def test_uploading_a_chapter_again_corrects_a_wrong_section_not_only_a_blank_one
         db.close()
 
 
+def test_reuploading_a_chapter_removes_chunks_the_current_extraction_no_longer_produces(client):
+    """A chunk is reused across uploads by matching its own CONTENT hash -- which can
+    only find a chunk whose text is unchanged since the last upload. It can never find a
+    chunk that no longer exists at all, because heading detection got fixed and the book
+    now splits into different, finer pieces than an earlier pass produced. Those old,
+    coarser chunks were never touched by the reuse-by-hash loop (their hash matches
+    nothing freshly extracted) and used to sit there forever: still filed under the same
+    chapter, still embedded, still returned to a retrieval query, most with no section at
+    all -- real, confirmed production data (a Science chapter carrying 25 stored chunks
+    when its own fixed extraction produces only 10). Re-uploading must remove every chunk
+    under this chapter that the CURRENT extraction does not produce, the other half of
+    "re-uploading fixes it" the section-correcting behaviour above already promises."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import BookChunk, TaxonomyNode
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.MATH/contents", headers=HEAD,
+        files={"file": ("00-contents.pdf", _one_page([
+            "Contents", "8. Introduction to Trigonometry", "8.1 Introduction", "8.2 Ratios",
+        ]), "application/pdf")},
+    )
+    chapter = _one_page(
+        ["8 Introduction to Trigonometry", "8.1 Introduction"]
+        + ["Trigonometry studies the ratios of a right triangle's sides. " * 3] * 4
+        + ["8.2 Ratios"]
+        + ["The six trigonometric ratios are sine, cosine and tangent. " * 3] * 4
+        + ["Example 1 : Find sin 30 degrees using the ratio table."]
+        + ["Working shown here for the standard angle. " * 3] * 4
+    )
+    first = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh108.pdf", chapter, "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+    assert first.json()["chunks"] > 0
+
+    db = SessionLocal()
+    try:
+        chapter_node = db.scalar(
+            select(TaxonomyNode).where(
+                TaxonomyNode.kind == "chapter", TaxonomyNode.label == "Introduction to Trigonometry",
+            )
+        )
+        real_ids = set(
+            db.scalars(select(BookChunk.id).where(BookChunk.node_id == chapter_node.id)).all()
+        )
+        assert real_ids, "the upload created no chunks to test cleanup against"
+
+        # Simulating a stale chunk left behind by an earlier, coarser-splitting pass of
+        # the SAME chapter -- its own hash matches nothing the current extraction would
+        # ever produce, the exact shape a heading-detection fix leaves behind for real.
+        db.add(BookChunk(
+            curriculum_version="CBSE-2026-27", subject_code="X.MATH", node_id=chapter_node.id,
+            bucket="T", reference=None, section_number=None,
+            text="stale pre-fix chunk text nothing re-extracts",
+            normalised="stale pre-fix chunk text nothing re-extracts",
+            stem_hash="stale-pre-fix-hash-0001",
+        ))
+        db.commit()
+        stale_id = db.scalar(
+            select(BookChunk.id).where(BookChunk.stem_hash == "stale-pre-fix-hash-0001")
+        )
+        assert stale_id is not None
+    finally:
+        db.close()
+
+    again = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh108.pdf", chapter, "application/pdf")},
+    )
+    assert again.status_code == 201, again.text
+    assert again.json()["stale_chunks_removed"] >= 1
+
+    db = SessionLocal()
+    try:
+        assert db.get(BookChunk, stale_id) is None, "the stale chunk survived re-upload"
+        # The chapter's own real chunks (matched by hash, untouched) must still be there.
+        still_there = db.scalars(
+            select(BookChunk.id).where(BookChunk.id.in_(real_ids))
+        ).all()
+        assert set(still_there) == real_ids
+    finally:
+        db.close()
+
+
 # --- families belong to one subject ---------------------------------------------------------
 
 def test_apparatus_headings_are_not_proposed_as_families():
