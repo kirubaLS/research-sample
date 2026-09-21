@@ -861,6 +861,42 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "5.4", "title": "Sum of First n Terms of an AP"},
             {"number": "5.5", "title": "Summary"},
         ],
+        "6": [  # jemh106.pdf -- Triangles
+            {"number": "6.1", "title": "Introduction"},
+            {"number": "6.2", "title": "Similar Figures"},
+            {"number": "6.3", "title": "Similarity of Triangles"},
+            {"number": "6.4", "title": "Criteria for Similarity of Triangles"},
+            {"number": "6.5", "title": "Summary"},
+        ],
+        "7": [  # jemh107.pdf -- Coordinate Geometry
+            {"number": "7.1", "title": "Introduction"},
+            {"number": "7.2", "title": "Distance Formula"},
+            {"number": "7.3", "title": "Section Formula"},
+            {"number": "7.4", "title": "Summary"},
+        ],
+        "8": [  # jemh108.pdf -- Introduction to Trigonometry
+            # The angle-specific breakdown the curriculum planning topic list names
+            # (45 deg, 30/60 deg, 0/90 deg) is real content but never gets its own
+            # chapter.section number in the book -- it is covered as running prose
+            # inside 8.3, not a separate numbered heading.
+            {"number": "8.1", "title": "Introduction"},
+            {"number": "8.2", "title": "Trigonometric Ratios"},
+            {"number": "8.3", "title": "Trigonometric Ratios of Some Specific Angles"},
+            {"number": "8.4", "title": "Trigonometric Identities"},
+            {"number": "8.5", "title": "Summary"},
+        ],
+        "9": [  # jemh109.pdf -- Some Applications of Trigonometry
+            # No separate numbered "Introduction" here -- 9.1 opens directly as
+            # "Heights and Distances", the chapter's only real section besides Summary.
+            {"number": "9.1", "title": "Heights and Distances"},
+            {"number": "9.2", "title": "Summary"},
+        ],
+        "10": [  # jemh110.pdf -- Circles
+            {"number": "10.1", "title": "Introduction"},
+            {"number": "10.2", "title": "Tangent to a Circle"},
+            {"number": "10.3", "title": "Number of Tangents from a Point on a Circle"},
+            {"number": "10.4", "title": "Summary"},
+        ],
     },
 }
 
