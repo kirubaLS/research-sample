@@ -147,7 +147,8 @@ def propose(
     the ones that are not learning areas.
     """
     out: list[Proposal] = []
-    seen: set[str] = set()
+    seen: set[tuple[str, str]] = set()  # (chapter_code, code) already emitted
+    claimed_by: dict[str, str] = {}  # code -> the first chapter to use it
     for chapter_code, chapter_label, section_number, section_label, chunks in sections:
         label = readable(section_label.strip())
         if not_a_learning_area(label):
@@ -156,9 +157,22 @@ def propose(
         if not slug:  # only an empty label; a Hindi or Tamil one gets a digest code
             continue
         code = f"{subject_code}.CF.{slug}"
-        if code in seen:
+        owner = claimed_by.get(code)
+        if owner is not None and owner != chapter_code:
+            # Two DIFFERENT chapters can have a heading with the exact same title --
+            # confirmed on the real Science book, where "Corrosion" is its own
+            # standalone heading in both "Chemical Reactions and Equations" (1.3.1)
+            # and "Metals and Non-metals" (3.5). Deduping by code alone used to treat
+            # the second chapter's real heading as a repeat of the first and drop it
+            # silently, leaving that chapter's own real section permanently
+            # uncovered -- not a smaller family list, one missing a real learning
+            # area with nothing to explain why. Each chapter's own instance is a
+            # distinct family; disambiguating the code by chapter keeps both.
+            code = f"{code}_{chapter_code.rsplit('.', 1)[-1].lower()}"
+        if (chapter_code, code) in seen:  # a running header repeats within one chapter
             continue
-        seen.add(code)
+        seen.add((chapter_code, code))
+        claimed_by.setdefault(code, chapter_code)
         out.append(
             Proposal(
                 code=code,

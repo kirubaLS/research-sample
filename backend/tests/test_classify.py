@@ -738,6 +738,50 @@ def test_a_proposed_family_records_the_section_number_not_its_heading():
     assert p.label == "Mean of Grouped Data"
 
 
+def test_two_different_chapters_sharing_a_heading_title_both_get_proposed():
+    """The bug this fixes: propose()'s own de-dup used to key on the code alone, shared
+    across the WHOLE subject rather than scoped per chapter -- confirmed on the real
+    Science book, where "Corrosion" is a standalone heading in both "Chemical Reactions
+    and Equations" (1.3.1) and "Metals and Non-metals" (3.5). Two real, distinct
+    headings collapsed into one code, and the second one -- Metals' own 3.5 -- was
+    silently dropped, leaving it uncovered by any family with nothing to explain why."""
+    from app.curriculum.families import propose
+
+    proposals = propose(
+        [
+            ("X.SCI.CHEMRXN", "Chemical Reactions and Equations", "1.3.1", "Corrosion", 4),
+            ("X.SCI.METALS", "Metals and Non-metals", "3.5", "CORROSION", 6),
+        ],
+        "X.SCI",
+    )
+    assert len(proposals) == 2
+    by_chapter = {p.chapter_code: p for p in proposals}
+    assert by_chapter["X.SCI.CHEMRXN"].from_section == "1.3.1"
+    assert by_chapter["X.SCI.METALS"].from_section == "3.5"
+    # Codes must differ -- two families sharing one code is exactly the silent-merge
+    # bug this dedup exists to avoid in the first place.
+    assert by_chapter["X.SCI.CHEMRXN"].code != by_chapter["X.SCI.METALS"].code
+    # A code is permanent once a report has used it, so the FIRST chapter to claim a
+    # title keeps the plain, un-suffixed code -- only the later collision is
+    # disambiguated, not both.
+    assert by_chapter["X.SCI.CHEMRXN"].code == "X.SCI.CF.CORROSION"
+
+
+def test_a_running_header_within_one_chapter_is_still_deduped():
+    """The ordinary case the original dedup was for must still work: the same heading
+    repeated verbatim on every page of the SAME chapter is one family, not several."""
+    from app.curriculum.families import propose
+
+    proposals = propose(
+        [
+            ("X.MATH.STATS", "Statistics", "13.2", "Mean of Grouped Data", 7),
+            ("X.MATH.STATS", "Statistics", "13.2", "Mean of Grouped Data", 7),
+        ],
+        "X.MATH",
+    )
+    assert len(proposals) == 1
+
+
 def test_the_classifier_request_is_one_its_configured_model_accepts():
     """The settings and the call have to agree, or the paper fails on a paid request.
 
