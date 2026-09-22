@@ -325,6 +325,103 @@ def test_our_environment_finds_every_two_level_subsection():
     assert len(sections) == 5, [s.number for s in sections]
 
 
+@real_acids
+def test_a_heading_faked_bold_as_several_overlapping_offset_copies_is_not_truncated():
+    """'2.3.1 Importance of pH in Everyday Life' is drawn as several overlapping,
+    differently-truncated copies -- the longest single copy alone used to read as
+    'Importance of pH in Ever', silently dropping 'yday Life'. Passing the real PDF's own
+    path lets extract_sections read the copies' font size and recognise the ones that
+    genuinely continue the heading (same size as its own first line) from this chapter's
+    unrelated body text (a different, smaller size), and merge them in."""
+    from app.ingest.book import read_text
+
+    text = read_text(ACIDS_PDF)
+    sections = extract_sections(text, chapter=2, path=ACIDS_PDF)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["2.3.1"] == "Importance of pH in Everyday Life"
+
+
+@real_acids
+def test_a_heading_that_is_a_question_wrapped_onto_a_second_line_is_not_truncated():
+    """'2.1.3 How do Metal Carbonates and Metal Hydrogencarbonates React with Acids?'
+    wraps onto a second physical line with no overlap or duplication at all -- a plain
+    word wrap, unlike the pH heading above. Confirmed this does not depend on the
+    heading happening to end mid-question: the merge stops itself at the '?' either way,
+    rather than continuing on to swallow the unrelated 'Activity 2.5' caption below it."""
+    from app.ingest.book import read_text
+
+    text = read_text(ACIDS_PDF)
+    sections = extract_sections(text, chapter=2, path=ACIDS_PDF)
+    by_number = {s.number: s.title for s in sections}
+    assert (
+        by_number["2.1.3"]
+        == "How do Metal Carbonates and Metal Hydrogencarbonates React with Acids?"
+    )
+
+
+@real_metals
+def test_a_heading_wrapped_onto_a_second_line_with_no_path_is_left_truncated():
+    """Without a path to read font sizes from (the synthetic-text unit tests below, and
+    any caller that only has the text, not the file), extract_sections cannot tell a
+    wrapped heading from ordinary body text -- so it must not guess, and the heading
+    comes back exactly as its single matched line reads, same as before this fix."""
+    from app.ingest.book import read_text
+
+    text = read_text(METALS_PDF)
+    sections = extract_sections(text, chapter=3)  # no path=
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["3.4.5"] == "Extracting Metals towards the Top of the"
+
+
+@real_metals
+def test_a_heading_wrapped_onto_a_second_line_with_no_overlap_is_not_truncated():
+    """'3.4.5 Extracting Metals towards the Top of the' / 'Activity Series' is a plain
+    two-line word wrap with no faux-bold duplication at all -- the font-size match is
+    still what lets the second line be told apart from the body prose ('The metals high
+    up...') immediately below it, which is set at a visibly smaller size."""
+    from app.ingest.book import read_text
+
+    text = read_text(METALS_PDF)
+    sections = extract_sections(text, chapter=3, path=METALS_PDF)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["3.4.5"] == "Extracting Metals towards the Top of the Activity Series"
+
+
+@real_light
+def test_a_heading_whose_own_number_wraps_separately_from_its_wrapped_title_is_not_truncated():
+    """'9.2.2' and its title sit on two different physical lines already (the number/title
+    line-split extract_sections' own pattern already tolerates), and the title ITSELF
+    then wraps onto a further third line ('Representation of Images Formed by Spherical'
+    / 'Mirrors Using Ray Diagrams') -- confirmed this does not confuse the font-size
+    lookup, which must use the title's own last physical line, not the whole matched
+    span with its embedded newline before the title, as the key."""
+    from app.ingest.book import read_text
+
+    text = read_text(LIGHT_PDF)
+    sections = extract_sections(text, chapter=9, path=LIGHT_PDF)
+    by_number = {s.number: s.title for s in sections}
+    assert (
+        by_number["9.2.2"]
+        == "Representation of Images Formed by Spherical Mirrors Using Ray Diagrams"
+    )
+
+
+@real_reproduce
+def test_a_heading_followed_by_narrow_column_body_prose_is_not_swallowed():
+    """An earlier, text-only version of this merge (short next line, no terminal
+    punctuation) broke on this real chapter: 'Budding' sits next to a figure, so its own
+    body prose wraps into five short, punctuation-free lines ('Organisms such as Hydra' /
+    'use regenerative cells for' / ...) that read exactly like a plausible heading
+    continuation as plain text. They are not bold or larger, though -- confirmed the
+    font-size gate correctly leaves 'Budding' alone rather than absorbing them."""
+    from app.ingest.book import read_text
+
+    text = read_text(REPRODUCE_PDF)
+    sections = extract_sections(text, chapter=7, path=REPRODUCE_PDF)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["7.2.4"] == "Budding"
+
+
 # --- buckets --------------------------------------------------------------------------
 
 def test_theorems_and_examples_are_taught_content_exercises_are_practice():

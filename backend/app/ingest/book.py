@@ -829,7 +829,69 @@ BOOK_NUMBERED_SECTION = re.compile(
 )
 
 
-def extract_sections(text: str, chapter: int) -> list[Section]:
+def _merge_wrapped_title(
+    text: str, title: str, start: int, end: int, line_sizes: dict[str, float] | None
+) -> tuple[str, int]:
+    """A heading's title sometimes continues onto the next physical line -- a plain word
+    wrap ('...Extracting Metals towards the Top of the' / 'Activity Series'), or, when
+    NCERT's PDF fakes bold by drawing the same heading several times at slightly shifted
+    positions, a duplicate-offset copy of the tail ('...Importance of pH in Ever' /
+    'tance of pH in Everyday Life', where the second line overlaps the end of the first).
+    Confirmed on real chapters -- the single-line-only pattern in extract_sections used to
+    silently drop the wrapped tail in both cases, truncating the stored title.
+
+    A plain "short and unpunctuated" test of the next line looked like a safe way to spot
+    a continuation, but Science's own narrow-column layout (body prose wrapped alongside
+    a figure) breaks it: confirmed on the real "How do Organisms Reproduce?" chapter,
+    where "7.2.4 Budding" is followed by five short, punctuation-free body lines
+    ("Organisms such as Hydra" / "use regenerative cells for" / ...) that a text-only
+    heuristic swallowed wholesale into the title. Body prose and a wrapped heading can
+    read identically as plain text; they are never printed identically. Boldness itself
+    turned out not to be the reliable signal either -- Science's own heading font
+    ('TT5EBT00', an embedded extra-bold subset, the same shape of trick Economics uses)
+    carries no bold flag at all, only a size (14.0pt here) visibly larger than the body
+    text around it (10.5pt) -- so the test used is font SIZE: a candidate line is a
+    continuation only if its size matches the exact size of the heading's own first line.
+    Callers with no PDF to read sizes from (a synthetic string in a unit test, not a real
+    file) pass ``line_sizes=None`` and nothing is ever merged.
+    """
+    if not line_sizes:
+        return title, end
+    # The matched span can itself cross a physical line ('10.4' then 'Summary' below it,
+    # see extract_sections' own docstring on that) -- the number and title are then two
+    # separate dict-extracted lines, so only the LAST physical line (the title's own) is
+    # a real key into line_sizes; the whole span joined by its embedded '\n' never is.
+    heading_line = text[start:end].strip().rsplit("\n", 1)[-1]
+    reference_size = line_sizes.get(heading_line)
+    if reference_size is None:
+        return title, end
+    # m.end() (the position this is always called with) lands ON the heading line's own
+    # trailing newline, not past it -- the $ anchor matches before \n without consuming it.
+    pos = end + 1 if text[end:end + 1] == "\n" else end
+    for _ in range(5):
+        newline = text.find("\n", pos)
+        if newline == -1:
+            break
+        line = text[pos:newline].strip()
+        if not line or line_sizes.get(line) != reference_size:
+            break
+        if re.match(r"^\d+(?:\.\d+)*(?:\s*\([a-z]\))?\s+[A-Z]", line):
+            break  # the next real heading, not a continuation
+        overlap = 0
+        for n in range(min(len(title), len(line)), 2, -1):
+            if title[-n:] == line[:n]:
+                overlap = n
+                break
+        title = (title[:-overlap] + line) if overlap else f"{title} {line}"
+        pos = newline + 1
+        if title[-1] in ".?!":
+            break
+    return title, pos
+
+
+def extract_sections(
+    text: str, chapter: int, path: str | Path | None = None
+) -> list[Section]:
     """Headings for THIS chapter only, with the span each one covers.
 
     The scoping is the whole point: 'Example 5 : ... = 28.5 m\nTherefore, ...' produced a
@@ -903,6 +965,23 @@ def extract_sections(text: str, chapter: int) -> list[Section]:
         ((number, title, start, end) for number, (title, start, end) in best.items()),
         key=lambda item: item[2],
     )
+
+    line_sizes: dict[str, float] | None = None
+    if path is not None and found:
+        with pymupdf.open(path) as doc:
+            line_sizes = {}
+            for page in doc:
+                for block in page.get_text("dict")["blocks"]:
+                    for line in block.get("lines", []):
+                        spans = line.get("spans") or []
+                        line_text = "".join(s["text"] for s in spans).strip()
+                        if line_text and spans:
+                            line_sizes[line_text] = round(spans[0]["size"], 1)
+    merged = []
+    for number, title, start, end in found:
+        title, end = _merge_wrapped_title(text, title, start, end, line_sizes)
+        merged.append((number, title, start, end))
+    found = merged
 
     # A real book's first subsection index is 1, 2, or 3 -- never a book with genuine
     # chapter.section numbering opens at .74. A table cell (a percentage in a language
@@ -1742,7 +1821,7 @@ def extract_chapter(
     elif bare_headings:
         sections = _sections_by_boldness(path, text, resolved_title)
     else:
-        sections = extract_sections(text, number)
+        sections = extract_sections(text, number, path=path)
         if not sections:
             # Neither convention that reads a number off the page found one -- Geography
             # publishes no section numbers at all, bare or decimal. What is left is
