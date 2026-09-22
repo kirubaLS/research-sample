@@ -67,6 +67,8 @@ OUTCOMES_OF_DEMOCRACY_PDF = FIXTURES / "sst_polsci_outcomes_of_democracy.pdf"
 real_outcomes_of_democracy = pytest.mark.skipif(
     not OUTCOMES_OF_DEMOCRACY_PDF.exists(), reason="regression fixture not present"
 )
+PRINT_CULTURE_PDF = FIXTURES / "sst_history_print_culture.pdf"
+real_print_culture = pytest.mark.skipif(not PRINT_CULTURE_PDF.exists(), reason="regression fixture not present")
 
 
 @pytest.mark.skipif(not DEVELOPMENT_PDF.exists(), reason="regression fixture not present")
@@ -413,3 +415,18 @@ def test_a_short_heading_shaped_line_among_real_headings_is_excluded_by_known_ti
     assert "Economic outcomes" not in titles_found
     starts = [s.start for s in sections]
     assert starts == sorted(starts) and len(set(starts)) == len(starts)
+
+
+@real_print_culture
+def test_a_heading_that_starts_with_a_quotation_mark_is_not_skipped_entirely():
+    """'4.1 ‘Tremble, therefore, tyrants of the world!’' is a real section heading --
+    NCERT's own translated quotation from a French Revolution pamphlet -- but
+    BOOK_NUMBERED_SECTION's title group used to require a letter or digit right after the
+    number, so a title starting with a quotation mark matched nothing at all: not
+    truncated, not merged into the wrong section, simply never found. Section 4.1 was
+    entirely absent from this chapter's own heading list, with no error to notice it by,
+    only 4.2 onward."""
+    text = read_text(PRINT_CULTURE_PDF)
+    sections = _sections_by_boldness(PRINT_CULTURE_PDF, text, "Print Culture and the Modern World")
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["4.1"] == "‘Tremble, therefore, tyrants of the world!’"

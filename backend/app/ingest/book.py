@@ -817,7 +817,11 @@ def verify_structure(extract: ChapterExtract, *, exercises_required: bool = True
 #: subsection under it ('2.1 The Aristocracy...', one space) -- '2' there is the second
 #: heading IN THIS CHAPTER, not chapter 2. Title may start with a digit ('3.3 1848: The
 #: Revolution of the Liberals'), which is why this is not anchored to [A-Z] the way the
-#: chapter-numbered pattern is.
+#: chapter-numbered pattern is. It may also start with an opening quotation mark -- the
+#: real "Print Culture and the Modern World" chapter titles its own section 4.1
+#: '"Tremble, therefore, tyrants of the world!"' (NCERT's own translated quotation from a
+#: French pamphlet), which a letter-or-digit-only start silently skipped entirely --
+#: section 4.1 never appeared at all, only 4.2 onward, no truncation to even notice.
 #:
 #: Matched only against a line already known to be bold (see _sections_by_boldness), not
 #: against the plain text of the whole chapter: Political Science's real headings use no
@@ -825,7 +829,7 @@ def verify_structure(extract: ChapterExtract, *, exercises_required: bool = True
 #: among different organs of government...') matches this exact shape without being a
 #: heading. Boldness is the only thing that told the two apart in the real files.
 BOOK_NUMBERED_SECTION = re.compile(
-    r"^(\d{1,2}(?:\.\d{1,2})?)[ \t]{1,2}([A-Z0-9][^\n]{2,120})$"
+    r"^(\d{1,2}(?:\.\d{1,2})?)[ \t]{1,2}([A-Z0-9'\"‘“][^\n]{2,120})$"
 )
 
 
