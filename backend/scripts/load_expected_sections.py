@@ -607,11 +607,7 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "2.1", "title": "UNDERSTANDING THE CHEMICAL PROPERTIES OF ACIDS AND BASES"},
             {"number": "2.1.1", "title": "Acids and Bases in the Laboratory"},
             {"number": "2.1.2", "title": "How do Acids and Bases React with Metals?"},
-            # Real title wraps to a second physical line ("Hydrogencarbonates React with
-            # Acids?") that a single-line pattern cannot reach -- the same accepted
-            # truncation this project already keeps for other subjects' own wrapped
-            # titles (History, Political Parties' "Popular") rather than a bug to chase.
-            {"number": "2.1.3", "title": "How do Metal Carbonates and Metal"},
+            {"number": "2.1.3", "title": "How do Metal Carbonates and Metal Hydrogencarbonates React with Acids?"},
             # Printed out of numeric order in the book's own two-column layout: 2.1.5's
             # real text sits ahead of 2.1.4's in the plain-text extraction, the same
             # class of layout quirk Economics' "Spreading of Production" chapter has.
@@ -622,12 +618,7 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "2.2", "title": "WHAT DO ALL ACIDS AND ALL BASES HAVE IN COMMON?"},
             {"number": "2.2.1", "title": "What Happens to an Acid or a Base in a Water Solution?"},
             {"number": "2.3", "title": "HOW STRONG ARE ACID OR BASE SOLUTIONS?"},
-            # This one heading is drawn on the page as four overlapping, truncated
-            # "2.3.1 Impor" copies (a faux-bold rendering trick) plus one real, longer
-            # line, itself wrapped -- extract_sections now keeps the longest candidate
-            # for a repeated number rather than the first, but the real title still
-            # wraps past what one line can reach; see extract_sections' own note.
-            {"number": "2.3.1", "title": "Importance of pH in Ever"},
+            {"number": "2.3.1", "title": "Importance of pH in Everyday Life"},
             {"number": "2.4", "title": "MORE ABOUT SALTS"},
             {"number": "2.4.1", "title": "Family of Salts"},
             # Real heading correctly starts with a lowercase 'p' -- 'pH' is the actual
@@ -645,9 +636,7 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "3.2.1", "title": "What happens when Metals are burnt in Air?"},
             {"number": "3.2.2", "title": "What happens when Metals react with Water?"},
             {"number": "3.2.3", "title": "What happens when Metals react with Acids?"},
-            # Wraps to a second physical line ("Salts?") -- same accepted truncation as
-            # 2.1.3 above.
-            {"number": "3.2.4", "title": "How do Metals react with Solutions of other Metal"},
+            {"number": "3.2.4", "title": "How do Metals react with Solutions of other Metal Salts?"},
             {"number": "3.2.5", "title": "The Reactivity Series"},
             {"number": "3.3", "title": "HOW DO METALS AND NON-METALS REACT?"},
             {"number": "3.3.1", "title": "Properties of Ionic Compounds"},
@@ -656,9 +645,7 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "3.4.2", "title": "Enrichment of Ores"},
             {"number": "3.4.3", "title": "Extracting Metals Low in the Activity Series"},
             {"number": "3.4.4", "title": "Extracting Metals in the Middle of the Activity Series"},
-            # Wraps to a second physical line ("Activity Series") -- same accepted
-            # truncation as 2.1.3 above.
-            {"number": "3.4.5", "title": "Extracting Metals towards the Top of the"},
+            {"number": "3.4.5", "title": "Extracting Metals towards the Top of the Activity Series"},
             {"number": "3.4.6", "title": "Refining of Metals"},
             {"number": "3.5", "title": "CORROSION"},
             {"number": "3.5.1", "title": "Prevention of Corrosion"},
@@ -739,7 +726,10 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "8.1", "title": "ACCUMULATION OF VARIATION DURING REPRODUCTION"},
             {"number": "8.2", "title": "HEREDITY"},
             {"number": "8.2.1", "title": "Inherited Traits"},
-            {"number": "8.2.2", "title": "Rules for the Inheritance of Traits –"},
+            # Full title confirmed against the real production database (via a
+            # book-headings-vs-database audit run there), not this session's own file --
+            # the real jesc108.pdf could not be uploaded to this session directly.
+            {"number": "8.2.2", "title": "Rules for the Inheritance of Traits – Mendel’s Contributions"},
             {"number": "8.2.3", "title": "How do these Traits get Expressed?"},
             {"number": "8.2.4", "title": "Sex Determination"},
         ],
@@ -747,9 +737,7 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "9.1", "title": "REFLECTION OF LIGHT"},
             {"number": "9.2", "title": "SPHERICAL MIRRORS"},
             {"number": "9.2.1", "title": "Image Formation by Spherical Mirrors"},
-            # Wraps to a second physical line ("Mirrors Using Ray Diagrams") -- same
-            # accepted truncation as chapters 2 and 3's own wrapped titles.
-            {"number": "9.2.2", "title": "Representation of Images Formed by Spherical"},
+            {"number": "9.2.2", "title": "Representation of Images Formed by Spherical Mirrors Using Ray Diagrams"},
             {"number": "9.2.3", "title": "Sign Convention for Reflection by Spherical Mirrors"},
             {"number": "9.2.4", "title": "Mirror Formula and  Magnification"},
             {"number": "9.3", "title": "REFRACTION OF LIGHT"},
@@ -783,20 +771,15 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "11.6.1", "title": "Resistors in Series"},
             {"number": "11.6.2", "title": "Resistors in Parallel"},
             {"number": "11.7", "title": "HEATING EFFECT OF ELECTRIC CURRENT"},
-            # Wraps to a second physical line ("Electric Current") -- same accepted
-            # truncation as earlier chapters' own wrapped titles.
-            {"number": "11.7.1", "title": "Practical Applications of Heating Effect of"},
+            {"number": "11.7.1", "title": "Practical Applications of Heating Effect of Electric Current"},
             {"number": "11.8", "title": "ELECTRIC POWER"},
         ],
         "12": [  # jesc112.pdf -- Magnetic Effects of Electric Current
             {"number": "12.1", "title": "MAGNETIC FIELD AND FIELD LINES"},
             {"number": "12.2", "title": "MAGNETIC FIELD DUE TO A CURRENT-CARRYING CONDUCTOR"},
-            # Wraps to a second physical line ("Conductor") -- same accepted truncation.
-            {"number": "12.2.1", "title": "Magnetic Field due to a Current through a Straight"},
+            {"number": "12.2.1", "title": "Magnetic Field due to a Current through a Straight Conductor"},
             {"number": "12.2.2", "title": "Right-Hand Thumb Rule"},
-            # Wraps to a second physical line ("Circular Loop") -- same accepted
-            # truncation.
-            {"number": "12.2.3", "title": "Magnetic Field due to a Current through a"},
+            {"number": "12.2.3", "title": "Magnetic Field due to a Current through a Circular Loop"},
             {"number": "12.2.4", "title": "Magnetic Field due to a Current in a Solenoid"},
             {"number": "12.3", "title": "FORCE ON A CURRENT-CARRYING CONDUCTOR IN A MAGNETIC FIELD"},
             {"number": "12.4", "title": "DOMESTIC ELECTRIC CIRCUITS"},

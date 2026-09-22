@@ -422,6 +422,28 @@ def test_a_heading_followed_by_narrow_column_body_prose_is_not_swallowed():
     assert by_number["7.2.4"] == "Budding"
 
 
+@real_acids
+def test_a_heading_followed_by_an_activity_caption_at_the_same_size_is_not_swallowed():
+    """NCERT sets an Activity/Table/Figure caption directly under a heading, at the exact
+    same larger size the heading itself uses -- confirmed this is not read as a wrapped
+    continuation on five real headings from the same chapter that are each immediately
+    followed by one ('2.1.1 Acids and Bases in the Laboratory' + 'Activity 2.1',
+    '2.1.5 Reaction of Metallic Oxides with Acids' + 'Activity 2.7', '2.4.1 Family of
+    Salts' + 'Activity 2.13', '2.4.2 pH of Salts' + 'Activity 2.14', '2.4.4 Are the
+    Crystals of Salts really Dry?' + 'Activity 2.15'), none of which should ever have
+    'Activity N.N' appended onto the stored title."""
+    from app.ingest.book import read_text
+
+    text = read_text(ACIDS_PDF)
+    sections = extract_sections(text, chapter=2, path=ACIDS_PDF)
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["2.1.1"] == "Acids and Bases in the Laboratory"
+    assert by_number["2.1.5"] == "Reaction of Metallic Oxides with Acids"
+    assert by_number["2.4.1"] == "Family of Salts"
+    assert by_number["2.4.2"] == "pH of Salts"
+    assert by_number["2.4.4"] == "Are the Crystals of Salts really Dry?"
+
+
 # --- buckets --------------------------------------------------------------------------
 
 def test_theorems_and_examples_are_taught_content_exercises_are_practice():

@@ -889,6 +889,13 @@ def _merge_wrapped_title(
             break
         if re.match(r"^\d+(?:\.\d+)*(?:\s*\([a-z]\))?\s+[A-Z]", line):
             break  # the next real heading, not a continuation
+        if re.match(r"^(Activity|Example|Theorem|Exercise|Table|Fig(?:ure)?\.?)\s+\d", line):
+            # NCERT sets an Activity/Table/Figure caption right under a heading in the
+            # exact same larger size -- confirmed on the real "Acids, Bases and Salts"
+            # chapter, where "2.1.1 Acids and Bases in the Laboratory" is immediately
+            # followed by "Activity 2.1" at the identical size, which the merge above
+            # would otherwise read as a continuation and glue onto the title.
+            break
         overlap = 0
         for n in range(min(len(title), len(line)), 2, -1):
             if title[-n:] == line[:n]:
