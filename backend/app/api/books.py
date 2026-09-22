@@ -1013,10 +1013,8 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
         db.add(chapter)
         db.flush()
 
-    fresh_subtopic_codes = set()
     for section in extract.sections:
         code = f"{chapter_code}.S{section.number.replace('.', '_')}"
-        fresh_subtopic_codes.add(code)
         existing_subtopic = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
         if existing_subtopic is None:
             db.add(TaxonomyNode(
@@ -1030,27 +1028,6 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
             # "Importance of pH in Ever" subtopic, unchanged by a clean re-upload of the
             # chapter until this was fixed to actually update it.
             existing_subtopic.label = section.title
-
-    # A book with no real numbering of its own (Geography, Economics' own
-    # locate_known_sections chapters) gets its section "numbers" invented fresh each
-    # upload, in the order each title was actually found in the text -- a number that
-    # shifts between uploads (a heading count or order change) leaves the OLD code's
-    # node behind forever, orphaned, holding the same label a new code now also has.
-    # Confirmed on the real "Globalisation and the Indian Economy" chapter: "Summing Up"
-    # -- appearing exactly once in the real text -- ended up as two separate subtopic
-    # nodes under the same chapter, from two uploads whose invented numbering disagreed.
-    # Deleting anything this pass's own fresh code set does not name removes the stale
-    # one; BookChunk rows are keyed to the chapter node directly, never to a subtopic
-    # node, so this cannot orphan any stored content.
-    if fresh_subtopic_codes:
-        for stale_subtopic in db.scalars(
-            select(TaxonomyNode).where(
-                TaxonomyNode.kind == "subtopic",
-                TaxonomyNode.parent_id == chapter.id,
-                TaxonomyNode.code.notin_(fresh_subtopic_codes),
-            )
-        ):
-            db.delete(stale_subtopic)
 
     written = {"chunks": 0, "procedures": 0, "sections_filled": 0}
     for chunk in extract.chunks:
