@@ -227,6 +227,54 @@ def test_a_name_mismatch_can_be_waved_through_by_a_person(client, school, paper,
     assert resolved.json()["status"] == "clean"
 
 
+def test_a_matched_roll_with_no_name_read_is_flagged_not_auto_confirmed(
+    client, school, paper, roster, monkeypatch
+):
+    """A roll number is often a single handwritten or printed digit -- a misread '7' as
+    '1' lands on a real, different roster roll with nothing about the digit itself to
+    flag it. The written name is the only cross-check for that; if the model could not
+    read a name for the row either, there is no second signal, and confirming it would
+    silently overwrite that other student's real marks with this row's. Real production
+    complaint: marks appearing to belong to the wrong student, sourced from whichever
+    existing roll the misread number happened to land on."""
+    from app.extraction.gridsheet import GridCell, GridReading, GridRow
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    reading = GridReading(rows=[
+        GridRow(roll_no="1", name_as_written="", cells=[
+            GridCell("A/1", "2"), GridCell("B/2", "3"),
+        ]),
+    ])
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return reading
+
+    monkeypatch.setattr("app.extraction.gridsheet.AnthropicGridReader", StubReader)
+    try:
+        out = _upload(client, school, paper, school["section_id"])
+        job_id = out.json()["job_id"]
+        job = client.get(f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school))
+        body = job.json()
+        assert body["clean"] == 0
+        assert body["name_mismatch"] == 1
+
+        review = client.get(
+            f"/assessments/{paper}/gridsheet/{body['document_id']}", headers=_auth(school)
+        ).json()
+        row = next(r for r in review["rows"] if r["roll_no"] == "1")
+        assert row["status"] == "name_mismatch"
+        assert row["can_confirm"] is False
+    finally:
+        settings.anthropic_api_key = before
+
+
 def test_an_unmatched_roll_can_be_created_from_its_own_row(client, school, paper, roster, stub_grid):
     out = _upload(client, school, paper, school["section_id"])
     document_id = out.json()["document_id"]

@@ -90,10 +90,22 @@ def _row_in_scope(db: Session, assessment: Assessment, document_id: str, row_id:
 
 def _name_matches(written: str, roster: str) -> bool:
     """Loose enough that a middle name, initial or transliteration spelling does not flag
-    every row; tight enough that a wrong roll number still gets caught."""
+    every row; tight enough that a wrong roll number still gets caught.
+
+    A BLANK written name is not a pass. The name is the only cross-check a misread roll
+    number has -- a roll on a class sheet is often a single handwritten or printed digit
+    that a '7' misread as a '1' turns into a different real student's roll instantly, with
+    nothing about the digit itself to flag it. If the model also failed to read a name for
+    that row, there is no second signal to catch the swap, and confirming it silently
+    overwrites that other, correct student's marks with this row's -- exactly the
+    "garbage from a different student" failure this guards against. Treated as a mismatch
+    instead, so a person looks before anything is written.
+    """
     written_words = {w for w in written.lower().split() if w}
     roster_words = {w for w in roster.lower().split() if w}
-    if not written_words or not roster_words:
+    if not written_words:
+        return False
+    if not roster_words:
         return True
     return bool(written_words & roster_words)
 
