@@ -103,6 +103,7 @@ def main() -> None:
         missing: list[str] = []
         duplicated: list[str] = []
         truncated: list[str] = []
+        matched_labels: set[str] = set()
 
         # load_tsv() above keeps only the headings, dropping each file's own title (the
         # first row) -- recover file -> chapter title in a second pass.
@@ -138,25 +139,27 @@ def main() -> None:
                 exact = [l for l in labels if l == clean]
                 if len(exact) == 1:
                     matched_count += 1
+                    matched_labels.add(exact[0])
                 elif len(exact) > 1:
                     matched_count += 1
                     duplicated.append(f"{title}: {heading}")
+                    matched_labels.update(exact)
                 else:
                     partial = [l for l in labels if l and (clean.startswith(l) or l.startswith(clean)) and l != clean]
                     if partial:
                         matched_count += 1
                         truncated.append(f"{title}: {heading}  (db has: {partial[0]!r})")
+                        # The DB's own (truncated, or occasionally longer) label is a
+                        # real match for this heading, not an unrelated extra subtopic
+                        # -- confirmed on the real "Using IT in Globalisation" heading,
+                        # counted correctly as truncated above but ALSO listed as
+                        # "extra" (its stored label, 'using it in', never equals
+                        # _clean() of the full TSV heading, so it never entered this set
+                        # before) until matched here directly.
+                        matched_labels.update(partial)
                     else:
                         missing.append(f"{title}: {heading}")
 
-        matched_labels = set()
-        for file, headings in chapters.items():
-            title = file_title.get(file, "")
-            chapter_node = by_label.get(title.strip().lower())
-            if chapter_node is None:
-                continue
-            for heading in headings:
-                matched_labels.add(_clean(heading))
         extra = [l for l in all_subtopic_labels if l not in matched_labels]
 
         print(f"subject: {args.subject}")

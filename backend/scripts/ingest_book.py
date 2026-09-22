@@ -73,8 +73,10 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
         db.add(chapter)
         db.flush()
 
+    fresh_subtopic_codes = set()
     for section in extract.sections:
         code = f"{chapter_code}.S{section.number.replace('.', '_')}"
+        fresh_subtopic_codes.add(code)
         existing_subtopic = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
         if existing_subtopic is None:
             db.add(TaxonomyNode(
@@ -87,6 +89,20 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
             # because a node with this code already existed -- see app.api.books._load's
             # own note on the real "Importance of pH in Ever" subtopic this fixed.
             existing_subtopic.label = section.title
+
+    # See app.api.books._load's own note on the real "Summing Up" duplicate this fixed:
+    # a book with no real numbering of its own gets its section "numbers" invented fresh
+    # each upload, so a heading count or order change between uploads leaves the OLD
+    # code's node behind, orphaned, holding a label a new code now also has.
+    if fresh_subtopic_codes:
+        for stale_subtopic in db.scalars(
+            select(TaxonomyNode).where(
+                TaxonomyNode.kind == "subtopic",
+                TaxonomyNode.parent_id == chapter.id,
+                TaxonomyNode.code.notin_(fresh_subtopic_codes),
+            )
+        ):
+            db.delete(stale_subtopic)
 
     # This function used to diverge from app.api.books._load, the HTTP upload path for
     # the exact same pipeline: it never wrote section_number at all (every chunk this

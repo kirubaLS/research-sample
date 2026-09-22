@@ -1492,6 +1492,79 @@ def test_reuploading_a_chapter_refreshes_a_subtopics_own_label(client):
         db.close()
 
 
+def test_reuploading_a_chapter_removes_a_subtopic_the_current_extraction_no_longer_produces(client):
+    """A book with no real numbering of its own gets its section "numbers" invented
+    fresh each upload, in the order each title was actually found -- a number that
+    shifts between uploads (a heading count or order change) used to leave the OLD
+    code's subtopic node behind forever, orphaned, holding a label a new code might now
+    also hold. Confirmed on real production data: the real "Globalisation and the
+    Indian Economy" chapter -- "Summing Up" appears exactly once in the real text, but
+    two uploads whose invented numbering disagreed left it as two separate subtopic
+    nodes under the same chapter."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.MATH/contents", headers=HEAD,
+        files={"file": ("00-contents.pdf", _one_page([
+            "Contents", "6. Triangles", "6.1 Similar Figures",
+        ]), "application/pdf")},
+    )
+    chapter = _one_page(
+        ["6 Triangles", "6.1 Similar Figures"]
+        + ["Two figures having the same shape are called similar figures. " * 3] * 4
+        + ["Example 1 : Show that any two squares are similar to each other."]
+        + ["Working shown here comparing the ratios of sides. " * 3] * 4
+    )
+    first = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh106.pdf", chapter, "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+
+    db = SessionLocal()
+    try:
+        real_subtopic = db.scalar(
+            select(TaxonomyNode).where(
+                TaxonomyNode.kind == "subtopic", TaxonomyNode.label == "Similar Figures",
+            )
+        )
+        assert real_subtopic is not None, "the first upload did not create this subtopic"
+        # Simulating a stale leftover from an earlier upload whose own invented (or
+        # since-changed) numbering produced a DIFFERENT code for what is really the
+        # same section -- exactly the shape "Summing Up" was left in as.
+        stale_code = f"{real_subtopic.code}_STALE"
+        db.add(TaxonomyNode(
+            kind="subtopic", code=stale_code, label="Similar Figures",
+            parent_id=real_subtopic.parent_id, path=stale_code,
+            curriculum_version=real_subtopic.curriculum_version,
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    again = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh106.pdf", chapter, "application/pdf")},
+    )
+    assert again.status_code == 201, again.text
+
+    db = SessionLocal()
+    try:
+        stale = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == stale_code))
+        assert stale is None, (
+            "re-uploading the same chapter must remove a subtopic the current "
+            "extraction no longer produces, not leave a stale duplicate in place"
+        )
+        still_there = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == real_subtopic.code))
+        assert still_there is not None and still_there.label == "Similar Figures"
+    finally:
+        db.close()
+
+
 def test_reuploading_a_chapter_removes_chunks_the_current_extraction_no_longer_produces(client):
     """A chunk is reused across uploads by matching its own CONTENT hash -- which can
     only find a chunk whose text is unchanged since the last upload. It can never find a
