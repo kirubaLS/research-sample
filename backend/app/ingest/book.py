@@ -1140,6 +1140,14 @@ def _heading_styled_lines(
     when the bold one below finds nothing usable, never blended into it: a book whose
     real headings genuinely are bold must never have this looser, noisier signal
     reconsidering them.
+
+    A span's own bold FLAG is not the only real signal, though -- confirmed on the real
+    "Resources and Development" chapter, whose own subheadings ("Classification of
+    Soils", "Resource Planning in India") are set in 'Bookman-Demi', a genuine semi-bold
+    weight, but PyMuPDF never sets the bold flag bit for it (only 'Bookman,Bold', a
+    different named variant elsewhere in the SAME document, gets the flag). A font name
+    containing 'Demi' -- a standard type-weight name, never used for a body font in any
+    real book seen -- is treated as bold too, on this same signal-not-flag reasoning.
     """
     lines: list[tuple[int, float, float, str, int | None]] = []
     for page_index, page in enumerate(doc):
@@ -1152,7 +1160,7 @@ def _heading_styled_lines(
                 if not line_text:
                     continue
                 if require_bold:
-                    if not all(s["flags"] & 16 for s in spans):
+                    if not all(s["flags"] & 16 or "demi" in s["font"].lower() for s in spans):
                         continue
                 elif not all(round(s["size"], 1) > body_size + 1.0 for s in spans):
                     continue
@@ -1174,6 +1182,7 @@ def _pick_sections(
     *,
     filter_by_cover_colour: bool,
     multi_size: bool = False,
+    body_size: float = 0.0,
 ) -> list[Section]:
     """The shared second half of both heading-detection attempts: dedupe, exclude noise,
     prefer the book's own numbering if it has one, and otherwise take the largest
@@ -1416,23 +1425,62 @@ def _pick_sections(
         # chapter with just one real heading size (Development, ...): there is only one
         # cohort to take, so this is a no-op for them.
         #
-        # NOT extended to the bold pass: bold text there is used far more loosely, for
-        # diagram labels and table captions at all sorts of small sizes ('DEPOSITORS',
-        # 'BORROWERS', 10pt bold labels beside a bank diagram, confirmed on the same real
-        # chapter) that the size-based pass's own `size > body_size + 1.0` floor already
-        # excludes on its own -- the bold pass has no such floor, so doing this there
-        # pulled in every bold caption in the chapter as if it were a heading.
+        # NOT extended to the bold pass in the same unconditional way: bold text there is
+        # used far more loosely, for diagram labels and table captions at all sorts of
+        # small sizes ('DEPOSITORS', 'BORROWERS', 10pt bold labels beside a bank diagram,
+        # confirmed on the same real chapter) that the size-based pass's own
+        # `size > body_size + 1.0` floor already excludes on its own -- the bold pass has
+        # no such floor, so doing this there pulled in every bold caption in the chapter
+        # as if it were a heading. The bold pass gets its OWN, narrower second-level
+        # attempt below instead, gated on a real-content check a bare caption or table
+        # header cannot pass.
         headings = [
             (page_index, y, size, line_text)
             for page_index, y, size, line_text in candidates
         ]
+        level_sizes: list[float] | None = None
     else:
-        heading_size = max(size for _p, _y, size, _t in candidates)
-        headings = [
-            (page_index, y, heading_size, line_text)
-            for page_index, y, size, line_text in candidates
-            if size == heading_size
-        ]
+        # A book's own bold headings can carry two real levels too -- a major, all-caps
+        # division and smaller mixed-case subheadings under it, both genuinely bold, not
+        # a diagram label or table caption at some arbitrary small size. Confirmed on the
+        # real "Resources and Development" chapter: 7 major headings ("LAND RESOURCES")
+        # found correctly, but real subheadings with substantial content of their own
+        # ("Sustainable development", "Classification of Soils", ...) were silently
+        # entirely absent, not truncated, because only the single largest bold size was
+        # ever kept.
+        #
+        # The floor here is `size >= body_size`, not the size-based pass's own
+        # `body_size + 1.0`: a real subheading can be bold at exactly the body's own
+        # size, with nothing to visually separate it but the bold weight itself --
+        # confirmed on the same chapter, where "Sustainable development" prints at
+        # 10.5pt, identical to the surrounding body text (also 10.5pt, just not bold). A
+        # genuine diagram label still sits BELOW that floor even bold -- confirmed on the
+        # same chapter's own soil-profile diagram ("Subsoil weathered", "rocks sand and",
+        # ... all 9.5pt).
+        #
+        # This alone still let through a real false positive: a bold TABLE COLUMN HEADER
+        # ("Language", "Proportion of speakers (%)") at the same qualifying size,
+        # confirmed on the real "Federalism" chapter -- excluded below, after locating
+        # each heading in the text, by requiring genuine prose to follow it, which a bare
+        # table header never has.
+        sizes_above_floor = sorted(
+            {size for _p, _y, size, _t in candidates if size >= body_size}, reverse=True,
+        )
+        if len(sizes_above_floor) >= 2:
+            headings = [
+                (page_index, y, size, line_text)
+                for page_index, y, size, line_text in candidates
+                if size in sizes_above_floor
+            ]
+            level_sizes = sizes_above_floor
+        else:
+            heading_size = max(size for _p, _y, size, _t in candidates)
+            headings = [
+                (page_index, y, heading_size, line_text)
+                for page_index, y, size, line_text in candidates
+                if size == heading_size
+            ]
+            level_sizes = None
 
     # A title that wraps to a second line is still one heading: merge it into the line
     # above when the two are close together on the same page AT THE SAME SIZE, but keep
@@ -1450,23 +1498,27 @@ def _pick_sections(
     # narrowly over the old flat threshold, because a bigger font naturally sets a bigger
     # line height. A fixed threshold split it into two fragments instead of the one real
     # heading it is.
-    merged: list[tuple[str, str]] = []   # (locate_by, display_title)
+    merged: list[tuple[str, str, float]] = []   # (locate_by, display_title, size)
     previous: tuple[int, float, float] | None = None
     for page_index, y, size, line_text in headings:
         if (
             previous is not None and previous[0] == page_index
             and previous[2] == size and 0 < y - previous[1] < max(20.0, size * 1.2)
         ):
-            locate_by, title = merged[-1]
-            merged[-1] = (locate_by, f"{title} {line_text}")
+            locate_by, title, msize = merged[-1]
+            merged[-1] = (locate_by, f"{title} {line_text}", msize)
         else:
-            merged.append((line_text, line_text))
+            merged.append((line_text, line_text, size))
         previous = (page_index, y, size)
 
     # A noise phrase split across the wrap itself ('LET'S WORK THESE' / 'OUT', two
     # separate lines) matches no exclusion pattern until they are joined -- checked again
     # here, after merging, not only on each raw line before it, for exactly that gap.
-    merged = [(locate_by, title) for locate_by, title in merged if not _NOT_A_HEADING.match(title)]
+    merged = [
+        (locate_by, title, size)
+        for locate_by, title, size in merged
+        if not _NOT_A_HEADING.match(title)
+    ]
 
     # A single shared cursor, advanced monotonically as ``merged`` is walked in ITS OWN
     # order, assumes that order already matches where each title actually sits in
@@ -1492,21 +1544,62 @@ def _pick_sections(
     # the rare heading the cursor genuinely could not find keeps the common case (cursor
     # order already correct) untouched, and only ever reorders the rare recovered one.
     cursor = 0
-    found: list[tuple[str, int]] = []
-    for locate_by, title in merged:
+    found: list[tuple[str, int, float]] = []
+    for locate_by, title, size in merged:
         pos = text.find(locate_by, cursor)
         if pos == -1:
             pos = text.find(locate_by, 0)
             if pos == -1:      # read_text folded whitespace this function did not predict
                 continue
-            found.append((title, pos))
+            found.append((title, pos, size))
             continue
-        found.append((title, pos))
+        found.append((title, pos, size))
         cursor = pos + len(locate_by)
-    found.sort(key=lambda pair: pair[1])
+    found.sort(key=lambda triple: triple[1])
+
+    if level_sizes is not None:
+        # A bare table column header ("Language", "Proportion of speakers (%)") clears
+        # every filter above -- genuinely bold, at a genuine second-level size -- but it
+        # is never followed by real prose the way a true subheading is, only by the
+        # table's own data rows or the next real heading immediately. Confirmed on the
+        # real "Federalism" chapter. Required only of a MINOR heading: a major one is
+        # already reliable enough (the single-size path above has never needed this),
+        # and a short-but-real major section should not be second-guessed by a length
+        # floor invented for a different problem.
+        filtered = []
+        for i, (title, start, size) in enumerate(found):
+            if size != level_sizes[0]:
+                span_end = found[i + 1][1] if i + 1 < len(found) else len(text)
+                if len(text[start:span_end].strip()) < MIN_BODY_CHARS:
+                    continue
+            filtered.append((title, start, size))
+        found = filtered
+
+        # Nested numbering the book itself never prints: level_sizes[0] (the largest) is
+        # a major division, any smaller size still above the floor is a subheading under
+        # whichever major heading precedes it. A minor heading found before any major one
+        # has appeared at all (rare -- an opening illustration or case study ahead of the
+        # chapter's own first division) falls back to flat numbering rather than a
+        # nonsensical "0.1".
+        sections = []
+        major = 0
+        minor = 0
+        for i, (title, start, size) in enumerate(found):
+            if size == level_sizes[0]:
+                major += 1
+                minor = 0
+                number = str(major)
+            elif major:
+                minor += 1
+                number = f"{major}.{minor}"
+            else:
+                number = str(i + 1)
+            end = found[i + 1][1] if i + 1 < len(found) else len(text)
+            sections.append(Section(number, title, start, end))
+        return sections
 
     sections: list[Section] = []
-    for i, (title, start) in enumerate(found):
+    for i, (title, start, _size) in enumerate(found):
         end = found[i + 1][1] if i + 1 < len(found) else len(text)
         sections.append(Section(str(i + 1), title, start, end))
     return sections
@@ -1543,15 +1636,9 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
     would not.
     """
     with pymupdf.open(path) as doc:
-        bold_lines = _heading_styled_lines(doc, require_bold=True)
-        by_bold = _pick_sections(bold_lines, text, chapter_title, filter_by_cover_colour=False)
-        sparse = (
-            not by_bold
-            or len(text) / len(by_bold) > SUSPICIOUS_SINGLE_SECTION_CHARS
-        )
-        if by_bold and not sparse:
-            return by_bold
-
+        # Computed up front, not only on the size-based fallback: the bold pass now also
+        # uses this as its own floor for a genuine second heading level (see
+        # _pick_sections' own note on the real "Resources and Development" chapter).
         body_chars: dict[float, int] = {}
         for page in doc:
             for block in page.get_text("dict")["blocks"]:
@@ -1560,11 +1647,41 @@ def _sections_by_boldness(path: str | Path, text: str, chapter_title: str = "") 
                         size = round(s["size"], 1)
                         body_chars[size] = body_chars.get(size, 0) + len(s["text"])
         body_size = max(body_chars, key=lambda s: body_chars[s]) if body_chars else 0.0
+
+        bold_lines = _heading_styled_lines(doc, require_bold=True)
+        by_bold = _pick_sections(
+            bold_lines, text, chapter_title, filter_by_cover_colour=False, body_size=body_size,
+        )
+        # Sparseness is judged on MAJOR headings only ("." in a number means a nested
+        # minor one), not the enriched count _pick_sections may now return: a chapter
+        # whose real major-level detection was already too thin to trust must still fall
+        # through to the size-based path below exactly as it did before minor headings
+        # existed, whatever minor enrichment happened to find along the way. Confirmed on
+        # the real "Federalism" chapter -- only 4 real major headings are genuinely bold,
+        # which used to (and must still) read as sparse and fall through to the size pass
+        # that finds "Overview" (itself never bold at all, so the bold pass, enriched or
+        # not, can never contain it on its own).
+        major_count = len([s for s in by_bold if "." not in s.number])
+        sparse = (
+            not major_count
+            or len(text) / major_count > SUSPICIOUS_SINGLE_SECTION_CHARS
+        )
+        if by_bold and not sparse:
+            return by_bold
+
         sized_lines = _heading_styled_lines(doc, require_bold=False, body_size=body_size)
         by_size = _pick_sections(
             sized_lines, text, chapter_title, filter_by_cover_colour=True, multi_size=True,
         )
-        return by_size if len(by_size) > len(by_bold) else by_bold
+        # Compared against major_count, not len(by_bold): the enriched minor headings
+        # _pick_sections may have added make by_bold's raw count no longer a fair stand-
+        # in for how many real headings its MAJOR-level detection alone found, which is
+        # the actual question this comparison answers ("did the size-based pass do
+        # better than the bold pass's own real division count?"). Confirmed on the real
+        # "Federalism" chapter: an enriched-but-still-sparse by_bold (10, nested) used to
+        # out-count a correct, flat by_size (also 10, "Overview" included) on a false
+        # tie, keeping the wrong list purely because nothing was left to break the tie.
+        return by_size if len(by_size) > major_count else by_bold
 
 
 def extract_chunks(

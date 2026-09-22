@@ -368,6 +368,42 @@ def test_a_chapter_with_no_typographic_false_positives_still_finds_every_heading
         assert expected in titles
 
 
+@real_resources_development
+def test_a_genuine_second_bold_heading_level_is_found_not_only_the_largest():
+    """A book's own bold headings can carry two real levels: a major, all-caps division
+    and smaller mixed-case subheadings under it, both genuinely bold -- but only the
+    single largest bold size was ever kept, silently dropping the entire second level.
+    Confirmed on the real "Resources and Development" chapter: "Sustainable
+    development" prints at exactly the body's own size (10.5pt), told apart only by its
+    bold weight, and "Classification of Soils" is set in a semi-bold font PyMuPDF never
+    flags as bold at all. Both carry real, substantial content of their own, unlike a
+    genuine diagram label (a soil-profile diagram's own layer captions, smaller still,
+    correctly stay excluded) or a bare table/margin caption with no prose following it.
+
+    This chapter is also covered by ``_locate_known_sections`` (a hand-typed, 100%-
+    correct title list, this book's own real answer for production uploads) -- this
+    test is not that: it locks in what the general typographic pass alone can now do
+    for a chapter like this one where no known-title list exists yet, a real
+    improvement even though it still does not reach 100% for this specific chapter
+    (a handful of headings -- "Conservation of Resources", glued inline to its own
+    opening sentence, and the soil TYPES nested a third level deeper still -- remain
+    genuinely out of reach for typography alone)."""
+    text = read_text(RESOURCES_DEVELOPMENT_PDF)
+    sections = _sections_by_boldness(
+        RESOURCES_DEVELOPMENT_PDF, text, "Resources and Development",
+    )
+    by_number = {s.number: s.title for s in sections}
+    assert by_number["1"] == "DEVELOPMENT OF RESOURCES"
+    assert by_number["1.1"] == "Sustainable development"
+    assert by_number["1.2"] == "Rio de Janeiro Earth Summit, 1992"
+    assert by_number["1.3"] == "Agenda 21"
+    assert by_number["2.1"] == "Resource Planning in India"
+    assert by_number["7.1"] == "Classification of Soils"
+    # The soil-profile diagram's own smaller-still bold layer labels ("Subsoil
+    # weathered", "rocks sand and", ...) must not ride in as a further nested level.
+    assert "Subsoil weathered" not in by_number.values()
+
+
 @real_gender_religion_caste
 def test_chart_captions_followed_by_a_source_citation_are_excluded_by_known_titles():
     """This chapter's bold pass finds only its 3 largest headings (sparse), so the
