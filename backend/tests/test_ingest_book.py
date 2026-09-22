@@ -100,6 +100,8 @@ AP_PDF = SCIENCE_FIXTURES_DIR / "maths_arithmetic_progressions.pdf"
 real_ap = pytest.mark.skipif(not AP_PDF.exists(), reason="regression fixture not present")
 MATHCIRCLE_PDF = SCIENCE_FIXTURES_DIR / "maths_circles.pdf"
 real_mathcircle = pytest.mark.skipif(not MATHCIRCLE_PDF.exists(), reason="regression fixture not present")
+FF_LETTERTOGOD_PDF = SCIENCE_FIXTURES_DIR / "english_ff_a_letter_to_god.pdf"
+real_ff_lettertogod = pytest.mark.skipif(not FF_LETTERTOGOD_PDF.exists(), reason="regression fixture not present")
 
 
 @real_chemrxn
@@ -809,6 +811,24 @@ def test_a_short_genuinely_single_section_chapter_is_not_flagged():
     )
     verify_structure(extract)
     assert extract.warnings == []
+
+
+@real_ff_lettertogod
+def test_a_real_single_section_english_chapter_chunks_at_its_real_checkpoints():
+    """'A Letter to God' (First Flight) has no numbered sections at all -- the real
+    checkpoint the book uses instead is 'Oral Comprehension Check', repeated after each
+    block of questions. Confirms the real file extracts clean (no problems) under the
+    same single_section=True path production uses for every X.ENG* book."""
+    from app.ingest.book import extract_chapter
+
+    extract = extract_chapter(
+        FF_LETTERTOGOD_PDF, number=1, name="jeff101.pdf", title="A Letter to God",
+        single_section=True,
+    )
+    assert extract.problems == []
+    assert len(extract.chunks) > 1
+    assert all(c.section == "1" for c in extract.chunks)
+    assert any(c.text.strip() == "Oral Comprehension Check" for c in extract.chunks)
 
 
 def test_the_science_contents_page_yields_chapters_where_it_yields_no_sections():
