@@ -188,7 +188,11 @@ EXPECTED_SECTIONS: dict[str, dict[str, list[dict[str, str]]]] = {
             {"number": "3.2", "title": "Religious Debates and the Fear of Print"},
             {"number": "3.3", "title": "Print and Dissent"},
             {"number": "4", "title": "The Reading Mania"},
-            {"number": "4.1", "title": "'Tremble, therefore, tyrants of the world!'"},
+            # The real PDF sets this in curly (typographic) quotes, not straight ones --
+            # confirmed against the real file when the quotation-mark heading fix that
+            # first surfaced this chapter's 4.1 at all was tested (app/ingest/book.py's
+            # BOOK_NUMBERED_SECTION).
+            {"number": "4.1", "title": "‘Tremble, therefore, tyrants of the world!’"},
             {"number": "4.2", "title": "Print Culture and the French Revolution"},
             {"number": "5", "title": "The Nineteenth Century"},
             {"number": "5.1", "title": "Children, Women and Workers"},
