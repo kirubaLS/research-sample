@@ -1570,6 +1570,73 @@ def test_two_books_sharing_a_chapter_title_get_their_own_chapter_nodes(client):
         db.close()
 
 
+def test_a_chunk_already_sitting_under_the_wrong_chapter_is_not_treated_as_already_loaded(client):
+    """The node-scoping fix above stopped a NEW upload from mis-attaching to another book's
+    chapter node, but a chunk from BEFORE that fix is already sitting under the wrong node
+    with the same stem_hash a correct re-upload would produce. The chunk-reuse check used to
+    look a stem_hash up by curriculum_version alone, with no node_id in the filter, so a
+    correct re-upload found that hash 'already loaded' -- under the WRONG node -- and wrote
+    nothing under the right one. Confirmed on real production data: after the chapter-node
+    fix was deployed and every Words and Expressions unit was re-uploaded one at a time, the
+    Workbook's own chapter nodes still came back 0 chunks, because the diagnostic script
+    still found the real content sitting under the two First Flight nodes it had been
+    mis-attached to before the fix, unmoved."""
+    from sqlalchemy import select
+
+    from app.api.books import _load
+    from app.db import SessionLocal
+    from app.ingest.book import ChapterExtract, Chunk
+    from app.models import BookChunk, TaxonomyNode
+
+    client.post("/platform/books/X.ENG.FF/curriculum", headers=HEAD)
+    client.post("/platform/books/X.ENG.WB/curriculum", headers=HEAD)
+
+    db = SessionLocal()
+    try:
+        ff_extract = ChapterExtract(
+            number=1, title="A Letter to God", source_path="x", sha256="ff",
+            chunks=[Chunk("T", "body", "Section 1", "Lencho waited for the rain.", "ff-hash-1", section="1")],
+        )
+        _load(db, ff_extract, "X.ENG.FF", "CBSE-2026-27")
+        db.commit()
+
+        ff_chapter = db.scalar(
+            select(TaxonomyNode).where(
+                TaxonomyNode.code == "X.ENG.FF.LETTERTOGOD", TaxonomyNode.kind == "chapter",
+            )
+        )
+        # Reproduces the pre-fix corruption directly: a chunk that a Workbook upload wrote,
+        # correctly tagged subject_code="X.ENG.WB", but under First Flight's chapter node --
+        # exactly what the unscoped title match used to do.
+        db.add(BookChunk(
+            curriculum_version="CBSE-2026-27", subject_code="X.ENG.WB", node_id=ff_chapter.id,
+            bucket="E", reference="Section 1", section_number="1",
+            text="Fill in the blanks about Lencho.", normalised="Fill in the blanks about Lencho.",
+            stem_hash="wb-hash-1",
+        ))
+        db.commit()
+
+        wb_extract = ChapterExtract(
+            number=1, title="A Letter to God", source_path="y", sha256="wb",
+            chunks=[Chunk("E", "exercise", "Section 1", "Fill in the blanks about Lencho.", "wb-hash-1", section="1")],
+        )
+        _load(db, wb_extract, "X.ENG.WB", "CBSE-2026-27")
+        db.commit()
+
+        wb_chapter = db.scalar(
+            select(TaxonomyNode).where(
+                TaxonomyNode.code == "X.ENG.WB.LETTERTOGOD", TaxonomyNode.kind == "chapter",
+            )
+        )
+        wb_chunks = db.scalars(select(BookChunk).where(BookChunk.node_id == wb_chapter.id)).all()
+        assert [c.text for c in wb_chunks] == ["Fill in the blanks about Lencho."], (
+            "the re-upload was silently skipped because a chunk with the same hash already "
+            "existed -- under the wrong chapter's node"
+        )
+    finally:
+        db.close()
+
+
 # --- families belong to one subject ---------------------------------------------------------
 
 def test_apparatus_headings_are_not_proposed_as_families():

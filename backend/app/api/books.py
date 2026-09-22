@@ -1027,6 +1027,7 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
             select(BookChunk).where(
                 BookChunk.stem_hash == chunk.stem_hash,
                 BookChunk.curriculum_version == version,
+                BookChunk.node_id == chapter.id,
             )
         )
         if existing is None:
