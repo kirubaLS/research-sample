@@ -830,7 +830,8 @@ BOOK_NUMBERED_SECTION = re.compile(
 
 
 def _merge_wrapped_title(
-    text: str, title: str, start: int, end: int, line_sizes: dict[str, float] | None
+    text: str, title: str, start: int, end: int,
+    line_sizes: dict[str, float] | None, body_size: float,
 ) -> tuple[str, int]:
     """A heading's title sometimes continues onto the next physical line -- a plain word
     wrap ('...Extracting Metals towards the Top of the' / 'Activity Series'), or, when
@@ -854,6 +855,17 @@ def _merge_wrapped_title(
     continuation only if its size matches the exact size of the heading's own first line.
     Callers with no PDF to read sizes from (a synthetic string in a unit test, not a real
     file) pass ``line_sizes=None`` and nothing is ever merged.
+
+    A test PDF built for an unrelated test sets its whole page -- number, title, body --
+    in one uniform font and size, since nothing about that test cares about typography.
+    Nothing in this book's real layout tells a genuine heading apart from that kind of
+    page by looking at any ONE line, including the heading's own -- only ``body_size``
+    (this chapter's own most common size, computed once from the whole document) can:
+    confirmed on the real "Statistics" unit test, where matching the heading's own
+    literal size against the next line's, with no floor, merged three of its own body
+    sentences straight into a section title because the test PDF draws everything at the
+    same size. A heading's own line must be visibly larger than that common size before
+    its wrapped continuation is trusted at all.
     """
     if not line_sizes:
         return title, end
@@ -863,7 +875,7 @@ def _merge_wrapped_title(
     # a real key into line_sizes; the whole span joined by its embedded '\n' never is.
     heading_line = text[start:end].strip().rsplit("\n", 1)[-1]
     reference_size = line_sizes.get(heading_line)
-    if reference_size is None:
+    if reference_size is None or reference_size <= body_size + 1.0:
         return title, end
     # m.end() (the position this is always called with) lands ON the heading line's own
     # trailing newline, not past it -- the $ anchor matches before \n without consuming it.
@@ -967,19 +979,28 @@ def extract_sections(
     )
 
     line_sizes: dict[str, float] | None = None
+    body_size = 0.0
     if path is not None and found:
         with pymupdf.open(path) as doc:
             line_sizes = {}
+            size_chars: dict[float, int] = {}
             for page in doc:
                 for block in page.get_text("dict")["blocks"]:
                     for line in block.get("lines", []):
                         spans = line.get("spans") or []
                         line_text = "".join(s["text"] for s in spans).strip()
                         if line_text and spans:
-                            line_sizes[line_text] = round(spans[0]["size"], 1)
+                            size = round(spans[0]["size"], 1)
+                            line_sizes[line_text] = size
+                            size_chars[size] = size_chars.get(size, 0) + len(line_text)
+            # The size used everywhere for the most characters is this chapter's own body
+            # text -- the same "most common size" reasoning _sections_by_boldness already
+            # uses for Economics' own un-bold headings.
+            if size_chars:
+                body_size = max(size_chars, key=lambda s: size_chars[s])
     merged = []
     for number, title, start, end in found:
-        title, end = _merge_wrapped_title(text, title, start, end, line_sizes)
+        title, end = _merge_wrapped_title(text, title, start, end, line_sizes, body_size)
         merged.append((number, title, start, end))
     found = merged
 
