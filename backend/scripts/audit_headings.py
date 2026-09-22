@@ -29,16 +29,29 @@ from app.db import SessionLocal
 from app.models.taxonomy import TaxonomyNode
 
 
-def _clean(title: str) -> str:
-    # Headings in the TSV carry their own numbering ("2.1 The Aristocracy..."); the
-    # database's subtopic label does not, since the number is stored separately as
-    # section_number. Strip a leading "N", "N.N", "N.N.N" (etc.) prefix before comparing.
-    title = re.sub(r"^\d+(?:\.\d+)*\s+", "", title).strip().lower()
+def _normalize_punct(title: str) -> str:
     # A real PDF's text layer sometimes renders extra inter-word spacing ("...and  Life"),
     # a kerning artifact, not a different heading -- confirmed on the real "Mirror
     # Formula and  Magnification" subtopic. Collapsed before comparing so this reads as
     # the same heading it is, not a false "missing" alongside a false "extra".
-    return re.sub(r"\s+", " ", title)
+    title = re.sub(r"\s+", " ", title.strip().lower())
+    # A curly apostrophe/quote (‘’“”) and an en/em dash (–—) are the same punctuation as
+    # their plain-ASCII equivalents, just rendered differently by whichever tool produced
+    # the reference list versus the PDF's own text layer -- confirmed on the real
+    # "Jhumming: The 'slash and burn' agriculture" and "Bhoodan – Gramdan" headings, each
+    # stored under one spelling and listed under the other, reading as a false "missing"
+    # alongside a false "extra" the same way inconsistent whitespace already did above.
+    title = title.translate({
+        0x2018: "'", 0x2019: "'", 0x201C: '"', 0x201D: '"', 0x2013: "-", 0x2014: "-",
+    })
+    return re.sub(r"\s*-\s*", " - ", title)
+
+
+def _clean(title: str) -> str:
+    # Headings in the TSV carry their own numbering ("2.1 The Aristocracy..."); the
+    # database's subtopic label does not, since the number is stored separately as
+    # section_number. Strip a leading "N", "N.N", "N.N.N" (etc.) prefix before comparing.
+    return _normalize_punct(re.sub(r"^\d+(?:\.\d+)*\s+", "", title))
 
 
 def load_tsv(path: str) -> dict[str, list[str]]:
@@ -113,7 +126,7 @@ def main() -> None:
                     TaxonomyNode.kind == "subtopic", TaxonomyNode.parent_id == chapter_node.id
                 )
             ).all()
-            labels = [re.sub(r"\s+", " ", s.label.strip().lower()) for s in subtopics]
+            labels = [_normalize_punct(s.label) for s in subtopics]
             all_subtopic_labels.extend(labels)
 
             for heading in headings:
