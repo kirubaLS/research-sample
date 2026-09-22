@@ -33,13 +33,23 @@ def _clean(title: str) -> str:
     # Headings in the TSV carry their own numbering ("2.1 The Aristocracy..."); the
     # database's subtopic label does not, since the number is stored separately as
     # section_number. Strip a leading "N", "N.N", "N.N.N" (etc.) prefix before comparing.
-    return re.sub(r"^\d+(?:\.\d+)*\s+", "", title).strip().lower()
+    title = re.sub(r"^\d+(?:\.\d+)*\s+", "", title).strip().lower()
+    # A real PDF's text layer sometimes renders extra inter-word spacing ("...and  Life"),
+    # a kerning artifact, not a different heading -- confirmed on the real "Mirror
+    # Formula and  Magnification" subtopic. Collapsed before comparing so this reads as
+    # the same heading it is, not a false "missing" alongside a false "extra".
+    return re.sub(r"\s+", " ", title)
 
 
 def load_tsv(path: str) -> dict[str, list[str]]:
     chapters: dict[str, list[tuple[str, str]]] = {}
     with open(path, newline="", encoding="utf-8") as f:
         for row in csv.DictReader(f, delimiter="\t"):
+            # A topic list pasted together from several blocks can carry its own header
+            # row ("File\tOrder\tTitle") repeated partway through -- confirmed on the
+            # real X.SCI list, which has it three times. Not a chapter, not a heading.
+            if row["File"] == "File" and row["Order"] == "Order" and row["Title"] == "Title":
+                continue
             chapters.setdefault(row["File"], []).append((row["Order"], row["Title"]))
     # First row per file = chapter title, not a heading.
     return {
@@ -84,6 +94,8 @@ def main() -> None:
             reader = csv.DictReader(f, delimiter="\t")
             seen_files: set[str] = set()
             for row in reader:
+                if row["File"] == "File" and row["Order"] == "Order" and row["Title"] == "Title":
+                    continue
                 if row["File"] not in seen_files:
                     file_title[row["File"]] = row["Title"]
                     seen_files.add(row["File"])
@@ -101,7 +113,7 @@ def main() -> None:
                     TaxonomyNode.kind == "subtopic", TaxonomyNode.parent_id == chapter_node.id
                 )
             ).all()
-            labels = [s.label.strip().lower() for s in subtopics]
+            labels = [re.sub(r"\s+", " ", s.label.strip().lower()) for s in subtopics]
             all_subtopic_labels.extend(labels)
 
             for heading in headings:
