@@ -1826,6 +1826,28 @@ def _locate_known_sections(
                         continue
                     raw_lines.append((page_index, line["bbox"][1], spans[0]["size"], line_text))
 
+    # A heading can be drawn as several overlapping draws at nearly the same position, a
+    # faux-bold trick -- the same one _pick_sections' own dedup step collapses before its
+    # wrap-merge runs. Applied here too, and for the same reason: confirmed necessary on
+    # the real "Development" chapter's own 'HUMAN DEVELOPMENT REPORT' banner, drawn as
+    # 'HUMAN' x4, then 'HUMAN DEVELOPMENT' once, then 'REPOR' x4, then 'REPORT' once --
+    # eight lines of noise sit between 'HUMAN DEVELOPMENT' and 'REPORT', far outside the
+    # 3-line lookahead the wrap-merge below uses, so without this collapse first, no
+    # candidate ever reads the banner's true, full text and a known title naming it is
+    # never found at all.
+    deduped: list[tuple[int, float, float, str]] = []
+    for page_index, y, size, line_text in raw_lines:
+        if deduped and deduped[-1][0] == page_index and abs(y - deduped[-1][1]) < 5:
+            if deduped[-1][3] == line_text:
+                continue
+            shared = _overlap(deduped[-1][3], line_text)
+            if shared and deduped[-1][2] == size:
+                p, y0, s, acc = deduped[-1]
+                deduped[-1] = (p, y0, s, acc + line_text[shared:])
+                continue
+        deduped.append((page_index, y, size, line_text))
+    raw_lines = deduped
+
     # A title that wraps to two, or more, physical lines on the page ("LAND DEGRADATION
     # AND CONSERVATION" / "MEASURES") needs all of them joined into one candidate to match
     # at all -- the same adjacency test _pick_sections' own wrap-merge uses, applied here

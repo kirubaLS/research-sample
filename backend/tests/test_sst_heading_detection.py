@@ -101,6 +101,35 @@ def test_a_front_matter_note_bigger_than_every_real_heading_is_not_the_whole_cha
     assert any("PUBLIC FACILITIES" in t.upper() for t in titles)
     assert any("INCOME AND OTHER CRITERIA" in t.upper() for t in titles)
     assert any("WHAT DEVELOPMENT PROMISES" in t.upper() for t in titles)
+
+
+@pytest.mark.skipif(not DEVELOPMENT_PDF.exists(), reason="regression fixture not present")
+def test_locate_known_sections_also_collapses_a_fake_bold_overlap():
+    """_locate_known_sections builds its own candidate list directly from the page's
+    styled spans, independent of _pick_sections and its own overlap-collapsing dedup --
+    confirmed on a real production upload of this exact chapter, which was refused
+    entirely ('2 known section(s) could not be found') because 'HUMAN DEVELOPMENT
+    REPORT' and 'Example 2: Exhaustion of Natural Resources' were never found: eight
+    lines of the SAME fake-bold-overlap noise ('HUMAN' x4, 'REPOR' x4) sit between
+    'HUMAN DEVELOPMENT' and 'REPORT', far outside the 3-line lookahead the wrap-merge
+    uses, so no candidate ever read the banner's true, full text -- and Example 2, right
+    after it in the text, inherited the same failure once the cursor never advanced
+    past the unfound banner."""
+    text = read_text(DEVELOPMENT_PDF)
+    titles = [
+        "WHAT DEVELOPMENT PROMISES — DIFFERENT PEOPLE, DIFFERENT GOALS",
+        "INCOME AND OTHER GOALS", "NATIONAL DEVELOPMENT",
+        "HOW TO COMPARE DIFFERENT COUNTRIES OR STATES?", "Average Income",
+        "INCOME AND OTHER CRITERIA", "PUBLIC FACILITIES", "HUMAN DEVELOPMENT REPORT",
+        "Example 1: Groundwater in India", "SUSTAINABILITY OF DEVELOPMENT",
+        "Example 2: Exhaustion of Natural Resources",
+    ]
+    sections, missing = _locate_known_sections(DEVELOPMENT_PDF, text, titles)
+    assert missing == []
+    assert len(sections) == 11
+    found_titles = [s.title for s in sections]
+    assert "HUMAN DEVELOPMENT REPORT" in found_titles
+    assert "Example 2: Exhaustion of Natural Resources" in found_titles
     assert any(t.upper() == "NATIONAL DEVELOPMENT" for t in titles)
     assert any("SUSTAINABILITY OF DEVELOPMENT" in t.upper() for t in titles)
     # A table caption's wrapped second line ('OF SELECT STATES', 'COUNTRIES', ...) must
