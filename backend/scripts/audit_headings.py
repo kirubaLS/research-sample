@@ -41,10 +41,14 @@ def _normalize_punct(title: str) -> str:
     # "Jhumming: The 'slash and burn' agriculture" and "Bhoodan – Gramdan" headings, each
     # stored under one spelling and listed under the other, reading as a false "missing"
     # alongside a false "extra" the same way inconsistent whitespace already did above.
-    title = title.translate({
-        0x2018: "'", 0x2019: "'", 0x201C: '"', 0x201D: '"', 0x2013: "-", 0x2014: "-",
-    })
-    return re.sub(r"\s*-\s*", " - ", title)
+    # Only a dash that ALREADY sits between two spaces is a word-separator worth folding
+    # ("Bhoodan – Gramdan" vs "Bhoodan - Gramdan", both spaced) -- a plain hyphen tight
+    # against its letters is part of the word itself ("Power-sharing"), confirmed
+    # wrongly split into "power - sharing" when every dash was forced to gain spaces
+    # unconditionally, which broke real compound-word chapter titles that never had
+    # spaces around their hyphen in the first place.
+    title = title.translate({0x2018: "'", 0x2019: "'", 0x201C: '"', 0x201D: '"'})
+    return re.sub(r"\s[–—-]\s", " - ", title)
 
 
 def _clean(title: str) -> str:
