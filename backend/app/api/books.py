@@ -1015,11 +1015,19 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
 
     for section in extract.sections:
         code = f"{chapter_code}.S{section.number.replace('.', '_')}"
-        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code)) is None:
+        existing_subtopic = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        if existing_subtopic is None:
             db.add(TaxonomyNode(
                 kind="subtopic", code=code, label=section.title,
                 parent_id=chapter.id, path=code, curriculum_version=version,
             ))
+        elif existing_subtopic.label != section.title:
+            # A re-upload after an extraction fix (a heading that used to come out
+            # truncated, say) must not leave the OLD label sitting here forever just
+            # because a node with this code already existed -- confirmed on the real
+            # "Importance of pH in Ever" subtopic, unchanged by a clean re-upload of the
+            # chapter until this was fixed to actually update it.
+            existing_subtopic.label = section.title
 
     written = {"chunks": 0, "procedures": 0, "sections_filled": 0}
     for chunk in extract.chunks:

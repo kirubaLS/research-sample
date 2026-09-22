@@ -75,11 +75,18 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
 
     for section in extract.sections:
         code = f"{chapter_code}.S{section.number.replace('.', '_')}"
-        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code)) is None:
+        existing_subtopic = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        if existing_subtopic is None:
             db.add(TaxonomyNode(
                 kind="subtopic", code=code, label=section.title,
                 parent_id=chapter.id, path=code, curriculum_version=version,
             ))
+        elif existing_subtopic.label != section.title:
+            # A re-upload after an extraction fix (a heading that used to come out
+            # truncated, say) must not leave the OLD label sitting here forever just
+            # because a node with this code already existed -- see app.api.books._load's
+            # own note on the real "Importance of pH in Ever" subtopic this fixed.
+            existing_subtopic.label = section.title
 
     # This function used to diverge from app.api.books._load, the HTTP upload path for
     # the exact same pipeline: it never wrote section_number at all (every chunk this

@@ -1424,6 +1424,74 @@ def test_uploading_a_chapter_again_corrects_a_wrong_section_not_only_a_blank_one
         db.close()
 
 
+def test_reuploading_a_chapter_refreshes_a_subtopics_own_label(client):
+    """A subtopic TaxonomyNode used to be written once and never touched again: the load
+    loop only ever checked whether a node with this section's code already existed, and
+    if so left it alone no matter what the label on THIS pass reads. A section whose
+    title an extraction fix later recovers in full (a heading that used to come out
+    truncated, matched against a stale, already-created node from before the fix) stayed
+    truncated in the database forever, re-upload after re-upload -- confirmed on real
+    production data across six Science chapters, all of which kept reading their old,
+    truncated titles after a real extraction fix and a clean re-upload."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    client.post("/platform/books/X.MATH/curriculum", headers=HEAD)
+    client.post(
+        "/platform/books/X.MATH/contents", headers=HEAD,
+        files={"file": ("00-contents.pdf", _one_page([
+            "Contents", "9. Some Applications of Trigonometry", "9.1 Heights",
+        ]), "application/pdf")},
+    )
+    chapter = _one_page(
+        ["9 Some Applications of Trigonometry", "9.1 Heights"]
+        + ["Trigonometry is used to find heights and distances of objects. " * 3] * 4
+        + ["Example 1 : Find the height of a tower using its shadow."]
+        + ["Working shown here using the angle of elevation. " * 3] * 4
+    )
+    first = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh109.pdf", chapter, "application/pdf")},
+    )
+    assert first.status_code == 201, first.text
+
+    db = SessionLocal()
+    try:
+        subtopic = db.scalar(
+            select(TaxonomyNode).where(
+                TaxonomyNode.kind == "subtopic", TaxonomyNode.label == "Heights",
+            )
+        )
+        assert subtopic is not None, "the first upload did not create this subtopic"
+        subtopic_code = subtopic.code
+        # Simulating an extraction that, before a fix, could only read this section's
+        # title truncated -- the exact shape "Importance of pH in Ever" was stored as.
+        subtopic.label = "Hei"
+        db.commit()
+    finally:
+        db.close()
+
+    again = client.post(
+        "/platform/books/X.MATH/chapters", headers=HEAD,
+        files={"file": ("jemh109.pdf", chapter, "application/pdf")},
+    )
+    assert again.status_code == 201, again.text
+
+    db = SessionLocal()
+    try:
+        refreshed = db.scalar(
+            select(TaxonomyNode).where(TaxonomyNode.code == subtopic_code)
+        )
+        assert refreshed.label == "Heights", (
+            "re-uploading the same chapter must correct a subtopic's own stored label "
+            "back to what the current extraction reads, not leave the old one in place"
+        )
+    finally:
+        db.close()
+
+
 def test_reuploading_a_chapter_removes_chunks_the_current_extraction_no_longer_produces(client):
     """A chunk is reused across uploads by matching its own CONTENT hash -- which can
     only find a chunk whose text is unchanged since the last upload. It can never find a
