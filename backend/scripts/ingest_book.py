@@ -47,9 +47,20 @@ def load(db, extract: ChapterExtract, subject: str, version: str) -> dict:
     # syllabus load already created carry the board-unit mapping; creating a parallel node
     # per chapter would leave the ingested content with no board unit, and board impact
     # would silently come out blank rather than wrong.
+    #
+    # Scoped to THIS subject's own node (parent_id), not matched by title alone across
+    # every book -- confirmed on the real X.ENG.WB upload: the Workbook deliberately
+    # names each unit after the First Flight chapter it accompanies ("A Letter to God"
+    # is a real chapter title in both books), so an unscoped match silently attached
+    # every Workbook unit's passages to First Flight's own chapter node of the same
+    # name instead of creating the Workbook's own -- 8 of 9 Workbook units came back
+    # "0 chunks" (already "loaded", just under the wrong book) and the ones that did
+    # get a node ("From the Diary of Anne Frank", "The Proposal") silently mixed their
+    # content into First Flight's.
     chapter = db.scalar(
         select(TaxonomyNode).where(
             TaxonomyNode.kind == "chapter",
+            TaxonomyNode.parent_id == subject_node.id,
             func.lower(TaxonomyNode.label) == extract.title.lower(),
         )
     )

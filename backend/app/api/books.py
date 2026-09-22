@@ -1000,6 +1000,7 @@ def _load(db: Session, extract, subject: str, version: str) -> dict:
     chapter = db.scalar(
         select(TaxonomyNode).where(
             TaxonomyNode.kind == "chapter",
+            TaxonomyNode.parent_id == subject_node.id,
             func.lower(TaxonomyNode.label) == extract.title.lower(),
         )
     )

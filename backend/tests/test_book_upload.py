@@ -1512,6 +1512,64 @@ def test_reuploading_a_chapter_removes_chunks_the_current_extraction_no_longer_p
         db.close()
 
 
+def test_two_books_sharing_a_chapter_title_get_their_own_chapter_nodes(client):
+    """The Workbook deliberately names each unit after the First Flight chapter it
+    accompanies -- 'A Letter to God' is a real chapter title in both X.ENG.FF and
+    X.ENG.WB. _load() used to match an existing chapter node by title ALONE, with no
+    scoping to the subject the upload belongs to, so uploading the Workbook's unit
+    after First Flight's own chapter of the same name silently attached the Workbook's
+    passages to First Flight's chapter node instead of creating the Workbook's own --
+    confirmed on real production data: 8 of 9 X.ENG.WB units came back 'nothing
+    loaded' after uploading cleanly (no error), and a server-side query found their
+    chunks sitting under X.ENG.FF chapter nodes with matching titles."""
+    from sqlalchemy import select
+
+    from app.api.books import _load
+    from app.db import SessionLocal
+    from app.ingest.book import ChapterExtract, Chunk
+    from app.models import BookChunk, TaxonomyNode
+
+    client.post("/platform/books/X.ENG.FF/curriculum", headers=HEAD)
+    client.post("/platform/books/X.ENG.WB/curriculum", headers=HEAD)
+
+    db = SessionLocal()
+    try:
+        ff_extract = ChapterExtract(
+            number=1, title="A Letter to God", source_path="x", sha256="ff",
+            chunks=[Chunk("T", "body", "Section 1", "Lencho waited for the rain.", "ff-hash-1", section="1")],
+        )
+        _load(db, ff_extract, "X.ENG.FF", "CBSE-2026-27")
+        db.commit()
+
+        wb_extract = ChapterExtract(
+            number=1, title="A Letter to God", source_path="y", sha256="wb",
+            chunks=[Chunk("E", "exercise", "Section 1", "Fill in the blanks about Lencho.", "wb-hash-1", section="1")],
+        )
+        _load(db, wb_extract, "X.ENG.WB", "CBSE-2026-27")
+        db.commit()
+
+        ff_chapter = db.scalar(
+            select(TaxonomyNode).where(
+                TaxonomyNode.code == "X.ENG.FF.LETTERTOGOD", TaxonomyNode.kind == "chapter",
+            )
+        )
+        wb_chapter = db.scalar(
+            select(TaxonomyNode).where(
+                TaxonomyNode.code == "X.ENG.WB.LETTERTOGOD", TaxonomyNode.kind == "chapter",
+            )
+        )
+        assert ff_chapter is not None, "First Flight's own chapter node was not created"
+        assert wb_chapter is not None, "the Workbook's own chapter node was not created"
+        assert ff_chapter.id != wb_chapter.id
+
+        ff_chunks = db.scalars(select(BookChunk).where(BookChunk.node_id == ff_chapter.id)).all()
+        wb_chunks = db.scalars(select(BookChunk).where(BookChunk.node_id == wb_chapter.id)).all()
+        assert [c.text for c in ff_chunks] == ["Lencho waited for the rain."]
+        assert [c.text for c in wb_chunks] == ["Fill in the blanks about Lencho."]
+    finally:
+        db.close()
+
+
 # --- families belong to one subject ---------------------------------------------------------
 
 def test_apparatus_headings_are_not_proposed_as_families():
