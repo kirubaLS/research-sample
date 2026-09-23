@@ -89,35 +89,53 @@ function SubjectGroups({ classes }: { classes: TeacherAcademicClassRow[] }) {
   );
 }
 
+/** The dominant status among a class's own status_counts -- the same four bands
+ *  StatusOverviewBar/StatusBadge already use everywhere else, read here as one pill per
+ *  row instead of a bar, since a row is one class/subject rather than many students. */
+function dominantAttn(c: TeacherAcademicClassRow): { label: string; cls: string } | null {
+  const counts = c.status_counts;
+  const total = counts.on_track + counts.needs_attention + counts.requires_review + counts.not_assessed;
+  if (total === 0 || total === counts.not_assessed) return null;
+  if (counts.requires_review > 0) return { label: "Needs review", cls: "attn--high" };
+  if (counts.needs_attention > 0) return { label: "Needs attention", cls: "attn--medium" };
+  return { label: "On track", cls: "attn--low" };
+}
+
 function SubjectCard({ title, rows }: { title: string; rows: TeacherAcademicClassRow[] }) {
   return (
     <div className="card">
+      <div className="card__head">
+        <h3 style={{ fontSize: 18, margin: 0 }}>{title}</h3>
+        <span className="small muted">{rows.length} class{rows.length === 1 ? "" : "es"}</span>
+      </div>
       <div className="card__body">
-        <h3 style={{ fontSize: 18, margin: "0 0 12px" }}>{title}</h3>
         <div className="stack" style={{ gap: 8 }}>
-          {rows.map((c) => (
-            <Link
-              key={`${c.section_id}-${c.subject_code ?? "all"}`}
-              href={`/teacher/home/${c.section_id}${c.subject_code ? `?subject=${c.subject_code}` : ""}`}
-              className="subject-row"
-            >
-              <div>
-                <div className="strong">{c.label}</div>
-                <div className="small muted">
-                  {c.student_count} students
-                  {c.avg_score_pct != null ? ` · ${c.avg_score_pct}% avg` : " · not yet assessed"}
-                  {c.test_count > 0 ? ` · ${c.test_count} paper${c.test_count === 1 ? "" : "s"}` : ""}
+          {rows.map((c) => {
+            const attn = dominantAttn(c);
+            return (
+              <Link
+                key={`${c.section_id}-${c.subject_code ?? "all"}`}
+                href={`/teacher/home/${c.section_id}${c.subject_code ? `?subject=${c.subject_code}` : ""}`}
+                className="subject-row"
+              >
+                <div>
+                  <div className="strong">{c.label}</div>
+                  <div className="small muted">
+                    {c.student_count} students
+                    {c.avg_score_pct != null ? ` · ${c.avg_score_pct}% avg` : " · not yet assessed"}
+                    {c.test_count > 0 ? ` · ${c.test_count} paper${c.test_count === 1 ? "" : "s"}` : ""}
+                  </div>
                 </div>
-              </div>
-            </Link>
-          ))}
+                {attn && <span className={`attn ${attn.cls}`}>{attn.label}</span>}
+              </Link>
+            );
+          })}
         </div>
       </div>
 
       <style jsx>{`
-        .card__body { padding: 4px 4px 8px; }
         .subject-row {
-          display: flex; align-items: center; justify-content: space-between;
+          display: flex; align-items: center; justify-content: space-between; gap: 12px;
           padding: 10px 12px; border: 1px solid var(--rule); border-radius: var(--radius-sm, 10px);
           text-decoration: none; color: inherit; transition: border-color 0.15s ease;
         }

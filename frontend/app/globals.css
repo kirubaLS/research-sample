@@ -70,6 +70,17 @@
   --radius-lg: 22px;
   --max: 1120px;
 
+  /* Aliases only, no new colors: the reference design's component CSS below (.card__*,
+     .btn--*, .attn*) is written against --line/--line-strong/--muted. Rather than fork
+     every rule to our own --rule/--rule-2/--ink-3 names, these three lines let that CSS
+     paste in unmodified and still use OUR real, designer-supplied brand colors -- the
+     whole reason this file does not just replace :root with the reference's own (its
+     --brand-ink/--brand-teal/--brand-gold are a close but different guess at the same
+     brand, ours come from the actual brand sheet, see AvaiLogo.tsx/Mascot.tsx). */
+  --line: var(--rule);
+  --line-strong: var(--rule-2);
+  --muted: var(--ink-3);
+
   --ease: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-spring: cubic-bezier(0.34, 1.2, 0.64, 1);
   --dur-fast: 0.16s;
@@ -938,3 +949,45 @@ footer.sitefooter .inner { max-width: var(--max); margin: 0 auto; display: flex;
   .hero-inner { flex-direction: column-reverse; gap: 24px; }
   .hero-frame { max-width: 100%; flex-basis: auto; }
 }
+
+/* ---------------------------------------------------------------------------------------
+   Reference-design component vocabulary (card__*, btn--*, attn*), adopted for real
+   pages going forward -- see the --line/--line-strong/--muted aliases above for how this
+   uses our own real brand colors rather than the reference's own close-but-different
+   guess at them. Additive only: nothing above this line is touched, so no page not yet
+   migrated to these classes changes at all. `.card` itself is intentionally NOT
+   redefined here (this file's own `.card` already exists and many pages depend on its
+   current look); `.card__body`/`.card__head`/`.card__foot` are additive sub-parts a page
+   can opt into inside an existing `.card`.
+--------------------------------------------------------------------------------------- */
+.card__body { padding: 20px 22px; }
+.card__head { padding: 18px 22px 0; display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.card__foot { padding: 12px 22px 16px; border-top: 1px solid var(--line); display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.card--flat { box-shadow: none; }
+.card--soft { background: var(--surface-2); }
+.card--hover { cursor: pointer; transition: box-shadow .24s var(--ease), transform .24s var(--ease), border-color .24s; }
+.card--hover:hover { transform: translateY(-2px); box-shadow: var(--shadow-lg); border-color: var(--mark); }
+
+.btn--primary {
+  background: linear-gradient(180deg, var(--brand-teal), var(--mark-2)); border-color: var(--mark-2); color: #fff;
+  box-shadow: var(--shadow-sm), inset 0 1px 0 rgba(255,255,255,.22);
+}
+.btn--primary:hover { filter: brightness(1.06); box-shadow: var(--shadow); }
+.btn--ghost { background: transparent; border-color: transparent; box-shadow: none; }
+.btn--ghost:hover { background: var(--surface-2); box-shadow: none; }
+.btn--sm { padding: 5px 10px; font-size: 12.5px; }
+.btn--link { border: none; background: none; padding: 0; color: var(--brand-teal); font-weight: 600; box-shadow: none; }
+.btn--link:hover { text-decoration: underline; background: none; }
+
+/* Dimension 1 of the reference's three-part status system: Attention, a solid pill.
+   Deliberately reuses our own --verify/--warn/--risk (real brand-derived colors) rather
+   than the reference's own --attention-* tokens. */
+.attn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 650; color: #fff;
+  letter-spacing: .005em;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.28), 0 2px 6px -2px rgba(32,27,61,.35);
+}
+.attn--low, .attn--ontrack { background: var(--verify); }
+.attn--medium, .attn--watch { background: var(--warn); color: var(--ink); }
+.attn--high, .attn--intervention { background: var(--risk); }
