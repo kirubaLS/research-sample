@@ -508,6 +508,34 @@ export default function BooksPage() {
               {families.families.filter((f) => f.already_exists).length} of them already
               created. {families.existing} exist for this subject in total.
             </p>
+            {families.uncovered_sections.length > 0 && (
+              <div className="notice warn" style={{ marginBottom: 14 }}>
+                <p style={{ marginBottom: 8 }}>
+                  {families.uncovered_sections.reduce((n, u) => n + u.sections.length, 0)}{" "}
+                  section(s), across {families.uncovered_sections.length} chapter(s), that
+                  the book was loaded with but that no family -- existing or suggested below
+                  -- claims. A question the paper puts in one of these has nothing to be
+                  mapped to, however carefully the list below is reviewed: this is what a
+                  &ldquo;none claims section N&rdquo; refusal on a question paper is telling
+                  you, and it is fixed here, not there.
+                </p>
+                <ul className="small mono" style={{ margin: 0, paddingLeft: 18 }}>
+                  {families.uncovered_sections.map((u) => (
+                    <li key={u.chapter_code}>
+                      {u.chapter_code}: {u.sections.join(", ")}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {families.possible_duplicates > 0 && (
+              <div className="notice warn" style={{ marginBottom: 14 }}>
+                {families.possible_duplicates} of these suggestions read as the same idea as
+                another one below (marked &ldquo;possibly the same as&rdquo;) -- creating
+                both splits one topic&rsquo;s questions across two families instead of
+                counting them together. Pick one per pair.
+              </div>
+            )}
             {families.without_a_section > 0 && (
               <div className="notice warn" style={{ marginBottom: 14 }}>
                 {families.without_a_section} of these name no section of the chapter. They
@@ -543,6 +571,7 @@ export default function BooksPage() {
                       ? ` \u00b7 section${f.from_sections.length > 1 ? "s" : ""} ${f.from_sections.join(", ")}`
                       : " \u00b7 no section named"}
                     {f.already_exists ? " \u00b7 created" : ""}
+                    {f.similar_to ? ` \u00b7 possibly the same as ${f.similar_to}` : ""}
                   </span>
                 </li>
               ))}

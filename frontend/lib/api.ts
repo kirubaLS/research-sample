@@ -908,6 +908,18 @@ export interface FamilyProposal {
   rationale: string | null;
   chunks: number;
   already_exists: boolean;
+  /** Set when this proposal's label reads as the same idea as another proposal's, under
+   *  the same chapter -- the code of that other proposal. Never auto-merged; a person
+   *  picks which one to create. */
+  similar_to?: string | null;
+}
+
+export interface UncoveredSections {
+  chapter_code: string;
+  /** Sections the book was actually loaded with that no family, existing or proposed,
+   *  claims. A question landing in one of these has nothing to be mapped to, however
+   *  thoroughly the family list below is reviewed -- create a family that names it. */
+  sections: string[];
 }
 
 export interface FamilyProposals {
@@ -915,6 +927,8 @@ export interface FamilyProposals {
   existing: number;
   proposed: number;
   without_a_section: number;
+  possible_duplicates: number;
+  uncovered_sections: UncoveredSections[];
   families: FamilyProposal[];
   note: string;
 }
