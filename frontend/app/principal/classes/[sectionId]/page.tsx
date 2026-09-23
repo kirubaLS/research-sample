@@ -11,6 +11,7 @@
 import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { Avatar } from "@/components/academics/Avatar";
+import { ClassFindings } from "@/components/academics/ClassFindings";
 import { BarChartIcon, ClipboardIcon, PeopleIcon } from "@/components/academics/Icons";
 import { ScoreDistribution } from "@/components/academics/ScoreDistribution";
 import { StatTile, StatTileRow } from "@/components/academics/StatTile";
@@ -138,6 +139,7 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
       </div>
 
       <ScoreDistribution students={rows} />
+      {assessmentId && <ClassFindings sectionId={sectionId} assessmentId={assessmentId} />}
 
       <div className="row" style={{ gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
         <div className="field" style={{ marginBottom: 0, minWidth: 160 }}>

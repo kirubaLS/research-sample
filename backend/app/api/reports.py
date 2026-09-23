@@ -312,6 +312,7 @@ def _topic_axis(rows: list[MarkRow]) -> tuple[str, list]:
 @router.get("/cohort/{assessment_id}")
 def cohort_report(
     assessment_id: str,
+    section_id: str | None = None,
     school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
@@ -331,12 +332,24 @@ def cohort_report(
         Physics, Chemistry...), so this compares each subject's own *most recent* graded
         assessment for the same section(s) instead, and says so in the response rather
         than implying a shared sitting that was never recorded.
+
+    ``section_id`` narrows every figure above to one class's own students -- the same
+    real aggregation, just over a smaller ``rows``, so a Class detail screen can show
+    this class's own top losses rather than the whole school's. Omitted, this behaves
+    exactly as it always has.
     """
     assessment = db.get(Assessment, assessment_id)
     if assessment is None or assessment.school_id != school.id:
         raise HTTPException(404, "not found")
 
     rows = _rows(db, assessment)
+    if section_id:
+        in_section = set(db.scalars(
+            select(StudentProfile.id).where(
+                StudentProfile.school_id == school.id, StudentProfile.section_id == section_id,
+            )
+        ))
+        rows = [r for r in rows if r.student_id in in_section]
     if not rows:
         raise HTTPException(404, "no marks entered for this assessment yet")
 

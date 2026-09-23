@@ -2094,8 +2094,10 @@ export const api = {
   paperReport: (key: string, assessmentId: string) =>
     authed<PaperReport>(`/reports/paper/${assessmentId}`, key),
 
-  cohortReport: (key: string, assessmentId: string) =>
-    authed<CohortReport>(`/reports/cohort/${assessmentId}`, key),
+  /** `sectionId` narrows every figure to one class's own students, same real
+   *  aggregation as the whole-school read -- see reports.py's own note on cohort_report. */
+  cohortReport: (key: string, assessmentId: string, sectionId?: string) =>
+    authed<CohortReport>(`/reports/cohort/${assessmentId}${qs({ section_id: sectionId })}`, key),
 
   /** Every concept family's board multiplier/urgency for one subject -- GET /board-frequency.
    *  Used by BoardX to enrich a cohort finding with "X/4 recent years" (years_appeared /

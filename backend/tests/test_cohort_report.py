@@ -102,6 +102,44 @@ def test_cohort_report_marks_lost_per_family(client, school, cohort_paper):
     assert loss["confidence"] == "EMERGING"
 
 
+def test_cohort_report_can_be_narrowed_to_one_section(client, school, cohort_paper):
+    """The Class detail page's own "top losses" needs this class's own students only,
+    not the whole school's -- section_id narrows the same real aggregation rather than
+    computing a second, different one."""
+    aid, ids = cohort_paper
+    from app.db import SessionLocal
+    from app.models import Section, StudentProfile
+
+    db = SessionLocal()
+    other_section = Section(school_id=school["school_id"], grade=10, name="Z")
+    db.add(other_section)
+    db.commit()
+    other_section_id = other_section.id
+    # Move the weak student into the other section -- the full-marks student stays put.
+    weak = db.get(StudentProfile, ids["weak"])
+    weak.section_id = other_section_id
+    db.commit()
+    db.close()
+
+    original = client.get(
+        f"/reports/cohort/{aid}", headers=_auth(school),
+        params={"section_id": school["section_id"]},
+    ).json()
+    assert original["students_analysed"] == 1
+    assert original["band_counts"]["full_mastery"] == 1
+    assert original["band_counts"]["below_60"] == 0
+    # The weak student's own concept-family loss is no longer counted here.
+    assert original["top_losses"] == []
+
+    moved = client.get(
+        f"/reports/cohort/{aid}", headers=_auth(school), params={"section_id": other_section_id},
+    ).json()
+    assert moved["students_analysed"] == 1
+    assert moved["band_counts"]["below_60"] == 1
+    assert len(moved["top_losses"]) == 1
+    assert moved["top_losses"][0]["students_affected"] == 1
+
+
 def test_cohort_report_refuses_an_assessment_with_no_marks(client, school):
     aid = client.post(
         "/assessments", headers=_auth(school),
