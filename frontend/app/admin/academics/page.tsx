@@ -87,7 +87,7 @@ export default function AcademicsOverviewPage() {
         <>
           <SchoolInsights classes={data.classes} />
           <div className="classgrid">
-            {data.classes.map((c) => (
+            {worstFirst(data.classes).map((c) => (
               <ClassCard key={c.section_id} c={c} />
             ))}
           </div>
@@ -102,6 +102,21 @@ export default function AcademicsOverviewPage() {
       `}</style>
     </main>
   );
+}
+
+/**
+ * Worst class first: a principal opening this screen wants to know where to look, not
+ * to scroll for it. Ranked by average score, since that is the one number every scored
+ * class has and every other class doesn't -- a class with no marks yet isn't "worst",
+ * it's simply not comparable yet, so those are listed after every scored class rather
+ * than sorted in among them (a 0% default would rank a genuinely brand-new class as the
+ * single worst in the school, which is not true and not useful).
+ */
+function worstFirst(classes: ClassAcademicSummary[]): ClassAcademicSummary[] {
+  const scored = classes.filter((c) => c.avg_score_pct != null);
+  const unscored = classes.filter((c) => c.avg_score_pct == null);
+  scored.sort((a, b) => (a.avg_score_pct ?? 0) - (b.avg_score_pct ?? 0));
+  return [...scored, ...unscored];
 }
 
 const STATUS_SERIES: { key: keyof ClassAcademicSummary["status_counts"]; label: string; color: string }[] = [
