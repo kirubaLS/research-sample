@@ -52,6 +52,7 @@ const MORE: Item[] = [
   { href: "/principal/papers", label: "Papers", glyph: "▦", needs: "scan_papers" },
   { href: "/principal/enter-marks", label: "Enter Marks", glyph: "▧", needs: "enter_marks" },
   { href: "/principal/scan-answers", label: "Scan Answer Sheets", glyph: "▥", needs: "enter_marks" },
+  { href: "/principal/share", label: "Share Reports", glyph: "↗", needs: "read_results" },
 ];
 
 const PLATFORM: Item[] = [
