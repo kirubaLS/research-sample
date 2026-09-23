@@ -131,7 +131,7 @@ function StaffSignIn() {
       const me = await api.whoami(key);
       setApiKey(key, me.name);
       setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments });
-      router.push(me.role === "teacher" ? "/teacher/overview" : "/admin/academics");
+      router.push(me.role === "teacher" ? "/teacher/home" : "/admin/academics");
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
         // Valid admin key, no school picked yet -- same as AdminGate: let /admin/academics
