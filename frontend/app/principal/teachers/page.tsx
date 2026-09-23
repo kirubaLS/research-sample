@@ -106,12 +106,12 @@ export default function ManageTeachers() {
                   <td style={{ position: "relative" }}>
                     {!t.revoked_at && (
                       <div className="row" style={{ gap: 6 }}>
-                        <button type="button" className="secondary tiny" onClick={() => setEditing(t)}>
+                        <button type="button" className="btn--ghost btn--sm" onClick={() => setEditing(t)}>
                           Edit
                         </button>
                         <button
                           type="button"
-                          className="secondary tiny"
+                          className="btn--ghost btn--sm"
                           onClick={() => setMenuFor(menuFor === t.id ? null : t.id)}
                         >
                           ⋮
@@ -303,7 +303,7 @@ function AddTeacherModal({
           </div>
           {error && <p className="error">{error}</p>}
           <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-            <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+            <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
             <button type="button" disabled={!label.trim()} onClick={createKey}>Next</button>
           </div>
         </>
@@ -473,7 +473,7 @@ function AssignmentEditor({
             </select>
           </div>
         )}
-        <button type="button" className="secondary" onClick={add}>Add assignment</button>
+        <button type="button" className="btn--ghost" onClick={add}>Add assignment</button>
       </div>
 
       <div className="row" style={{ justifyContent: "flex-end", marginTop: 18 }}>
@@ -526,7 +526,7 @@ function RenameModal({
       </div>
       {error && <p className="error">{error}</p>}
       <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-        <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
         <button type="button" disabled={!label.trim() || saving} onClick={save}>
           {saving ? "Saving…" : "Save"}
         </button>
@@ -586,7 +586,7 @@ function ReissueModal({
       </p>
       {error && <p className="error">{error}</p>}
       <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-        <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
         <button type="button" disabled={busy} onClick={reissue}>
           {busy ? "Issuing…" : "Reissue key"}
         </button>
@@ -611,7 +611,7 @@ function RevokeConfirmModal({
         This cannot be undone. They will no longer be able to sign in with this key.
       </p>
       <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-        <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
         <button
           type="button"
           style={{ background: "var(--risk)", borderColor: "var(--risk)" }}

@@ -571,13 +571,13 @@ export default function PaperPage() {
         </div>
         {assessmentId && (
           <div className="ph-actions">
-            <button type="button" className="secondary" onClick={() => void onRename()} disabled={renaming || !!busy}>
+            <button type="button" className="btn--ghost" onClick={() => void onRename()} disabled={renaming || !!busy}>
               {renaming ? "Renaming…" : "Rename"}
             </button>
             {documentId && (
               <button
                 type="button"
-                className="secondary"
+                className="btn--ghost"
                 onClick={onRemoveScan}
                 disabled={removingScan || !!busy}
                 title="Discard the scanned pages and start the scan over, without losing questions already mapped or confirmed"
@@ -605,7 +605,7 @@ export default function PaperPage() {
           <div className="row" style={{ marginTop: 10 }}>
             <button
               type="button"
-              className="secondary"
+              className="btn--ghost"
               disabled={retrying || !!busy}
               onClick={async () => {
                 const current = await getPending(pendingResume.sessionId);
@@ -626,7 +626,7 @@ export default function PaperPage() {
             </button>
             <button
               type="button"
-              className="secondary"
+              className="btn--ghost"
               disabled={retrying}
               onClick={async () => {
                 if (!window.confirm(`Discard the ${pendingPageCount} captured page(s)? They cannot be brought back.`)) return;
@@ -664,7 +664,7 @@ export default function PaperPage() {
                 <span className="paper-row-actions">
                   <button
                     type="button"
-                    className="secondary small"
+                    className="btn--ghost btn--sm"
                     disabled={renaming || !!busy}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -784,7 +784,7 @@ export default function PaperPage() {
           </div>
 
           <div className="row" style={{ marginTop: 12 }}>
-            <button type="button" className="secondary" onClick={() => setShowCamera((v) => !v)}>
+            <button type="button" className="btn--ghost" onClick={() => setShowCamera((v) => !v)}>
               {showCamera ? "Close camera" : "Use camera instead"}
             </button>
           </div>

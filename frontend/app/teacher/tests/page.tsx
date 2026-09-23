@@ -61,7 +61,7 @@ export default function TeacherTestsPage() {
                   <td className="num">{t.students_marked}</td>
                   <td>
                     <Link href={`/teacher/tests/${t.assessment_id}`}>
-                      <button type="button" className="secondary tiny">View</button>
+                      <button type="button" className="btn--ghost btn--sm">View</button>
                     </Link>
                   </td>
                 </tr>

@@ -51,7 +51,7 @@ export default function TestsTabPage() {
         </div>
         {tests && tests.length > 0 && (
           <div className="row" style={{ gap: 8 }}>
-            <button type="button" className="secondary" disabled={!!downloading} onClick={() => download("xlsx")}>
+            <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
               {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
             </button>
             <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
@@ -101,7 +101,7 @@ export default function TestsTabPage() {
                   </td>
                   <td>
                     <Link href={`/principal/exams/${t.assessment_id}`}>
-                      <button type="button" className="secondary tiny">View</button>
+                      <button type="button" className="btn--ghost btn--sm">View</button>
                     </Link>
                   </td>
                 </tr>

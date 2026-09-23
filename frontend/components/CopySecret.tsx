@@ -16,7 +16,7 @@ export function CopySecret({ value }: { value: string }) {
   return (
     <div className="copyfield">
       <code title={shown ? value : "hidden"}>{shown ? value : "•".repeat(value.length)}</code>
-      <button type="button" className="secondary" onClick={() => setShown((s) => !s)}>
+      <button type="button" className="btn--ghost" onClick={() => setShown((s) => !s)}>
         {shown ? "Hide" : "Reveal"}
       </button>
       <button

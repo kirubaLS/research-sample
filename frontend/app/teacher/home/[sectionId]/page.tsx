@@ -115,10 +115,10 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
         <div className="row" style={{ gap: 8 }}>
           {canEnterMarks && (
             <Link href={`/principal/enter-marks?assessment_subject=${subjectCode}&section_id=${sectionId}`}>
-              <button type="button" className="secondary">Enter marks</button>
+              <button type="button" className="btn--ghost">Enter marks</button>
             </Link>
           )}
-          <button type="button" className="secondary" disabled={downloading} onClick={downloadCsv}>
+          <button type="button" className="btn--ghost" disabled={downloading} onClick={downloadCsv}>
             {downloading ? "Preparing…" : "Download CSV"}
           </button>
         </div>
@@ -218,11 +218,11 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
                     <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "N/A"}</td>
                     <td className="row" style={{ gap: 6 }}>
                       <Link href={`/teacher/student/${s.student_id}`}>
-                        <button type="button" className="secondary tiny">View</button>
+                        <button type="button" className="btn--ghost btn--sm">View</button>
                       </Link>
                       <button
                         type="button"
-                        className="secondary tiny"
+                        className="btn--ghost btn--sm"
                         title="Report must be issued before it can be shared"
                         onClick={() => setShareFor({ studentId: s.student_id, name: s.name })}
                       >

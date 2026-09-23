@@ -73,7 +73,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
         <AvaiLogo height={22} />
         <button
           type="button"
-          className="secondary tiny"
+          className="btn--ghost btn--sm"
           onClick={() => {
             const token = getStudentSession();
             if (token) void api.studentLogout(token);

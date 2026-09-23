@@ -238,7 +238,7 @@ export default function ShareReportsPage() {
                   <td>
                     <button
                       type="button"
-                      className="secondary tiny"
+                      className="btn--ghost btn--sm"
                       disabled={!by.trim() || row.status === "checking"}
                       onClick={() => void shareOne(row)}
                     >

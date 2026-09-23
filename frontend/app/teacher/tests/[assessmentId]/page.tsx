@@ -67,7 +67,7 @@ export default function TeacherTestSummaryPage({ params }: { params: Promise<{ a
           <h1 style={{ margin: 0 }}>{data.assessment.title}</h1>
           <p className="lede">{data.assessment.subject_label}</p>
         </div>
-        <button type="button" className="secondary" disabled={downloading} onClick={downloadCsv}>
+        <button type="button" className="btn--ghost" disabled={downloading} onClick={downloadCsv}>
           {downloading ? "Preparing…" : "Download CSV"}
         </button>
       </div>

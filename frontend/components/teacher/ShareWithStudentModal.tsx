@@ -71,7 +71,7 @@ export function ShareWithStudentModal({
               <strong>{shared.roll_no}</strong>. {shared.pin_notice}
             </p>
             <CopySecret value={shared.pin} />
-            <button type="button" className="secondary" style={{ marginTop: 10 }} onClick={onClose}>
+            <button type="button" className="btn--ghost" style={{ marginTop: 10 }} onClick={onClose}>
               Done
             </button>
           </>
@@ -114,7 +114,7 @@ export function ShareWithStudentModal({
               </p>
             )}
             <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-              <button type="button" className="secondary" onClick={onClose}>Cancel</button>
+              <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
               <button type="button" disabled={!picked || busy} onClick={share}>
                 {busy ? "Working…" : picked?.shared ? "Reset PIN" : "Share with student"}
               </button>

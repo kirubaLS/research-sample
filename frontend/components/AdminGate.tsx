@@ -146,7 +146,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         </span>
         {staff?.scope === "all_schools" && !needsSchool && (
           <button
-            className="secondary tiny"
+            className="btn--ghost btn--sm"
             onClick={() => {
               clearActiveSchool();
               setNeedsSchool(true);
@@ -156,7 +156,7 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           </button>
         )}
         <button
-          className="secondary tiny"
+          className="btn--ghost btn--sm"
           onClick={() => {
             signOut();
             setSignedIn(false);

@@ -168,7 +168,7 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
       <div className="section-head">
         <h2>Students</h2>
         {canManageRoster && !adding && (
-          <button type="button" className="secondary tiny" onClick={() => setAdding(true)}>
+          <button type="button" className="btn--ghost btn--sm" onClick={() => setAdding(true)}>
             Add student
           </button>
         )}
@@ -195,7 +195,7 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
             </button>
             <button
               type="button"
-              className="secondary"
+              className="btn--ghost"
               onClick={() => {
                 setAdding(false);
                 setAddError(null);
@@ -248,7 +248,7 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                           </button>
                           <button
                             type="button"
-                            className="secondary tiny"
+                            className="btn--ghost btn--sm"
                             onClick={() => setEditingId(null)}
                             disabled={savingEdit}
                           >
@@ -293,7 +293,7 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                             <>
                               <button
                                 type="button"
-                                className="secondary tiny"
+                                className="btn--ghost btn--sm"
                                 onClick={() => startEdit(s)}
                               >
                                 Edit

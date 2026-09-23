@@ -88,7 +88,7 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
           <p className="lede">Roll {data.student.roll_no}</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="secondary" disabled={!!downloading} onClick={() => download("xlsx")}>
+          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
           <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
@@ -152,7 +152,7 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
                   <td className="small">{s.improve.join(", ") || "N/A"}</td>
                   <td>
                     <Link href={`/principal/students/${studentId}/subjects/${s.subject_code}`}>
-                      <button type="button" className="secondary tiny">Details</button>
+                      <button type="button" className="btn--ghost btn--sm">Details</button>
                     </Link>
                   </td>
                 </tr>

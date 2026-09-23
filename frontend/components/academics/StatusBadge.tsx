@@ -7,10 +7,15 @@ const LABELS: Record<AcademicStatus, string> = {
   not_assessed: "Not Yet Assessed",
 };
 
+/** attn is dimension 1 of the reference design's three-part status system -- a solid
+ * pill, real colors (see globals.css's own note on why .attn reuses --verify/--warn/
+ * --risk rather than the reference's own close-but-different tokens). "Not yet
+ * assessed" gets no pill at all: it is an absence of evidence, not a fourth color on the
+ * same scale as the other three, so a muted plain label reads more honestly. */
 const TONES: Record<AcademicStatus, string> = {
-  on_track: "green",
-  needs_attention: "amber",
-  requires_review: "red",
+  on_track: "attn--low",
+  needs_attention: "attn--medium",
+  requires_review: "attn--high",
   not_assessed: "",
 };
 
@@ -19,7 +24,8 @@ const TONES: Record<AcademicStatus, string> = {
  * the four screens that show it never drift out of sync with each other. */
 export function StatusBadge({ status }: { status: AcademicStatus }) {
   const tone = TONES[status];
-  return <span className={`badge${tone ? ` ${tone}` : ""}`}>{LABELS[status]}</span>;
+  if (!tone) return <span className="muted small">{LABELS[status]}</span>;
+  return <span className={`attn ${tone}`}>{LABELS[status]}</span>;
 }
 
 export function statusLabel(status: AcademicStatus): string {

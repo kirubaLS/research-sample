@@ -122,7 +122,7 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
       >
         <span className="small muted">Platform console</span>
         <button
-          className="secondary tiny"
+          className="btn--ghost btn--sm"
           onClick={() => {
             signOutPlatform();
             setSignedIn(false);

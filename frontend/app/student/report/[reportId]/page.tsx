@@ -67,7 +67,7 @@ export default function StudentReportDetail({
 
   return (
     <main>
-      <button type="button" className="secondary tiny" onClick={() => router.push("/student")} style={{ marginBottom: 14 }}>
+      <button type="button" className="btn--ghost btn--sm" onClick={() => router.push("/student")} style={{ marginBottom: 14 }}>
         ← Your reports
       </button>
 

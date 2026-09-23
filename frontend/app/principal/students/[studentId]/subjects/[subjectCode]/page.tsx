@@ -110,7 +110,7 @@ export default function StudentSubjectPage({
           <p className="lede">{data.student.name} · Roll {data.student.roll_no}</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="secondary" disabled={!!downloading} onClick={() => download("xlsx")}>
+          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
           <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
@@ -160,7 +160,7 @@ export default function StudentSubjectPage({
                 </div>
               )}
               <button
-                type="button" className="secondary" disabled={!boardx || boardxDownloading}
+                type="button" className="btn--ghost" disabled={!boardx || boardxDownloading}
                 onClick={downloadBoardX}
                 style={{ alignSelf: "flex-end" }}
               >

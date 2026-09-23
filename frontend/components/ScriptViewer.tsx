@@ -53,7 +53,7 @@ export function ScriptViewer({ doc }: { doc: ScanDoc }) {
     <div>
       <div className="bar">
         <button
-          className="secondary tiny"
+          className="btn--ghost btn--sm"
           onClick={() => setIndex((i) => Math.max(0, i - 1))}
           disabled={index === 0}
         >
@@ -63,7 +63,7 @@ export function ScriptViewer({ doc }: { doc: ScanDoc }) {
           Page {index + 1} of {doc.page_count}
         </span>
         <button
-          className="secondary tiny"
+          className="btn--ghost btn--sm"
           onClick={() => setIndex((i) => Math.min(doc.pages.length - 1, i + 1))}
           disabled={index >= doc.pages.length - 1}
         >

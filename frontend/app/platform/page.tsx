@@ -343,7 +343,7 @@ export default function PlatformConsole() {
                       <td>
                         <button
                           type="button"
-                          className="secondary tiny"
+                          className="btn--ghost btn--sm"
                           onClick={() => openAsAdmin(row)}
                         >
                           Open dashboard
@@ -374,7 +374,7 @@ export default function PlatformConsole() {
           </p>
           <CopySecret value={issued.api_key} />
           <button
-            className="secondary tiny"
+            className="btn--ghost btn--sm"
             style={{ marginTop: 14 }}
             onClick={() => setIssued(null)}
           >
@@ -409,7 +409,7 @@ export default function PlatformConsole() {
                     {entry.revoked_at && <span className="muted"> · revoked</span>}
                   </span>
                   {!entry.revoked_at && (
-                    <button className="secondary tiny" onClick={() => revokeAdminKey(entry)}>
+                    <button className="btn--ghost btn--sm" onClick={() => revokeAdminKey(entry)}>
                       Revoke
                     </button>
                   )}
@@ -420,7 +420,7 @@ export default function PlatformConsole() {
           </div>
         )}
         <div style={{ marginTop: 12 }}>
-          <button className="secondary tiny" onClick={issueAdminKey}>
+          <button className="btn--ghost btn--sm" onClick={issueAdminKey}>
             Issue a deputy operator key
           </button>
         </div>
@@ -490,7 +490,7 @@ export default function PlatformConsole() {
               {" - "}
               <button
                 type="button"
-                className="secondary tiny"
+                className="btn--ghost btn--sm"
                 onClick={() => toggleDirectoryVisibility(school)}
               >
                 {school.hidden_from_directory ? "Show on /t" : "Hide from /t"}
@@ -510,10 +510,10 @@ export default function PlatformConsole() {
             ))}
 
             <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-              <button className="secondary tiny" onClick={() => addSection(school)}>
+              <button className="btn--ghost btn--sm" onClick={() => addSection(school)}>
                 Add a class
               </button>
-              <button className="secondary tiny" onClick={() => rotate(school)}>
+              <button className="btn--ghost btn--sm" onClick={() => rotate(school)}>
                 Rotate the school&rsquo;s key
               </button>
             </div>
@@ -547,7 +547,7 @@ export default function PlatformConsole() {
                       </span>
                       {!entry.revoked_at && (
                         <button
-                          className="secondary tiny"
+                          className="btn--ghost btn--sm"
                           onClick={() => revokeKey(school, entry)}
                         >
                           Revoke
@@ -560,7 +560,7 @@ export default function PlatformConsole() {
               </div>
             )}
             <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-              <button className="secondary tiny" onClick={() => issueKey(school, "principal")}>
+              <button className="btn--ghost btn--sm" onClick={() => issueKey(school, "principal")}>
                 Issue a principal key
               </button>
             </div>

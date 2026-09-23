@@ -77,7 +77,7 @@ export function CameraCapture({
         )}
         {frozen && (
           <>
-            <button type="button" className="secondary" onClick={() => setFrozen(null)}>
+            <button type="button" className="btn--ghost" onClick={() => setFrozen(null)}>
               Retake
             </button>
             <button type="button" onClick={useIt}>
@@ -85,7 +85,7 @@ export function CameraCapture({
             </button>
           </>
         )}
-        <button type="button" className="secondary" onClick={onCancel}>
+        <button type="button" className="btn--ghost" onClick={onCancel}>
           Cancel
         </button>
       </div>

@@ -99,7 +99,7 @@ export default function TeacherStudentPage({
           <p className="lede">Roll {data.student.roll_no}</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="secondary" onClick={() => setShareOpen(true)}>
+          <button type="button" className="btn--ghost" onClick={() => setShareOpen(true)}>
             Share with student
           </button>
           <button type="button" disabled={downloading} onClick={downloadCsv}>
@@ -163,7 +163,7 @@ export default function TeacherStudentPage({
                   <td className="small">{s.improve.join(", ") || "N/A"}</td>
                   <td>
                     <Link href={`/teacher/student/${studentId}/subjects/${s.subject_code}`}>
-                      <button type="button" className="secondary tiny">Details</button>
+                      <button type="button" className="btn--ghost btn--sm">Details</button>
                     </Link>
                   </td>
                 </tr>

@@ -323,7 +323,7 @@ export default function GridSheetPage() {
         <div className="row" style={{ marginTop: 4 }}>
           <button
             type="button"
-            className="secondary"
+            className="btn--ghost"
             disabled={!paperId || !sectionId || !!busy}
             onClick={() => void downloadAnswerCard()}
           >
@@ -366,7 +366,7 @@ export default function GridSheetPage() {
         <div className="row" style={{ marginTop: 4 }}>
           <button
             type="button"
-            className="secondary"
+            className="btn--ghost"
             disabled={!paperId || !sectionId || !!busy}
             onClick={() => setShowCamera((v) => !v)}
           >

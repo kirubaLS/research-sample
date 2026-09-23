@@ -105,10 +105,10 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
           <p className="lede">{data.students.length} students</p>
         </div>
         <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="secondary" disabled={!!downloading} onClick={() => download("xlsx")}>
+          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
-          <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
+          <button type="button" className="btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
             {downloading === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
@@ -205,7 +205,7 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
                 <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "N/A"}</td>
                 <td>
                   <Link href={`/principal/students/${s.student_id}`}>
-                    <button type="button" className="secondary tiny">View</button>
+                    <button type="button" className="btn--ghost btn--sm">View</button>
                   </Link>
                 </td>
               </tr>

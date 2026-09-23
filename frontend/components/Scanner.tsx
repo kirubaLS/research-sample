@@ -226,12 +226,12 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
           {retakeIndex !== null ? "Replace page" : "Capture"}
         </button>
         {retakeIndex !== null && (
-          <button className="secondary" onClick={() => setRetakeIndex(null)}>
+          <button className="btn--ghost" onClick={() => setRetakeIndex(null)}>
             Cancel retake
           </button>
         )}
         <button
-          className="secondary"
+          className="btn--ghost"
           onClick={() => step("undo")}
           disabled={!history.canUndo || busy}
           title="Undo the last capture, retake or delete (Ctrl+Z)"
@@ -239,7 +239,7 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
           Undo
         </button>
         <button
-          className="secondary"
+          className="btn--ghost"
           onClick={() => step("redo")}
           disabled={!history.canRedo || busy}
           title="Redo (Ctrl+Shift+Z)"
@@ -263,14 +263,14 @@ export function Scanner({ sessionId, mode, onComplete }: Props) {
             <img src={p.thumbnail} alt={`Page ${p.index + 1}`} />
             <div className="row" style={{ gap: 4, marginTop: 4 }}>
               <button
-                className="secondary"
+                className="btn--ghost"
                 style={{ padding: "4px 6px", fontSize: 11 }}
                 onClick={() => setRetakeIndex(p.index)}
               >
                 Retake
               </button>
               <button
-                className="secondary"
+                className="btn--ghost"
                 style={{ padding: "4px 6px", fontSize: 11 }}
                 onClick={async () => {
                   await deletePage(sessionId, p.index);

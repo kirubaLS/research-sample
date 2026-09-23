@@ -164,7 +164,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
             <>
               <Diagnosis report={diagnosis} student={who} />
               <div className="noprint" style={{ marginTop: 14 }}>
-                <button className="secondary" onClick={issue} disabled={issuing}>
+                <button className="btn--ghost" onClick={issue} disabled={issuing}>
                   {issuing ? "Saving…" : "Save a copy of this report"}
                 </button>
                 {issuedNote && <p className="small muted">{issuedNote}</p>}
@@ -177,7 +177,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
                       {issued[0].available}.
                     </p>
                     <button
-                      className="secondary tiny"
+                      className="btn--ghost btn--sm"
                       onClick={() => downloadPdf(issued[0].report_id)}
                       disabled={downloadingId === issued[0].report_id}
                       style={{ marginTop: 6 }}
@@ -216,7 +216,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
                     </span>
                     <span className="pct">{pct}%</span>
                     <button
-                      className="secondary tiny"
+                      className="btn--ghost btn--sm"
                       onClick={() => downloadPdf(r.report_id)}
                       disabled={downloadingId === r.report_id}
                     >

@@ -652,7 +652,7 @@ function ScriptPanel({
           />
           <button
             type="button"
-            className="secondary"
+            className="btn--ghost"
             disabled={busy}
             onClick={() => { setShowCamera((v) => !v); setCameraMode("cover"); }}
           >
