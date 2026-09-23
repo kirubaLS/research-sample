@@ -72,9 +72,9 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="quick">
-          <Link className="btn" href="/admin/paper">Read a question paper</Link>
-          <Link className="btn secondary" href="/admin/answers">Enter an answer sheet</Link>
-          <Link className="btn secondary" href="/admin/gridsheet">Scan a class mark sheet</Link>
+          <Link className="btn" href="/principal/papers">Read a question paper</Link>
+          <Link className="btn secondary" href="/principal/enter-marks">Enter an answer sheet</Link>
+          <Link className="btn secondary" href="/principal/scan-answers">Scan a class mark sheet</Link>
         </div>
       </section>
 
@@ -114,7 +114,7 @@ export default function DashboardPage() {
         <section className="card">
           <div className="cardhead">
             <h2>Papers</h2>
-            <Link className="small" href="/admin/paper">Read another</Link>
+            <Link className="small" href="/principal/papers">Read another</Link>
           </div>
           {data.papers.length === 0 ? (
             <p className="muted">None yet.</p>
@@ -182,7 +182,7 @@ export default function DashboardPage() {
         <section className="card">
           <div className="cardhead">
             <h2>Recently scanned scripts</h2>
-            <Link className="small" href="/admin/answers">Store another</Link>
+            <Link className="small" href="/principal/enter-marks">Store another</Link>
           </div>
           {data.recent_scripts.length === 0 ? (
             <p className="muted">
@@ -248,7 +248,7 @@ export default function DashboardPage() {
             {needsMapping.map((p) => (
               <li key={p.id} className="row">
                 <div className="rowtop">
-                  <Link className="name" href="/admin/paper">{p.title}</Link>
+                  <Link className="name" href="/principal/papers">{p.title}</Link>
                   <span className="pill warn">{STAGE[p.stage].label}</span>
                 </div>
                 <p className="sub">

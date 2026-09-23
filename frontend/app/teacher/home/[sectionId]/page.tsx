@@ -114,7 +114,7 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
         </div>
         <div className="row" style={{ gap: 8 }}>
           {canEnterMarks && (
-            <Link href={`/admin/answers?assessment_subject=${subjectCode}&section_id=${sectionId}`}>
+            <Link href={`/principal/enter-marks?assessment_subject=${subjectCode}&section_id=${sectionId}`}>
               <button type="button" className="secondary">Enter marks</button>
             </Link>
           )}

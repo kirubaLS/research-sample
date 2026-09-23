@@ -34,24 +34,24 @@ interface Item {
   needs: keyof StaffRole["can"] | null;
 }
 
-// Overview and Test are what a principal actually opens day to day -- the landing page
-// after sign-in is /admin/academics (see app/login/page.tsx), and this nav leads with
+// Classes and Exams are what a principal actually opens day to day -- the landing page
+// after sign-in is /principal/classes (see app/login/page.tsx), and this nav leads with
 // it. Papers/Enter Marks/Scan Answer Sheets are real, frequently-used screens for
 // whoever is doing the scanning and marks entry, but a principal mostly is not that
 // person day to day, so they move into the collapsed "More" group below rather than
-// sitting as peers to Overview at the top -- open, not removed.
+// sitting as peers to Classes at the top -- open, not removed.
 const PRIMARY: Item[] = [
-  { href: "/admin/academics", label: "Overview", glyph: "▣", needs: "read_results" },
-  { href: "/admin/academics/tests", label: "Test", glyph: "▧", needs: "read_results" },
+  { href: "/principal/classes", label: "Classes", glyph: "▣", needs: "read_results" },
+  { href: "/principal/exams", label: "Exams", glyph: "▧", needs: "read_results" },
   { href: "/admin/boardx", label: "BoardX", glyph: "◈", needs: "read_results" },
-  { href: "/admin/teachers", label: "Manage Teachers", glyph: "☺", needs: null },
+  { href: "/principal/teachers", label: "Manage Teachers", glyph: "☺", needs: null },
   { href: "/admin", label: "Settings", glyph: "▤", needs: null },
 ];
 
 const MORE: Item[] = [
-  { href: "/admin/paper", label: "Papers", glyph: "▦", needs: "scan_papers" },
-  { href: "/admin/answers", label: "Enter Marks", glyph: "▧", needs: "enter_marks" },
-  { href: "/admin/gridsheet", label: "Scan Answer Sheets", glyph: "▥", needs: "enter_marks" },
+  { href: "/principal/papers", label: "Papers", glyph: "▦", needs: "scan_papers" },
+  { href: "/principal/enter-marks", label: "Enter Marks", glyph: "▧", needs: "enter_marks" },
+  { href: "/principal/scan-answers", label: "Scan Answer Sheets", glyph: "▥", needs: "enter_marks" },
 ];
 
 const PLATFORM: Item[] = [
