@@ -12,6 +12,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { Avatar } from "@/components/academics/Avatar";
 import { BarChartIcon, ClipboardIcon, PeopleIcon } from "@/components/academics/Icons";
+import { ScoreDistribution } from "@/components/academics/ScoreDistribution";
 import { StatTile, StatTileRow } from "@/components/academics/StatTile";
 import { StatusBadge } from "@/components/academics/StatusBadge";
 import { StatusOverviewBar } from "@/components/academics/StatusOverviewBar";
@@ -135,6 +136,8 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
           .classoverview-stats > :global(.stattile) { flex: 1 1 130px; border: none; box-shadow: none; padding: 4px 0; }
         `}</style>
       </div>
+
+      <ScoreDistribution students={rows} />
 
       <div className="row" style={{ gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
         <div className="field" style={{ marginBottom: 0, minWidth: 160 }}>

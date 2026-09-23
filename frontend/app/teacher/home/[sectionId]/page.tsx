@@ -19,6 +19,7 @@ import Link from "next/link";
 import { use, useCallback, useEffect, useState } from "react";
 import { Avatar } from "@/components/academics/Avatar";
 import { BarChartIcon, ClipboardIcon, PeopleIcon } from "@/components/academics/Icons";
+import { ScoreDistribution } from "@/components/academics/ScoreDistribution";
 import { StatTile, StatTileRow } from "@/components/academics/StatTile";
 import { StatusBadge } from "@/components/academics/StatusBadge";
 import { StatusOverviewBar } from "@/components/academics/StatusOverviewBar";
@@ -173,6 +174,8 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
 
       {tab === "students" && (
         <>
+          <ScoreDistribution students={students} />
+
           <div className="row" style={{ gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
             <div className="field" style={{ marginBottom: 0, minWidth: 170 }}>
               <label>Status</label>
