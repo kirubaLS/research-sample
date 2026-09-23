@@ -78,6 +78,8 @@ export default function TestsTabPage() {
                 <th>Test</th>
                 <th>Subject</th>
                 <th>Students Marked</th>
+                <th>Avg Score</th>
+                <th>Movement</th>
                 <th />
               </tr>
             </thead>
@@ -87,6 +89,16 @@ export default function TestsTabPage() {
                   <td className="strong">{t.title}</td>
                   <td>{t.label}</td>
                   <td className="num">{t.students_marked}</td>
+                  <td className="num">{t.avg_score_pct != null ? `${t.avg_score_pct}%` : "N/A"}</td>
+                  <td className="num">
+                    {t.delta_pct == null ? (
+                      <span className="muted">&mdash;</span>
+                    ) : (
+                      <span style={{ color: t.delta_pct >= 0 ? "var(--verify)" : "var(--risk)" }}>
+                        {t.delta_pct >= 0 ? "▲" : "▼"} {Math.abs(t.delta_pct)}%
+                      </span>
+                    )}
+                  </td>
                   <td>
                     <Link href={`/admin/academics/tests/${t.assessment_id}`}>
                       <button type="button" className="secondary tiny">View</button>

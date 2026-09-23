@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlalchemy import select
@@ -698,27 +699,73 @@ def student_subject_breakdown(
 # Test tab: every test, and one test's own student-by-student summary
 # ------------------------------------------------------------------------------------
 
+def tests_with_movement(db: Session, tagged: list[TaggedRow]) -> list[dict]:
+    """Every assessment ``tagged`` touches, newest first, each with its own average score
+    and -- where a same-subject test came before it -- how that average moved against
+    that earlier one. Shared by the principal's and the teacher's own Test tab, which
+    differ only in which rows ``resolved_rows`` was scoped to before reaching here.
+
+    "Newest" and "earlier" both read Assessment.created_at -- when the paper was entered
+    into this system, not a curated exam date this deployment has no field for. For a
+    school's own unit tests that is a reasonable real order (they are created roughly as
+    they are administered), and it is an honest one: nothing here is a guessed date.
+    """
+    by_assessment: dict[str, dict] = {}
+    for t in tagged:
+        entry = by_assessment.setdefault(t.assessment_id, {
+            "assessment_id": t.assessment_id, "title": t.assessment_title,
+            "subject_code": t.subject_code, "label": _subject_label(t.subject_code),
+            "students": set(), "earned": 0.0, "available": 0.0,
+        })
+        entry["students"].add(t.row.student_id)
+        if t.row.counts:
+            entry["earned"] += float(t.row.earned)
+            entry["available"] += float(t.row.max_marks)
+
+    if not by_assessment:
+        return []
+    created_at = dict(db.execute(
+        select(Assessment.id, Assessment.created_at)
+        .where(Assessment.id.in_(by_assessment))
+    ).all())
+
+    out = [
+        {
+            "assessment_id": e["assessment_id"], "title": e["title"],
+            "subject_code": e["subject_code"], "label": e["label"],
+            "students_marked": len(e["students"]),
+            "avg_score_pct": round(e["earned"] / e["available"] * 100, 1) if e["available"] else None,
+            "created_at": created_at.get(e["assessment_id"]),
+        }
+        for e in by_assessment.values()
+    ]
+    out.sort(key=lambda e: e["created_at"] or datetime.min)
+
+    # A delta needs the immediately preceding test of the SAME subject, with a real
+    # average on both sides -- comparing a Maths test's average against Science's, or
+    # against a test nobody has scored yet, would not be a movement, it would be noise
+    # dressed up as one.
+    previous_avg: dict[str, float] = {}
+    for e in out:
+        prev = previous_avg.get(e["subject_code"])
+        e["delta_pct"] = (
+            round(e["avg_score_pct"] - prev, 1) if prev is not None and e["avg_score_pct"] is not None else None
+        )
+        if e["avg_score_pct"] is not None:
+            previous_avg[e["subject_code"]] = e["avg_score_pct"]
+        del e["created_at"]
+
+    out.reverse()  # newest first, per the Test tab's own convention
+    return out
+
+
 @router.get("/tests")
 def academics_tests(
     school: School = Depends(require_reader), db: Session = Depends(get_session)
 ) -> dict:
     """Every paper with at least one resolved mark, newest first -- the list the Test tab
     picks one from."""
-    tagged = resolved_rows(db, school)
-    by_assessment: dict[str, dict] = {}
-    for t in tagged:
-        entry = by_assessment.setdefault(t.assessment_id, {
-            "assessment_id": t.assessment_id, "title": t.assessment_title,
-            "subject_code": t.subject_code, "label": _subject_label(t.subject_code),
-            "students": set(),
-        })
-        entry["students"].add(t.row.student_id)
-    out = [
-        {**{k: v for k, v in e.items() if k != "students"}, "students_marked": len(e["students"])}
-        for e in by_assessment.values()
-    ]
-    out.sort(key=lambda e: e["title"])
-    return {"tests": out}
+    return {"tests": tests_with_movement(db, resolved_rows(db, school))}
 
 
 def _tests_list_rows(tests: list[dict]) -> tuple[list[str], list[list[object]]]:

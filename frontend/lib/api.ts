@@ -281,6 +281,12 @@ export interface AcademicTestRow {
   subject_code: string;
   label: string;
   students_marked: number;
+  avg_score_pct: number | null;
+  /** This test's average score minus the immediately preceding test of the SAME
+   *  subject's -- null when there is no earlier scored test of that subject to compare
+   *  against, or this test itself has no score yet. Never a guess: both sides are real
+   *  averages, or there is no number at all. */
+  delta_pct: number | null;
 }
 
 /** GET /admin/academics/tests/{id} -- one test's own student-by-student summary. */

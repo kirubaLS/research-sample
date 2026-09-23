@@ -27,6 +27,7 @@ from app.api.academics import (
     _subject_rows,
     _test_rows,
     resolved_rows,
+    tests_with_movement,
 )
 from app.api.deps import Staff, current_staff, teacher_assignments, teacher_can_read
 from app.db import get_session
@@ -178,28 +179,16 @@ def teacher_academics_tests(
     school = staff.home
     scope = _teacher_scope(staff, db)
 
-    by_assessment: dict[str, dict] = {}
+    tagged: list[TaggedRow] = []
     for section_id, subject_code in scope:
         student_ids = list(
             db.scalars(select(StudentProfile.id).where(StudentProfile.section_id == section_id))
         )
         if not student_ids:
             continue
-        tagged = resolved_rows(db, school, student_ids=student_ids, subject_code=subject_code)
-        for t in tagged:
-            entry = by_assessment.setdefault(t.assessment_id, {
-                "assessment_id": t.assessment_id, "title": t.assessment_title,
-                "subject_code": t.subject_code, "label": _subject_label(t.subject_code),
-                "students": set(),
-            })
-            entry["students"].add(t.row.student_id)
+        tagged.extend(resolved_rows(db, school, student_ids=student_ids, subject_code=subject_code))
 
-    out = [
-        {**{k: v for k, v in e.items() if k != "students"}, "students_marked": len(e["students"])}
-        for e in by_assessment.values()
-    ]
-    out.sort(key=lambda e: e["title"])
-    return {"tests": out}
+    return {"tests": tests_with_movement(db, tagged)}
 
 
 @router.get("/tests/{assessment_id}.csv")
