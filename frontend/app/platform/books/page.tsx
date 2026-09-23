@@ -6,6 +6,7 @@ import {
   api,
   ApiError,
   BookStatus,
+  type FamilyAudit,
   type FamilyProposals,
   type SubjectBook,
 } from "@/lib/api";
@@ -30,6 +31,7 @@ export default function BooksPage() {
   const [busy, setBusy] = useState(false);
   const [families, setFamilies] = useState<FamilyProposals | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [audit, setAudit] = useState<FamilyAudit | null>(null);
   // For a book whose real headings cannot be told apart from a diagram caption, a table
   // cell or its own body prose by boldness, size or colour (Geography's own "Resources
   // and Development", confirmed against the real file) -- locates each chapter's known
@@ -73,7 +75,78 @@ export default function BooksPage() {
   useEffect(() => {
     setFamilies(null);
     setPicked(new Set());
+    setAudit(null);
   }, [subject]);
+
+  async function loadAudit() {
+    const key = getPlatformKey();
+    if (!key || !subject) return;
+    setBusy(true);
+    try {
+      const out = await api.auditFamilies(key, subject);
+      setAudit(out);
+      say(
+        `audit: ${out.duplicates.length} duplicate(s), ${out.removable} removable ` +
+          `(wrong subject or unreadable code)`,
+      );
+    } catch (err) {
+      say(describe(err), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeMisfiled() {
+    const key = getPlatformKey();
+    if (!key || !subject) return;
+    setBusy(true);
+    try {
+      const out = await api.applyFamilyAudit(key, subject);
+      say(`removed ${out.removed} misfiled famil${out.removed === 1 ? "y" : "ies"}.`);
+      setAudit(await api.auditFamilies(key, subject));
+    } catch (err) {
+      say(describe(err), true);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // Every duplicate the audit found names the family it is "the same idea as" -- merge
+  // each into that survivor. Several duplicates can point at the same survivor (three
+  // families all reading as "Trigonometry"), so they are grouped first: one merge call
+  // per survivor, not one per duplicate, which would otherwise re-fetch and re-merge
+  // into a family that a previous call in the same batch had already removed.
+  async function mergeAllDuplicates() {
+    const key = getPlatformKey();
+    if (!key || !subject || !audit) return;
+    const groups = new Map<string, string[]>();
+    for (const d of audit.duplicates) {
+      if (!d.duplicate_of) continue;
+      groups.set(d.duplicate_of, [...(groups.get(d.duplicate_of) ?? []), d.code]);
+    }
+    if (groups.size === 0) return;
+    setBusy(true);
+    let mergedGroups = 0;
+    let movedQuestions = 0;
+    try {
+      for (const [keep, remove] of groups) {
+        try {
+          const out = await api.mergeFamilies(key, subject, keep, remove);
+          mergedGroups += 1;
+          movedQuestions += out.questions_moved;
+        } catch (err) {
+          say(`${keep}: ${describe(err)}`, true);
+        }
+      }
+      say(
+        `merged ${mergedGroups} duplicate group(s), moving ${movedQuestions} question(s) ` +
+          `onto the survivor.`,
+      );
+      setAudit(await api.auditFamilies(key, subject));
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function loadFamilies() {
     const key = getPlatformKey();
@@ -491,6 +564,72 @@ export default function BooksPage() {
                 Select every one that is not created
               </button>
             </div>
+          </>
+        )}
+      </div>
+
+      <div className="section-head">
+        <h2>6 &middot; Clean up duplicate families</h2>
+      </div>
+      <div className="card">
+        <p className="cardnote" style={{ marginBottom: 14 }}>
+          Different runs sometimes name the same topic slightly differently --
+          &ldquo;Trigonometry&rdquo;, &ldquo;Trig&rdquo;, &ldquo;Trigo&rdquo; all landing
+          as separate families under the same chapter. A report keyed on the wrong one of
+          those looks weaker than it is, since a student&rsquo;s marks split across them
+          instead of counting together. Nothing here is deleted without being shown first.
+        </p>
+
+        {audit === null ? (
+          <button onClick={loadAudit} disabled={busy || !status?.chunks}>
+            {busy ? "Working…" : "Check for duplicate or misfiled families"}
+          </button>
+        ) : (
+          <>
+            <p className="small" style={{ marginBottom: 12 }}>
+              {audit.families} famil{audit.families === 1 ? "y" : "ies"} in total &middot;{" "}
+              {audit.duplicates.length} duplicate{audit.duplicates.length === 1 ? "" : "s"}{" "}
+              &middot; {audit.removable} misfiled and safe to remove
+              {audit.kept_because_used.length > 0
+                ? ` (${audit.kept_because_used.length} more misfiled but kept -- a question still points at them)`
+                : ""}
+              .
+            </p>
+
+            {audit.duplicates.length > 0 && (
+              <>
+                <ul className="famlist">
+                  {audit.duplicates.map((d) => (
+                    <li key={d.code}>
+                      <span className="fam-l">{d.label}</span>
+                      <span className="fam-m">
+                        {d.chapter_code} &middot; {d.problem}
+                        {d.questions > 0 ? ` · ${d.questions} question(s) will move` : ""}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <div className="row" style={{ marginTop: 14 }}>
+                  <button onClick={mergeAllDuplicates} disabled={busy}>
+                    {busy
+                      ? "Working…"
+                      : `Merge ${audit.duplicates.length} duplicate(s) into their survivor`}
+                  </button>
+                </div>
+              </>
+            )}
+
+            {audit.removable > 0 && (
+              <div className="row" style={{ marginTop: 14 }}>
+                <button className="ghost" onClick={removeMisfiled} disabled={busy}>
+                  {busy ? "Working…" : `Remove ${audit.removable} misfiled famil${audit.removable === 1 ? "y" : "ies"} (unused)`}
+                </button>
+              </div>
+            )}
+
+            {audit.duplicates.length === 0 && audit.removable === 0 && (
+              <p className="small mono">Nothing to clean up.</p>
+            )}
           </>
         )}
       </div>

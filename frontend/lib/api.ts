@@ -919,6 +919,26 @@ export interface FamilyProposals {
   note: string;
 }
 
+export interface AuditedFamily {
+  code: string;
+  label: string;
+  chapter_code: string | null;
+  questions: number;
+  problem: string;
+  /** Set on a duplicate entry only: the code of the family it should be merged into. */
+  duplicate_of: string | null;
+}
+
+export interface FamilyAudit {
+  subject: string;
+  families: number;
+  wrong_subject: AuditedFamily[];
+  empty_code: AuditedFamily[];
+  duplicates: AuditedFamily[];
+  removable: number;
+  kept_because_used: AuditedFamily[];
+}
+
 export interface ChapterCoverage {
   chapter_code: string;
   chapter: string;
@@ -1724,6 +1744,29 @@ export const api = {
   setupCurriculum: (key: string, subject: string) =>
     operator<{ label: string; board_units: number; chapters: number; next: string }>(
       `/platform/books/${subject}/curriculum`, key, { method: "POST" },
+    ),
+
+  /** Families under this subject that should not be there: filed under the wrong chapter,
+   *  a Hindi/Tamil label with no slug, or -- the "Trigonometry" / "Trig" / "Trigo" case --
+   *  two families under one chapter that are the same idea by two different names. Read-only. */
+  auditFamilies: (key: string, subject: string) =>
+    operator<FamilyAudit>(`/platform/books/${subject}/concept-families/audit`, key),
+
+  /** Removes the wrong-subject and empty-code families the audit found (never a
+   *  duplicate -- which one survives a duplicate pair is a person's call, made with
+   *  mergeFamilies instead). */
+  applyFamilyAudit: (key: string, subject: string) =>
+    operator<{ subject: string; removed: number; duplicates_left_for_review: number; next: string }>(
+      `/platform/books/${subject}/concept-families/audit/apply`, key, { method: "POST" },
+    ),
+
+  /** Folds `remove` into `keep`: every question, placement and proposal on a removed
+   *  family is re-pointed at `keep` before it is deleted, so no mark is lost. */
+  mergeFamilies: (key: string, subject: string, keep: string, remove: string[]) =>
+    operator<{ kept: string; removed: string[]; questions_moved: number; placements_moved: number; next: string }>(
+      `/platform/books/${subject}/concept-families/merge`,
+      key,
+      { method: "POST", body: JSON.stringify({ keep, remove }) },
     ),
 
   // --- question papers ---

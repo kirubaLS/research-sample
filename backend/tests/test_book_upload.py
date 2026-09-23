@@ -1800,6 +1800,43 @@ def test_the_audit_finds_and_removes_a_family_filed_under_the_wrong_subject(clie
     assert not any(f["code"] == "X.MATH.CF.LETTER_GOD" for f in after["wrong_subject"])
 
 
+def test_the_audit_catches_an_abbreviation_of_another_familys_label(client, school):
+    """Real production complaint: the same topic ends up as several families --
+    'Trigonometry', 'Trig', 'Trigo' -- because each run's model phrased the label a bit
+    differently and nothing caught it. The old check compared labels for exact equality
+    (after stripping filler words), so 'Trig' next to 'Trigonometry' was never flagged --
+    they share no filler words to strip and are not equal strings. The audit's duplicate
+    check must catch this pairing, not just an identical label typed twice."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.SAV"))
+        for code, label in (
+            ("X.MATH.CF.TRIGONOMETRY", "Trigonometry"),
+            ("X.MATH.CF.TRIG", "Trig"),
+            ("X.MATH.CF.TRIGO", "Trigo"),
+        ):
+            if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code)) is None:
+                db.add(TaxonomyNode(kind="concept_family", code=code, label=label,
+                                     parent_id=chapter.id, path=code))
+        db.commit()
+    finally:
+        db.close()
+
+    audit = client.get("/platform/books/X.MATH/concept-families/audit", headers=HEAD).json()
+    flagged = {f["code"] for f in audit["duplicates"]}
+    # Codes are scanned in sorted order, so 'X.MATH.CF.TRIG' sorts first and survives;
+    # what matters here is that all three land in one group -- two flagged, one survivor
+    # -- not which specific one that survivor is.
+    assert flagged & {"X.MATH.CF.TRIG", "X.MATH.CF.TRIGO", "X.MATH.CF.TRIGONOMETRY"} == {
+        "X.MATH.CF.TRIGO", "X.MATH.CF.TRIGONOMETRY",
+    }
+
+
 def test_the_audit_runs_across_every_subject_in_one_call(client, school):
     """'audit' is a literal path, never read as a subject code, and the all-subjects
     apply removes what each per-subject apply would."""

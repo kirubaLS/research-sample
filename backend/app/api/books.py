@@ -1276,13 +1276,41 @@ def _label_key(label: str) -> str:
     return " ".join(_LABEL_FILLER.sub(" ", label or "").lower().split())
 
 
+def _labels_alike(a: str, b: str) -> bool:
+    """Same idea under two names -- ``a`` and ``b`` already run through ``_label_key``.
+
+    Two ways to be alike. ``similarity`` (character-overlap, via SequenceMatcher) catches
+    a reworded label -- 'area of a sector' against 'finding the area of a sector' -- where
+    most of the characters line up. It does NOT catch a bare abbreviation: 'trig' against
+    'trigonometry' shares only 4 of the longer word's 12 characters, a ratio of 0.5 that
+    reads as unrelated even though a teacher would call them the same topic instantly.
+    That is the real, confirmed shape of duplicate this was missing -- 'Trigonometry',
+    'Trig' and 'Trigo' all landing as separate families. Caught here as a plain prefix
+    relation instead, but ONLY when both labels are a single word: 'Area' plainly is not
+    the same family as 'Area of a triangle' -- a genuinely narrower topic that happens to
+    start with the same word -- and a prefix rule that ignored word boundaries would flag
+    that pair as confidently as it flags 'Trig' against 'Trigonometry'. Restricting to a
+    single word on both sides keeps the abbreviation case (nothing after the shared
+    letters, on either side) without also catching a broader/narrower topic pair.
+    """
+    from app.extraction.names import similarity
+
+    if a == b:
+        return True
+    if similarity(a, b) >= DUPLICATE_LABEL_SCORE:
+        return True
+    if " " not in a and " " not in b:
+        shorter, longer = (a, b) if len(a) <= len(b) else (b, a)
+        if len(shorter) >= 3 and longer.startswith(shorter):
+            return True
+    return False
+
+
 def _dedupe_and_flag(proposals: list[dict]) -> list[dict]:
     """One entry per code, and a ``similar_to`` on any label that reads as another
     proposal's idea under the same chapter -- 'Area of a sector' beside 'Finding the area
-    of a sector'. Nothing is merged: which of two names survives is a person's call, and
-    the flag is what puts it in front of them."""
-    from app.extraction.names import similarity
-
+    of a sector', or 'Trigonometry' beside 'Trig'. Nothing is merged: which of two names
+    survives is a person's call, and the flag is what puts it in front of them."""
     by_code: dict[str, dict] = {}
     for p in proposals:
         if not p.get("code") or p["code"].endswith("."):
@@ -1303,7 +1331,7 @@ def _dedupe_and_flag(proposals: list[dict]) -> list[dict]:
             a = _label_key(p["label"])
             for q in group[:i]:
                 b = _label_key(q["label"])
-                if a == b or similarity(a, b) >= DUPLICATE_LABEL_SCORE:
+                if _labels_alike(a, b):
                     p["similar_to"] = q["code"]
                     break
     return out
@@ -1907,17 +1935,24 @@ def _audit_families(db: Session, subject: str) -> dict:
         .group_by(Question.concept_family_id)
     ).all()) if families else {}
 
-    def view(n: TaxonomyNode, problem: str) -> dict:
+    def view(n: TaxonomyNode, problem: str, *, duplicate_of: str | None = None) -> dict:
         chapter = nodes.get(n.parent_id) if n.parent_id else None
         return {
             "code": n.code, "label": n.label,
             "chapter_code": chapter.code if chapter else None,
             "questions": used.get(n.id, 0),
             "problem": problem,
+            #: the survivor a caller should POST .../concept-families/merge against, for a
+            #: duplicate entry -- never parsed back out of ``problem``'s prose by a caller
+            "duplicate_of": duplicate_of,
         }
 
     wrong_subject, empty_code, duplicates = [], [], []
-    seen_labels: dict[tuple[str, str], TaxonomyNode] = {}
+    # Not a dict keyed by the exact label key: that only ever caught two families whose
+    # labels were identical after filler-word removal, never a bare abbreviation of one
+    # another ('Trigonometry' / 'Trig' / 'Trigo') -- the real, reported shape of duplicate
+    # _labels_alike exists to catch. Each chapter's own running list is scanned instead.
+    seen_by_chapter: dict[str, list[TaxonomyNode]] = {}
     for n in sorted(families, key=lambda f: f.code):
         chapter = nodes.get(n.parent_id) if n.parent_id else None
         if chapter is None or not chapter.code.startswith(f"{subject}."):
@@ -1928,11 +1963,13 @@ def _audit_families(db: Session, subject: str) -> dict:
         if n.code.endswith("."):
             empty_code.append(view(n, "empty code: the label's script cannot be slugified"))
             continue
-        key = (chapter.id, _label_key(n.label))
-        if key in seen_labels:
-            duplicates.append(view(n, f"same idea as {seen_labels[key].code}"))
+        key = _label_key(n.label)
+        seen = seen_by_chapter.setdefault(chapter.id, [])
+        match = next((s for s in seen if _labels_alike(key, _label_key(s.label))), None)
+        if match is not None:
+            duplicates.append(view(n, f"same idea as {match.code}", duplicate_of=match.code))
         else:
-            seen_labels[key] = n
+            seen.append(n)
     removable = [f for f in wrong_subject + empty_code if f["questions"] == 0]
     return {
         "subject": subject,
