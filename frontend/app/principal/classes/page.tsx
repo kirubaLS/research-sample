@@ -9,6 +9,13 @@
  * Deliberately does not show an "aspiration", "action plan" or "recheck" column -- this
  * deployment has no data model for any of those, and this screen only ever shows a
  * number it can trace back to a real MarkEvent.
+ *
+ * The full per-assessment diagnostic (findings, intervention drawer, board-frequency
+ * read) still lives at its own real, working /admin/boardx -- too large and too much
+ * of its own thing to fold into this screen in one pass -- but per the reference
+ * design's own note ("the standalone BoardX Intelligence page has been removed, the
+ * Classes flow is the one navigation into this data now"), it is no longer its own
+ * primary-nav destination (see SideNav.tsx); this button is how it is reached instead.
  */
 
 import Link from "next/link";
@@ -61,6 +68,9 @@ export default function AcademicsOverviewPage() {
           </p>
         </div>
         <div className="row" style={{ gap: 8 }}>
+          <Link href="/admin/boardx">
+            <button type="button" className="secondary">Full diagnostic (BoardX)</button>
+          </Link>
           <button type="button" className="secondary" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>

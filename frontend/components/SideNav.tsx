@@ -43,7 +43,6 @@ interface Item {
 const PRIMARY: Item[] = [
   { href: "/principal/classes", label: "Classes", glyph: "▣", needs: "read_results" },
   { href: "/principal/exams", label: "Exams", glyph: "▧", needs: "read_results" },
-  { href: "/admin/boardx", label: "BoardX", glyph: "◈", needs: "read_results" },
   { href: "/principal/teachers", label: "Manage Teachers", glyph: "☺", needs: null },
   { href: "/admin", label: "Settings", glyph: "▤", needs: null },
 ];
