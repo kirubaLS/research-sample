@@ -69,12 +69,12 @@ export default function AcademicsOverviewPage() {
         </div>
         <div className="row" style={{ gap: 8 }}>
           <Link href="/admin/boardx">
-            <button type="button" className="secondary">Full diagnostic (BoardX)</button>
+            <button type="button" className="btn--ghost">Full diagnostic (BoardX)</button>
           </Link>
-          <button type="button" className="secondary" disabled={!!downloading} onClick={() => download("xlsx")}>
+          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
-          <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
+          <button type="button" className="btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
             {downloading === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
@@ -236,51 +236,62 @@ function ClassCard({ c }: { c: ClassAcademicSummary }) {
     { key: "not_assessed", n: counts.not_assessed, color: "var(--rule-2)" },
   ];
 
+  // The reference's own attn dimension: one dominant read per class, standing in for
+  // the four-way status split the bar below already shows in full -- a glance at the
+  // card grid needs one word, not four numbers, to say where to look first.
+  const attn = counts.requires_review > 0
+    ? { label: "Needs review", cls: "attn--high" }
+    : counts.needs_attention > 0
+      ? { label: "Needs attention", cls: "attn--medium" }
+      : total > counts.not_assessed
+        ? { label: "On track", cls: "attn--low" }
+        : null;
+
   return (
     <Link href={`/principal/classes/${c.section_id}`} className="classcard-link">
-      <div className="card classcard">
-        <div className="row between" style={{ alignItems: "flex-start" }}>
+      <div className="card card--hover">
+        <div className="card__head">
           <div>
             <h2 style={{ margin: 0 }}>{c.grade}{c.name}</h2>
             <p className="cardnote" style={{ margin: "2px 0 0" }}>{c.student_count} Students</p>
           </div>
+          {attn && <span className={`attn ${attn.cls}`}>{attn.label}</span>}
+        </div>
+        <div className="card__body" style={{ paddingTop: 14 }}>
           {c.avg_score_pct != null && (
-            <span className="badge blue">{c.avg_score_pct}% avg</span>
+            <p className="strong" style={{ margin: "0 0 10px", fontSize: 20 }}>{c.avg_score_pct}% avg</p>
           )}
-        </div>
+          <div className="stackbar" aria-hidden>
+            {segments.map((s) => (
+              s.n > 0 && (
+                <div
+                  key={s.key}
+                  style={{ width: `${(s.n / total) * 100}%`, background: s.color }}
+                />
+              )
+            ))}
+          </div>
 
-        <div className="stackbar" aria-hidden>
-          {segments.map((s) => (
-            s.n > 0 && (
-              <div
-                key={s.key}
-                style={{ width: `${(s.n / total) * 100}%`, background: s.color }}
-              />
-            )
-          ))}
-        </div>
+          <div className="row" style={{ gap: 14, flexWrap: "wrap", marginTop: 10 }}>
+            <Legend label="On Track" n={counts.on_track} color="var(--verify)" />
+            <Legend label="Attention" n={counts.needs_attention} color="var(--warn)" />
+            <Legend label="Review" n={counts.requires_review} color="var(--risk)" />
+            {counts.not_assessed > 0 && (
+              <Legend label="Not Assessed" n={counts.not_assessed} color="var(--ink-3)" />
+            )}
+          </div>
 
-        <div className="row" style={{ gap: 14, flexWrap: "wrap", marginTop: 10 }}>
-          <Legend label="On Track" n={counts.on_track} color="var(--verify)" />
-          <Legend label="Attention" n={counts.needs_attention} color="var(--warn)" />
-          <Legend label="Review" n={counts.requires_review} color="var(--risk)" />
-          {counts.not_assessed > 0 && (
-            <Legend label="Not Assessed" n={counts.not_assessed} color="var(--ink-3)" />
-          )}
+          <p className="small muted" style={{ marginTop: 10, marginBottom: 0 }}>
+            {c.test_count} paper{c.test_count === 1 ? "" : "s"} with marks recorded
+          </p>
         </div>
-
-        <p className="small muted" style={{ marginTop: 10, marginBottom: 0 }}>
-          {c.test_count} paper{c.test_count === 1 ? "" : "s"} with marks recorded
-        </p>
       </div>
 
       <style jsx>{`
         .classcard-link { text-decoration: none; color: inherit; display: block; }
-        .classcard { cursor: pointer; transition: box-shadow 0.15s ease, transform 0.15s ease; height: 100%; }
-        .classcard:hover { box-shadow: var(--shadow-sm); transform: translateY(-1px); }
         .stackbar {
           display: flex; height: 8px; border-radius: 999px; overflow: hidden;
-          background: var(--rule); margin-top: 14px;
+          background: var(--rule);
         }
       `}</style>
     </Link>
