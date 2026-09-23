@@ -2031,6 +2031,14 @@ export const api = {
       // directly, no job to poll.
     ),
 
+  /** A blank, printable mark-entry sheet for one section of one paper -- built from the
+   *  paper's own confirmed questions and the section's own roster, so it can never offer
+   *  a column or row this paper/class doesn't really have. Hand it out, collect it filled
+   *  in, and read it back with uploadGridSheet/uploadGridSheetFile: the printed column
+   *  headers are the same labels that upload already knows how to parse. */
+  answerCardPdf: (key: string, assessmentId: string, sectionId: string) =>
+    authedBlob(`/assessments/${assessmentId}/sections/${sectionId}/answer-card.pdf`, key),
+
   gridSheet: (key: string, assessmentId: string, documentId: string) =>
     authed<GridSheetReview>(`/assessments/${assessmentId}/gridsheet/${documentId}`, key),
 

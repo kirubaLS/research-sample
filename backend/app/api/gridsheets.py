@@ -27,7 +27,7 @@ import re
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, UploadFile, status
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -956,3 +956,127 @@ async def upload_gridsheet_file(
         "problems": problems,
         "next": f"/assessments/{assessment.id}/gridsheet/{document.id}",
     }
+
+
+def _print_label(q: Question) -> str:
+    """A question's address, written the way the paper itself would print it -- the same
+    convention the paper-review screen already uses (section, number, sub-part, choice),
+    just without the separators a grid header has no room for. Kept short on purpose:
+    this becomes a column header on an A4 sheet with a dozen-plus columns."""
+    label = q.question_no
+    if q.sub_part:
+        label += f"({q.sub_part})"
+    if q.choice_alt:
+        label += f"*{q.choice_alt}"
+    return f"{q.section}{label}" if q.section else label
+
+
+#: students per printed page -- a wide grid (many sub-parts) already crowds an A4 sheet
+#: at 8 rows; more than that and the row height needed for a handwritten mark disappears.
+_ANSWER_CARD_ROWS_PER_PAGE = 8
+
+
+@router.get("/{assessment_id}/sections/{section_id}/answer-card.pdf")
+def download_answer_card(
+    assessment_id: str,
+    section_id: str,
+    school: School = Depends(require_scanner_or_teacher),
+    db: Session = Depends(get_session),
+) -> Response:
+    """A blank, printable mark-entry sheet for one section of one paper: one row per
+    student, one column per question address, sized to print on A4. Hand these out,
+    collect them filled in, and read them back with POST .../gridsheet -- the printed
+    column headers are exactly the labels that upload already knows how to parse, so a
+    filled-in card round-trips through the same reading this file already does for a
+    school's own hand-ruled sheet.
+
+    Generated from the paper's own confirmed questions and the section's own roster --
+    nothing here is invented, so a card can never offer a column for a question this
+    paper does not have, or a row for a student not on this class's list.
+    """
+    from fpdf import FPDF
+
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != school.id:
+        raise HTTPException(404, "not found")
+    section = db.get(Section, section_id)
+    if section is None or section.school_id != school.id:
+        raise HTTPException(404, "not found")
+
+    questions = sorted(
+        db.scalars(select(Question).where(Question.assessment_id == assessment.id)),
+        key=lambda q: Address(q.section, q.question_no, q.sub_part, q.choice_alt).sort_key,
+    )
+    if not questions:
+        raise HTTPException(
+            422, "this paper has no questions yet -- map it before generating an answer card"
+        )
+    roster = list(
+        db.scalars(
+            select(StudentProfile)
+            .where(StudentProfile.section_id == section.id)
+            .order_by(StudentProfile.roll_no)
+        )
+    )
+    if not roster:
+        raise HTTPException(422, f"{section.grade}{section.name} has no students on its roster yet")
+
+    def safe(text: object) -> str:
+        return str(text if text is not None else "").encode("latin-1", "replace").decode("latin-1")
+
+    labels = [_print_label(q) for q in questions]
+    pdf = FPDF(format="A4", orientation="L")
+    pdf.set_auto_page_break(auto=False)
+
+    roll_w, name_w, total_w = 18.0, 46.0, 20.0
+    usable = pdf.w - 20 - roll_w - name_w - total_w
+    col_w = max(9.0, usable / len(labels))
+
+    def draw_header(page_title: str) -> None:
+        pdf.add_page()
+        pdf.set_fill_color(23, 55, 87)
+        pdf.rect(0, 0, pdf.w, 20, style="F")
+        pdf.set_text_color(255, 255, 255)
+        pdf.set_xy(10, 4)
+        pdf.set_font("Helvetica", "B", 15)
+        pdf.cell(0, 8, safe(f"{assessment.title} -- {section.grade}{section.name}"))
+        pdf.set_xy(10, 12.5)
+        pdf.set_font("Helvetica", "", 9.5)
+        pdf.cell(0, 5, safe(page_title))
+        pdf.set_text_color(35, 40, 50)
+
+        pdf.set_xy(10, 26)
+        pdf.set_font("Helvetica", "B", 8.5)
+        pdf.set_fill_color(23, 55, 87)
+        pdf.set_text_color(255, 255, 255)
+        pdf.cell(roll_w, 20, "Roll", border=1, align="C", fill=True)
+        pdf.cell(name_w, 20, "Name", border=1, align="C", fill=True)
+        for label in labels:
+            pdf.cell(col_w, 20, safe(label), border=1, align="C", fill=True)
+        pdf.cell(total_w, 20, "TOTAL", border=1, align="C", fill=True)
+        pdf.ln()
+        pdf.set_text_color(35, 40, 50)
+        pdf.set_font("Helvetica", "", 9)
+
+    row_h = 12.0
+    for page_start in range(0, len(roster), _ANSWER_CARD_ROWS_PER_PAGE):
+        page_students = roster[page_start : page_start + _ANSWER_CARD_ROWS_PER_PAGE]
+        draw_header(
+            f"page {page_start // _ANSWER_CARD_ROWS_PER_PAGE + 1} of "
+            f"{-(-len(roster) // _ANSWER_CARD_ROWS_PER_PAGE)} -- blank, for hand marking"
+        )
+        for student in page_students:
+            pdf.set_x(10)
+            pdf.cell(roll_w, row_h, safe(student.roll_no), border=1, align="C")
+            pdf.cell(name_w, row_h, safe(student.name), border=1)
+            for _ in labels:
+                pdf.cell(col_w, row_h, "", border=1)
+            pdf.cell(total_w, row_h, "", border=1)
+            pdf.ln()
+
+    filename = f"{assessment.title}-{section.grade}{section.name}-answer-card.pdf".replace(" ", "-")
+    return Response(
+        content=bytes(pdf.output()),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{safe(filename)}"'},
+    )

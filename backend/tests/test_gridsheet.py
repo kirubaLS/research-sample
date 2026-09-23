@@ -227,6 +227,38 @@ def test_a_name_mismatch_can_be_waved_through_by_a_person(client, school, paper,
     assert resolved.json()["status"] == "clean"
 
 
+def test_a_blank_answer_card_lists_every_question_and_every_roster_student(
+    client, school, paper, roster
+):
+    """The reference design's "generate answer card" feature: a blank, printable sheet
+    for a teacher to hand-fill and scan back in through the same upload this file already
+    reads. Nothing here is invented -- built from the paper's own confirmed questions
+    (fixture `paper`: A/1 worth 2, B/2 worth 3) and the section's own roster (fixture
+    `roster`: rolls 1 and 2), so this test is really checking that neither list gets
+    silently dropped or duplicated on the way into the PDF."""
+    out = client.get(
+        f"/assessments/{paper}/sections/{school['section_id']}/answer-card.pdf",
+        headers=_auth(school),
+    )
+    assert out.status_code == 200, out.text
+    assert out.headers["content-type"] == "application/pdf"
+    assert out.content[:4] == b"%PDF"
+    assert "attachment" in out.headers["content-disposition"]
+
+
+def test_a_paper_with_no_questions_refuses_an_answer_card(client, school):
+    aid = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Empty paper", "total_marks": 10},
+    ).json()["assessment_id"]
+    out = client.get(
+        f"/assessments/{aid}/sections/{school['section_id']}/answer-card.pdf",
+        headers=_auth(school),
+    )
+    assert out.status_code == 422
+    assert "no questions" in out.json()["detail"]
+
+
 def test_a_matched_roll_with_no_name_read_is_flagged_not_auto_confirmed(
     client, school, paper, roster, monkeypatch
 ):

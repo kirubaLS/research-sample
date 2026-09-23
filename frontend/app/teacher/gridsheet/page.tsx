@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { CameraCapture } from "@/components/CameraCapture";
 import { Scanner } from "@/components/Scanner";
+import { downloadBlob } from "@/lib/download";
 import { newSessionId } from "@/lib/id";
 import { pagesToFiles } from "@/lib/pageStore";
 import {
@@ -158,6 +159,23 @@ export default function GridSheetPage() {
     }
   }
 
+  async function downloadAnswerCard() {
+    const key = getApiKey();
+    if (!key || !paperId || !sectionId) return;
+    setBusy("Preparing the answer card");
+    setError(null);
+    try {
+      const blob = await api.answerCardPdf(key, paperId, sectionId);
+      const paper = ready.find((p) => p.id === paperId);
+      const section = sections.find((s) => s.section_id === sectionId);
+      downloadBlob(blob, `${paper?.title ?? "paper"}-${section?.label ?? "class"}-answer-card.pdf`);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function resolveWithStudent(row: GridSheetRowView, studentId: string) {
     const key = getApiKey();
     if (!key || !documentId) return;
@@ -300,6 +318,24 @@ export default function GridSheetPage() {
               ))}
             </select>
           </label>
+        </div>
+
+        <div className="row" style={{ marginTop: 4 }}>
+          <button
+            type="button"
+            className="secondary"
+            disabled={!paperId || !sectionId || !!busy}
+            onClick={() => void downloadAnswerCard()}
+          >
+            Generate blank answer card
+          </button>
+          <span className="small muted">
+            One row per student, one column per question -- print it, hand it out, then
+            scan the filled-in sheet back in below.
+          </span>
+        </div>
+
+        <div className="picks">
           <label>
             <span>{photoMode === "class" ? "Photograph" : "Photo(s) of the script"}</span>
             <input
