@@ -170,7 +170,7 @@ export default function BooksPage() {
     try {
       const chosen = families.families.filter((f) => picked.has(f.code));
       const out = await api.createFamilies(key, subject, chosen);
-      say(`${out.created} created, ${out.skipped} already existed.`);
+      say(`${out.created} created, ${out.already_existed} already existed.`);
       setPicked(new Set());
       setFamilies(await api.proposeFamilies(key, subject));
     } catch (err) {

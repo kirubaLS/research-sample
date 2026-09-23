@@ -1749,7 +1749,12 @@ export const api = {
     ),
 
   createFamilies: (key: string, subject: string, families: FamilyProposal[]) =>
-    operator<{ created: number; skipped: number; unknown_chapters: string[] }>(
+    operator<{
+      created: number;
+      already_existed: number;
+      unknown_chapters: string[];
+      wrong_subject: string[];
+    }>(
       `/platform/books/${subject}/concept-families`,
       key,
       { method: "POST", body: JSON.stringify({ families }) },
