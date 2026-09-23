@@ -12,9 +12,9 @@
  * one subject -- so those are kept in their own "Your Classes" group instead of forced
  * into whichever subject happened to be scored first.
  *
- * /teacher/overview (the flat version) is left exactly as it was: nothing here replaces
- * it yet, this is the first page of an in-progress redesign and the old route is the
- * fallback until every page it links to has its own redesigned counterpart.
+ * /teacher/overview (the old flat version, and its own detail route) is retired: this
+ * page and app/teacher/home/[sectionId] are its replacements, and /teacher/overview now
+ * redirects here -- see app/teacher/overview/page.tsx and app/teacher/overview/[sectionId]/page.tsx.
  */
 
 import Link from "next/link";
@@ -98,7 +98,7 @@ function SubjectCard({ title, rows }: { title: string; rows: TeacherAcademicClas
           {rows.map((c) => (
             <Link
               key={`${c.section_id}-${c.subject_code ?? "all"}`}
-              href={`/teacher/overview/${c.section_id}${c.subject_code ? `?subject=${c.subject_code}` : ""}`}
+              href={`/teacher/home/${c.section_id}${c.subject_code ? `?subject=${c.subject_code}` : ""}`}
               className="subject-row"
             >
               <div>

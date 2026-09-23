@@ -1,6 +1,6 @@
 "use client";
 
-// §6.3 -- folded into /teacher/overview/[sectionId], which now also carries an Enter
+// §6.3 -- folded into /teacher/home/[sectionId], which now also carries an Enter
 // Marks link and per-student Share with student, both of which this page used to be
 // the only place for. Kept as a redirect.
 
@@ -15,7 +15,7 @@ export default function SubjectView({
   const { sectionId } = use(params);
   const router = useRouter();
   useEffect(() => {
-    router.replace(`/teacher/overview/${sectionId}`);
+    router.replace(`/teacher/home/${sectionId}`);
   }, [router, sectionId]);
   return null;
 }

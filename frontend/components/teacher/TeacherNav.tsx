@@ -1,16 +1,17 @@
 "use client";
 
 /**
- * §6.1 -- teacher sidebar: Overview · Test · Enter Marks, but only the sections
+ * §6.1 -- teacher sidebar: Home · Test · Enter Marks, but only the sections
  * relevant to this teacher key's real assignments (GET /admin/me) render. No mascot
  * here -- this is an operational staff screen, per the mascot placement rule in §0.
  *
  * Previously also carried Home, My Classes and My Subjects -- three more entries that
  * opened the exact same roster Overview already shows, just from a plainer read
  * (GET /admin/teacher/sections, no status/avg-score data) with no status data of its
- * own. Overview is the sign-in landing page now (see app/login/page.tsx and
- * AdminGate.tsx), and the old /teacher, /teacher/classes and /teacher/subjects routes
- * redirect here rather than disappearing outright, in case anything still links to them.
+ * own; then Overview itself was replaced by /teacher/home, the subject-first landing
+ * page from the current design pass. /teacher, /teacher/classes, /teacher/subjects and
+ * /teacher/overview all still redirect to /teacher/home rather than disappearing
+ * outright, in case anything still links to them.
  */
 
 import Link from "next/link";
@@ -22,7 +23,7 @@ export function TeacherNav() {
   const role = getRole();
 
   const items: { href: string; label: string; glyph: string }[] = [
-    { href: "/teacher/overview", label: "Overview", glyph: "◧" },
+    { href: "/teacher/home", label: "Home", glyph: "◧" },
     { href: "/teacher/tests", label: "Test", glyph: "▤" },
   ];
   // Gated the same way SideNav gates the principal's own Papers/Enter Marks/Scan Answer

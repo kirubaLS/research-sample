@@ -86,8 +86,8 @@ export default function TeacherStudentPage({
           <p className="eyebrow">
             {data.student.section_label && (
               <>
-                <Link href="/teacher/overview">Overview</Link> &rsaquo;{" "}
-                <Link href={`/teacher/overview/${data.student.section_id}`}>{data.student.section_label}</Link> &rsaquo;{" "}
+                <Link href="/teacher/home">Home</Link> &rsaquo;{" "}
+                <Link href={`/teacher/home/${data.student.section_id}`}>{data.student.section_label}</Link> &rsaquo;{" "}
               </>
             )}
             {data.student.name}

@@ -1,6 +1,6 @@
 "use client";
 
-// §6.2 -- folded into /teacher/overview/[sectionId], which now also carries the cohort
+// §6.2 -- folded into /teacher/home/[sectionId], which now also carries the cohort
 // snapshot tab this page used to be the only place for. Kept as a redirect.
 
 import { use, useEffect } from "react";
@@ -10,7 +10,7 @@ export default function ClassView({ params }: { params: Promise<{ sectionId: str
   const { sectionId } = use(params);
   const router = useRouter();
   useEffect(() => {
-    router.replace(`/teacher/overview/${sectionId}`);
+    router.replace(`/teacher/home/${sectionId}`);
   }, [router, sectionId]);
   return null;
 }
