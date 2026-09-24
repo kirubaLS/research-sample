@@ -235,6 +235,177 @@ def test_a_skill_anchored_question_is_placed_with_no_chapter(client, school, pap
         db.close()
 
 
+def test_classify_auto_resolves_instead_of_overwriting_a_good_placement_with_blocked_text(
+    client, school, paper, book, monkeypatch,
+):
+    """The regression this fixes: classify re-derives choose_family from scratch against
+    the JUDGE's own curriculum_section, which is frequently None even for a question that
+    mapped cleanly (the judge is not asked to name a section the way retrieval's own
+    locate() is). Before auto_resolve was wired into this path too, a chapter with two
+    genuinely competing, unclaimed families read as freshly "blocked" on every classify
+    run, unconditionally overwriting a perfectly good mapping-time placement with a
+    confusing "N families exist ... settle it in review" message and needs_review=True --
+    observed in production across an entire paper's worth of otherwise cleanly-placed
+    questions. This confirms classify now tries the same real-book-search auto-resolve
+    mapping already gets, and that a resolved placement's reasoning names the resolution
+    rather than repeating the raw blocked text."""
+    from sqlalchemy import select
+
+    from app.api.placement import _run_placement_job
+    from app.classify import anthropic_judge as anthropic_judge_module
+    from app.classify.judge import Classification
+    from app.config import get_settings
+    from app.db import SessionLocal
+    from app.models import (
+        BookChunk, ConceptFamilyProposal, PlacementJob, Question, QuestionPlacement,
+        TaxonomyNode,
+    )
+
+    settings = get_settings()
+    before_key = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    # Arithmetic Progressions, not Statistics: the `book` fixture's AP chapter has one
+    # chunk and no concept family at all, and nothing else in this suite touches its
+    # family count -- Statistics is exercised elsewhere (test_scan_and_map.py's own
+    # stage-2 test, and every plain "one family" mapping test) in ways that assume
+    # exactly what is there today, and this test's own added families would otherwise
+    # make an unrelated chapter's questions genuinely ambiguous for every test that runs
+    # afterward in the same shared database.
+    db = SessionLocal()
+    ap = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.AP"))
+    for code, label in [
+        ("X.MATH.CF.CLASSIFY_STAGE_A", "nth term of an AP"),
+        ("X.MATH.CF.CLASSIFY_STAGE_B", "Sum of n terms of an AP"),
+    ]:
+        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code)) is not None:
+            continue
+        node = TaxonomyNode(
+            kind="concept_family", code=code, label=label, parent_id=ap.id,
+            path=code, curriculum_version=ap.curriculum_version,
+        )
+        db.add(node)
+        db.flush()
+        db.add(ConceptFamilyProposal(
+            curriculum_version=ap.curriculum_version, subject_code="X.MATH",
+            run_id="fixture-classify-stage2", source="llm", model="fixture",
+            code=code, label=label, chapter_id=ap.id, evidence=[], from_sections=[],
+        ))
+    # TF-IDF's idf goes negative for a term shared by every document in a two-document
+    # corpus (see LexicalIndex's own docstring), which the book fixture's AP chapter is
+    # without these -- a real chapter's full chunk count never hits this.
+    for section, text in [
+        ("5.3", "The sum of the first n terms of an arithmetic progression is given by "
+                 "n by 2 times twice the first term plus n minus one times the common "
+                 "difference."),
+        ("5.4", "An arithmetic mean is the average of two numbers placed between them "
+                 "so that all three form an arithmetic progression."),
+        ("5.5", "Applications of arithmetic progressions include simple interest "
+                 "calculations and patterns of seating arrangements."),
+    ]:
+        code = f"X.MATH.AP.CLASSIFY.{section.replace('.', '_')}"
+        if db.scalar(select(BookChunk).where(BookChunk.stem_hash == code)) is not None:
+            continue
+        db.add(BookChunk(
+            curriculum_version=ap.curriculum_version, subject_code="X.MATH",
+            node_id=ap.id, bucket="T", reference=f"Section {section}", text=text,
+            section_number=section, normalised=text.lower(), stem_hash=code,
+        ))
+    db.commit()
+
+    stem_text = "Find the nth term of the arithmetic progression 2, 5, 8, 11, ..."
+    added = client.post(
+        f"/assessments/{paper}/questions", headers=_auth(school),
+        json={"questions": [{
+            "section": "C", "question_no": "9", "max_marks": 3,
+            "stem_text": stem_text,
+            "board_unit": "X.MATH.U.MENSURATION",
+            "concept_family": "X.MATH.CF.VOLUME",
+            "concept_variant": "classify stage2 fixture",
+        }]},
+    )
+    assert added.status_code == 200, added.json()
+    qid = db.scalars(
+        select(Question).where(Question.assessment_id == paper, Question.question_no == "9")
+    ).first().id
+    job = PlacementJob(school_id=school["school_id"], assessment_id=paper)
+    db.add(job)
+    db.commit()
+    job_id = job.id
+    db.close()
+
+    class StubJudge:
+        def classify(self, question, evidence):
+            if "arithmetic progression" in question.lower():
+                # No curriculum_section -- the judge frequently doesn't name one, and
+                # that alone used to be enough to read as "blocked" on classify.
+                return Classification(
+                    chapter="Arithmetic Progressions", tier="Applying",
+                    skill_required="find the nth term of an AP",
+                    reasoning="asks for the nth term", confidence=0.9,
+                )
+            return Classification(
+                chapter="Surface Areas and Volumes", tier="Applying",
+                skill_required="mensuration formula", reasoning="a cone", confidence=0.95,
+            )
+
+    class StubJudgeFactory:
+        def __new__(cls, *a, **kw):
+            return StubJudge()
+
+    # Stand in for the Anthropic call auto_resolve makes -- a real quote from the
+    # fixture's own AP chunk ("the nth term is given by a plus n minus one times d")
+    # is what the guardrail should accept.
+    import sys
+    import types
+
+    from app.mapping.auto_resolve import _FamilyChoice
+
+    class _FakeMessages:
+        def parse(self, **kwargs):
+            class _Response:
+                parsed_output = _FamilyChoice(
+                    family_code="X.MATH.CF.CLASSIFY_STAGE_A",
+                    rationale="the passage gives the formula for the nth term",
+                    quote="the nth term is given by a plus n minus one times d",
+                )
+            return _Response()
+
+    class _FakeAnthropic:
+        def __init__(self, api_key):
+            self.messages = _FakeMessages()
+
+    fake_anthropic = types.ModuleType("anthropic")
+    fake_anthropic.Anthropic = _FakeAnthropic
+    monkeypatch.setitem(sys.modules, "anthropic", fake_anthropic)
+
+    original_judge_class = anthropic_judge_module.AnthropicJudge
+    try:
+        anthropic_judge_module.AnthropicJudge = StubJudgeFactory
+        _run_placement_job(job_id)
+    finally:
+        settings.anthropic_api_key = before_key
+        anthropic_judge_module.AnthropicJudge = original_judge_class
+
+    db = SessionLocal()
+    placement = db.scalars(
+        select(QuestionPlacement)
+        .where(QuestionPlacement.question_id == qid)
+        .order_by(QuestionPlacement.created_at.desc())
+    ).first()
+    assert placement is not None
+    assert placement.needs_review, "auto-resolved is still a machine's first read"
+    assert "Auto-resolved" in placement.reasoning
+    assert "families exist" not in placement.reasoning, (
+        "a resolved placement must not also carry the raw blocked-message text"
+    )
+    question = db.get(Question, qid)
+    assert question.concept_family_id is not None
+    family = db.get(TaxonomyNode, question.concept_family_id)
+    assert family.code == "X.MATH.CF.CLASSIFY_STAGE_A"
+    db.close()
+
+
 def test_the_queue_holds_only_what_still_needs_a_person(client, school, paper):
     from app.db import SessionLocal
     from app.models import Question, QuestionPlacement

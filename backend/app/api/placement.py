@@ -20,6 +20,7 @@ from app.api.books import clean_sections
 from app.api.deps import require_admin, require_paper_scope, require_reader, require_scanner
 from app.classify.pipeline import place_paper
 from app.curriculum import group_subjects
+from app.mapping.auto_resolve import resolve_blocked_family
 from app.mapping.family import Choice, choose_family
 from app.config import get_settings
 from app.db import get_session
@@ -295,6 +296,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             # It settles the question now, exactly as a teacher's correction does, and the
             # mapping step's attempt stays in the placement history.
             choice = Choice(None)
+            auto_resolved: str | None = None
             if question is not None and placed.chapter is None:
                 # Skill-anchored: the judge confidently said this question has no chapter,
                 # and the question record should say the same rather than keep whatever
@@ -313,12 +315,54 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     families.get(chapter.id, []), sections_of,
                     placed.curriculum_section, chapter.label,
                 )
+                if choice.family is None and choice.blocked is not None:
+                    # The mapping step already tries this same auto-resolve (see
+                    # marks.py's map_paper) -- classify re-derives choose_family from
+                    # scratch here, against the judge's OWN curriculum_section, which is
+                    # frequently None even for a question mapping placed cleanly (the
+                    # judge is not asked to name a section the way retrieval's own
+                    # locate() is). Without this, a chapter with several families read as
+                    # newly "blocked" on every single classify run for any subject where
+                    # section detection is unreliable, silently overwriting a perfectly
+                    # good mapping-time placement with a confusing "settle it in review"
+                    # message and needs_review=True -- observed in production across an
+                    # entire paper's worth of otherwise cleanly-placed questions.
+                    resolution = resolve_blocked_family(
+                        db,
+                        api_key=settings.anthropic_api_key,
+                        model=settings.model_classifier,
+                        effort=settings.model_effort,
+                        subject_codes=book_subject_codes,
+                        section=placed.curriculum_section,
+                        stem_text=question.stem_text,
+                        chapter=chapter,
+                        candidates=families.get(chapter.id, []),
+                    )
+                    if resolution is not None:
+                        choice = Choice(resolution.family)
+                        auto_resolved = f"[{resolution.grounded_in}] {resolution.rationale}"
+                        # The section auto_resolve itself found (the exact section's own
+                        # text, or whichever real passage the chapter-wide search actually
+                        # quoted) -- not the judge's, which is exactly what was missing.
+                        import dataclasses
+
+                        placed = dataclasses.replace(
+                            placed,
+                            curriculum_section=placed.curriculum_section or resolution.book_section,
+                        )
                 if choice.family is not None:
-                    question.chapter_id = chapter.id
-                    question.curriculum_section = placed.curriculum_section
                     question.concept_family_id = choice.family.id
-                    if unit_id:
-                        question.board_unit_id = unit_id
+                    # Question's own check constraint (ck_question_chapter_pairing) is
+                    # chapter_id and curriculum_section together or neither -- a chapter
+                    # with no section to pair it with is filed under nothing rather than
+                    # half the pair the constraint forbids. concept_family_id above still
+                    # gets recorded either way: it carries no such pairing rule, and a
+                    # question's family is exactly the fact this whole path exists to fix.
+                    if placed.curriculum_section is not None:
+                        question.chapter_id = chapter.id
+                        question.curriculum_section = placed.curriculum_section
+                        if unit_id:
+                            question.board_unit_id = unit_id
                     settled += 1
                     if choice.unsettled:
                         unsettled += 1
@@ -354,9 +398,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     placed.needs_review
                     or choice.unsettled is not None
                     or choice.blocked is not None
+                    or auto_resolved is not None
                 ),
                 reasoning=" ".join(filter(None, [
                     placed.reasoning, choice.unsettled, choice.blocked,
+                    f"Auto-resolved: {auto_resolved}" if auto_resolved else None,
                 ])),
                 evidence=placed.evidence,
                 candidates=[placed.chapter] if placed.chapter is not None else [],
