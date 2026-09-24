@@ -50,30 +50,28 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
 
   if (!ready) {
     return (
-      <main className="narrow">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Mascot pose="loading" size={28} />
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
-        </div>
-      </main>
+      <div className="loading">
+        <Mascot pose="loading" size={28} />
+        <p className="muted">Loading…</p>
+      </div>
     );
   }
   if (error) {
     return (
-      <main className="narrow">
-        <p className="error">{error}</p>
-      </main>
+      <div className="error-fallback">
+        <p>{error}</p>
+      </div>
     );
   }
   if (!ok) return null;
 
   return (
-    <div className="studentshell">
-      <header className="studenttopbar">
+    <div className="student-shell">
+      <header className="student-top">
         <AvaiLogo height={22} />
         <button
           type="button"
-          className="btn--ghost btn--sm"
+          className="btn btn--ghost btn--sm"
           onClick={() => {
             const token = getStudentSession();
             if (token) void api.studentLogout(token);
@@ -84,15 +82,7 @@ export default function StudentLayout({ children }: { children: React.ReactNode 
           Sign out
         </button>
       </header>
-      <div className="studentbody">{children}</div>
-      <style jsx>{`
-        .studentshell { max-width: 560px; margin: 0 auto; }
-        .studenttopbar {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 14px 20px; border-bottom: 1px solid var(--rule);
-        }
-        .studentbody { padding: 4px 20px 40px; }
-      `}</style>
+      <div className="student-main">{children}</div>
     </div>
   );
 }

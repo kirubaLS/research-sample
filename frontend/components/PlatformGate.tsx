@@ -62,46 +62,52 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
 
   if (!ready) {
     return (
-      <main className="narrow">
+      <div className="loading">
         <p className="muted">Checking your session…</p>
-      </main>
+      </div>
     );
   }
 
   if (!signedIn) {
     return (
-      <main className="narrow">
-        <div className="hero">
-          <p className="eyebrow">Operator console</p>
-          <h1>Platform sign-in</h1>
-          <p className="lede">
-            For whoever runs this deployment. An admin key works here as well as on the
-            dashboard. A principal&rsquo;s key does not; it opens their own school and
-            nothing else.
-          </p>
-        </div>
+      <main className="content" style={{ maxWidth: 460 }}>
+        <p className="eyebrow">Operator console</p>
+        <h1 className="page-title">Platform sign-in</h1>
+        <p className="page-sub">
+          For whoever runs this deployment. An admin key works here as well as on the
+          dashboard. A principal&rsquo;s key does not; it opens their own school and
+          nothing else.
+        </p>
 
         {apiBaseIsDefault() && (
-          <div className="notice warn" style={{ marginTop: 18 }}>
-            This site has not been told where its server is, so it is asking your own
-            computer and nothing will load. Point it at the server and publish it again.
-            Restarting will not fix it on its own.
+          <div className="evidence evidence--gold" style={{ marginTop: 18 }}>
+            <p>
+              This site has not been told where its server is, so it is asking your own
+              computer and nothing will load. Point it at the server and publish it again.
+              Restarting will not fix it on its own.
+            </p>
           </div>
         )}
 
         <form onSubmit={submit} className="card" style={{ marginTop: 22 }}>
-          <div className="field">
-            <label htmlFor="key">Your key</label>
-            <input id="key" name="key" type="password" autoComplete="current-password" required />
-            <p className="hint">
-              An admin key issued from this console. The first time, before any admin key
-              exists, use the setup key chosen when this deployment was created.
-            </p>
+          <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div className="field">
+              <label htmlFor="key">Your key</label>
+              <input id="key" name="key" className="input" type="password" autoComplete="current-password" required />
+              <p className="small muted">
+                An admin key issued from this console. The first time, before any admin key
+                exists, use the setup key chosen when this deployment was created.
+              </p>
+            </div>
+            {error && (
+              <div className="evidence">
+                <p>{error}</p>
+              </div>
+            )}
+            <button type="submit" className="btn btn--primary" disabled={busy}>
+              {busy ? "Checking…" : "Sign in"}
+            </button>
           </div>
-          {error && <p className="error">{error}</p>}
-          <button type="submit" disabled={busy}>
-            {busy ? "Checking…" : "Sign in"}
-          </button>
         </form>
       </main>
     );
@@ -122,7 +128,7 @@ export function PlatformGate({ children }: { children: React.ReactNode }) {
       >
         <span className="small muted">Platform console</span>
         <button
-          className="btn--ghost btn--sm"
+          className="btn btn--ghost btn--sm"
           onClick={() => {
             signOutPlatform();
             setSignedIn(false);

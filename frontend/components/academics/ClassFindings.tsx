@@ -48,28 +48,33 @@ export function ClassFindings({ sectionId, assessmentId }: { sectionId: string; 
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <h2 style={{ marginTop: 0, fontSize: 15 }}>Where this class lost the most marks</h2>
-      <p className="cardnote" style={{ margin: "0 0 14px" }}>
-        On {cohort.assessment_title}, this class only -- {cohort.students_analysed} student
-        {cohort.students_analysed === 1 ? "" : "s"} analysed.
-      </p>
-      <div className="stack" style={{ gap: 10 }}>
-        {cohort.top_losses.slice(0, 5).map((loss) => (
-          <div key={loss.concept_family} className="row between" style={{ alignItems: "flex-start", gap: 12 }}>
-            <div>
-              <div className="strong">{loss.label}</div>
-              <div className="small muted">
-                {loss.students_affected} student{loss.students_affected === 1 ? "" : "s"} lost an
-                average of {loss.avg_marks_lost.toFixed(1)} marks
-                {loss.board_urgency && ` · ${URGENCY_LABEL[loss.board_urgency] ?? loss.board_urgency}`}
+      <div className="card__body">
+        <h2 style={{ marginTop: 0, fontSize: 15 }}>Where this class lost the most marks</h2>
+        <p className="small muted" style={{ margin: "0 0 14px" }}>
+          On {cohort.assessment_title}, this class only -- {cohort.students_analysed} student
+          {cohort.students_analysed === 1 ? "" : "s"} analysed.
+        </p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+          {cohort.top_losses.slice(0, 5).map((loss) => (
+            <div
+              key={loss.concept_family}
+              style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}
+            >
+              <div>
+                <div style={{ fontWeight: 600 }}>{loss.label}</div>
+                <div className="small muted">
+                  {loss.students_affected} student{loss.students_affected === 1 ? "" : "s"} lost an
+                  average of {loss.avg_marks_lost.toFixed(1)} marks
+                  {loss.board_urgency && ` · ${URGENCY_LABEL[loss.board_urgency] ?? loss.board_urgency}`}
+                </div>
               </div>
+              <span className="small muted" style={{ whiteSpace: "nowrap" }}>
+                {loss.confidence === "HIGH" ? "High confidence"
+                  : loss.confidence === "MEDIUM" ? "Medium confidence" : "Emerging (few students)"}
+              </span>
             </div>
-            <span className="small muted" style={{ whiteSpace: "nowrap" }}>
-              {loss.confidence === "HIGH" ? "High confidence"
-                : loss.confidence === "MEDIUM" ? "Medium confidence" : "Emerging (few students)"}
-            </span>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     </div>
   );

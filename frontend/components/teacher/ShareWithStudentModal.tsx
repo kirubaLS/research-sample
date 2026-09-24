@@ -60,76 +60,83 @@ export function ShareWithStudentModal({
   }
 
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="card sharemodal" onClick={(e) => e.stopPropagation()}>
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
         {shared ? (
           <>
-            <h3 style={{ marginTop: 0 }}>{picked?.shared ? "New PIN issued" : "Report shared"}</h3>
-            <p className="cardnote">
-              Give this {picked?.shared ? "new " : ""}PIN to {studentName} (or their parent), along
-              with the class code <strong>{shared.class_code}</strong> and roll number{" "}
-              <strong>{shared.roll_no}</strong>. {shared.pin_notice}
-            </p>
-            <CopySecret value={shared.pin} />
-            <button type="button" className="btn--ghost" style={{ marginTop: 10 }} onClick={onClose}>
-              Done
-            </button>
+            <div className="modal__head">
+              <h3 style={{ margin: 0 }}>{picked?.shared ? "New PIN issued" : "Report shared"}</h3>
+            </div>
+            <div className="modal__body">
+              <p className="muted">
+                Give this {picked?.shared ? "new " : ""}PIN to {studentName} (or their parent), along
+                with the class code <strong>{shared.class_code}</strong> and roll number{" "}
+                <strong>{shared.roll_no}</strong>. {shared.pin_notice}
+              </p>
+              <CopySecret value={shared.pin} />
+            </div>
+            <div className="modal__foot">
+              <button type="button" className="btn btn--ghost" onClick={onClose}>
+                Done
+              </button>
+            </div>
           </>
         ) : (
           <>
-            <h3 style={{ marginTop: 0 }}>
-              {picked?.shared ? `Reset ${studentName}'s PIN?` : `Share a report with ${studentName}?`}
-            </h3>
-            {error && <p className="error">{error}</p>}
-            {!reports && !error && <p className="muted">Loading…</p>}
-            {reports && reports.length === 0 && (
-              <p className="cardnote">
-                No report has been issued for {studentName} yet -- a principal issues one
-                from the student's own page before it can be shared.
-              </p>
-            )}
-            {reports && reports.length > 1 && (
-              <div className="field">
-                <label htmlFor="reportPick">Which report?</label>
-                <select
-                  id="reportPick"
-                  value={picked?.report_id ?? ""}
-                  onChange={(e) => setPicked(reports.find((r) => r.report_id === e.target.value) ?? null)}
-                >
-                  <option value="" disabled>Choose a report</option>
-                  {reports.map((r) => (
-                    <option key={r.report_id} value={r.report_id}>
-                      {r.assessment_title ?? "Report"}: {r.earned}/{r.available}
-                      {r.shared ? " (already shared)" : ""}
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
-            {picked && (
-              <p className="cardnote">
-                {picked.shared
-                  ? `This gives ${studentName} a fresh PIN for “${picked.assessment_title ?? "this report"}” -- the PIN already handed out stops working the moment this issues.`
-                  : `This lets ${studentName} sign in and see “${picked.assessment_title ?? "this report"}”.`}
-              </p>
-            )}
-            <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-              <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
-              <button type="button" disabled={!picked || busy} onClick={share}>
+            <div className="modal__head">
+              <h3 style={{ margin: 0 }}>
+                {picked?.shared ? `Reset ${studentName}'s PIN?` : `Share a report with ${studentName}?`}
+              </h3>
+            </div>
+            <div className="modal__body">
+              {error && (
+                <div className="evidence">
+                  <p>{error}</p>
+                </div>
+              )}
+              {!reports && !error && <p className="muted">Loading…</p>}
+              {reports && reports.length === 0 && (
+                <p className="muted">
+                  No report has been issued for {studentName} yet -- a principal issues one
+                  from the student's own page before it can be shared.
+                </p>
+              )}
+              {reports && reports.length > 1 && (
+                <div className="field">
+                  <label htmlFor="reportPick">Which report?</label>
+                  <select
+                    id="reportPick"
+                    className="select"
+                    value={picked?.report_id ?? ""}
+                    onChange={(e) => setPicked(reports.find((r) => r.report_id === e.target.value) ?? null)}
+                  >
+                    <option value="" disabled>Choose a report</option>
+                    {reports.map((r) => (
+                      <option key={r.report_id} value={r.report_id}>
+                        {r.assessment_title ?? "Report"}: {r.earned}/{r.available}
+                        {r.shared ? " (already shared)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {picked && (
+                <p className="muted">
+                  {picked.shared
+                    ? `This gives ${studentName} a fresh PIN for “${picked.assessment_title ?? "this report"}” -- the PIN already handed out stops working the moment this issues.`
+                    : `This lets ${studentName} sign in and see “${picked.assessment_title ?? "this report"}”.`}
+                </p>
+              )}
+            </div>
+            <div className="modal__foot">
+              <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+              <button type="button" className="btn btn--primary" disabled={!picked || busy} onClick={share}>
                 {busy ? "Working…" : picked?.shared ? "Reset PIN" : "Share with student"}
               </button>
             </div>
           </>
         )}
       </div>
-      <style jsx>{`
-        .modal-overlay {
-          position: fixed; inset: 0; background: rgba(20, 33, 61, 0.45);
-          display: flex; align-items: flex-start; justify-content: center;
-          padding: 10vh 16px 0; z-index: 60;
-        }
-        .sharemodal { max-width: 420px; width: 100%; margin: 0; }
-      `}</style>
     </div>
   );
 }

@@ -13,10 +13,10 @@
 import type { ClassStudentRow } from "@/lib/api";
 
 const SCORE_BANDS: { label: string; min: number; max: number; color: string }[] = [
-  { label: "90-100%", min: 90, max: 100, color: "var(--verify)" },
-  { label: "75-89%", min: 75, max: 89, color: "var(--verify-2, var(--verify))" },
+  { label: "90-100%", min: 90, max: 100, color: "var(--brand-green)" },
+  { label: "75-89%", min: 75, max: 89, color: "var(--brand-teal)" },
   { label: "60-74%", min: 60, max: 74, color: "var(--info)" },
-  { label: "40-59%", min: 40, max: 59, color: "var(--warn)" },
+  { label: "40-59%", min: 40, max: 59, color: "var(--brand-gold)" },
   { label: "0-39%", min: 0, max: 39, color: "var(--risk)" },
 ];
 
@@ -32,32 +32,32 @@ export function ScoreDistribution({ students }: { students: ClassStudentRow[] })
 
   return (
     <div className="card" style={{ marginBottom: 20 }}>
-      <h2 style={{ marginTop: 0, fontSize: 15 }}>Score distribution</h2>
-      <p className="cardnote" style={{ margin: "0 0 14px" }}>
-        {scored.length} student{scored.length === 1 ? "" : "s"} with a score, by band.
-        {notAssessed > 0 && ` ${notAssessed} not yet assessed and left out -- there is no score to place.`}
-      </p>
-      <div className="distbars">
-        {SCORE_BANDS.map((band, i) => (
-          <div className="distbar-row" key={band.label}>
-            <span className="distbar-label">{band.label}</span>
-            <div className="distbar-track">
-              <div
-                className="distbar-fill"
-                style={{ width: `${(counts[i] / max) * 100}%`, background: band.color }}
-              />
+      <div className="card__body">
+        <h2 style={{ marginTop: 0, fontSize: 15 }}>Score distribution</h2>
+        <p className="small muted" style={{ margin: "0 0 14px" }}>
+          {scored.length} student{scored.length === 1 ? "" : "s"} with a score, by band.
+          {notAssessed > 0 && ` ${notAssessed} not yet assessed and left out -- there is no score to place.`}
+        </p>
+        <div className="distbars">
+          {SCORE_BANDS.map((band, i) => (
+            <div className="distbar-row" key={band.label}>
+              <span className="small distbar-label">{band.label}</span>
+              <div className="bar">
+                <div
+                  className="bar__fill"
+                  style={{ width: `${(counts[i] / max) * 100}%`, background: band.color }}
+                />
+              </div>
+              <span className="small distbar-value">{counts[i]}</span>
             </div>
-            <span className="distbar-value">{counts[i]}</span>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
       <style jsx>{`
         .distbars { display: flex; flex-direction: column; gap: 8px; }
         .distbar-row { display: grid; grid-template-columns: 64px 1fr 28px; align-items: center; gap: 10px; }
-        .distbar-label { font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
-        .distbar-track { height: 10px; border-radius: 999px; background: var(--rule); overflow: hidden; }
-        .distbar-fill { height: 100%; border-radius: 999px; transition: width 0.3s ease; }
-        .distbar-value { font-size: 12.5px; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+        .distbar-label { font-weight: 600; color: var(--brand-ink-soft); }
+        .distbar-value { color: var(--brand-ink-soft); text-align: right; font-variant-numeric: tabular-nums; }
       `}</style>
     </div>
   );

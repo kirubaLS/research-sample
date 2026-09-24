@@ -38,16 +38,17 @@ function pct(rate: number | null): string {
   return rate === null ? "not scored" : `${Math.round(rate * 100)}%`;
 }
 
-function confidenceBadgeClass(confidence: Finding["confidence"]): string {
-  if (confidence === "HIGH") return "badge green";
-  if (confidence === "MEDIUM") return "badge amber";
-  return "badge";
+function confClass(confidence: Finding["confidence"]): string {
+  if (confidence === "HIGH") return "conf--high";
+  if (confidence === "MEDIUM") return "conf--medium";
+  return "conf--emerging";
 }
 
-function urgencyBadgeClass(tier: string | null | undefined): string {
-  if (tier === "VERY HIGH" || tier === "HIGH") return "badge red";
-  if (tier === "MEDIUM") return "badge amber";
-  return "badge green";
+function urgClass(tier: string | null | undefined): string {
+  if (tier === "VERY HIGH") return "urg--very_high";
+  if (tier === "HIGH") return "urg--high";
+  if (tier === "MEDIUM") return "urg--medium";
+  return "urg--low";
 }
 
 /** Plain words for what a Wilson interval is really saying -- a teacher or a parent has
@@ -78,29 +79,34 @@ export function Diagnosis({
   const total = report.total;
 
   return (
-    <section className="diag">
-      <header className="diaghead">
-        <div>
-          <h2>{report.assessment_title}</h2>
-          <p className="who">
-            {student.name} · roll {student.roll_no}
-          </p>
+    <section className="section">
+      <div className="card" style={{ marginBottom: 20 }}>
+        <div
+          className="card__body"
+          style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 14, flexWrap: "wrap" }}
+        >
+          <div>
+            <h2 className="page-title" style={{ fontSize: 20 }}>{report.assessment_title}</h2>
+            <p className="muted" style={{ marginTop: 4 }}>
+              {student.name} · roll {student.roll_no}
+            </p>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <div className="stat__value">
+              {total.earned} / {total.available}
+            </div>
+            <div className="stat__label" style={{ textTransform: "none" }}>
+              {pct(total.rate)} across {total.questions} question
+              {total.questions === 1 ? "" : "s"}
+            </div>
+          </div>
+          <button className="btn btn--ghost btn--sm printbtn" onClick={() => window.print()}>
+            Print or save as PDF
+          </button>
         </div>
-        <div className="score">
-          <strong>
-            {total.earned} / {total.available}
-          </strong>
-          <span className="muted">
-            {pct(total.rate)} across {total.questions} question
-            {total.questions === 1 ? "" : "s"}
-          </span>
-        </div>
-        <button className="secondary printbtn" onClick={() => window.print()}>
-          Print or save as PDF
-        </button>
-      </header>
+      </div>
 
-      <p className="axisnote">
+      <p className="muted" style={{ fontSize: 13.5, maxWidth: "68ch" }}>
         Grouped by {axis.toLowerCase()}, the finest grouping this paper supports. Every
         figure below shows the marks it was computed from, and any topic with too little
         in this paper says so rather than showing a percentage.
@@ -110,24 +116,22 @@ export function Diagnosis({
         title="Strengths"
         empty="No topic in this paper cleared the bar for a strength."
         findings={report.strengths}
-        tone="good"
       />
       <Band
         title="Where to work next"
         empty="Nothing in this paper stands out as needing attention first."
         findings={report.focus}
-        tone="focus"
       />
 
       {report.tier_summary.length > 0 && (
         <>
-          <h3>By what the question asked for</h3>
-          <p className="note">
+          <h3 className="section-q" style={{ marginTop: 26, marginBottom: 6 }}>By what the question asked for</h3>
+          <p className="muted" style={{ fontSize: 13.5, maxWidth: "68ch" }}>
             High recall with low application on the same material is the &ldquo;knows the
             formula, cannot apply it&rdquo; signature. It is only visible when the paper
             contains both, which is why each row carries its own question count.
           </p>
-          <div className="rows">
+          <div className="grid" style={{ gap: 8, marginTop: 10 }}>
             {report.tier_summary.map((f) => (
               <Row key={f.key} finding={f} label={readable(f)} />
             ))}
@@ -135,8 +139,8 @@ export function Diagnosis({
         </>
       )}
 
-      <h3>Every {axis.toLowerCase()} in this paper</h3>
-      <div className="rows">
+      <h3 className="section-q" style={{ marginTop: 26, marginBottom: 6 }}>Every {axis.toLowerCase()} in this paper</h3>
+      <div className="grid" style={{ gap: 8 }}>
         {report.topics.map((f) => (
           <Row key={f.key} finding={f} label={readable(f)} compact />
         ))}
@@ -144,17 +148,17 @@ export function Diagnosis({
 
       {report.coverage_gaps.length > 0 && (
         <>
-          <h3>What this paper did not test</h3>
-          <p className="note">
+          <h3 className="section-q" style={{ marginTop: 26, marginBottom: 6 }}>What this paper did not test</h3>
+          <p className="muted" style={{ fontSize: 13.5, maxWidth: "68ch" }}>
             These carry marks in the board&rsquo;s own weighting, so a result here says
             nothing about them either way.
           </p>
-          <ul className="gaps">
+          <ul className="list-plain muted" style={{ fontSize: 13.5 }}>
             {report.coverage_gaps.map((g) => (
               <li key={g.board_unit}>
                 {/* board_weight is already a percentage. Multiplying by 100 here printed
                     "600% of board marks" for a unit worth 6%. */}
-                <strong>{g.label}</strong> · {Math.round(g.board_weight)}% of board marks.{" "}
+                <strong className="text">{g.label}</strong> · {Math.round(g.board_weight)}% of board marks.{" "}
                 {g.message}
               </li>
             ))}
@@ -163,7 +167,7 @@ export function Diagnosis({
       )}
 
       {report.not_offered.length > 0 && (
-        <p className="note">
+        <p className="muted" style={{ fontSize: 13.5, maxWidth: "68ch", marginTop: 14 }}>
           {report.not_offered.length} question
           {report.not_offered.length === 1 ? " was" : "s were"} the unattempted half of a
           choice. Those are left out of every figure above: choosing not to answer one of
@@ -173,31 +177,8 @@ export function Diagnosis({
       )}
 
       <style jsx>{`
-        .diag { margin-top: 26px; }
-        .diaghead {
-          display: flex; align-items: flex-start; justify-content: space-between;
-          gap: 14px; flex-wrap: wrap; padding: 20px 22px; margin-bottom: 6px;
-          background: var(--surface); border: 1px solid var(--rule);
-          border-radius: var(--radius); box-shadow: var(--shadow-sm);
-        }
-        .diaghead h2 { margin: 0; font-size: 22px; }
-        .who { margin: 2px 0 0; color: var(--ink-2); }
-        .score { text-align: right; }
-        .score strong {
-          display: block; font-size: 32px; font-weight: 800;
-          font-family: var(--font-display), sans-serif; letter-spacing: -0.02em;
-        }
-        .score span { font-size: 13px; color: var(--ink-3); }
-        .axisnote, .note { color: var(--ink-2); font-size: 14px; max-width: 68ch; }
-        h3 { margin: 26px 0 6px; font-size: 17px; }
-        .rows { display: grid; gap: 8px; }
-        .gaps { padding-left: 18px; color: var(--ink-2); font-size: 14px; }
-        .gaps li { margin-bottom: 4px; }
-        .printbtn { align-self: center; }
         @media print {
           .printbtn { display: none; }
-          .diag { margin-top: 0; }
-          h3 { break-after: avoid; }
         }
       `}</style>
     </section>
@@ -208,30 +189,23 @@ function Band({
   title,
   findings,
   empty,
-  tone,
 }: {
   title: string;
   findings: Finding[];
   empty: string;
-  tone: "good" | "focus";
 }) {
   return (
     <>
-      <h3>{title}</h3>
+      <h3 className="section-q" style={{ marginTop: 26, marginBottom: 6 }}>{title}</h3>
       {findings.length === 0 ? (
-        <p className="note">{empty}</p>
+        <p className="muted" style={{ fontSize: 13.5, maxWidth: "68ch" }}>{empty}</p>
       ) : (
-        <div className="rows">
+        <div className="grid" style={{ gap: 8 }}>
           {findings.map((f) => (
-            <Row key={`${f.scope}-${f.key}`} finding={f} label={readable(f)} tone={tone} />
+            <Row key={`${f.scope}-${f.key}`} finding={f} label={readable(f)} />
           ))}
         </div>
       )}
-      <style jsx>{`
-        h3 { margin: 26px 0 6px; font-size: 17px; }
-        .note { color: var(--ink-2); font-size: 14px; max-width: 68ch; }
-        .rows { display: grid; gap: 8px; }
-      `}</style>
     </>
   );
 }
@@ -239,12 +213,10 @@ function Band({
 function Row({
   finding,
   label,
-  tone,
   compact,
 }: {
   finding: Finding;
   label: string;
-  tone?: "good" | "focus";
   /** The full list repeats what the two bands above already showed. On paper its proof
       stays folded, so a printed sheet does not carry every question twice. */
   compact?: boolean;
@@ -253,26 +225,26 @@ function Row({
   const width = finding.rate === null ? 0 : Math.round(finding.rate * 100);
 
   return (
-    <div className={`row ${tone ?? ""}${finding.sufficient ? "" : " thin"}`}>
-      <div className="top">
-        <div className="labelwrap">
+    <div className={`finding${finding.sufficient ? "" : " finding--not-localized"}${compact ? " finding--compact" : ""}`}>
+      <div className="finding__head">
+        <div>
           {/* A concept or sub-topic name means little on its own -- "Finding the mean of
               ungrouped data" is unplaceable without "Statistics" in front of it. */}
-          {finding.chapter && <span className="chapter">{finding.chapter}</span>}
-          <span className="label">{label}</span>
+          {finding.chapter && <div className="finding__subject">{finding.chapter}</div>}
+          <div className="finding__title" style={{ fontSize: 15 }}>{label}</div>
         </div>
-        <span className="figure">
+        <span>
           {finding.sufficient ? (
             <>
               <strong>{pct(finding.rate)}</strong>
-              <span className="muted">
+              <span className="muted small">
                 {" "}
                 · {finding.earned} of {finding.available} marks over {finding.questions}{" "}
                 question{finding.questions === 1 ? "" : "s"}
               </span>
             </>
           ) : (
-            <span className="thintext">
+            <span className="muted small" style={{ fontStyle: "italic" }}>
               {finding.message ?? "not enough in this paper to report a figure"}
             </span>
           )}
@@ -280,47 +252,52 @@ function Row({
       </div>
 
       {(finding.sufficient || finding.board?.urgency_tier) && (
-        <div className="badges">
+        <div className="finding__status">
           {finding.sufficient && (
-            <span className={confidenceBadgeClass(finding.confidence)}>
+            <span className={`conf ${confClass(finding.confidence)}`}>
+              <span className="conf__dots">
+                <span className="conf__dot" />
+                <span className="conf__dot" />
+                <span className="conf__dot" />
+              </span>
               {finding.confidence} confidence
             </span>
           )}
           {finding.board?.urgency_tier && (
-            <span className={urgencyBadgeClass(finding.board.urgency_tier)}>
+            <span className={`urg ${urgClass(finding.board.urgency_tier)}`}>
               Board urgency: {finding.board.urgency_tier}
             </span>
           )}
           {finding.board?.board_weight_pct != null && (
-            <span className="badge blue">
+            <span className="tag tag--info">
               {Math.round(finding.board.board_weight_pct)}% of board marks
             </span>
           )}
         </div>
       )}
-      {finding.board?.note && <p className="boardnote">{finding.board.note}</p>}
+      {finding.board?.note && <p className="finding__obs">{finding.board.note}</p>}
 
       {finding.sufficient && (
-        <>
-          <div className="track" aria-hidden>
-            <div className="fill" style={{ width: `${width}%` }} />
+        <div style={{ padding: "10px 18px 0" }}>
+          <div className="bar" aria-hidden>
+            <div className="bar__fill" style={{ width: `${width}%` }} />
           </div>
           {finding.ci && (
-            <p className="ci">{reliabilityNote(finding.confidence, finding.questions)}</p>
+            <p className="muted small" style={{ marginTop: 6 }}>{reliabilityNote(finding.confidence, finding.questions)}</p>
           )}
-        </>
+        </div>
       )}
 
       {finding.evidence.length > 0 && (
-        <div className="proofwrap">
-          <button className="link" onClick={() => setOpen(!open)}>
+        <div className="finding__foot proofwrap">
+          <button type="button" className="btn--link" onClick={() => setOpen(!open)}>
             {open ? "Hide" : "Show"} the {finding.evidence.length} question
             {finding.evidence.length === 1 ? "" : "s"} behind this
           </button>
           {/* Always in the DOM, hidden with CSS when collapsed. Rendering it only when
               open kept it out of the printed sheet entirely, and a printed report without
               the questions behind each figure is exactly the thing a parent cannot check. */}
-          <ul className={`proof${open ? "" : " collapsed"}${compact ? " compact" : ""}`}>
+          <ul className={`list-plain proof${open ? "" : " collapsed"}${compact ? " compact" : ""}`}>
             {finding.evidence.map((p, i) => (
               <ProofRow key={`${p.question_no}-${i}`} proof={p} />
             ))}
@@ -329,40 +306,13 @@ function Row({
       )}
 
       <style jsx>{`
-        .row {
-          border: 1px solid var(--rule); border-left: 4px solid var(--rule-2);
-          border-radius: var(--radius-sm); padding: 12px 14px; background: var(--surface);
-          box-shadow: var(--shadow-xs);
-        }
-        .row.good { border-left-color: var(--verify); }
-        .row.focus { border-left-color: var(--warn); }
-        .row.thin { border-left-color: var(--rule-2); background: var(--surface-2); }
-        .top { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
-        .labelwrap { display: flex; flex-direction: column; gap: 1px; }
-        .chapter {
-          font-size: 11px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
-          color: var(--mark);
-        }
-        .label { font-weight: 600; }
-        .figure { font-size: 14px; }
-        .thintext { color: var(--ink-3); font-style: italic; }
-        .badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-        .boardnote { margin: 6px 0 0; font-size: 12.5px; color: var(--ink-2); }
-        .track { height: 6px; background: var(--surface-2); border-radius: 999px; margin-top: 8px; }
-        .fill { height: 6px; background: var(--mark); border-radius: 999px; }
-        .ci { margin: 6px 0 0; font-size: 12px; color: var(--ink-3); }
-        .proofwrap { margin-top: 8px; }
-        .link {
-          background: none; border: 0; padding: 0; color: var(--mark);
-          text-decoration: underline; font-size: 13px; cursor: pointer;
-        }
-        .proof { margin: 8px 0 0; padding-left: 16px; display: grid; gap: 8px; }
+        .proofwrap { display: block; }
+        .proof { margin: 8px 0 0; }
         .proof.collapsed { display: none; }
         @media print {
-          .link { display: none; }
+          .proofwrap :global(.btn--link) { display: none; }
           .proof.collapsed { display: grid; }
           .proof.collapsed.compact { display: none; }
-          .row { break-inside: avoid; }
         }
       `}</style>
     </div>
@@ -414,12 +364,12 @@ function ProofRow({ proof }: { proof: Proof }) {
       ) : null}
 
       <style jsx>{`
-        .p { font-size: 13px; color: var(--ink-2); }
+        .p { font-size: 13px; color: var(--brand-ink-soft); }
         .q { font-weight: 600; }
-        .sep { color: var(--rule-2); margin: 0 6px; }
-        .marks { color: var(--ink-2); }
-        .stem { margin: 3px 0; color: var(--ink-2); }
-        .meta { margin: 2px 0; color: var(--ink-3); font-size: 12px; }
+        .sep { color: var(--line-strong); margin: 0 6px; }
+        .marks { color: var(--brand-ink-soft); }
+        .stem { margin: 3px 0; color: var(--brand-ink-soft); }
+        .meta { margin: 2px 0; color: var(--muted); font-size: 12px; }
       `}</style>
     </li>
   );

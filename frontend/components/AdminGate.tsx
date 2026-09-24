@@ -113,14 +113,12 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
 
   if (!ready || !signedIn) {
     return (
-      <main className="narrow">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Mascot pose="loading" size={28} />
-          <p className="muted" style={{ margin: 0 }}>
-            {ready ? "Taking you to the right place…" : "Checking your session…"}
-          </p>
-        </div>
-      </main>
+      <div className="loading">
+        <Mascot pose="loading" size={28} />
+        <p className="muted">
+          {ready ? "Taking you to the right place…" : "Checking your session…"}
+        </p>
+      </div>
     );
   }
 
@@ -140,9 +138,9 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
         </div>
       )}
       {stale && (
-        <p className="notice warn" style={{ maxWidth: "var(--max)", margin: "0 auto 12px" }}>
-          {stale}
-        </p>
+        <div className="evidence evidence--gold" style={{ maxWidth: "var(--max)", margin: "0 auto 12px" }}>
+          <p>{stale}</p>
+        </div>
       )}
       {needsSchool ? (
         <SchoolPicker
@@ -183,31 +181,35 @@ function SchoolPicker({ onPick }: { onPick: (id: string) => void }) {
   }, []);
 
   return (
-    <main className="narrow">
-      <div className="hero">
-        <p className="eyebrow">Admin</p>
-        <h1>Which school?</h1>
-        <p className="lede">
-          Your key works across every school on this deployment, so nothing is loaded until
-          you say which one. You can switch at any time from the bar above.
-        </p>
-      </div>
+    <main className="content" style={{ maxWidth: 560 }}>
+      <p className="eyebrow">Admin</p>
+      <h1 className="page-title">Which school?</h1>
+      <p className="page-sub">
+        Your key works across every school on this deployment, so nothing is loaded until
+        you say which one. You can switch at any time from the bar above.
+      </p>
 
-      {error && <p className="error">{error}</p>}
-      {!error && schools.length === 0 && <p className="muted">Loading schools…</p>}
+      {error && (
+        <div className="evidence" style={{ marginTop: 18 }}>
+          <p>{error}</p>
+        </div>
+      )}
+      {!error && schools.length === 0 && <p className="muted" style={{ marginTop: 18 }}>Loading schools…</p>}
 
-      <div className="stack" style={{ gap: 10, marginTop: 18 }}>
+      <div className="grid" style={{ gap: 10, marginTop: 18 }}>
         {schools.map((s) => (
           <button
             key={s.id}
-            className="card schoolpick"
+            className="card card--hover schoolpick"
             onClick={() => onPick(s.id)}
             type="button"
           >
-            <span className="schoolname">{s.name}</span>
-            <span className="cardnote">
-              {s.students} student{s.students === 1 ? "" : "s"}
-            </span>
+            <div className="card__body">
+              <span className="schoolname">{s.name}</span>
+              <span className="small muted schoolcount">
+                {s.students} student{s.students === 1 ? "" : "s"}
+              </span>
+            </div>
           </button>
         ))}
       </div>
@@ -222,24 +224,17 @@ function SchoolPicker({ onPick }: { onPick: (id: string) => void }) {
           display: block;
           width: 100%;
           text-align: left;
-          background: var(--surface, #fff);
+          font: inherit;
           color: inherit;
-          border: 1px solid var(--rule, #e3e3e6);
-          cursor: pointer;
-          animation: rise-in 0.4s var(--ease, ease) both;
-        }
-        .schoolpick:hover {
-          border-color: var(--mark-2, #16324f);
-          transform: translateY(-2px);
-          box-shadow: var(--shadow);
+          border: none;
+          padding: 0;
         }
         .schoolname {
           display: block;
-          font-size: 19px;
-          font-weight: 600;
-          color: var(--ink, #16324f);
+          font-size: 17px;
+          font-weight: 650;
         }
-        .cardnote {
+        .schoolcount {
           display: block;
           margin-top: 4px;
         }

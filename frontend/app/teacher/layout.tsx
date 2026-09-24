@@ -54,19 +54,17 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
 
   if (!ready) {
     return (
-      <main className="narrow">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Mascot pose="loading" size={28} />
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
-        </div>
-      </main>
+      <div className="loading">
+        <Mascot pose="loading" size={28} />
+        <p className="muted">Loading…</p>
+      </div>
     );
   }
   if (error) {
     return (
-      <main className="narrow">
-        <p className="error">{error}</p>
-      </main>
+      <div className="error-fallback">
+        <p>{error}</p>
+      </div>
     );
   }
   if (!ok) return null;
