@@ -5,7 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Camera, CheckCircle2, ChevronDown, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { usePaperScan, toFiles } from "@/lib/usePaperScan";
-import { FilePickButtons } from "@/components/FilePickButtons";
+import { Scanner } from "@/components/Scanner";
 
 /** One subject's real question-paper pipeline: create/open a paper, scan it (photo or
  * file), confirm the reading, map it against the book and classify every question -- the
@@ -286,8 +286,11 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
         </div>
       )}
 
-      {/* Camera capture -- reuses the same page-capture flow the single-student
-          answer-script scanner uses (pageStore + toFiles). */}
+      {/* Camera capture -- the real multi-page flow (lib/pageStore.ts + lib/quality.ts):
+          live camera, a quality gate that locks the shutter until a page is actually
+          readable, per-page retake/undo/redo, then one Complete hands every captured page
+          to scan.onFiles at once -- not a single-photo picker that could only ever submit
+          one page per upload. */}
       <AnimatePresence>
         {scan.showCamera && (
           <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => scan.setShowCamera(false)}>
@@ -299,15 +302,14 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
                 </button>
               </div>
               <div className="modal__body">
-                <FilePickButtons
-                  accept="image/*"
-                  fileLabel="Choose photo"
-                  onPick={(file) => {
+                <Scanner
+                  sessionId={scan.scanSessionId}
+                  mode="script"
+                  onComplete={async (pages) => {
                     scan.setShowCamera(false);
-                    void scan.onFiles([file]);
+                    await scan.onFiles(toFiles(pages));
                   }}
                 />
-                <p className="small muted">Photograph each page, one at a time; each upload adds to this paper's pages.</p>
               </div>
             </motion.div>
           </motion.div>
