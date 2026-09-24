@@ -1579,8 +1579,9 @@ def map_paper_to_book(
             )
             if resolution is not None:
                 family = resolution.family
-                auto_resolved = f"from the {resolution.grounded_in}: {resolution.rationale}"
-                sections_of.setdefault(family.code, set()).add(section)
+                auto_resolved = f"[{resolution.grounded_in}] {resolution.rationale}"
+                if resolution.book_section:
+                    sections_of.setdefault(family.code, set()).add(resolution.book_section)
         if family is None:
             row.blocked_reason = choice.blocked
             blocked.append(row.address)

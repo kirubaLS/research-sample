@@ -541,6 +541,7 @@ def test_a_blocked_question_is_auto_resolved_when_the_book_settles_it(
                 parsed_output = _FamilyChoice(
                     family_code="X.MATH.CF.MEAN_STEP_DEVIATION",
                     rationale="the passage explains computing the mean by step-deviation",
+                    quote="uses an assumed mean and a common class size h",
                 )
             return _Response()
 
@@ -571,52 +572,83 @@ def test_a_blocked_question_is_auto_resolved_when_the_book_settles_it(
     assert "Auto-resolved" in q1["mapped_to"]["review_reason"]
 
 
-def test_auto_resolve_falls_back_to_the_question_s_own_text(monkeypatch):
-    """Stage 2 of auto_resolve: no book chunk was ingested for the section at all (a real
-    gap -- an ingestion miss, or a subtopic node created without its chunk), so there is
-    nothing of the book's own to check a book-grounded answer against. The question's own
-    text is the fallback signal, and it is still real -- the guardrail below is what keeps
-    it from becoming a hallucination anyway."""
+def test_auto_resolve_searches_the_chapter_when_the_exact_section_has_no_chunk(book, monkeypatch):
+    """Stage 2 of auto_resolve: no chunk carries this exact section number (a numbering
+    mismatch, or a genuine ingestion gap), so the whole chapter's already-ingested chunks
+    are searched instead of falling back to the bare question text. The fixture's own
+    Statistics chapter has two real chunks (13.2 mean, 13.3 mode/modal class); a question
+    about the modal class should be found via the 13.3 chunk, and the model is required to
+    quote real words from whichever passage it was actually shown."""
     from sqlalchemy import select
 
     from app.db import SessionLocal
-    from app.mapping.auto_resolve import _GroundedFamilyChoice, resolve_blocked_family
+    from app.mapping.auto_resolve import _FamilyChoice, resolve_blocked_family
     from app.models import ConceptFamilyProposal, TaxonomyNode
+
+    from app.models import BookChunk
 
     db = SessionLocal()
     stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
-    made: list[TaxonomyNode] = []
     for code, label in [
         ("X.MATH.CF.STAGE2_A", "Modal class of grouped data"),
         ("X.MATH.CF.STAGE2_B", "Cumulative frequency and the ogive"),
     ]:
-        existing = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
-        if existing is None:
-            existing = TaxonomyNode(
-                kind="concept_family", code=code, label=label, parent_id=stats.id,
-                path=code, curriculum_version=stats.curriculum_version,
-            )
-            db.add(existing)
-            db.flush()
-            db.add(ConceptFamilyProposal(
-                curriculum_version=stats.curriculum_version, subject_code="X.MATH",
-                run_id="fixture-stage2", source="llm", model="fixture",
-                code=code, label=label, chapter_id=stats.id,
-                evidence=[], from_sections=[],
-            ))
-        made.append(existing)
+        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code)) is not None:
+            continue
+        node = TaxonomyNode(
+            kind="concept_family", code=code, label=label, parent_id=stats.id,
+            path=code, curriculum_version=stats.curriculum_version,
+        )
+        db.add(node)
+        db.flush()
+        db.add(ConceptFamilyProposal(
+            curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+            run_id="fixture-stage2", source="llm", model="fixture",
+            code=code, label=label, chapter_id=stats.id,
+            evidence=[], from_sections=[],
+        ))
+    # TF-IDF's idf goes negative for a term shared by every document in a two-document
+    # corpus (see LexicalIndex's own docstring: it is deliberately the weakest plausible
+    # retriever) -- the `book` fixture's Statistics chapter has exactly two chunks, which
+    # is realistic for a unit fixture but not for a real ingested chapter. A few unrelated
+    # filler chunks bring the corpus to a size where "modal"/"frequency" score positive,
+    # the same way a real chapter's dozens of chunks would.
+    for section, text in [
+        ("13.4", "The coefficient of variation measures relative variability of a "
+                  "distribution using its mean and standard deviation."),
+        ("13.5", "Correlation between two variables is measured by covariance divided "
+                  "by the product of their standard deviations."),
+        ("13.6", "The standard deviation of grouped data can be found by the direct "
+                  "method or the assumed mean method."),
+    ]:
+        code = f"X.MATH.STATS.{section.replace('.', '_')}"
+        if db.scalar(select(BookChunk).where(BookChunk.stem_hash == code)) is not None:
+            continue
+        db.add(BookChunk(
+            curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+            node_id=stats.id, bucket="T", reference=f"Section {section}", text=text,
+            section_number=section, normalised=text.lower(), stem_hash=code,
+        ))
     db.commit()
     db.close()
 
-    stem_text = "Find the modal class for the given frequency distribution table."
+    # The real 13.3 chunk (see the `book` fixture) reads: "The modal class is the class
+    # with the greatest frequency, and the mode is found from the frequencies either side
+    # of it." A real quote from it is what the guardrail should accept; words that never
+    # appear in either real chunk are what it should refuse.
+    real_quote = "the class with the greatest frequency"
+    fake_quote = "the ogive is drawn from cumulative frequencies"
 
-    def fake_client(family_code: str, quote: str):
+    def install_fake(family_code: str, quote: str):
+        import sys
+        import types
+
         class _FakeMessages:
             def parse(self, **kwargs):
                 class _Response:
-                    parsed_output = _GroundedFamilyChoice(
+                    parsed_output = _FamilyChoice(
                         family_code=family_code,
-                        rationale="the question asks for the modal class directly",
+                        rationale="the passage names the modal class by its frequency",
                         quote=quote,
                     )
                 return _Response()
@@ -625,14 +657,8 @@ def test_auto_resolve_falls_back_to_the_question_s_own_text(monkeypatch):
             def __init__(self, api_key):
                 self.messages = _FakeMessages()
 
-        return _FakeAnthropic
-
-    import sys
-    import types
-
-    def install_fake(fake_anthropic_cls):
         mod = types.ModuleType("anthropic")
-        mod.Anthropic = fake_anthropic_cls
+        mod.Anthropic = _FakeAnthropic
         monkeypatch.setitem(sys.modules, "anthropic", mod)
 
     db = SessionLocal()
@@ -641,10 +667,11 @@ def test_auto_resolve_falls_back_to_the_question_s_own_text(monkeypatch):
         db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.STAGE2_A")),
         db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.STAGE2_B")),
     ]
+    stem_text = "Find the modal class for the given frequency distribution table."
 
-    # A real quote, actually copied from the question -- the guardrail should let this
-    # answer through, and record it as grounded in the question rather than the book.
-    install_fake(fake_client("X.MATH.CF.STAGE2_A", "modal class for the given frequency"))
+    # section="99.9" so stage 1 (exact section lookup) has nothing to find, forcing stage
+    # 2's chapter-wide search -- a real answer, real quote, should be accepted.
+    install_fake("X.MATH.CF.STAGE2_A", real_quote)
     resolution = resolve_blocked_family(
         db, api_key="test-key", model="claude-fake", effort=None,
         subject_codes=["X.MATH"], section="99.9", stem_text=stem_text,
@@ -652,22 +679,22 @@ def test_auto_resolve_falls_back_to_the_question_s_own_text(monkeypatch):
     )
     assert resolution is not None
     assert resolution.family.code == "X.MATH.CF.STAGE2_A"
-    assert resolution.grounded_in == "question"
+    assert resolution.grounded_in == "book_search"
+    assert resolution.book_section == "13.3", "the real chunk the quote came from, not the guessed-at section"
     db.close()
 
-    # A fabricated quote -- words that are not in the question at all -- must be refused
+    # A fabricated quote -- words in neither retrieved passage -- must be refused
     # regardless of how plausible the chosen family sounds. This is the guardrail against
-    # hallucination: a rationale is trusted only when it can point at real words.
+    # hallucination: a rationale is trusted only when it can point at real words actually
+    # shown to the model, not the model's own memory of the syllabus.
     db = SessionLocal()
-    install_fake(fake_client(
-        "X.MATH.CF.STAGE2_B", "the ogive is drawn from cumulative frequencies",
-    ))
+    install_fake("X.MATH.CF.STAGE2_B", fake_quote)
     resolution = resolve_blocked_family(
         db, api_key="test-key", model="claude-fake", effort=None,
         subject_codes=["X.MATH"], section="99.9", stem_text=stem_text,
         chapter=chapter, candidates=candidates,
     )
-    assert resolution is None, "a quote that is not in the question must not be trusted"
+    assert resolution is None, "a quote that is not in any retrieved passage must not be trusted"
     db.close()
 
 

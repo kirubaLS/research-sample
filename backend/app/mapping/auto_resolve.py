@@ -6,23 +6,28 @@ mark under the wrong learning area forever, where a block at least gets a person
 attention. But a person's attention is exactly the thing a teacher scanning a paper in
 production does not have: one unplaceable question in an otherwise ordinary paper used to
 stall marks entry for every OTHER question in it too (see usePaperScan.ts's onMap). This
-module gives the block two chances to resolve itself, in order, each against something
-real rather than the model's memory of what a textbook probably says:
+module gives the block two chances to resolve itself, in order, each against real book
+text rather than the model's memory of what a textbook probably says:
 
-1. The book's own text for the question's section, when it was ingested -- the same thing
-   a person doing the PATCH by hand would read.
-2. Failing that (no chunk was ingested for that exact section), the question's OWN text --
-   real, teacher-confirmed exam content, just not the book's. This is a weaker signal, so
-   it is held to a stricter guardrail: the model must quote the exact words of the
-   question that justify its answer, and that quote is checked as a real substring of the
-   question before the answer is trusted at all. A rationale that cannot point at real
-   words in the real question is discarded exactly like a request for "none".
+1. The book's own text for the question's exact section number, when it was ingested --
+   the same thing a person doing the PATCH by hand would read.
+2. Failing that (no chunk carries that exact section number -- a numbering mismatch
+   between what the paper's own retrieval named and how the book's chunks were split, or
+   an ingestion gap), search the WHOLE chapter's ingested book chunks for the passages
+   that actually match this question (the same lexical retriever `locate()` uses
+   elsewhere in this pipeline, restricted to this one chapter) and ground the choice in
+   whichever real passages come back. The book has already been read into the database in
+   full -- this stage uses that, rather than falling back to the bare question text alone.
 
-Neither stage ever answers with a family the chapter did not already propose, and neither
-stage is asked to reason from general knowledge of the syllabus -- only from a real
-passage handed to it in the same message. "None of these fit" is always a valid, expected
-answer from either stage, and it is what a paper stays blocked on when nothing groundable
-resolves it -- a small residual of blocked questions is the honest floor here, not a bug.
+Either way, the model is handed real, quotable text and is required to quote it: the
+quote is checked as a real substring of the passages it was shown before the answer is
+trusted at all, so a rationale that cites something not actually there is caught rather
+than quietly believed. Neither stage ever answers with a family the chapter did not
+already propose, and neither stage is asked to reason from general knowledge of the
+syllabus -- only from real passages handed to it in the same message. "None of these fit"
+is always a valid, expected answer from either stage, and it is what a paper stays blocked
+on when nothing groundable resolves it -- a small residual of blocked questions is the
+honest floor here, not a bug.
 """
 
 from __future__ import annotations
@@ -47,10 +52,15 @@ class Resolution:
 
     family: TaxonomyNode
     rationale: str
-    #: "book" when grounded in the book's own section text, "question" when the book had
-    #: no chunk for this section and the question's own words were used instead -- a
-    #: reviewer reads this to know how much to trust the placement.
+    #: "book_section" when grounded in the exact section's own text, "book_search" when
+    #: that section had no chunk and the chapter's own chunks were searched instead -- a
+    #: reviewer reads this to know how the placement was found.
     grounded_in: str
+    #: the real section number the winning passage actually named, when search (rather
+    #: than an exact section lookup) is what found it -- this, not the question's
+    #: originally-detected section, is what gets recorded against the family, because it
+    #: is the book's own fact rather than a possibly-mismatched guess at one.
+    book_section: str | None = None
 
 
 class _FamilyChoice(BaseModel):
@@ -59,35 +69,23 @@ class _FamilyChoice(BaseModel):
     family_code: str = Field(description="one of the offered codes, or the literal 'none'")
     #: required even for "none", so a refusal is a reasoned one rather than a shrug
     rationale: str = Field(description="one sentence: why this family, or why none fits")
-
-
-class _GroundedFamilyChoice(_FamilyChoice):
-    #: verbatim words copied from the passage given -- checked as a real substring of it
-    #: before this answer is trusted at all, so a rationale that cites something not
+    #: verbatim words copied from the passages given -- checked as a real substring of
+    #: them before this answer is trusted at all, so a rationale that cites something not
     #: actually there is caught rather than quietly believed
-    quote: str = Field(description="exact words copied from the passage that justify the choice")
+    quote: str = Field(description="exact words copied from the passages that justify the choice")
 
 
-_BOOK_SYSTEM = (
-    "You are placing one section of a school textbook chapter under the concept family it "
-    "belongs to. You are given the section's own text and a list of candidate families "
-    "already proposed for this chapter, each with its label and, where known, the other "
-    "sections it already covers. Pick the family whose label the section text is actually "
-    "about. If more than one could fit, or none clearly does, say so honestly by "
-    "answering 'none' rather than guessing -- a wrong placement is filed as fact and "
-    "silently misleads every future report grouped by this family."
-)
-
-_QUESTION_SYSTEM = (
-    "You are placing one exam question under the concept family it tests, using ONLY the "
-    "question's own text below -- the book's own passage for this section was not "
-    "available, so this is your only real evidence. You are given the question and a list "
-    "of candidate families already proposed for its chapter. Quote the exact words of the "
-    "question that justify your choice; do not paraphrase or invent wording. If the "
-    "question does not clearly say enough to choose, answer 'none' -- a wrong placement is "
-    "filed as fact and silently misleads every future report grouped by this family. Never "
-    "reason from what you recall the textbook chapter generally covers: judge only the "
-    "words given."
+_SYSTEM = (
+    "You are placing one exam question under the concept family it tests. You are given "
+    "the question itself, one or more real passages from the textbook chapter it belongs "
+    "to, and a list of candidate families already proposed for this chapter. Pick the "
+    "family whose label the passages show this question is actually about. Quote the "
+    "exact words of the PASSAGES (not the question) that justify your choice; do not "
+    "paraphrase or invent wording, and do not reason from anything you recall about this "
+    "textbook beyond what is shown below. If more than one family could fit, or none "
+    "clearly does, or the passages do not actually settle it, say so honestly by "
+    "answering 'none' -- a wrong placement is filed as fact and silently misleads every "
+    "future report grouped by this family."
 )
 
 
@@ -109,34 +107,22 @@ def _candidate_lines(candidates: list[TaxonomyNode], sections_of: dict[str, list
     return lines
 
 
-def _book_prompt(chapter_label: str, section_text: str, candidates: list[TaxonomyNode],
-                  sections_of: dict[str, list[str]]) -> str:
+def _prompt(chapter_label: str, stem_text: str, passages: str,
+            candidates: list[TaxonomyNode], sections_of: dict[str, list[str]]) -> str:
     return "\n".join([
         f"Chapter: {chapter_label}",
         "",
-        "Section text:",
-        section_text[:4000],
-        "",
-        "Candidate families:",
-        *_candidate_lines(candidates, sections_of),
-        "",
-        "Which family code does the section text belong to? Answer 'none' if unsure.",
-    ])
-
-
-def _question_prompt(chapter_label: str, stem_text: str, candidates: list[TaxonomyNode],
-                      sections_of: dict[str, list[str]]) -> str:
-    return "\n".join([
-        f"Chapter: {chapter_label}",
-        "",
-        "Question text:",
+        "Question:",
         stem_text[:2000],
         "",
+        "Passages from the book:",
+        passages[:6000],
+        "",
         "Candidate families:",
         *_candidate_lines(candidates, sections_of),
         "",
-        "Which family code does this question test? Quote the exact words of the question "
-        "that justify it. Answer 'none' if the question does not clearly say enough.",
+        "Which family code does this question belong to? Quote the exact words of the "
+        "PASSAGES that justify it. Answer 'none' if they don't clearly settle it.",
     ])
 
 
@@ -164,6 +150,24 @@ def _apply_correction(
         ))
 
 
+def _ask(client, model: str, effort: str | None, chapter_label: str, stem_text: str,
+          passages: str, candidates: list[TaxonomyNode],
+          sections_of: dict[str, list[str]]) -> _FamilyChoice | None:
+    extra = {"output_config": cfg} if (cfg := output_config(model, effort)) else {}
+    response = client.messages.parse(
+        model=model, max_tokens=4000, system=_SYSTEM,
+        messages=[{
+            "role": "user",
+            "content": _prompt(chapter_label, stem_text, passages, candidates, sections_of),
+        }],
+        output_format=_FamilyChoice, **extra,
+    )
+    choice = response.parsed_output
+    if not _quote_is_real(choice.quote, passages):
+        return None
+    return choice
+
+
 def resolve_blocked_family(
     db: Session,
     *,
@@ -176,14 +180,14 @@ def resolve_blocked_family(
     chapter: TaxonomyNode,
     candidates: list[TaxonomyNode],
 ) -> Resolution | None:
-    """Try to settle a chapter+section `choose_family` could not, against something real.
+    """Try to settle a chapter+section `choose_family` could not, against the real book.
 
     Returns None -- leave it blocked -- whenever neither stage can be run at all (no
-    classifier key, or nothing real to ground either one in) or neither stage's answer
-    survives its guardrail: a code outside the candidates offered, or -- for the
-    question-text stage -- a quote that is not actually in the question.
+    classifier key, no question text, or no book chunks ingested anywhere in this
+    chapter) or neither stage's answer survives its guardrail: a code outside the
+    candidates offered, or a quote that is not actually in the passages shown.
     """
-    if not api_key:
+    if not api_key or not stem_text or not stem_text.strip():
         return None
 
     proposals = list(db.scalars(
@@ -200,73 +204,80 @@ def resolve_blocked_family(
     import anthropic
 
     client = anthropic.Anthropic(api_key=api_key)
-    extra = {"output_config": cfg} if (cfg := output_config(model, effort)) else {}
 
-    # Stage 1: the book's own text for this exact section, when it was ingested.
-    section_text = None
+    def apply_and_return(choice: _FamilyChoice, grounded_in: str, book_section: str | None):
+        winner = next((c for c in candidates if c.code == choice.family_code), None)
+        if winner is None:
+            return None
+        recorded_section = book_section or section
+        rationale = f'{choice.rationale} (quoted: "{choice.quote}")'
+        if recorded_section:
+            _apply_correction(
+                db, winner=winner, chapter=chapter, section=recorded_section,
+                subject_codes=subject_codes, proposals=proposals, model=model,
+                source=f"auto_resolve_{grounded_in}", rationale=rationale,
+            )
+        return Resolution(
+            family=winner, rationale=rationale, grounded_in=grounded_in,
+            book_section=recorded_section,
+        )
+
+    # Stage 1: the book's own text for the question's exact section number, when a chunk
+    # carries it -- the strongest signal, because it is precisely where the book itself
+    # says this question's content lives.
     if section:
-        chunks = list(db.scalars(
+        exact_chunks = list(db.scalars(
             select(BookChunk).where(
                 BookChunk.subject_code.in_(subject_codes),
                 BookChunk.section_number == section,
             )
         ))
-        joined = "\n\n".join(c.text for c in chunks if c.text)
-        section_text = joined if joined.strip() else None
-
-    if section_text is not None:
-        response = client.messages.parse(
-            model=model, max_tokens=4000, system=_BOOK_SYSTEM,
-            messages=[{
-                "role": "user",
-                "content": _book_prompt(chapter.label, section_text, candidates, sections_of),
-            }],
-            output_format=_FamilyChoice, **extra,
-        )
-        choice = response.parsed_output
-        winner = next((c for c in candidates if c.code == choice.family_code), None)
-        if winner is not None:
-            _apply_correction(
-                db, winner=winner, chapter=chapter, section=section,
-                subject_codes=subject_codes, proposals=proposals, model=model,
-                source="auto_resolve_book", rationale=choice.rationale,
+        exact_text = "\n\n".join(c.text for c in exact_chunks if c.text)
+        if exact_text.strip():
+            choice = _ask(
+                client, model, effort, chapter.label, stem_text, exact_text,
+                candidates, sections_of,
             )
-            return Resolution(family=winner, rationale=choice.rationale, grounded_in="book")
-        # An honest "none" (or a name outside the list) from a real reading of the book's
-        # own section text is a considered answer, not a gap to paper over with a weaker
-        # signal -- it stays blocked rather than falling through to stage 2.
+            if choice is None or choice.family_code == "none":
+                # An honest "none" (or a quote that didn't check out) from the exact
+                # section's own text is a considered answer, not a gap to paper over by
+                # widening the search -- it stays blocked rather than falling through.
+                return None
+            return apply_and_return(choice, "book_section", section)
+
+    # Stage 2: no chunk named this exact section (a numbering mismatch, or a genuine
+    # ingestion gap), so search the WHOLE chapter's ingested book chunks -- already read
+    # into the database in full -- for the passages that actually match this question,
+    # the same way `locate()` searches the whole book to find the chapter in the first
+    # place. This is still the book's own words, just found by search rather than an
+    # exact section-number lookup.
+    from app.ingest.probe import LexicalIndex
+
+    chapter_chunks = list(db.scalars(
+        select(BookChunk).where(
+            BookChunk.subject_code.in_(subject_codes),
+            BookChunk.node_id == chapter.id,
+        )
+    ))
+    if not chapter_chunks:
+        return None
+    found = LexicalIndex(chapter_chunks).search(stem_text, k=3)
+    if not found:
+        return None
+    passages = "\n\n".join(f"[{c.reference or c.section or '?'}] {c.text}" for c in found if c.text)
+    if not passages.strip():
         return None
 
-    # Stage 2: no book chunk was ingested for this section at all, so there is nothing of
-    # the book's own to check a book-grounded answer against. Fall back to the question's
-    # own text -- still real, still what the model is asked to quote from -- only when
-    # there is a section number in the first place; with none at all, choose_family's own
-    # blocked message already said so and there is no extra signal here to add.
-    if not section or not stem_text or not stem_text.strip():
-        return None
-
-    response = client.messages.parse(
-        model=model, max_tokens=4000, system=_QUESTION_SYSTEM,
-        messages=[{
-            "role": "user",
-            "content": _question_prompt(chapter.label, stem_text, candidates, sections_of),
-        }],
-        output_format=_GroundedFamilyChoice, **extra,
+    choice = _ask(
+        client, model, effort, chapter.label, stem_text, passages, candidates, sections_of,
     )
-    choice = response.parsed_output
-    if not _quote_is_real(choice.quote, stem_text):
+    if choice is None or choice.family_code == "none":
         return None
-    winner = next((c for c in candidates if c.code == choice.family_code), None)
-    if winner is None:
-        return None
-
-    _apply_correction(
-        db, winner=winner, chapter=chapter, section=section,
-        subject_codes=subject_codes, proposals=proposals, model=model,
-        source="auto_resolve_question", rationale=f'{choice.rationale} (quoted: "{choice.quote}")',
+    # The section of whichever retrieved passage actually contains the quote -- a real
+    # fact read off the specific passage that justified the choice, not the (possibly
+    # mismatched) section this question was originally detected under, and not just the
+    # top search result if a lower-ranked passage is the one actually quoted.
+    book_section = next(
+        (c.section for c in found if c.text and _quote_is_real(choice.quote, c.text)), None,
     )
-    return Resolution(
-        family=winner,
-        rationale=f'{choice.rationale} (quoted: "{choice.quote}")',
-        grounded_in="question",
-    )
+    return apply_and_return(choice, "book_search", book_section)
