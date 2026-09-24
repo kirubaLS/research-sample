@@ -540,10 +540,17 @@ export function usePaperScan(opts: {
       setMapped(result);
       setPlaced(null);
       await refresh(assessmentId);
-      // Only auto-advance to classify when nothing needs a human decision first -- a
-      // question mapping could not place is exactly the case where stopping and showing
-      // the review table (not the stepper) is the right outcome, not racing past it.
-      if (result.blocked === 0) {
+      // Auto-advance whenever anything placed, even if some questions blocked -- a blocked
+      // question never becomes a Question row (see marks.py's map_paper: it is "left
+      // staged rather than placed under a guess"), so /place only ever classifies the ones
+      // that did place; running it is exactly as safe with blocked > 0 as with blocked ==
+      // 0. Gating this on blocked === 0 used to stall the WHOLE paper at the manual review
+      // table for a teacher who scans in production and is not meant to see it (see
+      // QuestionPaperPanel's auto-confirm effect) -- one unmapped question in a 40-question
+      // paper meant the other 39 sat unclassified and un-enterable until someone worked
+      // through the review screen. Only truly nothing-to-classify (every question blocked)
+      // still stops here, because /place 409s with no Question rows to read stems from.
+      if (result.mapped > 0) {
         await onClassify();
         return;
       }
