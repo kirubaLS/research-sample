@@ -7,32 +7,32 @@
      controls, scrollbars and the page background-before-paint flash, even though every
      color here stays the same; declaring the theme explicitly stops that. */
   color-scheme: light only;
-  --brand-ink: #14213d;
+  --brand-ink: #15252e;
   --brand-ink-soft: #3c4c56;
-  --brand-teal: #2fb8c6;
-  --brand-teal-soft: #e3f6f8;
-  --brand-gold: #f2a93b;
-  --brand-gold-soft: #fdf0dc;
-  --brand-green: #1e9e7e;
-  --brand-green-soft: #e2f5f0;
-  --brand-cream: #fbf6ef;
+  --brand-teal: #1f8a8a;
+  --brand-teal-soft: #d8eeee;
+  --brand-gold: #e0a62a;
+  --brand-gold-soft: #fbf0d6;
+  --brand-green: #3a9d6a;
+  --brand-green-soft: #dcf1e5;
+  --brand-cream: #faf6ee;
   /* Mascot-derived accents. Used sparingly; the AVAI staff console leans blue. */
   --brand-blue: #1d5fd0;
   --brand-blue-soft: #e4ecfb;
   --brand-orange: #f0932b;
   --brand-orange-soft: #fdeedb;
 
-  --info: #2f6fed;
-  --info-soft: #e8f0fe;
-  --risk: #d1447a;
-  --risk-soft: #fce9f1;
+  --info: #2f6fd3;
+  --info-soft: #e2ebfa;
+  --risk: #c94a3a;
+  --risk-soft: #f9e1dd;
 
   /* neutrals */
   --surface: #ffffff;
-  --surface-2: #f6f0e6;
-  --line: #ece3d6;
-  --line-strong: #ddd0ba;
-  --muted: #8d8880;
+  --surface-2: #f4f1ea;
+  --line: #e6e1d6;
+  --line-strong: #cfc8ba;
+  --muted: #6c7880;
   --text: var(--brand-ink);
 
   /* status dimensions, deliberately three SEPARATE visual systems */
@@ -44,9 +44,9 @@
   --urgency-very-high: #8c1d1d;
   --urgency-high: #c2571c;
   --urgency-medium: #b58a1c;
-  --urgency-low: #8d8880;
+  --urgency-low: #6c7880;
   /* 3. Confidence: dotted meter, cool blue/grey */
-  --confidence-high: #2f6fed;
+  --confidence-high: #2f6fd3;
   --confidence-medium: #6a8fcf;
   --confidence-emerging: #9aa7b8;
 
@@ -103,7 +103,7 @@ table { border-collapse: collapse; width: 100%; }
   background:
     radial-gradient(520px 340px at 0% 0%, rgba(31, 138, 138, 0.3), transparent 68%),
     radial-gradient(460px 320px at 100% 100%, rgba(29, 95, 208, 0.18), transparent 70%),
-    linear-gradient(180deg, #1c2f39 0%, #14213d 46%, #0f1d25 100%);
+    linear-gradient(180deg, #1c2f39 0%, #15252e 46%, #0f1d25 100%);
   box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.06), 8px 0 30px -24px rgba(9, 18, 23, 0.9);
   color: #e9eef1;
   display: flex;
@@ -1276,7 +1276,6 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
 }
 .input[readonly] { background: var(--surface-2); border-color: var(--line); box-shadow: none; color: var(--text); cursor: default; }
 .navlink--sub { margin-left: 18px; padding-top: 7px; padding-bottom: 7px; font-size: 13px; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .searchbox { position: relative; display: flex; align-items: center; min-width: 220px; }
 .searchbox > svg { position: absolute; left: 11px; color: var(--muted); pointer-events: none; }
 .searchbox .input { padding-left: 34px; padding-right: 36px; }
@@ -1389,7 +1388,6 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
   .ops-toolbar__right { width: 100%; }
   .ops-toolbar__right .searchbox { flex: 1 1 100%; }
 }
-
 /* ---------------------------------------------------------------------------------------
    Small permanent utility classes -- generic text/layout helpers still used across pages
    that are otherwise fully on the design-system's real component classes (.card__*,
