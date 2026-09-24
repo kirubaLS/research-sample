@@ -140,13 +140,41 @@ export function usePaperScan(opts: {
 
   // Once this subject's real papers are in, open the most recent one automatically so a
   // deep link lands on the paper itself rather than an empty "start" screen when one
-  // already exists -- still just a normal openPaper(), no fabricated state.
+  // already exists -- still just a normal openPaper(), no fabricated state. Only once:
+  // without autoOpenedRef, this re-fires the instant closePaper() sets assessmentId back
+  // to null (papers hasn't changed, so the effect's own guard alone does not stop it),
+  // making "Back to list" snap straight back to the same paper it just left.
+  const autoOpenedRef = useRef(false);
   useEffect(() => {
-    if (!prefillSubject || assessmentId || papers.length === 0) return;
+    if (!prefillSubject || assessmentId || papers.length === 0 || autoOpenedRef.current) return;
     const match = papers.find((p) => p.subject_code === prefillSubject);
-    if (match) void openPaper(match);
+    if (match) {
+      autoOpenedRef.current = true;
+      void openPaper(match);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefillSubject, papers]);
+
+  // Back to the picker screen (existing papers + "start a new one"). assessmentId was
+  // never exposed with a setter, so the "Back to list" button had nothing real to call --
+  // it silently refetched the papers list while staying on whichever paper was already
+  // open, and for a subject that already has one paper (which auto-opens on load, see the
+  // prefillSubject effect above), there was no way to ever reach the upload/photograph
+  // screen again at all.
+  function closePaper() {
+    setAssessmentId(null);
+    setError(null);
+    setDeleted(false);
+    setScan(null);
+    setReview(null);
+    setMapped(null);
+    setPlaced(null);
+    setAlreadyClassified(false);
+    setConfirmation(null);
+    setConfirmedBy("");
+    setDocumentId(null);
+    setOpenedStage(null);
+  }
 
   async function openPaper(p: PaperSummary) {
     const key = getApiKey();
@@ -589,7 +617,7 @@ export function usePaperScan(opts: {
     scanSessionId, pendingResume, pendingPageCount, retrying,
     confirmed, stage, rows, blockedCount,
     // actions
-    openPaper, onRename, onDelete, onRemoveScan, onFiles, submitScan,
+    openPaper, closePaper, onRename, onDelete, onRemoveScan, onFiles, submitScan,
     onEdit, onConfirm, onMap, onClassify, retryPendingNow, discardPending,
     loadPapers, explain,
   };

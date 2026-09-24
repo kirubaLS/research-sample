@@ -170,7 +170,7 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
               <button className="btn btn--sm" onClick={() => scan.onDelete()}>
                 <Trash2 size={13} /> Delete paper
               </button>
-              <button className="btn btn--sm" onClick={() => scan.loadPapers().then(() => scan.setError(null))}>
+              <button className="btn btn--sm" onClick={() => scan.closePaper()}>
                 Back to list
               </button>
             </div>
