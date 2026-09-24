@@ -32,6 +32,7 @@ honest floor here, not a bug.
 
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from dataclasses import dataclass
@@ -44,6 +45,8 @@ from sqlalchemy.orm import Session
 from app.api.books import clean_sections
 from app.llm import output_config
 from app.models import BookChunk, ConceptFamilyProposal, TaxonomyNode
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -184,9 +187,39 @@ def resolve_blocked_family(
 
     Returns None -- leave it blocked -- whenever neither stage can be run at all (no
     classifier key, no question text, or no book chunks ingested anywhere in this
-    chapter) or neither stage's answer survives its guardrail: a code outside the
-    candidates offered, or a quote that is not actually in the passages shown.
+    chapter), neither stage's answer survives its guardrail (a code outside the
+    candidates offered, or a quote that is not actually in the passages shown), OR the
+    attempt itself fails for any reason at all (the `anthropic` package missing, a
+    network error, a malformed response). This is a best-effort second chance for a
+    question that was already going to be blocked -- a failure here must never turn into
+    a failure of the whole classify/map job for every OTHER question in the paper, which
+    is exactly what an unhandled exception here would do.
     """
+    try:
+        return _resolve_blocked_family(
+            db, api_key=api_key, model=model, effort=effort, subject_codes=subject_codes,
+            section=section, stem_text=stem_text, chapter=chapter, candidates=candidates,
+        )
+    except Exception:  # noqa: BLE001 -- see docstring: this must never escape
+        logger.exception(
+            "auto_resolve failed for chapter %s (subjects %s); leaving the question blocked",
+            chapter.code, subject_codes,
+        )
+        return None
+
+
+def _resolve_blocked_family(
+    db: Session,
+    *,
+    api_key: str | None,
+    model: str,
+    effort: str | None,
+    subject_codes: list[str],
+    section: str | None,
+    stem_text: str | None,
+    chapter: TaxonomyNode,
+    candidates: list[TaxonomyNode],
+) -> Resolution | None:
     if not api_key or not stem_text or not stem_text.strip():
         return None
 

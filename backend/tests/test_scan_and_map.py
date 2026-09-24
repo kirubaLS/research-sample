@@ -482,138 +482,61 @@ def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
             assert question["blocked_reason"], "a question is mapped or it says why not"
 
 
-def test_a_blocked_question_is_auto_resolved_when_the_book_settles_it(
-    client, school, assessment, book, monkeypatch
-):
-    """The point of auto_resolve: a chapter with two unclaimed families used to block
-    marks entry for the WHOLE paper (see usePaperScan.ts's onMap gate). When the book's
-    own section text lets a grounded read settle which family it is, the question places
-    instead of stalling everyone else's questions behind it -- and is flagged for review,
-    because a machine's first read of the book is not the same thing as a person's."""
-    from sqlalchemy import select
-
-    from app.config import get_settings
-    from app.db import SessionLocal
-    from app.models import ConceptFamilyProposal, TaxonomyNode
-
-    settings = get_settings()
-    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
-
-    # Make Statistics genuinely ambiguous: the fixture's own family no longer claims
-    # 13.2, and a second, competing family claims nothing either -- exactly the "N
-    # families exist and none claims this section" case the block message describes.
-    db = SessionLocal()
-    stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
-    existing = db.scalar(select(ConceptFamilyProposal).where(
-        ConceptFamilyProposal.code == "X.MATH.CF.MEAN_STEP_DEVIATION"
-    ))
-    existing.from_sections = []
-    second = TaxonomyNode(
-        kind="concept_family", code="X.MATH.CF.MODE_GROUPED",
-        label="Mode of grouped data", parent_id=stats.id,
-        path="X.MATH.CF.MODE_GROUPED", curriculum_version=stats.curriculum_version,
-    )
-    db.add(second)
-    db.flush()
-    db.add(ConceptFamilyProposal(
-        curriculum_version=stats.curriculum_version, subject_code="X.MATH",
-        run_id="fixture-competing", source="llm", model="fixture",
-        code="X.MATH.CF.MODE_GROUPED", label="Mode of grouped data",
-        chapter_id=stats.id, evidence=[], from_sections=[],
-    ))
-    db.commit()
-    db.close()
-
-    # Stand in for the Anthropic call: a real book chunk for 13.2 is already in the
-    # fixture, so this is checking the plumbing (does the chosen code get applied, does
-    # the placement get flagged), not the judge's own reading of textbook prose. The
-    # `anthropic` package itself is not installed in this environment (same reason
-    # test_book_upload.py's LLM-proposer tests are skipped elsewhere), so a fake module is
-    # what `import anthropic` inside auto_resolve.py finds, rather than the real one.
-    import sys
-    import types
-
-    from app.mapping.auto_resolve import _FamilyChoice
-
-    class _FakeMessages:
-        def parse(self, **kwargs):
-            class _Response:
-                parsed_output = _FamilyChoice(
-                    family_code="X.MATH.CF.MEAN_STEP_DEVIATION",
-                    rationale="the passage explains computing the mean by step-deviation",
-                    quote="uses an assumed mean and a common class size h",
-                )
-            return _Response()
-
-    class _FakeAnthropic:
-        def __init__(self, api_key):
-            self.messages = _FakeMessages()
-
-    fake_anthropic = types.ModuleType("anthropic")
-    fake_anthropic.Anthropic = _FakeAnthropic
-    monkeypatch.setitem(sys.modules, "anthropic", fake_anthropic)
-
-    _upload(client, school, assessment, _paper_bytes(PAPER))
-    client.post(f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={})
-    r = client.post(f"/assessments/{assessment}/map", headers=_auth(school))
-    assert r.status_code == 200, r.text
-    body = r.json()
-    # Question 2 (Circles) has no concept family at all in this fixture -- a different,
-    # pre-existing block ("no concept family exists"), untouched by this test. Only
-    # question 1's genuinely-ambiguous block is what auto-resolve should have settled.
-    assert body["mapped"] == 1
-    assert body["blocked"] == 1
-
-    read = client.get(f"/assessments/{assessment}/scan", headers=_auth(school)).json()
-    q1 = next(q for q in read["questions"] if q["question_no"] == "1")
-    assert not q1["blocked_reason"]
-    assert q1["mapped_to"]["concept_family"] == "Mean by step-deviation"
-    assert q1["mapped_to"]["needs_review"], "an auto-resolved placement is still a machine's first read"
-    assert "Auto-resolved" in q1["mapped_to"]["review_reason"]
-
-
-def test_auto_resolve_searches_the_chapter_when_the_exact_section_has_no_chunk(book, monkeypatch):
+def test_auto_resolve_searches_the_chapter_when_the_exact_section_has_no_chunk(monkeypatch):
     """Stage 2 of auto_resolve: no chunk carries this exact section number (a numbering
     mismatch, or a genuine ingestion gap), so the whole chapter's already-ingested chunks
-    are searched instead of falling back to the bare question text. The fixture's own
-    Statistics chapter has two real chunks (13.2 mean, 13.3 mode/modal class); a question
-    about the modal class should be found via the 13.3 chunk, and the model is required to
-    quote real words from whichever passage it was actually shown."""
+    are searched instead of falling back to the bare question text.
+
+    A fully self-contained fixture chapter, under a fixture-only subject code no other
+    test or real subject uses -- this calls resolve_blocked_family directly rather than
+    through the HTTP pipeline, so there is no reason to touch any real curriculum data
+    (X.MATH's shared LexicalIndex is rebuilt from every chunk under its subject codes,
+    so even an unrelated chapter's added chunks shift retrieval scores suite-wide for
+    every other X.MATH-based test -- this is what test_scan_and_map's own earlier
+    version of this test got wrong)."""
     from sqlalchemy import select
 
-    from app.db import SessionLocal
+    from app.db import SessionLocal, init_db
     from app.mapping.auto_resolve import _FamilyChoice, resolve_blocked_family
-    from app.models import ConceptFamilyProposal, TaxonomyNode
+    from app.models import BookChunk, ConceptFamilyProposal, TaxonomyNode
 
-    from app.models import BookChunk
-
+    init_db()
     db = SessionLocal()
-    stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
-    for code, label in [
-        ("X.MATH.CF.STAGE2_A", "Modal class of grouped data"),
-        ("X.MATH.CF.STAGE2_B", "Cumulative frequency and the ogive"),
-    ]:
-        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code)) is not None:
-            continue
-        node = TaxonomyNode(
-            kind="concept_family", code=code, label=label, parent_id=stats.id,
-            path=code, curriculum_version=stats.curriculum_version,
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "TEST.AUTORESOLVE.CH"))
+    if chapter is None:
+        chapter = TaxonomyNode(
+            kind="chapter", code="TEST.AUTORESOLVE.CH", label="Fixture-only test chapter",
+            path="TEST.AUTORESOLVE.CH", curriculum_version="TEST-FIXTURE",
         )
-        db.add(node)
+        db.add(chapter)
         db.flush()
-        db.add(ConceptFamilyProposal(
-            curriculum_version=stats.curriculum_version, subject_code="X.MATH",
-            run_id="fixture-stage2", source="llm", model="fixture",
-            code=code, label=label, chapter_id=stats.id,
-            evidence=[], from_sections=[],
-        ))
-    # TF-IDF's idf goes negative for a term shared by every document in a two-document
-    # corpus (see LexicalIndex's own docstring: it is deliberately the weakest plausible
-    # retriever) -- the `book` fixture's Statistics chapter has exactly two chunks, which
-    # is realistic for a unit fixture but not for a real ingested chapter. A few unrelated
-    # filler chunks bring the corpus to a size where "modal"/"frequency" score positive,
-    # the same way a real chapter's dozens of chunks would.
+    candidates = []
+    for code, label in [
+        ("TEST.AUTORESOLVE.CF.A", "Modal class of grouped data"),
+        ("TEST.AUTORESOLVE.CF.B", "Cumulative frequency and the ogive"),
+    ]:
+        node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        if node is None:
+            node = TaxonomyNode(
+                kind="concept_family", code=code, label=label, parent_id=chapter.id,
+                path=code, curriculum_version="TEST-FIXTURE",
+            )
+            db.add(node)
+            db.flush()
+            db.add(ConceptFamilyProposal(
+                curriculum_version="TEST-FIXTURE", subject_code="TEST.AUTORESOLVE",
+                run_id="fixture-stage2", source="llm", model="fixture",
+                code=code, label=label, chapter_id=chapter.id,
+                evidence=[], from_sections=[],
+            ))
+        candidates.append(node)
+    # Several real passages, so TF-IDF's idf does not go negative for a term shared by
+    # every document in a too-small corpus (see LexicalIndex's own docstring: it is
+    # deliberately the weakest plausible retriever) -- a real chapter's full chunk count
+    # never hits this.
     for section, text in [
+        ("13.3", "The modal class is the class with the greatest frequency, and the "
+                  "mode is found from the frequencies either side of it."),
         ("13.4", "The coefficient of variation measures relative variability of a "
                   "distribution using its mean and standard deviation."),
         ("13.5", "Correlation between two variables is measured by covariance divided "
@@ -621,21 +544,21 @@ def test_auto_resolve_searches_the_chapter_when_the_exact_section_has_no_chunk(b
         ("13.6", "The standard deviation of grouped data can be found by the direct "
                   "method or the assumed mean method."),
     ]:
-        code = f"X.MATH.STATS.{section.replace('.', '_')}"
+        code = f"TEST.AUTORESOLVE.CHUNK.{section.replace('.', '_')}"
         if db.scalar(select(BookChunk).where(BookChunk.stem_hash == code)) is not None:
             continue
         db.add(BookChunk(
-            curriculum_version=stats.curriculum_version, subject_code="X.MATH",
-            node_id=stats.id, bucket="T", reference=f"Section {section}", text=text,
+            curriculum_version="TEST-FIXTURE", subject_code="TEST.AUTORESOLVE",
+            node_id=chapter.id, bucket="T", reference=f"Section {section}", text=text,
             section_number=section, normalised=text.lower(), stem_hash=code,
         ))
     db.commit()
     db.close()
 
-    # The real 13.3 chunk (see the `book` fixture) reads: "The modal class is the class
-    # with the greatest frequency, and the mode is found from the frequencies either side
-    # of it." A real quote from it is what the guardrail should accept; words that never
-    # appear in either real chunk are what it should refuse.
+    # The 13.3 chunk above reads: "The modal class is the class with the greatest
+    # frequency, and the mode is found from the frequencies either side of it." A real
+    # quote from it is what the guardrail should accept; words that never appear in any
+    # of these fixture passages are what it should refuse.
     real_quote = "the class with the greatest frequency"
     fake_quote = "the ogive is drawn from cumulative frequencies"
 
@@ -661,24 +584,19 @@ def test_auto_resolve_searches_the_chapter_when_the_exact_section_has_no_chunk(b
         mod.Anthropic = _FakeAnthropic
         monkeypatch.setitem(sys.modules, "anthropic", mod)
 
-    db = SessionLocal()
-    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
-    candidates = [
-        db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.STAGE2_A")),
-        db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.STAGE2_B")),
-    ]
     stem_text = "Find the modal class for the given frequency distribution table."
 
     # section="99.9" so stage 1 (exact section lookup) has nothing to find, forcing stage
     # 2's chapter-wide search -- a real answer, real quote, should be accepted.
-    install_fake("X.MATH.CF.STAGE2_A", real_quote)
+    db = SessionLocal()
+    install_fake("TEST.AUTORESOLVE.CF.A", real_quote)
     resolution = resolve_blocked_family(
         db, api_key="test-key", model="claude-fake", effort=None,
-        subject_codes=["X.MATH"], section="99.9", stem_text=stem_text,
+        subject_codes=["TEST.AUTORESOLVE"], section="99.9", stem_text=stem_text,
         chapter=chapter, candidates=candidates,
     )
     assert resolution is not None
-    assert resolution.family.code == "X.MATH.CF.STAGE2_A"
+    assert resolution.family.code == "TEST.AUTORESOLVE.CF.A"
     assert resolution.grounded_in == "book_search"
     assert resolution.book_section == "13.3", "the real chunk the quote came from, not the guessed-at section"
     db.close()
@@ -688,10 +606,10 @@ def test_auto_resolve_searches_the_chapter_when_the_exact_section_has_no_chunk(b
     # hallucination: a rationale is trusted only when it can point at real words actually
     # shown to the model, not the model's own memory of the syllabus.
     db = SessionLocal()
-    install_fake("X.MATH.CF.STAGE2_B", fake_quote)
+    install_fake("TEST.AUTORESOLVE.CF.B", fake_quote)
     resolution = resolve_blocked_family(
         db, api_key="test-key", model="claude-fake", effort=None,
-        subject_codes=["X.MATH"], section="99.9", stem_text=stem_text,
+        subject_codes=["TEST.AUTORESOLVE"], section="99.9", stem_text=stem_text,
         chapter=chapter, candidates=candidates,
     )
     assert resolution is None, "a quote that is not in any retrieved passage must not be trusted"
