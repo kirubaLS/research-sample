@@ -1,19 +1,15 @@
-import { AdminGate } from "@/components/AdminGate";
-import { SideNav } from "@/components/SideNav";
+"use client";
 
-/**
- * Sidebar beside content, which is what a dashboard of this shape is: the standing
- * navigation stays put and only the panel changes. It collapses to a scrolling row on a
- * phone rather than a drawer, because a drawer is one more thing to learn before the
- * first task starts.
- */
+import { AdminGate } from "@/components/AdminGate";
+import { StaffShell } from "@/components/StaffShell";
+import { ADMIN_NAV } from "@/components/staffNav";
+
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
     <AdminGate>
-      <div className="deskshell">
-        <SideNav />
-        <div className="panel">{children}</div>
-      </div>
+      <StaffShell nav={ADMIN_NAV} roleLabel="Admin">
+        {children}
+      </StaffShell>
     </AdminGate>
   );
 }

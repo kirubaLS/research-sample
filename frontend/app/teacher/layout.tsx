@@ -11,7 +11,8 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { TeacherNav } from "@/components/teacher/TeacherNav";
+import { StaffShell } from "@/components/StaffShell";
+import { TEACHER_NAV } from "@/components/staffNav";
 import { Mascot } from "@/components/Mascot";
 import { api, ApiUnreachable } from "@/lib/api";
 import { getApiKey, setApiKey, setRole, signOut } from "@/lib/session";
@@ -71,9 +72,8 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
   if (!ok) return null;
 
   return (
-    <div className="deskshell">
-      <TeacherNav />
-      <div className="panel">{children}</div>
-    </div>
+    <StaffShell nav={TEACHER_NAV} roleLabel="Teacher">
+      {children}
+    </StaffShell>
   );
 }

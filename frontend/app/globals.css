@@ -1383,3 +1383,48 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
   .ops-toolbar__right { width: 100%; }
   .ops-toolbar__right .searchbox { flex: 1 1 100%; }
 }
+
+/* ---------------------------------------------------------------------------------------
+   TRANSITIONAL COMPATIBILITY LAYER -- not the reference's own vocabulary. Pages are being
+   converted one at a time to the classes above (.card__*, .btn--*, .table, .field, etc);
+   until a given page is converted its old classnames (.wrap, .hero, .tablewrap, ...) still
+   need to render, on this design system's real tokens, so nothing sits unstyled mid-swap.
+   Delete a block here the moment the last page using it is converted. --------------------- */
+.wrap { max-width: var(--max, 1180px); margin: 0 auto; padding: 20px 22px 56px; }
+.narrow { max-width: 520px; margin: 40px auto; padding: 0 22px; }
+.hero { margin-bottom: 22px; }
+.hero h1 { font-family: var(--font-display); font-size: 26px; font-weight: 700; letter-spacing: -0.01em; margin: 4px 0; }
+.lede { color: var(--muted); font-size: 14.5px; max-width: 640px; }
+.muted { color: var(--muted); }
+.small { font-size: 12.5px; }
+.strong { font-weight: 650; }
+.mono { font-family: var(--font-mono, monospace); }
+.error { color: var(--risk); font-size: 13.5px; }
+.notice { padding: 10px 14px; border-radius: 10px; background: var(--surface-2); font-size: 13.5px; }
+.notice.warn { background: var(--brand-gold-soft, #fdf0dc); color: var(--brand-ink); }
+.row { display: flex; align-items: center; }
+.row.between { justify-content: space-between; }
+.stack { display: flex; flex-direction: column; }
+.card { background: var(--surface, #fff); border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; }
+.card.schoolpick { cursor: pointer; }
+.badge { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 999px; font-size: 12px; font-weight: 650; background: var(--surface-2); color: var(--text); }
+.badge.green { background: var(--brand-green-soft); color: var(--brand-green); }
+.badge.amber { background: var(--brand-gold-soft); color: var(--brand-gold); }
+.tablewrap { border: 1px solid var(--line); border-radius: 12px; overflow: auto; }
+.tablewrap table, .wrap table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.tablewrap th, .tablewrap td, .wrap table th, .wrap table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); }
+.tablewrap th, .wrap table th { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); background: var(--surface-2); }
+.tablewrap td.num, .wrap table td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
+.field label { font-size: 12px; font-weight: 650; color: var(--muted); }
+.field input, .field select, .field textarea { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line-strong); font: inherit; background: #fff; }
+button, .btn { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--brand-blue); background: var(--brand-blue); color: #fff; font-weight: 650; font-size: 13.5px; cursor: pointer; }
+button:disabled { opacity: .55; cursor: not-allowed; }
+.cardnote { color: var(--muted); font-size: 13px; }
+.section-head { display: flex; align-items: center; justify-content: space-between; }
+.wrap-outer { min-height: 100vh; display: flex; flex-direction: column; }
+.siteheader { padding: 14px 22px; }
+.siteheader .inner { max-width: var(--max, 1180px); margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
+.siteheader .navlinks a { font-weight: 650; font-size: 13.5px; color: var(--brand-blue); }
+.sitefooter { margin-top: auto; padding: 18px 22px; border-top: 1px solid var(--line); }
+.sitefooter .inner { max-width: var(--max, 1180px); margin: 0 auto; display: flex; justify-content: space-between; color: var(--muted); font-size: 12.5px; }

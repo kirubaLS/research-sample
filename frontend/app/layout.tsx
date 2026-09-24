@@ -1,7 +1,6 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Manrope, Source_Sans_3 } from "next/font/google";
-import { DecorativeBackground } from "@/components/DecorativeBackground";
-import { SiteHeader } from "@/components/SiteHeader";
+import { PublicChrome } from "@/components/PublicChrome";
 import "./globals.css";
 
 // Manrope, not the old serif (Spectral): a premium EdTech dashboard reads as friendly and
@@ -35,17 +34,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
       <body>
-        <DecorativeBackground />
-        <div className="shell">
-          <SiteHeader />
-          {children}
-          <footer className="sitefooter">
-            <div className="inner">
-              <span>Avai</span>
-              <span className="mono">CBSE Class X · Tamil Nadu</span>
-            </div>
-          </footer>
-        </div>
+        <PublicChrome>{children}</PublicChrome>
       </body>
     </html>
   );

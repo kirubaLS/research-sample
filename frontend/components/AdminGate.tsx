@@ -126,27 +126,10 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
 
   return (
     <>
-      <div
-        className="accountbar"
-        style={{
-          maxWidth: "var(--max)",
-          margin: "0 auto",
-          padding: "10px 22px 0",
-          display: "flex",
-          justifyContent: "flex-end",
-          gap: 12,
-          alignItems: "center",
-        }}
-      >
-        <span className="small muted">
-          {[needsSchool ? null : (school ?? getSchoolName()) || null,
-            staff ? (staff.role === "admin" ? "Admin" : "Principal") : null]
-            .filter(Boolean)
-            .join(" · ")}
-        </span>
-        {staff?.scope === "all_schools" && !needsSchool && (
+      {staff?.scope === "all_schools" && !needsSchool && (
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "10px 22px 0" }}>
           <button
-            className="btn--ghost btn--sm"
+            className="btn btn--ghost btn--sm"
             onClick={() => {
               clearActiveSchool();
               setNeedsSchool(true);
@@ -154,24 +137,8 @@ export function AdminGate({ children }: { children: React.ReactNode }) {
           >
             Switch school
           </button>
-        )}
-        <button
-          className="btn--ghost btn--sm"
-          onClick={() => {
-            signOut();
-            setSignedIn(false);
-          }}
-        >
-          Sign out
-        </button>
-      </div>
-      <style jsx global>{`
-        @media print {
-          .accountbar {
-            display: none !important;
-          }
-        }
-      `}</style>
+        </div>
+      )}
       {stale && (
         <p className="notice warn" style={{ maxWidth: "var(--max)", margin: "0 auto 12px" }}>
           {stale}
