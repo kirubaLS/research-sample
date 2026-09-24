@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Scanner } from "@/components/Scanner";
 import { Mascot } from "@/components/Mascot";
 import {
@@ -56,6 +57,12 @@ function toFiles(pages: ScannedPage[]): File[] {
 type Stage = "start" | "scanned" | "confirmed" | "mapped" | "classified";
 
 export default function PaperPage() {
+  // Optional deep-link prefill from a subject-scoped screen (e.g.
+  // /teacher/subjects/[subjectCode]/[sectionId]) -- narrows the subject picker and
+  // opens that subject's own existing paper when there is one, but never invents a
+  // paper: with none yet, the subject is simply preselected for creating a new one.
+  const searchParams = useSearchParams();
+  const prefillSubject = searchParams.get("subject");
   // The subjects come from the deployment, not from a list written here. A school that
   // loads a third book must see it offered without anybody editing this screen.
   const [subjects, setSubjects] = useState<Subject[]>([]);
@@ -134,13 +141,25 @@ export default function PaperPage() {
         const found = allSubjects.filter((s) => held.has(s.subject_code));
         setSubjects(found);
         setSubject((current) =>
-          current || found.find((s) => s.book_loaded)?.subject_code
-            || found[0]?.subject_code || "",
+          current
+          || (prefillSubject && found.some((s) => s.subject_code === prefillSubject) ? prefillSubject : "")
+          || found.find((s) => s.book_loaded)?.subject_code
+          || found[0]?.subject_code || "",
         );
       })
       .catch(() => setSubjects([]));
     void loadPapers();
-  }, [loadPapers]);
+  }, [loadPapers, prefillSubject]);
+
+  // Once this subject's real papers are in, open the most recent one automatically so a
+  // deep link lands on the paper itself rather than an empty "start" screen when one
+  // already exists -- still just a normal openPaper(), no fabricated state.
+  useEffect(() => {
+    if (!prefillSubject || assessmentId || papers.length === 0) return;
+    const match = papers.find((p) => p.subject_code === prefillSubject);
+    if (match) void openPaper(match);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [prefillSubject, papers]);
 
   async function openPaper(p: PaperSummary) {
     const key = getApiKey();

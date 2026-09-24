@@ -2,6 +2,7 @@ import {
   Building2,
   ClipboardList,
   FileText,
+  HelpCircle,
   Home,
   LayoutGrid,
   ScanLine,
@@ -20,6 +21,7 @@ export const PRINCIPAL_NAV: NavItem[] = [
   { href: "/principal/enter-marks", label: "Enter Marks", icon: ClipboardList, needs: "enter_marks", group: "More" },
   { href: "/principal/scan-answers", label: "Scan Answer Sheets", icon: ScanLine, needs: "enter_marks", group: "More" },
   { href: "/principal/share", label: "Share Reports", icon: Share2, needs: "read_results", group: "More" },
+  { href: "/principal/help", label: "Help", icon: HelpCircle, needs: null, group: "More" },
   { href: "/admin", label: "Settings", icon: Settings, needs: null, group: "More" },
 ];
 

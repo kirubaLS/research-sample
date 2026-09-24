@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { MarksReader } from "@/components/MarksReader";
 import { Scanner } from "@/components/Scanner";
 import { newSessionId } from "@/lib/id";
@@ -57,6 +58,13 @@ const STATES = [
 ] as const;
 
 export default function AnswersPage() {
+  // Optional deep-link prefill from a subject+section scoped screen (e.g.
+  // /teacher/subjects/[subjectCode]/[sectionId]) -- this page's own pickers stay the
+  // source of truth, this only saves the first two clicks when the caller already knows
+  // which subject/section it means.
+  const searchParams = useSearchParams();
+  const prefillSubject = searchParams.get("subject");
+  const prefillSection = searchParams.get("section");
   const [papers, setPapers] = useState<PaperSummary[]>([]);
   const [allSections, setAllSections] = useState<TeacherSectionSummary[]>([]);
   const [students, setStudents] = useState<RosterRow[]>([]);
@@ -111,6 +119,21 @@ export default function AnswersPage() {
     () => allSections.filter((s) => !!currentSubject && s.subjects.includes(currentSubject)),
     [allSections, currentSubject],
   );
+
+  // Prefill the paper once the real paper list has loaded: pick this subject's most
+  // recently created paper (papers are already returned newest-first by the backend).
+  useEffect(() => {
+    if (!prefillSubject || paperId || papers.length === 0) return;
+    const match = papers.find((p) => p.subject_code === prefillSubject);
+    if (match) setPaperId(match.id);
+  }, [prefillSubject, paperId, papers]);
+
+  // Prefill the section once it is among the sections this paper's subject actually
+  // offers -- never set to a section the real data does not confirm holds this subject.
+  useEffect(() => {
+    if (!prefillSection || sectionId || sections.length === 0) return;
+    if (sections.some((s) => s.section_id === prefillSection)) setSectionId(prefillSection);
+  }, [prefillSection, sectionId, sections]);
 
   useEffect(() => {
     const key = getApiKey();

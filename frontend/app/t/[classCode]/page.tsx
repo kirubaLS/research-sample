@@ -10,8 +10,12 @@
 
 import { useRouter } from "next/navigation";
 import { use, useState } from "react";
+import { motion } from "framer-motion";
 import { z } from "zod";
+import { GrowthIllustration } from "@/components/GrowthIllustration";
 import { api, ApiError } from "@/lib/api";
+
+const EASE_OUT = [0.22, 0.68, 0.36, 1] as const;
 
 const Profile = z.object({
   name: z.string().min(1, "Please enter your name"),
