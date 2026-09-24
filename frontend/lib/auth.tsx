@@ -58,7 +58,17 @@ function readUser(): CurrentUser | null {
       examsOnly: assignments.length === 0 && (role.can.scan_papers || role.can.enter_marks) && !role.can.read_results,
     };
   }
-  if (role.role === "principal") return { role: "principal", id: key, name };
+  // A principal key resolves server-side two different real ways: a per-person key
+  // stored with role "principal", or the legacy school-wide api_key, which the backend
+  // always resolves as role "admin" scoped to one school (deps.py's current_staff, the
+  // School.api_key branch) -- both are a real principal, not a true cross-school operator,
+  // which only ever has scope "all_schools". Treating only the literal "principal" string
+  // as a principal was the bug: a school's own api_key -- very possibly what was just
+  // tested -- resolved as role "admin" and got stuck outside RoleGuard's "principal" gate
+  // forever, with no error, because nothing there was wrong enough to reject outright.
+  if (role.role === "principal" || (role.role === "admin" && role.scope === "one_school")) {
+    return { role: "principal", id: key, name };
+  }
   return { role: "admin", id: key, name };
 }
 
