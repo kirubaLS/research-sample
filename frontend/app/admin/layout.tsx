@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Building2, LogOut, Radio, ShieldCheck, UserPlus } from "lucide-react";
+import { Building2, LogOut, ShieldCheck, UserPlus } from "lucide-react";
 import { Wordmark } from "@/components/Mascot";
-import { adminSchools, formatDate, portfolioKpis, staffInitials, TODAY } from "@/lib/avai-admin-data";
-import { signOutStaff, useStaffSession } from "@/lib/adminState";
-import { useOpsVersion } from "@/lib/opsDirectory";
+import { api, PlatformSchool } from "@/lib/api";
+import { getPlatformKey, signOutPlatform } from "@/lib/session";
 
 /**
  * AVAI staff console chrome. Deliberately a different product from the
@@ -33,9 +32,9 @@ function useNarrow() {
   return narrow;
 }
 
-function titleFor(pathname: string): string {
+function titleFor(pathname: string, schools: PlatformSchool[]): string {
   const detail = /^\/admin\/schools\/([^/]+)/.exec(pathname);
-  if (detail) return adminSchools.find((s) => s.id === detail[1])?.name ?? "Account";
+  if (detail) return schools.find((s) => s.id === detail[1])?.name ?? "Account";
   if (pathname.startsWith("/admin/onboard")) return "Onboard a school";
   return "Portfolio";
 }
@@ -49,15 +48,44 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 function ConsoleShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
-  const { staff, ready } = useStaffSession();
   const narrow = useNarrow();
-  useOpsVersion();
+  const [ready, setReady] = useState(false);
+  const [signedIn, setSignedIn] = useState(false);
+  const [schools, setSchools] = useState<PlatformSchool[]>([]);
 
   useEffect(() => {
-    if (ready && !staff) router.replace("/admin");
-  }, [ready, staff, router]);
+    const key = getPlatformKey();
+    if (!key) {
+      setReady(true);
+      setSignedIn(false);
+      return;
+    }
+    api
+      .platformWhoami(key)
+      .then(() => {
+        setSignedIn(true);
+        setReady(true);
+      })
+      .catch(() => {
+        setSignedIn(false);
+        setReady(true);
+      });
+  }, []);
 
-  if (!ready || !staff) {
+  useEffect(() => {
+    const key = getPlatformKey();
+    if (!signedIn || !key) return;
+    api
+      .listSchools(key)
+      .then(setSchools)
+      .catch(() => {});
+  }, [signedIn]);
+
+  useEffect(() => {
+    if (ready && !signedIn) router.replace("/admin");
+  }, [ready, signedIn, router]);
+
+  if (!ready || !signedIn) {
     return (
       <div className="ops-shell">
         <div className="ops-main">
@@ -94,9 +122,8 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
         >
           <div style={{ display: "flex", alignItems: "center", gap: 7, fontSize: 11.5, color: "#dbe6fb" }}>
             <span className="pulse-dot" style={{ "--accent": "var(--brand-green)" } as React.CSSProperties} />
-            {portfolioKpis.schoolsLive} live · {portfolioKpis.onboardingCount} onboarding
+            {schools.length} school{schools.length === 1 ? "" : "s"}
           </div>
-          <div style={{ fontSize: 10.5, color: "#8fa2c2", marginTop: 3 }}>Data as of {formatDate(TODAY)}</div>
         </div>
 
         <nav className="ops-nav" aria-label="Console sections">
@@ -134,13 +161,13 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
                 boxShadow: "inset 0 1px 0 rgba(255,255,255,.25)",
               }}
             >
-              {staffInitials(staff.name)}
+              <ShieldCheck size={15} />
             </span>
             <div style={{ minWidth: 0 }}>
               <div style={{ fontSize: 12.5, fontWeight: 650, color: "#fff", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                {staff.name}
+                Operator
               </div>
-              <div style={{ fontSize: 10.5, color: "#8fa2c2" }}>{staff.role}</div>
+              <div style={{ fontSize: 10.5, color: "#8fa2c2" }}>Platform key</div>
             </div>
           </div>
           <button
@@ -148,7 +175,7 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
             className="ops-navlink"
             style={{ width: "100%", marginTop: 10, background: "rgba(255,255,255,.05)", cursor: "pointer" }}
             onClick={() => {
-              signOutStaff();
+              signOutPlatform();
               router.replace("/admin");
             }}
           >
@@ -165,16 +192,13 @@ function ConsoleShell({ children }: { children: React.ReactNode }) {
               AVAI internal
             </div>
             <div style={{ fontSize: 15.5, fontWeight: 700, letterSpacing: "-.01em", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-              {titleFor(pathname)}
+              {titleFor(pathname, schools)}
             </div>
           </div>
 
           <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 8 }}>
             <span className="tag" style={{ background: "#fff", borderColor: "#d9e2f2", color: "var(--brand-ink-soft)" }}>
-              <ShieldCheck size={12} /> Staff only
-            </span>
-            <span className="tag tag--info" style={{ whiteSpace: "nowrap" }}>
-              <Radio size={12} /> {adminSchools.length} accounts
+              <ShieldCheck size={12} /> Operator only
             </span>
           </div>
         </header>

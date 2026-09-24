@@ -1,68 +1,54 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import { assessmentContext, classRosterFull, findStudent, sections, type FullRosterStudent } from "./avai-mock-data";
+import type { SessionPayload } from "@/lib/api";
 
 /**
- * The onboarding assessment a school's students complete before any staff
- * member ever signs in. Module-level store + hook, same contract as
- * shareState.ts, with one difference: this run is mirrored to localStorage
- * so a teenager who reloads mid-test on a phone does not start over.
- * 🔧 BACKEND REQUIRED, nothing is submitted anywhere; "saved" means saved
- * in this browser.
+ * The real interest-test run a student takes before any staff member ever
+ * signs in -- POST /t/{classCode}/start, then a batch of PATCH-like saves per
+ * screen (POST /t/session/{id}/responses) and a final POST .../complete (see
+ * lib/api.ts's classes/startSession/saveResponses/complete). Mirrored to
+ * sessionStorage only, matching what the previously-real /t/[classCode]/test
+ * flow did (see git history), so a reload mid-test does not lose the session
+ * id or the answers already typed -- but nothing here is ever read back by a
+ * teacher or principal; the payload itself is real, this file just holds it
+ * client-side long enough to submit it.
+ *
+ * The reference design's AttendDraft (a five-section personality/background/
+ * future-plans profile, ID+password login, DEMO_PASSWORD) has no backend
+ * counterpart at all: the real endpoint takes a name/roll_no/age/gender/
+ * section/locale profile and returns 36 Likert items, nothing else. That
+ * richer shape is not reproduced here rather than faked.
  */
 
-/** Everyone in the demo shares one password, printed on the slip. */
-export const DEMO_PASSWORD = "avai@2026";
-
-/** Fixed submission date, the app must not read the clock at render time. */
-export const ONBOARDING_DATE = "22 Sep 2026";
-
-/** Age as of the fixed "today" the whole app uses, never Date.now(). */
-export function ageFrom(dob: string): number | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(dob)) return null;
-  const [by, bm, bd] = dob.split("-").map(Number);
-  const [ty, tm, td] = assessmentContext.today.split("-").map(Number);
-  let age = ty - by;
-  if (tm < bm || (tm === bm && td < bd)) age -= 1;
-  return age;
+export interface AttendProfile {
+  name: string;
+  roll_no: string;
+  age?: number;
+  gender?: "female" | "male" | "other" | "prefer_not_to_say";
+  section: string;
+  locale: "en" | "ta" | "hi";
 }
 
-export interface AttendIdentity {
-  studentId: string;
-  loginId: string;
-  name: string;
-  section: string;
-  rollNo: string;
+export interface AttendAnswer {
+  value: number;
+  shownAt: number;
+  answeredAt: number;
 }
 
 export interface AttendDraft {
-  identity: AttendIdentity | null;
-  /** Highest step the student has reached, so a reload lands where they left. */
-  step: number;
-  // Basic information
-  dob: string;
-  gender: string;
-  // Section 1, Your Background
-  livesIn: string;
-  decisionHelper: string;
-  hasResponsibilities: string;
-  // Section 2, Your Learning Profile
-  favoriteSubject: string;
-  comfortableSubject: string;
-  learningType: string;
-  // Section 3, Your Interests
-  interests: string[];
-  workInterest: string;
-  newLearning: string;
-  // Section 4, Your Future Plans
-  futurePlan: string;
-  futurePlanUnsure: boolean;
-  class11Group: string;
-  groupReasons: string[];
-  groupConfidence: string;
-  careersKnown: string[];
-  futureConcerns: string[];
+  /** The class link this run belongs to, e.g. a Section id. */
+  classCode: string | null;
+  /** What the school (a real one, from GET /t/classes) called this class. */
+  classLabel: string | null;
+  schoolName: string | null;
+  profile: AttendProfile | null;
+  /** Set once POST /t/{classCode}/start has answered. */
+  sessionId: string | null;
+  payload: SessionPayload | null;
+  /** -1 = instructions, then an index into payload.screens. */
+  screenIndex: number;
+  answers: Record<string, AttendAnswer>;
   submitted: boolean;
   /** Increments on every write, the autosave indicator watches it. */
   rev: number;
@@ -71,26 +57,14 @@ export interface AttendDraft {
 const STORAGE_KEY = "avai.attend.v1";
 
 const EMPTY: AttendDraft = {
-  identity: null,
-  step: 0,
-  dob: "",
-  gender: "",
-  livesIn: "",
-  decisionHelper: "",
-  hasResponsibilities: "",
-  favoriteSubject: "",
-  comfortableSubject: "",
-  learningType: "",
-  interests: [],
-  workInterest: "",
-  newLearning: "",
-  futurePlan: "",
-  futurePlanUnsure: false,
-  class11Group: "",
-  groupReasons: [],
-  groupConfidence: "",
-  careersKnown: [],
-  futureConcerns: [],
+  classCode: null,
+  classLabel: null,
+  schoolName: null,
+  profile: null,
+  sessionId: null,
+  payload: null,
+  screenIndex: -1,
+  answers: {},
   submitted: false,
   rev: 0,
 };
@@ -110,7 +84,7 @@ function subscribe(cb: () => void) {
 
 function persist() {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    window.sessionStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   } catch {
     /* private mode / blocked storage, the run still works, it just won't survive a reload */
   }
@@ -122,12 +96,10 @@ function hydrate() {
   if (hydrated) return;
   hydrated = true;
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
+    const raw = window.sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return;
     const saved = JSON.parse(raw) as Partial<AttendDraft>;
-    // A saved identity is only trusted if the student still exists in the roster.
-    const identity = saved.identity && findStudent(saved.identity.studentId) ? saved.identity : null;
-    state = { ...EMPTY, ...saved, identity };
+    state = { ...EMPTY, ...saved };
     emit();
   } catch {
     /* unreadable or corrupt, start clean */
@@ -140,14 +112,10 @@ export function patchAttend(patch: Partial<AttendDraft>) {
   emit();
 }
 
-export function startAttend(identity: AttendIdentity) {
-  state = { ...EMPTY, identity, rev: state.rev + 1 };
+export function pickClass(classCode: string, classLabel: string, schoolName: string) {
+  state = { ...EMPTY, classCode, classLabel, schoolName, rev: state.rev + 1 };
   persist();
   emit();
-}
-
-export function submitAttend() {
-  patchAttend({ submitted: true });
 }
 
 export function resetAttend() {
@@ -166,65 +134,3 @@ export function useAttend(): AttendDraft {
   useEffect(hydrate, []);
   return draft;
 }
-
-// ------------------------------------------------------------
-// Credentials, derived from the real roster, never stored
-// ------------------------------------------------------------
-
-/** "X-A" + "01" -> "AVAI-XA-01", the ID printed on the student's slip. */
-export function loginIdFor(student: Pick<FullRosterStudent, "section" | "rollNo">): string {
-  return `AVAI-${student.section.replace("-", "")}-${student.rollNo}`;
-}
-
-function normaliseId(raw: string): string {
-  return raw.trim().toUpperCase().replace(/\s+/g, "");
-}
-
-export type AttendLoginResult =
-  | { ok: true; identity: AttendIdentity }
-  | { ok: false; field: "loginId" | "password"; message: string };
-
-const sectionLetters = sections.map((s) => s.replace("-", "")).join("|");
-const loginIdPattern = new RegExp(`^AVAI-(${sectionLetters})-(\\d{2})$`);
-
-export function resolveAttendLogin(rawId: string, rawPassword: string): AttendLoginResult {
-  const id = normaliseId(rawId);
-  const match = loginIdPattern.exec(id);
-  if (!match) {
-    return {
-      ok: false,
-      field: "loginId",
-      message: "IDs look like AVAI-XA-01. Check the slip your class teacher handed you.",
-    };
-  }
-  const section = `${match[1][0]}-${match[1][1]}`;
-  const student = (classRosterFull[section] ?? []).find((s) => s.rollNo === match[2]);
-  if (!student) {
-    return { ok: false, field: "loginId", message: `No student with roll ${match[2]} in ${section}.` };
-  }
-  if (rawPassword !== DEMO_PASSWORD) {
-    return { ok: false, field: "password", message: "That password doesn't match this ID." };
-  }
-  return {
-    ok: true,
-    identity: {
-      studentId: student.id,
-      loginId: loginIdFor(student),
-      name: student.name,
-      section: student.section,
-      rollNo: student.rollNo,
-    },
-  };
-}
-
-/** Two real, working logins to print on the entry screen. */
-export const demoLogins = [
-  { section: "X-A", rollNo: "01" },
-  { section: "X-B", rollNo: "05" },
-]
-  .map(({ section, rollNo }) => (classRosterFull[section] ?? []).find((s) => s.rollNo === rollNo))
-  .filter((s): s is FullRosterStudent => Boolean(s))
-  .map((s) => ({ loginId: loginIdFor(s), name: s.name, section: s.section }));
-
-/** Every student in the school can sign in, the entry screen says so. */
-export const onboardingCohort = sections.reduce((n, s) => n + (classRosterFull[s]?.length ?? 0), 0);

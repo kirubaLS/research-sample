@@ -1,52 +1,72 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import {
-  mockPrincipal,
-  mockStudentUser,
-  mockTeachers,
-  type Role,
+  clearActiveSchool,
+  getApiKey,
+  getRole,
+  getSchoolName,
+  signOut as sessionSignOut,
+  type StaffRole,
   type TeacherAssignment,
-} from "./avai-mock-data";
-import "./opsDirectory";
+} from "@/lib/session";
 
 /**
- * Mock auth. 🔧 BACKEND REQUIRED, this is a dev-only role switcher, not real
- * sign-in. The "current user" lives in React state and is mirrored to
- * localStorage so reloads keep the chosen shell.
+ * Real auth, backed by lib/session.ts (which app/login/page.tsx already writes to with a
+ * real api.whoami() call). This replaces the wholesale clone's dev-only role switcher:
+ * there is no more signIn()/mock user table here, only a read of whatever the real sign-in
+ * already stored. `ready` flips true once localStorage has been checked (client-only), so
+ * a route guard never has to guess whether "no user yet" means "signed out" or "still
+ * reading storage".
  */
 
 export type CurrentUser =
   | { role: "principal"; id: string; name: string }
-  | { role: "teacher"; id: string; name: string; assignments: TeacherAssignment[]; examsOnly?: boolean }
-  | { role: "student"; id: string; name: string; rollNo: string; section: string };
+  | { role: "admin"; id: string; name: string }
+  | {
+      role: "teacher";
+      id: string;
+      name: string;
+      assignments: TeacherAssignment[];
+      can: StaffRole["can"];
+      /** No class/subject assignment at all, only the exam-cell permissions
+       * (scan_papers/enter_marks) -- the real equivalent of the mock's `examsOnly`. */
+      examsOnly: boolean;
+    };
 
 interface AuthState {
   user: CurrentUser | null;
   ready: boolean;
-  signIn: (role: Role, userId: string) => CurrentUser | null;
   signOut: () => void;
 }
 
-const STORAGE_KEY = "avai.devUser";
-
 const AuthContext = createContext<AuthState | null>(null);
 
-export function resolveUser(role: Role, userId: string): CurrentUser | null {
-  if (role === "principal") return { role, id: mockPrincipal.id, name: mockPrincipal.name };
-  if (role === "teacher") {
-    const t = mockTeachers.find((x) => x.id === userId);
-    return t ? { role, id: t.id, name: t.name, assignments: t.assignments, examsOnly: t.examsOnly } : null;
+function readUser(): CurrentUser | null {
+  const key = getApiKey();
+  const role = getRole();
+  if (!key || !role) return null;
+  const name = getSchoolName() || "";
+  if (role.role === "teacher") {
+    const assignments = role.assignments ?? [];
+    return {
+      role: "teacher",
+      id: key,
+      name,
+      assignments,
+      can: role.can,
+      examsOnly: assignments.length === 0 && (role.can.scan_papers || role.can.enter_marks) && !role.can.read_results,
+    };
   }
-  if (role === "student") return { role, ...mockStudentUser };
-  return null;
+  if (role.role === "principal") return { role: "principal", id: key, name };
+  return { role: "admin", id: key, name };
 }
 
-export function homeFor(user: CurrentUser | Role) {
+/** Where a signed-in user's home page is. */
+export function homeFor(user: CurrentUser | CurrentUser["role"]) {
   const role = typeof user === "string" ? user : user.role;
   if (role === "teacher" && typeof user !== "string" && user.role === "teacher" && user.examsOnly) return "/teacher/papers";
-  // Students never sign in, their only visit is the onboarding assessment.
-  return role === "principal" ? "/principal/classes" : role === "teacher" ? "/teacher/home" : "/attend";
+  return role === "teacher" ? "/teacher/home" : "/principal/classes";
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -54,35 +74,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
-      if (raw) {
-        const { role, id } = JSON.parse(raw) as { role: Role; id: string };
-        setUser(resolveUser(role, id));
-      }
-    } catch {
-      /* storage unavailable, stay signed out */
-    }
+    setUser(readUser());
     setReady(true);
   }, []);
 
-  const signIn = useCallback((role: Role, userId: string) => {
-    const u = resolveUser(role, userId);
-    setUser(u);
-    try {
-      if (u) window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ role: u.role, id: u.id }));
-    } catch {}
-    return u;
-  }, []);
-
-  const signOut = useCallback(() => {
+  const signOut = () => {
+    sessionSignOut();
+    clearActiveSchool();
     setUser(null);
-    try {
-      window.localStorage.removeItem(STORAGE_KEY);
-    } catch {}
-  }, []);
+  };
 
-  const value = useMemo(() => ({ user, ready, signIn, signOut }), [user, ready, signIn, signOut]);
+  const value = useMemo(() => ({ user, ready, signOut }), [user, ready]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 

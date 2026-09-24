@@ -3,26 +3,47 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { AlertCircle, ArrowRight, Lock, ShieldCheck } from "lucide-react";
+import { AlertCircle, ArrowRight, KeyRound, ShieldCheck } from "lucide-react";
 import { Mascot, Wordmark } from "@/components/Mascot";
-import { Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { DEMO_STAFF_PASSWORD, demoStaffLogins, signInStaff } from "@/lib/adminState";
+import { Reveal } from "@/components/motion";
+import { api, ApiError, ApiUnreachable } from "@/lib/api";
+import { getPlatformKey, setPlatformKey } from "@/lib/session";
 
-/** AVAI staff sign-in. Mock: any listed staff email plus any password. */
+/**
+ * AVAI operator sign-in. Real: the pasted value is the platform's own
+ * X-Platform-Key/X-API-Key credential (see api.ts's `operator()`), checked
+ * with GET /platform/me before it is stored. There is no operator email +
+ * password concept on the real backend (the reference's "demo staff
+ * accounts" list and its "any password works" note are UI-only mock) --
+ * signing in here means holding the key itself, same as a principal or
+ * teacher signs in with their own key at /login.
+ */
 export default function AdminSignInPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState(DEMO_STAFF_PASSWORD);
-  const [error, setError] = useState<{ field: "email" | "password"; message: string } | null>(null);
+  const [key, setKey] = useState(() => getPlatformKey() ?? "");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    const result = signInStaff(email, password);
-    if (!result.ok) {
-      setError({ field: result.field, message: result.message });
+    const trimmed = key.trim();
+    if (!trimmed) {
+      setError("Enter the operator key.");
       return;
     }
-    router.push("/admin/schools");
+    setBusy(true);
+    setError(null);
+    try {
+      await api.platformWhoami(trimmed);
+      setPlatformKey(trimmed);
+      router.push("/admin/schools");
+    } catch (err) {
+      if (err instanceof ApiUnreachable) setError("Could not reach the server. Check the connection and try again.");
+      else if (err instanceof ApiError && (err.status === 401 || err.status === 403)) setError("That key was not accepted.");
+      else setError("Could not sign in.");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -45,92 +66,45 @@ export default function AdminSignInPage() {
             <div className="surface" style={{ padding: "26px 24px" }}>
               <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
                 <ShieldCheck size={18} style={{ color: "var(--brand-blue)" }} />
-                <h2 style={{ fontSize: 21 }}>Staff sign-in</h2>
+                <h2 style={{ fontSize: 21 }}>Operator sign-in</h2>
               </div>
               <p className="small muted" style={{ marginBottom: 20 }}>
-                Use your AVAI address. Principals and teachers sign in at the school app, not here.
+                Paste the operator key AVAI issued you. Principals and teachers sign in at the school app, not here.
               </p>
 
               <form className="login__form" onSubmit={submit} noValidate>
                 <div className="field">
-                  <label htmlFor="staff-email">Work email</label>
+                  <label htmlFor="platform-key">Operator key</label>
                   <input
-                    id="staff-email"
-                    className="input"
-                    type="email"
-                    autoComplete="username"
-                    placeholder="name@avai.school"
-                    value={email}
-                    aria-invalid={error?.field === "email"}
-                    aria-describedby={error ? "staff-error" : undefined}
-                    onChange={(e) => {
-                      setEmail(e.target.value);
-                      setError(null);
-                    }}
-                  />
-                </div>
-
-                <div className="field">
-                  <label htmlFor="staff-password">Password</label>
-                  <input
-                    id="staff-password"
-                    className="input"
+                    id="platform-key"
+                    className="input mono"
                     type="password"
-                    autoComplete="current-password"
-                    value={password}
-                    aria-invalid={error?.field === "password"}
+                    autoComplete="off"
+                    placeholder="Paste your key"
+                    value={key}
+                    aria-invalid={!!error}
+                    aria-describedby={error ? "platform-error" : undefined}
                     onChange={(e) => {
-                      setPassword(e.target.value);
+                      setKey(e.target.value);
                       setError(null);
                     }}
                   />
                   <span className="small muted" style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
-                    <Lock size={11} /> Demo build, any password works.
+                    <KeyRound size={11} /> Sent to X-Platform-Key on every request, checked against GET /platform/me.
                   </span>
                 </div>
 
                 {error && (
-                  <div id="staff-error" className="evidence" style={{ background: "var(--risk-soft)", borderColor: "#eec3bb", color: "#8f3226" }}>
+                  <div id="platform-error" className="evidence" style={{ background: "var(--risk-soft)", borderColor: "#eec3bb", color: "#8f3226" }}>
                     <AlertCircle size={15} />
-                    <span>{error.message}</span>
+                    <span>{error}</span>
                   </div>
                 )}
 
-                <button type="submit" className="btn btn--blue" style={{ justifyContent: "center", padding: "10px 14px" }}>
-                  Enter console <ArrowRight size={14} />
+                <button type="submit" className="btn btn--blue" style={{ justifyContent: "center", padding: "10px 14px" }} disabled={busy}>
+                  {busy ? "Checking…" : "Enter console"} <ArrowRight size={14} />
                 </button>
               </form>
-            </div>
-          </Reveal>
-
-          <Reveal delay={0.12}>
-            <div className="devlogin" style={{ borderColor: "var(--brand-blue)", background: "rgba(29,95,208,.05)" }}>
-              <div className="devlogin__head">
-                <strong>Demo accounts</strong> · any password
-              </div>
-              <Stagger className="devlogin__grid" gap={0.05}>
-                {demoStaffLogins.map((s) => (
-                  <StaggerItem key={s.email}>
-                    <button
-                      type="button"
-                      className="devlogin__btn"
-                      style={{ width: "100%" }}
-                      onClick={() => {
-                        setEmail(s.email);
-                        setError(null);
-                      }}
-                    >
-                      <span>
-                        <strong style={{ fontWeight: 650 }}>{s.email}</strong>
-                        <small style={{ display: "block" }}>
-                          {s.name} · {s.role}
-                        </small>
-                      </span>
-                      <ArrowRight size={13} />
-                    </button>
-                  </StaggerItem>
-                ))}
-              </Stagger>
             </div>
           </Reveal>
 

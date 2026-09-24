@@ -13,11 +13,24 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
           : [{ href: "/teacher/home", label: "My Home", icon: Home }];
         if (user.role === "teacher" && !examsOnly) {
           for (const a of user.assignments) {
-            if (a.type === "class") nav.push({ href: `/teacher/class/${a.section}`, label: `Class ${a.section}`, icon: Users, group: "My classes" });
+            if (a.type === "class") {
+              nav.push({
+                href: `/teacher/class/${a.section_id}`,
+                label: `Class ${a.section_label ?? a.section_id}`,
+                icon: Users,
+                group: "My classes",
+              });
+            }
           }
           for (const a of user.assignments) {
-            if (a.type === "subject")
-              for (const s of a.sections) nav.push({ href: `/teacher/subject/${encodeURIComponent(a.subject)}/${s}`, label: `${a.subject} · ${s}`, icon: BookOpen, group: "My subjects" });
+            if (a.type === "subject" && a.subject_code) {
+              nav.push({
+                href: `/teacher/subject/${encodeURIComponent(a.subject_code)}/${a.section_id}`,
+                label: `${a.subject_code} · ${a.section_label ?? a.section_id}`,
+                icon: BookOpen,
+                group: "My subjects",
+              });
+            }
           }
         }
         return (

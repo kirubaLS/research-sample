@@ -1,391 +1,323 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { CheckCircle2, ChevronDown, FileUp, Sparkles, Upload, X } from "lucide-react";
-import {
-  paperChapterMapping,
-  paperCoverage,
-  paperQuestions,
-  testsConducted,
-  type SubjectPaper,
-  type SubjectPaperStatus,
-} from "@/lib/avai-mock-data";
-import { downloadAnswerCard } from "@/lib/downloadReport";
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { api } from "@/lib/api";
+import { usePaperScan, toFiles } from "@/lib/usePaperScan";
 import { FilePickButtons } from "@/components/FilePickButtons";
-import { useAuth } from "@/lib/auth";
-import { paperFor, updatePaper, useLiveVersion } from "@/lib/liveData";
 
-function StatusTag({ status }: { status: SubjectPaperStatus }) {
-  if (status === "Mapped") return <span className="tag tag--green">Mapped</span>;
-  if (status === "Processing") return <span className="tag tag--gold">Processing</span>;
-  if (status === "Needs mapping") return <span className="tag tag--risk">Needs mapping</span>;
-  return <span className="tag">Not uploaded</span>;
-}
-
-/** One subject's question-paper tracker, upload, blueprint mapping, and
- * answer-card generation, scoped to a single (subject, section) the way
- * a subject teacher actually works, instead of the whole school's paper
- * list a principal used to see. Trimmed from the old principal-wide
- * Question Papers page: no cross-subject accordion, no test creation. */
+/** One subject's real question-paper pipeline: create/open a paper, scan it (photo or
+ * file), confirm the reading, map it against the book and classify every question -- the
+ * exact state machine in lib/usePaperScan.ts, the same one app/teacher/papers/page.tsx's
+ * Papers tab drives. `section` narrows nothing server-side (a question paper is one per
+ * subject, not per class), it is kept only so a subject-scoped screen can label itself. */
 export function QuestionPaperPanel({ subject, section }: { subject: string; section: string }) {
-  const { user } = useAuth();
-  useLiveVersion();
-  const papers: Record<string, SubjectPaper> = Object.fromEntries(
-    testsConducted.filter((t) => (t.subjects ?? [subject]).includes(subject)).map((t) => [t.key, paperFor(t.key, subject)]),
-  );
-  // Nothing expanded by default, click a test to see its paper.
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const scan = usePaperScan({
+    listPapers: (key) => api.teacherPapers(key),
+    listSubjects: (key) => api.subjects(key).then((r) => r.subjects),
+    prefillSubject: subject,
+  });
+  const [newTitle, setNewTitle] = useState("Cycle Test I");
 
-  const [uploadFor, setUploadFor] = useState<string | null>(null);
-  const [uploadFileName, setUploadFileName] = useState("");
-  const [mappingFor, setMappingFor] = useState<string | null>(null);
-  const [cardFor, setCardFor] = useState<string | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const papersForSubject = scan.papers.filter((p) => p.subject_code === subject);
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2800);
-    return () => clearTimeout(t);
-  }, [toast]);
-
-  function setPaper(testKey: string, patch: Partial<SubjectPaper>) {
-    updatePaper(testKey, subject, patch);
+  function startNew() {
+    scan.setSubject(subject);
+    scan.setTitle(newTitle || "Cycle Test I");
+    scan.fileInput.current?.click();
   }
-
-  function upload() {
-    if (!uploadFor) return;
-    const testKey = uploadFor;
-    const fileName = uploadFileName || `${subject.toLowerCase().replace(/\s+/g, "-")}-paper.pdf`;
-    setPaper(testKey, { fileName, uploadedBy: user?.name ?? "You", uploadedAt: new Date().toISOString().slice(0, 10), status: "Processing" });
-    setUploadFor(null);
-    setUploadFileName("");
-    setToast(`Uploaded ${fileName}. Mapping ${subject} against the Board blueprint…`);
-    setTimeout(() => setPaper(testKey, { status: "Needs mapping" }), 1600);
-  }
-
-  function confirmMapping(testKey: string) {
-    setPaper(testKey, { status: "Mapped" });
-    setToast(`${subject} mapping confirmed.`);
-  }
-
-  function generateAnswerCard(testKey: string) {
-    setPaper(testKey, { answerCardGenerated: true });
-    setMappingFor(null);
-    setCardFor(testKey);
-    setToast("Answer card generated.");
-  }
-
-  function toggleExpand(testKey: string) {
-    setExpanded((s) => {
-      const next = new Set(s);
-      if (next.has(testKey)) next.delete(testKey);
-      else next.add(testKey);
-      return next;
-    });
-  }
-
-  const testForMapping = mappingFor ? testsConducted.find((t) => t.key === mappingFor) : null;
-  const paperForMapping = mappingFor ? papers[mappingFor] : null;
-  const testForCard = cardFor ? testsConducted.find((t) => t.key === cardFor) : null;
-  const testForUpload = uploadFor ? testsConducted.find((t) => t.key === uploadFor) : null;
-  const coverage = paperCoverage(subject);
 
   return (
-    <>
-      <div style={{ display: "grid", gap: 12 }}>
-        {testsConducted.map((t) => {
-          const p = papers[t.key];
-          if (!p) return null;
-          const isOpen = expanded.has(t.key);
-          return (
-            <div className="card" key={t.key}>
+    <div>
+      {scan.error && (
+        <div className="evidence evidence--gold" style={{ marginBottom: 12 }}>
+          <AlertTriangle size={16} />
+          <div>{scan.error}</div>
+        </div>
+      )}
+
+      {!scan.assessmentId ? (
+        <div className="card">
+          <div className="card__body" style={{ display: "grid", gap: 12 }}>
+            <p className="small muted" style={{ margin: 0 }}>
+              {section} · {subject}. Open a paper already created for {subject} below, or start a new one.
+            </p>
+            {papersForSubject.length > 0 && (
+              <div style={{ display: "grid", gap: 8 }}>
+                {papersForSubject.map((p) => (
+                  <button key={p.id} className="subject-row" onClick={() => scan.openPaper(p)}>
+                    <div>
+                      <div className="strong">{p.title}</div>
+                      <div className="small muted">
+                        {p.stage} · {p.questions} question{p.questions === 1 ? "" : "s"} · {p.mapped_questions} mapped
+                      </div>
+                    </div>
+                    <ChevronDown size={14} className="muted" style={{ transform: "rotate(-90deg)" }} />
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="field">
+              <label htmlFor="new-paper-title">New paper title</label>
+              <input id="new-paper-title" className="input" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn--primary" onClick={startNew} disabled={scan.busy != null}>
+                <Upload size={14} /> Upload paper file
+              </button>
               <button
-                onClick={() => toggleExpand(t.key)}
-                style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                aria-expanded={isOpen}
+                className="btn"
+                onClick={() => {
+                  scan.setSubject(subject);
+                  scan.setTitle(newTitle || "Cycle Test I");
+                  scan.setShowCamera(true);
+                }}
               >
-                <div className="card__head">
-                  <div>
-                    <div className="strong" style={{ fontSize: 15 }}>
-                      {t.name}
-                    </div>
-                    <div className="small muted" style={{ marginTop: 2 }}>
-                      {t.date} · {subject}
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <StatusTag status={p.status} />
-                    <ChevronDown size={16} className="muted" style={{ transform: isOpen ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
+                <Camera size={14} /> Photograph paper
+              </button>
+            </div>
+            <input
+              ref={scan.fileInput}
+              type="file"
+              accept=".pdf,image/*"
+              multiple
+              hidden
+              onChange={(e) => {
+                const files = Array.from(e.target.files ?? []);
+                if (files.length) void scan.onFiles(files);
+              }}
+            />
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          <div className="card__head">
+            <div>
+              <div className="strong" style={{ fontSize: 15 }}>
+                {scan.title}
+              </div>
+              <div className="small muted" style={{ marginTop: 2 }}>
+                {subject} · {scan.stage}
+                {scan.review?.marks && ` · ${scan.review.marks.read} marks read`}
+              </div>
+            </div>
+            <div style={{ display: "flex", gap: 8 }}>
+              <button className="btn btn--sm" onClick={() => scan.onRename()} disabled={scan.renaming}>
+                Rename
+              </button>
+              <button className="btn btn--sm" onClick={() => scan.onDelete()}>
+                <Trash2 size={13} /> Delete paper
+              </button>
+              <button className="btn btn--sm" onClick={() => scan.loadPapers().then(() => scan.setError(null))}>
+                Back to list
+              </button>
+            </div>
+          </div>
+
+          <div className="card__body" style={{ display: "grid", gap: 14 }}>
+            {scan.deleted && <div className="evidence">Paper deleted.</div>}
+
+            {!scan.scan && !scan.documentId && (
+              <div style={{ display: "flex", gap: 8 }}>
+                <button className="btn btn--primary" onClick={() => scan.fileInput.current?.click()} disabled={scan.busy != null}>
+                  <Upload size={14} /> Upload scanned pages
+                </button>
+                <button className="btn" onClick={() => scan.setShowCamera(true)}>
+                  <Camera size={14} /> Photograph pages
+                </button>
+                <input
+                  ref={scan.fileInput}
+                  type="file"
+                  accept=".pdf,image/*"
+                  multiple
+                  hidden
+                  onChange={(e) => {
+                    const files = Array.from(e.target.files ?? []);
+                    if (files.length) void scan.onFiles(files);
+                  }}
+                />
+              </div>
+            )}
+
+            {scan.busy && (
+              <div className="small muted" style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <Loader2 size={14} className="spin" /> {scan.busy}
+              </div>
+            )}
+
+            {scan.pendingResume && (
+              <div className="evidence evidence--gold">
+                <AlertTriangle size={16} />
+                <div>
+                  {scan.pendingPageCount} captured page(s) could not reach the server yet. Retrying automatically.
+                  <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                    <button className="btn btn--sm" onClick={() => scan.retryPendingNow()} disabled={scan.retrying}>
+                      Retry now
+                    </button>
+                    <button className="btn btn--sm" onClick={() => scan.discardPending()}>
+                      Discard
+                    </button>
                   </div>
                 </div>
-              </button>
+              </div>
+            )}
 
-              {isOpen && (
-                <div className="table-wrap">
+            {scan.scan && (
+              <div className="grid grid--3">
+                <div className="stat">
+                  <div className="stat__label">Questions read</div>
+                  <div className="stat__value">{scan.scan.questions}</div>
+                </div>
+                <div className="stat">
+                  <div className="stat__label">Marks read</div>
+                  <div className="stat__value">{scan.scan.total_marks}</div>
+                </div>
+                <div className="stat">
+                  <div className="stat__label">Pages</div>
+                  <div className="stat__value">{scan.scan.pages}</div>
+                </div>
+              </div>
+            )}
+
+            {scan.documentId && !scan.confirmed && (
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  className="input"
+                  style={{ maxWidth: 220 }}
+                  placeholder="Your name"
+                  value={scan.confirmedBy}
+                  onChange={(e) => scan.setConfirmedBy(e.target.value)}
+                />
+                <button className="btn btn--primary btn--sm" onClick={() => scan.onConfirm()} disabled={scan.busy != null}>
+                  <CheckCircle2 size={13} /> Confirm reading &amp; map
+                </button>
+                <button className="btn btn--sm" onClick={() => scan.onRemoveScan()} disabled={scan.removingScan}>
+                  Remove scan
+                </button>
+              </div>
+            )}
+
+            {scan.mapped && (
+              <div className="grid grid--3">
+                <div className="stat">
+                  <div className="stat__label">Mapped</div>
+                  <div className="stat__value">{scan.mapped.mapped}</div>
+                </div>
+                <div className="stat">
+                  <div className="stat__label">Blocked</div>
+                  <div className="stat__value">{scan.mapped.blocked}</div>
+                </div>
+                <div className="stat">
+                  <div className="stat__label">Needs review</div>
+                  <div className="stat__value">{scan.mapped.needs_review}</div>
+                </div>
+              </div>
+            )}
+
+            {scan.mapped && scan.mapped.blocked > 0 && !scan.placed && (
+              <button className="btn btn--sm" onClick={() => scan.onMap()} disabled={scan.busy != null}>
+                Re-run mapping
+              </button>
+            )}
+            {scan.mapped && scan.mapped.blocked === 0 && !scan.placed && !scan.alreadyClassified && (
+              <button className="btn btn--primary btn--sm" onClick={() => scan.onClassify()} disabled={scan.busy != null}>
+                <Sparkles size={13} /> Read &amp; classify every question
+              </button>
+            )}
+
+            {(scan.placed || scan.alreadyClassified) && (
+              <div className="tag tag--green" style={{ width: "fit-content" }}>
+                <CheckCircle2 size={12} /> Classified
+              </div>
+            )}
+
+            {scan.review && scan.review.questions.length > 0 && (
+              <div className="drawer__section" style={{ padding: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <h4 style={{ margin: 0 }}>Questions ({scan.blockedCount} not yet placed)</h4>
+                  <div className="tabs" role="tablist">
+                    {(["all", "mapped", "blocked"] as const).map((f) => (
+                      <button
+                        key={f}
+                        role="tab"
+                        aria-selected={scan.filter === f}
+                        className={`tab ${scan.filter === f ? "tab--active" : ""}`}
+                        onClick={() => scan.setFilter(f)}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="table-wrap table-wrap--scroll" style={{ maxHeight: 360 }}>
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Subject</th>
-                        <th>File</th>
-                        <th>Blueprint coverage</th>
-                        <th>Status</th>
-                        <th></th>
+                        <th>Q</th>
+                        <th>Stem</th>
+                        <th className="num">Marks</th>
+                        <th>Chapter</th>
+                        <th>Needs review</th>
                       </tr>
                     </thead>
                     <tbody>
-                      <tr>
-                        <td className="strong">{subject}</td>
-                        <td>
-                          {p.fileName ? (
-                            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                              <FileUp size={13} style={{ color: "var(--muted)" }} />
-                              <span className="small">{p.fileName}</span>
-                            </div>
-                          ) : (
-                            <span className="muted small">No file yet</span>
-                          )}
-                        </td>
-                        <td style={{ minWidth: 140 }}>
-                          {p.status === "Mapped" || p.status === "Needs mapping" ? (
-                            <div className="bar-row" style={{ gridTemplateColumns: "1fr 40px", padding: 0 }}>
-                              <div className="bar">
-                                <div className="bar__fill" style={{ width: `${coverage?.pct ?? 0}%` }} />
-                              </div>
-                              <div className="bar-row__val">{coverage?.pct ?? 0}%</div>
-                            </div>
-                          ) : (
-                            <span className="muted small">Not yet available</span>
-                          )}
-                        </td>
-                        <td>
-                          <StatusTag status={p.status} />
-                        </td>
-                        <td style={{ textAlign: "right", whiteSpace: "nowrap" }}>
-                          {p.status === "Not uploaded" && (
-                            <button className="btn btn--sm" onClick={() => setUploadFor(t.key)}>
-                              <Upload size={13} /> Upload
-                            </button>
-                          )}
-                          {p.status === "Processing" && <span className="small muted">Processing…</span>}
-                          {(p.status === "Needs mapping" || p.status === "Mapped") && (
-                            <button className="btn btn--sm" onClick={() => setMappingFor(t.key)}>
-                              View mapping
-                            </button>
-                          )}
-                          {p.status === "Mapped" && p.answerCardGenerated && (
-                            <button className="btn btn--sm" style={{ marginLeft: 6 }} onClick={() => setCardFor(t.key)}>
-                              <FileUp size={13} /> Answer card
-                            </button>
-                          )}
-                        </td>
-                      </tr>
+                      {scan.rows.map((q) => (
+                        <tr key={q.address}>
+                          <td className="strong">
+                            {q.section ?? ""}
+                            {q.question_no}
+                            {q.sub_part ?? ""}
+                          </td>
+                          <td className="small" style={{ maxWidth: 320 }}>
+                            {q.stem_text ?? "—"}
+                          </td>
+                          <td className="num">{q.max_marks ?? "—"}</td>
+                          <td>{q.mapped_to?.chapter ?? <span className="tag tag--risk">{q.blocked_reason ?? "Not placed"}</span>}</td>
+                          <td>{q.mapped_to?.needs_review ? <span className="tag tag--gold">{q.mapped_to.review_reason ?? "Review"}</span> : "—"}</td>
+                        </tr>
+                      ))}
                     </tbody>
                   </table>
                 </div>
-              )}
-            </div>
-          );
-        })}
-      </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
-      <p className="small muted" style={{ marginTop: 14 }}>
-        Uploads, mapping and answer cards are all simulated for this demo, nothing is parsed or stored, and the list resets on reload.
-      </p>
-
-      {/* Upload paper modal */}
+      {/* Camera capture -- reuses the same page-capture flow the single-student
+          answer-script scanner uses (pageStore + toFiles). */}
       <AnimatePresence>
-        {uploadFor && (
-          <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setUploadFor(null)}>
-            <motion.div className="modal" role="dialog" aria-modal="true" initial={{ y: 16, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 16, opacity: 0 }} onClick={(e) => e.stopPropagation()}>
+        {scan.showCamera && (
+          <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => scan.setShowCamera(false)}>
+            <motion.div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
               <div className="modal__head">
-                <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <Upload size={16} /> Upload {subject} paper
-                </h3>
-                <button className="iconbtn" onClick={() => setUploadFor(null)} aria-label="Close">
+                <h3>Photograph the paper</h3>
+                <button className="iconbtn" onClick={() => scan.setShowCamera(false)} aria-label="Close">
                   <X size={16} />
                 </button>
               </div>
               <div className="modal__body">
-                <p className="small muted" style={{ margin: 0 }}>
-                  {testForUpload?.name} · {subject}
-                </p>
-                <div className="field">
-                  <label>Paper file</label>
-                  <FilePickButtons accept=".pdf,.doc,.docx,image/*" onPick={(f) => setUploadFileName(f.name)} />
-                  {uploadFileName && (
-                    <div className="small muted" style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 2 }}>
-                      <CheckCircle2 size={13} style={{ color: "var(--brand-green)" }} /> {uploadFileName}
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="modal__foot">
-                <button className="btn" onClick={() => setUploadFor(null)}>
-                  Cancel
-                </button>
-                <button className="btn btn--primary" onClick={upload}>
-                  <Sparkles size={14} /> Upload &amp; map to blueprint
-                </button>
+                <FilePickButtons
+                  accept="image/*"
+                  fileLabel="Choose photo"
+                  onPick={(file) => {
+                    scan.setShowCamera(false);
+                    void scan.onFiles([file]);
+                  }}
+                />
+                <p className="small muted">Photograph each page, one at a time; each upload adds to this paper's pages.</p>
               </div>
             </motion.div>
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Mapping drawer */}
-      <AnimatePresence>
-        {mappingFor && testForMapping && paperForMapping && (
-          <>
-            <motion.div className="drawer-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setMappingFor(null)} />
-            <motion.aside
-              className="drawer"
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${subject} blueprint mapping`}
-              initial={{ x: 40, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 40, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 380, damping: 34 }}
-            >
-              <div className="drawer__head">
-                <div>
-                  <div className="finding__subject">{subject}</div>
-                  <h3 style={{ fontSize: 20 }}>{testForMapping.name}</h3>
-                  <div className="muted small">{paperForMapping.fileName}</div>
-                </div>
-                <button className="iconbtn" onClick={() => setMappingFor(null)} aria-label="Close">
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="drawer__body">
-                <div className="drawer__section">
-                  <h4>Blueprint coverage</h4>
-                  <dl className="kv">
-                    <dt>Coverage</dt>
-                    <dd className="strong">{paperCoverage(subject)?.pct}%</dd>
-                    <dt>Chapters covered</dt>
-                    <dd>
-                      {paperCoverage(subject)?.covered} of {paperCoverage(subject)?.total}
-                    </dd>
-                  </dl>
-                  <p className="small muted" style={{ marginTop: 8 }}>
-                    Measured against the whole Board blueprint for {subject}, not against this one paper, a unit test is expected to cover part of it.
-                  </p>
-                </div>
-                <div className="drawer__section">
-                  <h4>Chapter-by-chapter</h4>
-                  <div className="table-wrap--scroll" style={{ maxHeight: 260 }}>
-                    {paperChapterMapping[subject].map((c) => (
-                      <div className="bar-row" key={c.chapter} style={{ gridTemplateColumns: "1fr 90px" }}>
-                        <div className="bar-row__label">{c.chapter}</div>
-                        <div className="small" style={{ textAlign: "right" }}>
-                          {c.covered ? <span className="tag tag--green">{c.questionsMapped} Q mapped</span> : <span className="tag">Not tested</span>}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-                <div className="drawer__section">
-                  <h4>Questions in this paper</h4>
-                  <div className="card card--flat">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>Q. No</th>
-                          <th>Chapter</th>
-                          <th className="num">Marks</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {paperQuestions[subject].map((q) => (
-                          <tr key={q.no}>
-                            <td className="strong">{q.no}</td>
-                            <td>{q.chapter}</td>
-                            <td className="num">{q.marks}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                  <div className="small muted" style={{ marginTop: 8, display: "flex", justifyContent: "space-between" }}>
-                    <span>{paperQuestions[subject].length} questions</span>
-                    <span className="strong" style={{ color: "var(--text)" }}>
-                      Total: {paperQuestions[subject].reduce((sum, q) => sum + q.marks, 0)} marks
-                    </span>
-                  </div>
-                </div>
-                <div className="drawer__section" style={{ display: "flex", gap: 10 }}>
-                  {paperForMapping.status === "Needs mapping" && (
-                    <button className="btn btn--primary btn--sm" onClick={() => confirmMapping(mappingFor)}>
-                      <CheckCircle2 size={13} /> Confirm mapping
-                    </button>
-                  )}
-                  {paperForMapping.status === "Mapped" && (
-                    <button className="btn btn--primary btn--sm" onClick={() => generateAnswerCard(mappingFor)}>
-                      <Sparkles size={13} /> {paperForMapping.answerCardGenerated ? "Regenerate answer card" : "Generate answer card"}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
-
-      {/* Answer card drawer */}
-      <AnimatePresence>
-        {cardFor && testForCard && (
-          <>
-            <motion.div className="drawer-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setCardFor(null)} />
-            <motion.aside
-              className="drawer"
-              role="dialog"
-              aria-modal="true"
-              aria-label={`${subject} answer card`}
-              initial={{ x: 40, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              exit={{ x: 40, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 380, damping: 34 }}
-            >
-              <div className="drawer__head">
-                <div>
-                  <div className="finding__subject">{subject}</div>
-                  <h3 style={{ fontSize: 20 }}>Answer card</h3>
-                  <div className="muted small">
-                    {testForCard.name} · {section}
-                  </div>
-                </div>
-                <button className="iconbtn" onClick={() => setCardFor(null)} aria-label="Close">
-                  <X size={18} />
-                </button>
-              </div>
-              <div className="drawer__body">
-                <div className="drawer__section">
-                  <h4>What this is</h4>
-                  <p className="small muted" style={{ margin: 0 }}>
-                    A blank mark-entry sheet for {subject} · {testForCard.name} · {section}, one row per student, one column per question. Print it, fill
-                    it by hand, then scan it back in from Enter Marks, the app reads the marks automatically and flags any it can&apos;t.
-                  </p>
-                </div>
-                <div className="drawer__section">
-                  <button className="btn btn--primary" onClick={() => downloadAnswerCard(cardFor, subject, section)}>
-                    <FileUp size={14} /> Download answer card ({section})
-                  </button>
-                </div>
-              </div>
-            </motion.aside>
-          </>
-        )}
-      </AnimatePresence>
-
-      <AnimatePresence>
-        {toast && (
-          <motion.div className="toast" role="status" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}>
-            {toast}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </>
+      <p className="small muted" style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 6 }}>
+        <Plus size={13} /> Real scan, mapping and classification -- every question paper here is read, mapped against the book and classified against
+        the real backend.
+      </p>
+    </div>
   );
 }

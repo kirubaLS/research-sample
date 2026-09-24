@@ -1,102 +1,167 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Check, Send, Share2 } from "lucide-react";
-import { attentionFor, findStudent, latestTest, mainBlockerFor, teacherReportFor } from "@/lib/avai-mock-data";
+import { api, IssuedReportRow, StudentAcademicsOverview, StudentSubjectBreakdown } from "@/lib/api";
+import { getApiKey } from "@/lib/session";
 import { usePageHeader } from "@/lib/pageHeader";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
+import { LoadingScreen } from "@/components/Shell";
 
-type ReportState = { issued: boolean; sharedWithStudent: boolean };
+const STATUS_LABEL: Record<string, string> = {
+  on_track: "On Track",
+  needs_attention: "Needs Attention",
+  requires_review: "Requires Review",
+  not_assessed: "Not assessed",
+};
 
 /**
- * §6.4 Teacher-facing student report. Issue/Share toggle state locally:
- * Issue → disables itself and enables Share; Share → marks shared.
- * Nothing is persisted (🔧 share is BACKEND REQUIRED).
+ * §6.4 Teacher-facing student report -- real cross-subject overview
+ * (GET /admin/teacher/academics/students/{id}) plus, per subject, the
+ * chapter-wise breakdown a teacher would issue/share. Issue = issueReport(),
+ * Share = shareReport()/unshareReport(); both are real, persisted calls
+ * against the exact same routes the principal side already uses.
  */
 export default function StudentReportPage() {
   const { studentId } = useParams<{ studentId: string }>();
-  const student = findStudent(studentId);
-  usePageHeader({ title: student?.name ?? studentId, backHref: "/teacher/home" });
-  const base = useMemo(() => (student ? teacherReportFor(student, latestTest.key) : null), [student]);
+  const [overview, setOverview] = useState<StudentAcademicsOverview | null>(null);
+  const [breakdowns, setBreakdowns] = useState<Record<string, StudentSubjectBreakdown>>({});
+  const [issued, setIssued] = useState<IssuedReportRow[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [by, setBy] = useState("");
 
-  const [state, setState] = useState<ReportState[]>(() =>
-    (student ? teacherReportFor(student, latestTest.key).subjectReports : []).map((r) => ({ issued: r.issued, sharedWithStudent: r.sharedWithStudent }))
-  );
+  usePageHeader({ title: overview?.student.name ?? studentId, backHref: "/teacher/home" });
 
-  if (!student || !base) return <EvidenceState kind="early">No student with id {studentId} in this dataset.</EvidenceState>;
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key) return;
+    api
+      .teacherStudentAcademics(key, studentId)
+      .then((o) => {
+        setOverview(o);
+        return Promise.all(o.subjects.map((s) => api.teacherStudentSubjectBreakdown(key, studentId, s.subject_code)));
+      })
+      .then((rows) => {
+        const map: Record<string, StudentSubjectBreakdown> = {};
+        rows?.forEach((r) => (map[r.subject.subject_code] = r));
+        setBreakdowns(map);
+      })
+      .catch(() => setError("Could not load this student's marks."));
+    api
+      .studentIssuedReports(key, studentId)
+      .then((r) => setIssued(r.reports))
+      .catch(() => {
+        /* the report list is secondary -- overview above still works without it */
+      });
+  }, [studentId]);
+
+  async function issue(assessmentId: string) {
+    const key = getApiKey();
+    if (!key) return;
+    setBusy(assessmentId);
+    try {
+      await api.issueReport(key, studentId, assessmentId, by || "teacher");
+      const r = await api.studentIssuedReports(key, studentId);
+      setIssued(r.reports);
+    } catch {
+      setError("Could not issue this report.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function toggleShare(row: IssuedReportRow) {
+    const key = getApiKey();
+    if (!key) return;
+    setBusy(row.report_id);
+    try {
+      if (row.shared) await api.unshareReport(key, row.report_id);
+      else await api.shareReport(key, row.report_id, by || "teacher");
+      const r = await api.studentIssuedReports(key, studentId);
+      setIssued(r.reports);
+    } catch {
+      setError("Could not update sharing for this report.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  if (error) return <EvidenceState kind="early">{error}</EvidenceState>;
+  if (!overview) return <LoadingScreen label="Loading this student…" />;
 
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16 }}>
         <p className="page-sub" style={{ marginTop: 0 }}>
-          {student.section} · Roll no. {student.rollNo} · Main blocker: {mainBlockerFor(student)}
+          {overview.student.section_label ?? overview.student.section_id} · Roll no. {overview.student.roll_no}
         </p>
-        <AttentionPill level={attentionFor(student)} />
+        <AttentionPill level={STATUS_LABEL[overview.overall.status] ?? overview.overall.status} />
+      </div>
+
+      <div className="field" style={{ maxWidth: 260, marginTop: 12 }}>
+        <label htmlFor="by">Your name (recorded against issue/share)</label>
+        <input id="by" className="input" value={by} onChange={(e) => setBy(e.target.value)} />
       </div>
 
       <div style={{ display: "grid", gap: 16, marginTop: 22 }}>
-        {base.subjectReports.map((r, i) => {
-          const st = state[i];
+        {overview.subjects.map((s) => {
+          const breakdown = breakdowns[s.subject_code];
+          const reportsForSubject = issued.filter((r) => breakdown?.tests.some((t) => t.assessment_id === r.assessment_id));
+          const latestTest = breakdown?.tests[breakdown.tests.length - 1];
+          const existingReport = latestTest ? reportsForSubject.find((r) => r.assessment_id === latestTest.assessment_id) : undefined;
           return (
-            <div className="card" key={r.subject}>
+            <div className="card" key={s.subject_code}>
               <div className="card__head">
                 <div>
-                  <div className="eyebrow">{r.assessment}</div>
-                  <h3 style={{ fontSize: 18, marginTop: 4 }}>{r.subject}</h3>
+                  <div className="eyebrow">{latestTest?.title ?? "No test yet"}</div>
+                  <h3 style={{ fontSize: 18, marginTop: 4 }}>{s.label}</h3>
                 </div>
-                <div style={{ fontSize: 22, fontWeight: 700 }}>{r.score}</div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{s.avg_score_pct != null ? `${Math.round(s.avg_score_pct)}%` : "—"}</div>
               </div>
               <div className="card__body">
                 <div className="grid grid--2">
                   <div>
                     <div className="eyebrow">Strengths</div>
                     <ul className="list-plain" style={{ marginTop: 6 }}>
-                      {r.strengths.map((s) => (
-                        <li key={s}>{s}</li>
-                      ))}
+                      {s.strengths.length ? s.strengths.map((x) => <li key={x}>{x}</li>) : <li className="muted">Not enough evidence yet.</li>}
                     </ul>
                   </div>
                   <div>
                     <div className="eyebrow">Focus areas</div>
                     <ul className="list-plain" style={{ marginTop: 6 }}>
-                      {r.focusAreas.map((s) => (
-                        <li key={s}>{s}</li>
-                      ))}
+                      {s.improve.length ? s.improve.map((x) => <li key={x}>{x}</li>) : <li className="muted">Not enough evidence yet.</li>}
                     </ul>
                   </div>
                 </div>
               </div>
               <div className="card__foot" style={{ justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: 8 }}>
-                  {st.issued ? <span className="tag tag--green"><Check size={12} /> Issued</span> : <span className="tag">Draft</span>}
-                  {st.sharedWithStudent ? <span className="tag tag--teal"><Check size={12} /> Shared with student</span> : <span className="tag">Not shared</span>}
+                  {existingReport ? <span className="tag tag--green"><Check size={12} /> Issued</span> : <span className="tag">Draft</span>}
+                  {existingReport?.shared ? <span className="tag tag--teal"><Check size={12} /> Shared with student</span> : <span className="tag">Not shared</span>}
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button
                     className="btn"
-                    disabled={st.issued}
-                    onClick={() => setState((s) => s.map((x, j) => (j === i ? { ...x, issued: true } : x)))}
+                    disabled={!latestTest || !!existingReport || busy === latestTest?.assessment_id}
+                    onClick={() => latestTest && issue(latestTest.assessment_id)}
                   >
-                    <Send size={13} /> {st.issued ? "Issued" : "Issue"}
+                    <Send size={13} /> {existingReport ? "Issued" : "Issue"}
                   </button>
                   <button
                     className="btn btn--primary"
-                    disabled={!st.issued || st.sharedWithStudent}
-                    onClick={() => setState((s) => s.map((x, j) => (j === i ? { ...x, sharedWithStudent: true } : x)))}
+                    disabled={!existingReport || busy === existingReport?.report_id}
+                    onClick={() => existingReport && toggleShare(existingReport)}
                   >
-                    <Share2 size={13} /> {st.sharedWithStudent ? "Shared" : "Share with student"}
+                    <Share2 size={13} /> {existingReport?.shared ? "Unshare" : "Share with student"}
                   </button>
                 </div>
               </div>
             </div>
           );
         })}
-      </div>
-
-      <div style={{ marginTop: 16 }}>
-        <EvidenceState kind="early">Issue and share are demo-only in this build: state resets on reload and nothing reaches the student account.</EvidenceState>
       </div>
     </>
   );

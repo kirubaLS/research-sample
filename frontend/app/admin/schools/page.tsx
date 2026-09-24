@@ -2,64 +2,75 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
-import { Building2, ChevronRight, FileCheck2, KeyRound, Search, UserPlus, Users } from "lucide-react";
-import { AnimatedBar, CountUp, Reveal, Stagger, StaggerItem } from "@/components/motion";
-import { accountStatuses, adminSchools, boards, formatAgo, onboardingPct, portfolioKpis, statusAccent, type AdminSchool } from "@/lib/avai-admin-data";
-import { useOpsVersion } from "@/lib/opsDirectory";
-import { OpsEmpty, SortHeader, StatusPill, type SortDir } from "../ui";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Building2, ChevronRight, FileCheck2, Search, ShieldCheck, UserPlus, Users } from "lucide-react";
+import { CountUp, Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { api, apiBaseIsDefault, PlatformOverview, PlatformSchool } from "@/lib/api";
+import { getPlatformKey } from "@/lib/session";
+import { OpsEmpty, SortHeader, type SortDir } from "../ui";
 
-type SortField = "name" | "students" | "activation" | "progress";
+type SortField = "name" | "students" | "papers" | "answer_scripts";
 
-
-function sortValue(s: AdminSchool, field: SortField): number | string {
-  switch (field) {
-    case "students":
-      return s.students;
-    case "activation":
-      return s.teachersInvited ? s.teachersActivated / s.teachersInvited : -1;
-    case "progress":
-      return s.progress;
-    default:
-      return s.name;
-  }
-}
-
-/** AVAI's book of business, kept to what an ops person checks daily: who's
- * live, who's stalled, and a plain list to search and open an account
- * from. No portfolio-mix chart, no contract-value column here, that
- * detail lives on the account page, one click away. */
+/**
+ * AVAI's real book of business: every school GET /platform/schools returns,
+ * joined with GET /platform/overview's per-school counts. The reference
+ * design's "status" pill, "onboarding %" and "teachers invited/activated"
+ * columns all read fields our backend does not have (PlatformSchool carries
+ * no status/checklist/teacher-activation state) -- dropped rather than
+ * fabricated; see the gap note in the wiring report.
+ */
 export default function AdminSchoolsPage() {
   const router = useRouter();
+  const [schools, setSchools] = useState<PlatformSchool[] | null>(null);
+  const [overview, setOverview] = useState<PlatformOverview | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("All");
   const [board, setBoard] = useState("All");
   const [sort, setSort] = useState<SortField>("name");
   const [dir, setDir] = useState<SortDir>("asc");
-  const opsVersion = useOpsVersion();
-  const kpis = [
-    { label: "Schools live", value: portfolioKpis.schoolsLive, sub: `of ${portfolioKpis.schoolsTotal} accounts`, accent: "var(--brand-green)", icon: Building2 },
-    { label: "Students under analysis", value: portfolioKpis.studentsUnderAnalysis, sub: "across the portfolio", accent: "var(--brand-teal)", icon: Users },
-    { label: "Teachers activated", value: portfolioKpis.teachersActivated, sub: `of ${portfolioKpis.teachersInvited} invited`, accent: "var(--brand-gold)", icon: KeyRound },
-    { label: "Assessments analysed", value: portfolioKpis.assessmentsThisTerm, sub: "this term, across the portfolio", accent: "var(--brand-blue)", icon: FileCheck2 },
-  ];
+
+  const load = useCallback(async () => {
+    const key = getPlatformKey();
+    if (!key) return;
+    try {
+      setSchools(await api.listSchools(key));
+    } catch {
+      setError("Could not load schools.");
+    }
+    try {
+      setOverview(await api.platformOverview(key));
+    } catch {
+      /* the table below still works from listSchools alone */
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const overviewById = useMemo(() => {
+    const m = new Map<string, PlatformOverview["schools"][number]>();
+    (overview?.schools ?? []).forEach((r) => m.set(r.id, r));
+    return m;
+  }, [overview]);
+
+  const boards = useMemo(() => Array.from(new Set((schools ?? []).map((s) => s.board))).sort(), [schools]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    const filtered = adminSchools.filter((s) => {
-      if (status !== "All" && s.status !== status) return false;
+    const filtered = (schools ?? []).filter((s) => {
       if (board !== "All" && s.board !== board) return false;
       if (!q) return true;
-      return [s.name, s.code, s.state, s.city].some((f) => f.toLowerCase().includes(q));
+      return [s.name, s.board, s.state ?? ""].some((f) => f.toLowerCase().includes(q));
     });
     return [...filtered].sort((a, b) => {
-      const av = sortValue(a, sort);
-      const bv = sortValue(b, sort);
+      const ov = (id: string) => overviewById.get(id);
+      const av: number | string = sort === "name" ? a.name : sort === "students" ? a.students : sort === "papers" ? ov(a.id)?.papers ?? 0 : ov(a.id)?.answer_scripts ?? 0;
+      const bv: number | string = sort === "name" ? b.name : sort === "students" ? b.students : sort === "papers" ? ov(b.id)?.papers ?? 0 : ov(b.id)?.answer_scripts ?? 0;
       const cmp = typeof av === "string" && typeof bv === "string" ? av.localeCompare(bv) : Number(av) - Number(bv);
       return dir === "asc" ? cmp : -cmp;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, status, board, sort, dir, opsVersion]);
+  }, [schools, query, board, sort, dir, overviewById]);
 
   function onSort(field: SortField) {
     if (field === sort) setDir(dir === "asc" ? "desc" : "asc");
@@ -69,34 +80,56 @@ export default function AdminSchoolsPage() {
     }
   }
 
+  const kpis = overview
+    ? [
+        { label: "Schools", value: overview.totals.schools, sub: "on this deployment", accent: "var(--brand-green)", icon: Building2 },
+        { label: "Students", value: overview.totals.students, sub: "across the portfolio", accent: "var(--brand-teal)", icon: Users },
+        { label: "Papers loaded", value: overview.totals.papers, sub: `${overview.totals.answer_scripts} answer scripts scanned`, accent: "var(--brand-gold)", icon: FileCheck2 },
+        { label: "Reports issued", value: overview.totals.reports_issued, sub: "across the portfolio", accent: "var(--brand-blue)", icon: ShieldCheck },
+      ]
+    : [];
+
   return (
     <>
       <Reveal>
         <h1 className="page-title">Schools</h1>
-        <p className="page-sub">Every school AVAI has signed. Open an account for its checklist, teacher keys and usage.</p>
+        <p className="page-sub">Every school AVAI has signed. Open an account for its classes, keys and usage.</p>
       </Reveal>
 
-      <Stagger className="grid grid--4" gap={0.05} style={{ marginTop: 20 }}>
-        {kpis.map((k, i) => {
-          const Icon = k.icon;
-          return (
-            <StaggerItem key={k.label}>
-              <div className="kpi" style={{ "--accent": k.accent } as React.CSSProperties}>
-                <span className="kpi__icon">
-                  <Icon size={21} />
-                </span>
-                <div className="kpi__text">
-                  <div className="kpi__label">{k.label}</div>
-                  <div className="kpi__value">
-                    <CountUp value={k.value} delay={0.1 + i * 0.05} />
+      {apiBaseIsDefault() && (
+        <div className="evidence evidence--gold" style={{ marginTop: 18 }}>
+          <div>This site has not been told where its server is, so nothing below will load until it is.</div>
+        </div>
+      )}
+      {error && (
+        <div className="evidence evidence--gold" style={{ marginTop: 18 }}>
+          <div>{error}</div>
+        </div>
+      )}
+
+      {overview && (
+        <Stagger className="grid grid--4" gap={0.05} style={{ marginTop: 20 }}>
+          {kpis.map((k, i) => {
+            const Icon = k.icon;
+            return (
+              <StaggerItem key={k.label}>
+                <div className="kpi" style={{ "--accent": k.accent } as React.CSSProperties}>
+                  <span className="kpi__icon">
+                    <Icon size={21} />
+                  </span>
+                  <div className="kpi__text">
+                    <div className="kpi__label">{k.label}</div>
+                    <div className="kpi__value">
+                      <CountUp value={k.value} delay={0.1 + i * 0.05} />
+                    </div>
+                    <div className="kpi__sub">{k.sub}</div>
                   </div>
-                  <div className="kpi__sub">{k.sub}</div>
                 </div>
-              </div>
-            </StaggerItem>
-          );
-        })}
-      </Stagger>
+              </StaggerItem>
+            );
+          })}
+        </Stagger>
+      )}
 
       <section className="section" style={{ marginTop: 18 }} aria-labelledby="table-h">
         <div className="section__head">
@@ -105,7 +138,7 @@ export default function AdminSchoolsPage() {
           </h2>
           <span style={{ display: "inline-flex", gap: 10, alignItems: "center" }}>
             <span className="small muted">
-              {rows.length} of {adminSchools.length} shown
+              {rows.length} of {schools?.length ?? 0} shown
             </span>
             <Link href="/admin/onboard" className="btn btn--blue btn--sm">
               <UserPlus size={13} /> Onboard a school
@@ -122,20 +155,11 @@ export default function AdminSchoolsPage() {
                 id="school-search"
                 className="input"
                 style={{ paddingLeft: 32 }}
-                placeholder="Name, code or state"
+                placeholder="Name, board or state"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
               />
             </span>
-          </div>
-          <div className="filter">
-            <label htmlFor="status-filter">Status</label>
-            <select id="status-filter" className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option>All</option>
-              {accountStatuses.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
           </div>
           <div className="filter">
             <label htmlFor="board-filter">Board</label>
@@ -149,9 +173,13 @@ export default function AdminSchoolsPage() {
         </div>
 
         <div className="card" style={{ marginTop: 12, overflow: "hidden" }}>
-          {rows.length === 0 ? (
+          {!schools ? (
             <div className="card__body">
-              <OpsEmpty>No account matches those filters.</OpsEmpty>
+              <p className="muted small" style={{ margin: 0 }}>Loading…</p>
+            </div>
+          ) : rows.length === 0 ? (
+            <div className="card__body">
+              <OpsEmpty>{schools.length === 0 ? "No schools yet. Onboard the first one." : "No account matches those filters."}</OpsEmpty>
             </div>
           ) : (
             <div className="table-wrap table-wrap--scroll" style={{ maxHeight: 560 }}>
@@ -159,47 +187,34 @@ export default function AdminSchoolsPage() {
                 <thead>
                   <tr>
                     <SortHeader label="School" field="name" sort={sort} dir={dir} onSort={onSort} />
-                    <th scope="col">Board / Location</th>
-                    <th scope="col">Status</th>
+                    <th scope="col">Board / State</th>
                     <SortHeader label="Students" field="students" sort={sort} dir={dir} onSort={onSort} align="right" />
-                    <SortHeader label="Teachers" field="activation" sort={sort} dir={dir} onSort={onSort} align="right" />
-                    <SortHeader label="Onboarding" field="progress" sort={sort} dir={dir} onSort={onSort} />
+                    <SortHeader label="Papers" field="papers" sort={sort} dir={dir} onSort={onSort} align="right" />
+                    <SortHeader label="Answer scripts" field="answer_scripts" sort={sort} dir={dir} onSort={onSort} align="right" />
+                    <th scope="col">Directory</th>
                     <th scope="col" aria-label="Open account" />
                   </tr>
                 </thead>
                 <tbody>
                   {rows.map((s) => {
-                    const pct = onboardingPct(s);
+                    const ov = overviewById.get(s.id);
                     return (
                       <tr key={s.id} onClick={() => router.push(`/admin/schools/${s.id}`)}>
                         <td style={{ minWidth: 200 }}>
                           <Link href={`/admin/schools/${s.id}`} style={{ color: "inherit", fontWeight: 650 }} onClick={(e) => e.stopPropagation()}>
                             {s.name}
                           </Link>
-                          <div className="small muted mono">{s.code}</div>
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
-                          <span className="tag">{s.board}</span> {s.city}, {s.state}
-                        </td>
-                        <td>
-                          <StatusPill status={s.status} size="sm" />
+                          <span className="tag">{s.board}</span> {s.state ?? ""}
                         </td>
                         <td className="num">{s.students}</td>
-                        <td className="num mono" style={{ whiteSpace: "nowrap" }}>
-                          {s.teachersActivated} / {s.teachersInvited}
-                        </td>
-                        <td style={{ minWidth: 150 }}>
-                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                            <div style={{ flex: 1, minWidth: 70 }}>
-                              <AnimatedBar value={pct} accent={statusAccent(s.status)} height={6} label={`${s.name} onboarding ${pct} percent complete`} />
-                            </div>
-                            <span className="small mono muted" style={{ width: 34, textAlign: "right" }}>
-                              {pct}%
-                            </span>
-                          </div>
-                          <div className="small muted" style={{ marginTop: 2 }}>
-                            Active {formatAgo(s.lastActivity)}
-                          </div>
+                        <td className="num">{ov?.papers ?? "—"}</td>
+                        <td className="num">{ov?.answer_scripts ?? "—"}</td>
+                        <td>
+                          <span className={`tag ${s.hidden_from_directory ? "tag--risk" : "tag--teal"}`}>
+                            {s.hidden_from_directory ? "Hidden" : "Visible"}
+                          </span>
                         </td>
                         <td style={{ width: 34 }}>
                           <ChevronRight size={15} className="muted" />

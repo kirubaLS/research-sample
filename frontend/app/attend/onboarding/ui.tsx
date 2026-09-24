@@ -3,7 +3,6 @@
 import { motion } from "framer-motion";
 import { Lock, type LucideIcon } from "lucide-react";
 import { EASE_OUT } from "@/components/motion";
-import type { Option } from "../options";
 
 /** One wizard screen: a raised panel with a tinted header strip. */
 export function StepCard({
@@ -100,7 +99,23 @@ export function Question({
   );
 }
 
-/** Selectable chips. `multi` toggles, otherwise it behaves like a radio group. */
+export function FieldError({ show, children }: { show: boolean; children: React.ReactNode }) {
+  if (!show) return null;
+  return (
+    <motion.div
+      role="alert"
+      initial={{ opacity: 0, y: -4 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.22, ease: EASE_OUT }}
+      style={{ fontSize: 12.5, fontWeight: 600, color: "var(--risk)" }}
+    >
+      {children}
+    </motion.div>
+  );
+}
+
+/** Plain option chips, single- or multi-select, no icon (the reference's
+ * per-option icon set belonged entirely to its fake option lists). */
 export function ChipGroup({
   options,
   selected,
@@ -109,7 +124,7 @@ export function ChipGroup({
   multi = false,
   groupLabel,
 }: {
-  options: Option[];
+  options: { id: string; label: string }[];
   selected: string[];
   onChange: (next: string[]) => void;
   accent?: string;
@@ -141,7 +156,6 @@ export function ChipGroup({
             transition={{ duration: 0.32, delay: 0.03 + i * 0.025, ease: EASE_OUT }}
             whileTap={{ scale: 0.96 }}
           >
-            <o.icon size={14} />
             {o.label}
           </motion.button>
         );

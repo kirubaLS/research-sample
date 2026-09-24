@@ -2,7 +2,25 @@
 
 import { AlertCircle, AlertTriangle, TrendingUp, Users } from "lucide-react";
 import { CountUp, Stagger, StaggerItem } from "@/components/motion";
-import { percentShares, type AttentionBreakdown } from "@/lib/avai-mock-data";
+
+export interface AttentionBreakdown {
+  total: number;
+  onTrack: number;
+  watch: number;
+  intervention: number;
+}
+
+/** Rounds a set of counts to whole-percent shares that add to exactly 100. */
+function percentShares(counts: number[]): number[] {
+  const total = counts.reduce((a, b) => a + b, 0);
+  if (total === 0) return counts.map(() => 0);
+  const raw = counts.map((c) => (c / total) * 100);
+  const floored = raw.map(Math.floor);
+  let remainder = 100 - floored.reduce((a, b) => a + b, 0);
+  const order = raw.map((v, i) => ({ i, frac: v - Math.floor(v) })).sort((a, b) => b.frac - a.frac);
+  for (let k = 0; k < remainder; k++) floored[order[k % order.length].i] += 1;
+  return floored;
+}
 
 /** The four headline tiles on the Class X overview. The three tier tiles
  * are the attention tiers relabelled for a principal, On Track / Watch /

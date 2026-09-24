@@ -4,55 +4,18 @@ import { motion } from "framer-motion";
 import { FileText, PartyPopper } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { EASE_OUT, Reveal } from "@/components/motion";
-import { ageFrom, ONBOARDING_DATE, type AttendDraft } from "@/lib/attendState";
-import {
-  careersKnownOptions,
-  class11GroupOptions,
-  confidenceOptions,
-  decisionHelperOptions,
-  futureConcernOptions,
-  genderOptions,
-  groupReasonOptions,
-  interestOptions,
-  labelFor,
-  labelsFor,
-  learningTypeOptions,
-  livesInOptions,
-  newLearningOptions,
-  responsibilitiesOptions,
-  workInterestOptions,
-} from "../options";
+import type { AttendDraft } from "@/lib/attendState";
 
-/** Step 6, confirmation. Everything on this screen is read back from the
- * saved run, so a student can see exactly what the school now has. */
+/** Final screen, after POST /t/session/{id}/complete answers. The reference
+ * design's summary echoed back a whole fake profile (background, learning
+ * style, future plans); the real payload carries only what the student
+ * typed on the profile step plus how many of the 36 items were answered, so
+ * that is all this screen can honestly show. */
 export function StepDone({ draft }: { draft: AttendDraft }) {
-  const id = draft.identity;
-  if (!id) return null;
-
-  const first = id.name.split(" ")[0];
-  const age = ageFrom(draft.dob);
-
-  const summary: Array<[string, string]> = [
-    ["Name", `${id.name} · ${id.section} · Roll ${id.rollNo}`],
-    ["Date of birth", draft.dob ? `${draft.dob}${age !== null ? ` (age ${age})` : ""}` : "-"],
-    ["Gender", labelFor(genderOptions, draft.gender) || "-"],
-    ["Where you live", labelFor(livesInOptions, draft.livesIn) || "-"],
-    ["Who helps with study decisions", labelFor(decisionHelperOptions, draft.decisionHelper) || "-"],
-    ["Responsibilities outside school", labelFor(responsibilitiesOptions, draft.hasResponsibilities) || "-"],
-    ["Enjoys learning most", draft.favoriteSubject || "-"],
-    ["Most comfortable subject", draft.comfortableSubject || "-"],
-    ["Preferred type of learning", labelFor(learningTypeOptions, draft.learningType) || "-"],
-    ["Interests", labelsFor(interestOptions, draft.interests).join(", ") || "-"],
-    ["Kind of work of interest", labelFor(workInterestOptions, draft.workInterest) || "-"],
-    ["Enjoys most when learning something new", labelFor(newLearningOptions, draft.newLearning) || "-"],
-    ["Future plan", draft.futurePlanUnsure ? "Not sure yet" : draft.futurePlan || "-"],
-    ["Class 11 group", labelFor(class11GroupOptions, draft.class11Group) || "-"],
-    ["Reasons for this group", labelsFor(groupReasonOptions, draft.groupReasons).join(", ") || "-"],
-    ["How sure about this choice", labelFor(confidenceOptions, draft.groupConfidence) || "-"],
-    ["Careers or exams heard about", labelsFor(careersKnownOptions, draft.careersKnown).join(", ") || "-"],
-    ["May affect future study choice", labelsFor(futureConcernOptions, draft.futureConcerns).join(", ") || "-"],
-  ];
-
+  const profile = draft.profile;
+  if (!profile) return null;
+  const first = profile.name.split(" ")[0];
+  const answered = Object.keys(draft.answers).length;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -80,7 +43,7 @@ export function StepDone({ draft }: { draft: AttendDraft }) {
             You&apos;re all set, {first}.
           </h2>
           <p className="muted" style={{ fontSize: 14, lineHeight: 1.5, marginTop: 7 }}>
-            Saved on {ONBOARDING_DATE}. You can close this page, you won&apos;t have to do it again.
+            You can close this page, you won&apos;t have to do it again.
           </p>
         </div>
       </motion.div>
@@ -88,10 +51,16 @@ export function StepDone({ draft }: { draft: AttendDraft }) {
       <Reveal delay={0.12}>
         <div className="surface" style={{ padding: "clamp(16px, 4vw, 22px) clamp(16px, 4vw, 24px)" }}>
           <div className="eyebrow" style={{ marginBottom: 6 }}>
-            What AVAI knows about you now
+            What was sent
           </div>
           <div>
-            {summary.map(([label, value], i) => (
+            {(
+              [
+                ["Name", `${profile.name} · Section ${profile.section} · Roll ${profile.roll_no}`],
+                ["Age", profile.age ? String(profile.age) : "-"],
+                ["Questions answered", `${answered} of ${draft.payload?.total_items ?? answered}`],
+              ] as [string, string][]
+            ).map(([label, value], i) => (
               <motion.div
                 key={label}
                 className="metric-row"
@@ -100,9 +69,7 @@ export function StepDone({ draft }: { draft: AttendDraft }) {
                 transition={{ duration: 0.3, delay: 0.16 + i * 0.035, ease: EASE_OUT }}
                 style={{ alignItems: "flex-start", gap: 18 }}
               >
-                <span className="muted" style={{ flex: "0 0 auto" }}>
-                  {label}
-                </span>
+                <span className="muted" style={{ flex: "0 0 auto" }}>{label}</span>
                 <b style={{ textAlign: "right", minWidth: 0, lineHeight: 1.4 }}>{value}</b>
               </motion.div>
             ))}
@@ -110,25 +77,16 @@ export function StepDone({ draft }: { draft: AttendDraft }) {
         </div>
       </Reveal>
 
-
       <Reveal delay={0.3}>
         <div
           className="surface surface--tinted"
-          style={
-            {
-              "--accent": "var(--brand-gold)",
-              display: "flex",
-              alignItems: "center",
-              gap: 13,
-              padding: "14px 16px",
-            } as React.CSSProperties
-          }
+          style={{ "--accent": "var(--brand-gold)", display: "flex", alignItems: "center", gap: 13, padding: "14px 16px" } as React.CSSProperties}
         >
           <FileText size={18} style={{ color: "#8a6410", flex: "0 0 auto" }} />
           <span style={{ minWidth: 0 }}>
             <strong style={{ display: "block", fontSize: 13.5, fontWeight: 650 }}>That is everything we need</strong>
             <small className="muted" style={{ display: "block", fontSize: 12, lineHeight: 1.35 }}>
-              You can close this page. Your report goes to your class teacher, who will hand it to you after the next assessment.
+              You can close this page. Your report goes to your class teacher.
             </small>
           </span>
         </div>

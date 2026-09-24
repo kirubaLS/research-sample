@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Search, TrendingDown, TrendingUp, X } from "lucide-react";
-import { analysedTests, attentionFor, mainBlockerFor, pctFor, subjects, type FullRosterStudent } from "@/lib/avai-mock-data";
+import type { ClassStudentRow } from "@/lib/api";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
+import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
 
-/** Movement against the previous analysed test. `null` means there is no
- * earlier test to compare with, shown as an em dash, never as "0". */
+/** Movement against a previous figure. `null` means there is nothing real to compare
+ * against, shown as an em dash, never as "0". Still used by teacher-facing pages this
+ * task did not touch. */
 export function DeltaCell({ delta, suffix = "pt" }: { delta: number | null; suffix?: string }) {
   if (delta === null) return <span className="muted">-</span>;
   if (delta === 0) return <span className="muted">no change</span>;
@@ -33,98 +35,54 @@ const quickFilterLabel: Record<QuickFilter, string> = {
   critical: "Critical",
 };
 
-/** The student roster table shared by Class detail and the per-test class
- * page: subject filter, quick presets (All / Top 10 / Need Attention /
- * Critical), and a fixed-height, sticky-header, internally-scrolling table
- * of the full roster (not a sample, not paginated). */
+/** The student roster table shared by Class detail and the per-test class page: quick
+ * presets (All / Top 10 / Need Attention / Critical) plus a search box, over a real
+ * GET /admin/academics/{sectionId}/students result. The subject/test filter lives on
+ * the parent page (it drives a refetch), this component only searches and re-orders
+ * whatever rows it is handed. */
 export function StudentRosterTable({
-  roster,
-  testKey,
-  section,
-  testStatus,
-  testName,
+  rows,
+  sectionId,
+  loading,
   fillHeight = false,
   leadingFilters,
   heading,
 }: {
-  roster: FullRosterStudent[];
-  testKey: string;
-  section: string;
-  testStatus: "Analysed" | "Scheduled";
-  testName?: string;
-  /** Extra controls rendered in the same filter row (the class page puts
-   * its Test picker here so both selects sit on one line). */
+  rows: ClassStudentRow[];
+  sectionId: string;
+  loading?: boolean;
+  /** Extra controls rendered in the same filter row (e.g. a subject/test picker). */
   leadingFilters?: React.ReactNode;
-  /** Card + table grow to fill the parent's remaining height (for the
-   * single-screen test-sheet page) instead of capping at a fixed height. */
+  /** Card + table grow to fill the parent's remaining height instead of capping at a
+   * fixed height. */
   fillHeight?: boolean;
-  /** Rendered above the filters, inside the same frozen block (e.g. the
-   * "Students in X-A" heading), so it freezes with the filters and tabs
-   * rather than scrolling away above them. Ignored in fillHeight mode,
-   * where the page itself never scrolls. */
+  /** Rendered above the filters (e.g. the "Students in X-A" heading). */
   heading?: React.ReactNode;
 }) {
   const router = useRouter();
-  const [subjectFilter, setSubjectFilter] = useState("All");
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [query, setQuery] = useState("");
 
-  // The frozen heading + filters + tabs block's own height, measured so the
-  // table's <thead> can stick right below it (rather than at the very top,
-  // which would tuck it under the frozen block once both are stuck). Only
-  // needed outside fillHeight mode, that one has no page-level scroll to
-  // freeze against in the first place.
-  const stickyRef = useRef<HTMLDivElement>(null);
-  const [stickyHeight, setStickyHeight] = useState(0);
-  useEffect(() => {
-    if (fillHeight || !stickyRef.current) return;
-    const el = stickyRef.current;
-    const measure = () => setStickyHeight(el.offsetHeight);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [fillHeight]);
-
-  // The test before this one, so the table can show movement rather than
-  // a standing figure with no context.
-  const prevTestKey = useMemo(() => {
-    const i = analysedTests.findIndex((t) => t.key === testKey);
-    return i > 0 ? analysedTests[i - 1].key : null;
-  }, [testKey]);
-
-  const rows = useMemo(() => {
-    if (testStatus !== "Analysed") return [];
-    const withScore = roster.map((s) => ({
-      student: s,
-      pct: Math.round(pctFor(s, testKey, subjectFilter)),
-      delta: prevTestKey ? Math.round(pctFor(s, testKey, subjectFilter) - pctFor(s, prevTestKey, subjectFilter)) : null,
-      attention: attentionFor(s, testKey),
-      blocker: mainBlockerFor(s, testKey),
-    }));
-
-    let filtered = withScore;
-    // Match from the start of the first name or surname, so "a" lists every
-    // A-name and "ar" narrows it to Arjun, Aryan and so on as you type.
+  const filtered = useMemo(() => {
+    let list = rows;
     const q = query.trim().toLowerCase();
-    if (q) filtered = filtered.filter((r) => r.student.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)) || r.student.name.toLowerCase().startsWith(q));
-    if (quickFilter === "attention") filtered = filtered.filter((r) => r.attention !== "On Track");
-    if (quickFilter === "critical") filtered = filtered.filter((r) => r.attention === "Intervention");
+    if (q) list = list.filter((r) => r.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)) || r.name.toLowerCase().startsWith(q));
+    if (quickFilter === "attention") list = list.filter((r) => r.status !== "on_track");
+    if (quickFilter === "critical") list = list.filter((r) => r.status === "requires_review");
 
-    // Top 10 is best-first; the two risk presets are worst-first, because
-    // that's the order you'd actually work down the list in.
-    filtered = [...filtered].sort((a, b) => {
-      if (quickFilter === "top10") return b.pct - a.pct;
-      if (quickFilter === "attention" || quickFilter === "critical") return a.pct - b.pct;
-      return Number(a.student.rollNo) - Number(b.student.rollNo);
+    const score = (r: ClassStudentRow) => r.avg_score_pct ?? -1;
+    list = [...list].sort((a, b) => {
+      if (quickFilter === "top10") return score(b) - score(a);
+      if (quickFilter === "attention" || quickFilter === "critical") return score(a) - score(b);
+      return a.roll_no.localeCompare(b.roll_no, undefined, { numeric: true });
     });
-    if (quickFilter === "top10") filtered = filtered.slice(0, 10);
-    return filtered;
-  }, [roster, testKey, prevTestKey, testStatus, subjectFilter, quickFilter, query]);
+    if (quickFilter === "top10") list = list.slice(0, 10);
+    return list;
+  }, [rows, quickFilter, query]);
 
   return (
     <div style={fillHeight ? { display: "flex", flexDirection: "column", flex: 1, minHeight: 0 } : undefined}>
-      <div ref={stickyRef} className={fillHeight ? undefined : "roster-sticky"} style={{ flex: "0 0 auto" }}>
+      <div style={{ flex: "0 0 auto" }}>
         {!fillHeight && heading}
         <div className="filterbar" style={{ marginBottom: 0 }}>
           <div className="filter roster-search">
@@ -148,15 +106,6 @@ export function StudentRosterTable({
             </div>
           </div>
           {leadingFilters}
-          <div className="filter">
-            <label htmlFor="subject-filter">Subject</label>
-            <select id="subject-filter" className="select" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
-              <option value="All">All subjects</option>
-              {subjects.map((s) => (
-                <option key={s}>{s}</option>
-              ))}
-            </select>
-          </div>
         </div>
 
         <div className="tabs" role="tablist" style={{ marginTop: 14 }}>
@@ -169,29 +118,26 @@ export function StudentRosterTable({
       </div>
 
       <div className="card" style={fillHeight ? { marginTop: 14, flex: 1, minHeight: 0, display: "flex", flexDirection: "column" } : { marginTop: 14 }}>
-        {testStatus !== "Analysed" ? (
+        {loading ? (
           <div className="placeholder">
-            <p>{testName ?? "This test"} hasn&apos;t been conducted yet, no marks to show.</p>
+            <p>Loading roster…</p>
           </div>
         ) : (
-          <div
-            className={`table-wrap ${fillHeight ? "table-wrap--flex" : "table-wrap--stack"}`}
-            style={fillHeight ? undefined : ({ "--sticky-offset": `${stickyHeight}px` } as React.CSSProperties)}
-          >
+          <div className={`table-wrap ${fillHeight ? "table-wrap--flex" : "table-wrap--stack"}`}>
             <table className="table table--hover table--roster">
               <thead>
                 <tr>
                   <th>Roll</th>
                   <th>Student</th>
-                  <th className="num">{subjectFilter === "All" ? "Overall" : subjectFilter}</th>
-                  <th className="num">vs last</th>
-                  <th>Main blocker</th>
-                  <th>Attention</th>
+                  <th className="num">Score</th>
+                  <th className="num">Tests taken</th>
+                  <th>Top improvement area</th>
+                  <th>Status</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {rows.length === 0 && (
+                {filtered.length === 0 && (
                   <tr>
                     <td colSpan={7}>
                       <EvidenceState kind="early" compact>
@@ -200,20 +146,18 @@ export function StudentRosterTable({
                     </td>
                   </tr>
                 )}
-                {rows.map(({ student: s, pct, delta, attention, blocker }) => (
-                  <tr key={s.id} onClick={() => router.push(`/principal/classes/${section}/${s.id}`)}>
-                    <td className="muted">{s.rollNo}</td>
+                {filtered.map((s) => (
+                  <tr key={s.student_id} onClick={() => router.push(`/principal/classes/${sectionId}/${s.student_id}`)}>
+                    <td className="muted">{s.roll_no}</td>
                     <td className="strong">{s.name}</td>
-                    <td className="num">{pct}%</td>
-                    <td className="num">
-                      <DeltaCell delta={delta} />
-                    </td>
-                    <td>{blocker}</td>
+                    <td className="num">{s.avg_score_pct === null ? "-" : `${Math.round(s.avg_score_pct)}%`}</td>
+                    <td className="num">{s.tests_taken}</td>
+                    <td>{s.top_improvement_area ? s.top_improvement_area.chapter : "-"}</td>
                     <td>
-                      <AttentionPill level={attention} />
+                      <AttentionPill level={STATUS_PILL_KEY[s.status]} label={STATUS_LABEL[s.status]} />
                     </td>
                     <td style={{ textAlign: "right" }}>
-                      <Link href={`/principal/classes/${section}/${s.id}`} className="btn btn--sm" onClick={(e) => e.stopPropagation()}>
+                      <Link href={`/principal/classes/${sectionId}/${s.student_id}`} className="btn btn--sm" onClick={(e) => e.stopPropagation()}>
                         Report <ArrowRight size={12} />
                       </Link>
                     </td>
@@ -224,7 +168,7 @@ export function StudentRosterTable({
           </div>
         )}
         <div className="card__foot small muted" style={{ flex: "0 0 auto" }}>
-          {quickFilter === "top10" ? `Top ${rows.length} of ${roster.length}` : `Showing ${rows.length} of ${roster.length} students.`}
+          {quickFilter === "top10" ? `Top ${filtered.length} of ${rows.length}` : `Showing ${filtered.length} of ${rows.length} students.`}
         </div>
       </div>
     </div>

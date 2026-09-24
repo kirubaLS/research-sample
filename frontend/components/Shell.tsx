@@ -6,8 +6,10 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ArrowLeft, LogOut, Menu, X, type LucideIcon } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { homeFor, initials, useAuth, type CurrentUser } from "@/lib/auth";
-import { academicYear, school, type Role } from "@/lib/avai-mock-data";
+import { getSchoolName } from "@/lib/session";
 import { PAGE_HEADER_ACTIONS_ID, PageHeaderProvider, useCurrentPageHeader } from "@/lib/pageHeader";
+
+export type Role = "principal" | "teacher" | "admin";
 import { Mascot, Wordmark } from "./Mascot";
 
 export interface NavItem {
@@ -141,10 +143,7 @@ export function StaffShell({
     return (
       <>
         <div className="sidebar__meta">
-          <div className="sidebar__meta-school">{school.name}</div>
-          <div className="sidebar__meta-sub">
-            {school.board} · {school.state} · Academic year {academicYear}
-          </div>
+          <div className="sidebar__meta-school">{getSchoolName() || "Your school"}</div>
           {sidebarMeta}
         </div>
         <nav className="sidebar__nav" aria-label="Primary">
@@ -199,7 +198,7 @@ export function StaffShell({
         <header className="mtopbar">
           <Wordmark height={22} onDark />
           <div className="mtopbar__text">
-            <div className="mtopbar__school">{school.name}</div>
+            <div className="mtopbar__school">{getSchoolName() || "Your school"}</div>
           </div>
           <span className="avatar mtopbar__avatar" aria-hidden="true">
             {initials(user.name)}

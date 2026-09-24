@@ -1,180 +1,206 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Download } from "lucide-react";
-import {
-  analysedTests,
-  attentionFor,
-  buildStudentReport,
-  classAveragePct,
-  classRosterFull,
-  latestTest,
-  overallPctFor,
-  studentIntelligenceFor,
-  subjects,
-} from "@/lib/avai-mock-data";
-import { downloadStudentReport } from "@/lib/downloadReport";
+import { api, type StudentAcademicsOverview, type StudentSubjectBreakdown } from "@/lib/api";
+import { getApiKey } from "@/lib/session";
 import { usePageHeader } from "@/lib/pageHeader";
-import { AttentionPill, ConfidenceMeter, UrgencyChip } from "@/components/Status";
+import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
-import { BoardXReportView } from "@/components/BoardXReportView";
-import { DeltaCell } from "@/components/StudentRosterTable";
+import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
 
-/** Principal → Classes → section → student. Pick an analysed assessment to
- * see where this student's marks went across every subject, then pick a
- * subject to read the same one-page BoardX report the student sees. */
+/** Principal → Classes → section → student. Real data end to end: GET
+ * /admin/academics/students/{id} for the overall/subject summary, and GET
+ * /admin/academics/students/{id}/subjects/{code} for the chapter-wise breakdown
+ * of the subject currently selected. The full narrative BoardX one-pager (the
+ * reference's fake `report`) has no line-for-line real equivalent here -- the
+ * real one-page report exists only as a PDF (GET /reports/student/{id}/boardx.pdf),
+ * so it is offered as a download instead of re-rendered inline. */
 export default function PrincipalStudentPage() {
   const { section, studentId } = useParams<{ section: string; studentId: string }>();
-  const student = (classRosterFull[section] ?? []).find((s) => s.id === studentId);
-  usePageHeader({ title: student?.name ?? studentId, backHref: `/principal/classes/${section}` });
+  const key = getApiKey() ?? "";
 
-  const [testKey, setTestKey] = useState(latestTest.key);
-  const [subject, setSubject] = useState<string>(subjects[0]);
+  const [overview, setOverview] = useState<StudentAcademicsOverview | null>(null);
+  const [subjectCode, setSubjectCode] = useState<string>("");
+  const [breakdown, setBreakdown] = useState<StudentSubjectBreakdown | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [downloading, setDownloading] = useState(false);
 
-  const prevTestKey = useMemo(() => {
-    const i = analysedTests.findIndex((t) => t.key === testKey);
-    return i > 0 ? analysedTests[i - 1].key : null;
-  }, [testKey]);
+  usePageHeader({ title: overview?.student.name ?? studentId, backHref: `/principal/classes/${section}` });
 
-  const intel = student ? studentIntelligenceFor(student, testKey) : null;
-  const report = student ? buildStudentReport(student, testKey, subject) : null;
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const ov = await api.studentAcademics(key, studentId);
+        if (cancelled) return;
+        setOverview(ov);
+        if (ov.subjects.length) setSubjectCode((prev) => prev || ov.subjects[0].subject_code);
+      } catch {
+        if (!cancelled) setOverview(null);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId]);
 
-  if (!student) {
-    return <EvidenceState kind="early">No student with id {studentId} in {section}.</EvidenceState>;
+  useEffect(() => {
+    if (!subjectCode) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const b = await api.studentSubjectBreakdown(key, studentId, subjectCode);
+        if (!cancelled) setBreakdown(b);
+      } catch {
+        if (!cancelled) setBreakdown(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [studentId, subjectCode]);
+
+  async function downloadBoardX() {
+    const latestTest = breakdown?.tests[breakdown.tests.length - 1];
+    if (!latestTest) return;
+    setDownloading(true);
+    try {
+      const blob = await api.studentBoardXPdf(key, studentId, latestTest.assessment_id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${overview?.student.name ?? studentId}-${subjectCode}-boardx.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(false);
+    }
   }
 
-  const pct = Math.round(overallPctFor(student, testKey));
-  const delta = prevTestKey ? pct - Math.round(overallPctFor(student, prevTestKey)) : null;
-  const classPct = Math.round(classAveragePct(section, testKey));
-  const totalMarks = subjects.reduce((sum, sub) => sum + (student.scores[testKey]?.[sub]?.outOf ?? 0), 0);
+  if (loading) return <p className="muted">Loading…</p>;
+  if (!overview) return <EvidenceState kind="early">No academic record found for this student.</EvidenceState>;
+
+  const { student, overall, subjects } = overview;
 
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16 }}>
         <p className="page-sub" style={{ marginTop: 0 }}>
-          {section} · Roll {student.rollNo}
+          {student.section_label ?? section} · Roll {student.roll_no}
         </p>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <button className="btn btn--sm" disabled={!report} onClick={() => downloadStudentReport(student.id, testKey, subject)}>
-            <Download size={13} /> Download report
+          <button className="btn btn--sm" disabled={downloading || !breakdown?.tests.length} onClick={downloadBoardX}>
+            <Download size={13} /> {downloading ? "Preparing…" : "Download report"}
           </button>
-          <AttentionPill level={attentionFor(student, testKey)} />
+          <AttentionPill level={STATUS_PILL_KEY[overall.status]} label={STATUS_LABEL[overall.status]} />
         </div>
       </div>
 
       <div className="filterbar" style={{ marginTop: 20 }}>
         <div className="filter">
-          <label htmlFor="test-picker">Assessment</label>
-          <select id="test-picker" className="select" value={testKey} onChange={(e) => setTestKey(e.target.value)}>
-            {analysedTests.map((t) => (
-              <option key={t.key} value={t.key}>
-                {t.name}
+          <label htmlFor="subject-picker">Subject report</label>
+          <select id="subject-picker" className="select" value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)}>
+            {subjects.map((s) => (
+              <option key={s.subject_code} value={s.subject_code}>
+                {s.label}
               </option>
             ))}
           </select>
         </div>
-        <div className="filter">
-          <label htmlFor="subject-picker">Subject report</label>
-          <select id="subject-picker" className="select" value={subject} onChange={(e) => setSubject(e.target.value)}>
-            {subjects.map((s) => (
-              <option key={s}>{s}</option>
-            ))}
-          </select>
-        </div>
       </div>
 
-      <div className="grid grid--4" style={{ marginTop: 16 }}>
+      <div className="grid grid--3" style={{ marginTop: 16 }}>
         <div className="stat">
           <div className="stat__label">Overall</div>
-          <div className="stat__value stat__value--sm" style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            {pct}%
-            <DeltaCell delta={delta} />
-          </div>
+          <div className="stat__value stat__value--sm">{overall.avg_score_pct === null ? "-" : `${Math.round(overall.avg_score_pct)}%`}</div>
         </div>
         <div className="stat">
-          <div className="stat__label">Against the class</div>
-          <div className="stat__value stat__value--sm" style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
-            <span className="delta" data-dir={pct >= classPct ? "up" : "down"} style={{ fontSize: "inherit" }}>
-              {pct >= classPct ? "+" : "−"}
-              {Math.abs(pct - classPct)}pt
-            </span>
-            <span className="small muted" style={{ fontWeight: 400 }}>class {classPct}%</span>
-          </div>
+          <div className="stat__label">Tests taken</div>
+          <div className="stat__value stat__value--sm">{overall.tests_taken}</div>
         </div>
         <div className="stat">
-          <div className="stat__label">Marks lost</div>
-          <div className="stat__value stat__value--sm">
-            {intel?.marksLost ?? "-"}
-            <span className="small muted" style={{ fontWeight: 400 }}> of {totalMarks}</span>
-          </div>
-        </div>
-        <div className="stat">
-          <div className="stat__label">In the top 2 gaps</div>
-          <div className="stat__value stat__value--sm">
-            {intel?.recoverableOpportunity ?? "-"}
-            <span className="small muted" style={{ fontWeight: 400 }}> marks</span>
-          </div>
+          <div className="stat__label">Subjects with marks</div>
+          <div className="stat__value stat__value--sm">{subjects.length}</div>
         </div>
       </div>
 
-      {intel && intel.subjects.length > 0 ? (
+      <section className="section">
+        <h2 className="section-q">Every subject</h2>
+        <div className="card card--flat" style={{ marginTop: 12 }}>
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Subject</th>
+                <th className="num">Score</th>
+                <th className="num">Tests</th>
+                <th>Status</th>
+                <th>Strengths</th>
+                <th>Needs improvement</th>
+              </tr>
+            </thead>
+            <tbody>
+              {subjects.map((s) => (
+                <tr key={s.subject_code}>
+                  <td className="strong">{s.label}</td>
+                  <td className="num">{s.avg_score_pct === null ? "-" : `${Math.round(s.avg_score_pct)}%`}</td>
+                  <td className="num">{s.tests_taken}</td>
+                  <td>
+                    <AttentionPill level={STATUS_PILL_KEY[s.status]} label={STATUS_LABEL[s.status]} />
+                  </td>
+                  <td className="small">{s.strengths.join(", ") || "-"}</td>
+                  <td className="small">{s.improve.join(", ") || "-"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      {breakdown && (
         <section className="section">
-          <h2 className="section-q">Where marks were lost</h2>
+          <h2 className="section-q">{breakdown.subject.label}, where marks were lost</h2>
           <div className="card card--flat" style={{ marginTop: 12 }}>
             <table className="table">
               <thead>
                 <tr>
-                  <th>Subject</th>
                   <th>Chapter</th>
-                  <th className="num">Lost</th>
-                  <th>Status</th>
+                  <th className="num">Earned</th>
+                  <th className="num">Available</th>
+                  <th className="num">Rate</th>
                   <th></th>
                 </tr>
               </thead>
               <tbody>
-                {intel.subjects.map((s) => (
-                  <tr key={s.subject + s.topic}>
-                    <td className="strong">{s.subject}</td>
-                    <td>
-                      {s.topic}
-                      <div className="small muted">{s.subskill}</div>
-                    </td>
-                    <td className="num">{s.lost}</td>
-                    <td>
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-start" }}>
-                        <UrgencyChip level={s.boardUrgency} withLabel={false} />
-                        <ConfidenceMeter level={s.confidence} short />
-                      </div>
-                    </td>
-                    <td style={{ textAlign: "right" }}>
-                      <button className="btn btn--sm" onClick={() => setSubject(s.subject)} disabled={subject === s.subject}>
-                        {subject === s.subject ? "Shown below" : "Open report"}
-                      </button>
-                    </td>
+                {breakdown.by_chapter.map((c) => (
+                  <tr key={c.key}>
+                    <td className="strong">{c.label}</td>
+                    <td className="num">{c.earned}</td>
+                    <td className="num">{c.available}</td>
+                    <td className="num">{c.rate === null ? "-" : `${Math.round(c.rate * 100)}%`}</td>
+                    <td className="small muted">{c.sufficient ? "" : c.message}</td>
                   </tr>
                 ))}
+                {breakdown.by_chapter.length === 0 && (
+                  <tr>
+                    <td colSpan={5}>
+                      <EvidenceState kind="early" compact>
+                        No chapter-wise findings for this subject yet.
+                      </EvidenceState>
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
-          <p style={{ marginTop: 12 }}>{intel.boardXSummary}</p>
         </section>
-      ) : (
-        <div style={{ marginTop: 20 }}>
-          <EvidenceState kind="early">{student.name} scored every mark tested in this assessment, there is no loss to localize.</EvidenceState>
-        </div>
       )}
-
-      <section className="section">
-        <h2 className="section-q">{subject}, one-page report</h2>
-        <div style={{ marginTop: 12 }}>
-          {report ? (
-            <BoardXReportView report={report} studentName={student.name} section={section} />
-          ) : (
-            <EvidenceState kind="early">No {subject} marks recorded for this assessment.</EvidenceState>
-          )}
-        </div>
-      </section>
     </>
   );
 }

@@ -4,7 +4,6 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut } from "lucide-react";
 import { Wordmark } from "@/components/Mascot";
-import { school } from "@/lib/avai-mock-data";
 import { useAttend } from "@/lib/attendState";
 
 /**
@@ -15,7 +14,7 @@ import { useAttend } from "@/lib/attendState";
  */
 export default function AttendLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { identity } = useAttend();
+  const { profile, classLabel, schoolName } = useAttend();
   const bare = pathname === "/attend";
 
   if (bare) return <>{children}</>;
@@ -47,15 +46,15 @@ export default function AttendLayout({ children }: { children: React.ReactNode }
         <Wordmark height={26} />
         <div style={{ minWidth: 0 }}>
           <div className="muted" style={{ fontSize: 11, lineHeight: 1.3, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-            {school.name}
+            {schoolName ?? classLabel ?? ""}
           </div>
         </div>
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          {identity && (
+          {profile && (
             <span className="tag tag--teal" style={{ minWidth: 0 }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {identity.name} · {identity.section} · {identity.rollNo}
+                {profile.name} · {profile.section} · {profile.roll_no}
               </span>
             </span>
           )}
