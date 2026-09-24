@@ -508,15 +508,20 @@ export default function PaperPage() {
     const key = getApiKey();
     if (!key || !assessmentId) return;
     setError(null);
+    // Confirm, map and classify chained into one wait: once a teacher has attested to the
+    // reading, there is no further human decision needed unless mapping turns up a question
+    // it could not place -- so run straight through to the final result instead of making
+    // them press three separate buttons and watch three separate stages.
     setBusy("Recording your confirmation…");
     try {
       setConfirmation(await api.confirmScan(key, assessmentId, confirmedBy || "teacher"));
       await refresh(assessmentId);
     } catch (err) {
       setError(explain(err));
-    } finally {
       setBusy(null);
+      return;
     }
+    await onMap();
   }
 
   async function onMap() {
@@ -525,9 +530,17 @@ export default function PaperPage() {
     setError(null);
     setBusy("Matching every question against the book…");
     try {
-      setMapped(await api.mapPaper(key, assessmentId));
+      const result = await api.mapPaper(key, assessmentId);
+      setMapped(result);
       setPlaced(null);
       await refresh(assessmentId);
+      // Only auto-advance to classify when nothing needs a human decision first -- a
+      // question mapping could not place is exactly the case where stopping and showing
+      // the review table (not the stepper) is the right outcome, not racing past it.
+      if (result.blocked === 0) {
+        await onClassify();
+        return;
+      }
     } catch (err) {
       setError(explain(err));
     } finally {
