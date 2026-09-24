@@ -1,11 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Camera, CheckCircle2, ChevronDown, Loader2, Pencil, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, Loader2, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { usePaperScan, toFiles } from "@/lib/usePaperScan";
 import { Scanner } from "@/components/Scanner";
+import { useAuth } from "@/lib/auth";
 import type { StagedQuestion } from "@/lib/api";
 
 /** One subject's real question-paper pipeline: create/open a paper, scan it (photo or
@@ -14,12 +15,26 @@ import type { StagedQuestion } from "@/lib/api";
  * Papers tab drives. `section` narrows nothing server-side (a question paper is one per
  * subject, not per class), it is kept only so a subject-scoped screen can label itself. */
 export function QuestionPaperPanel({ subject, section }: { subject: string; section: string }) {
+  const { user } = useAuth();
   const scan = usePaperScan({
     listPapers: (key) => api.teacherPapers(key),
     listSubjects: (key) => api.subjects(key).then((r) => r.subjects),
     prefillSubject: subject,
   });
   const [newTitle, setNewTitle] = useState("Cycle Test I");
+
+  // "Upload/scan, then wait a minute for the final result" -- a teacher does not need to
+  // see or act on the confirm step, it is real (it records who read the paper) but there
+  // is no decision for a person to make there, so it fires the moment a name is known
+  // instead of waiting on a button press. Confirm -> map -> classify then auto-chains
+  // inside the hook itself, stopping only where a question genuinely could not be placed.
+  useEffect(() => {
+    if (scan.documentId && !scan.confirmed && scan.busy == null) {
+      scan.setConfirmedBy(user?.name || "Teacher");
+      void scan.onConfirm();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scan.documentId, scan.confirmed, scan.busy]);
   // The row currently open for editing -- only ever a pre-confirmation, unmapped row (see
   // the Edit button's own guard below); editScanned() 409s past either point, so the
   // affordance never appears once it would fail.
@@ -226,22 +241,14 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
               </div>
             )}
 
+            {/* Confirming is real (it records who read the paper) but not a decision a
+                teacher needs to make -- the effect above fires it automatically the
+                moment a scan lands. "Remove scan" stays available the whole time a scan
+                exists and is not yet confirmed, in case the wrong file was uploaded. */}
             {scan.documentId && !scan.confirmed && (
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input
-                  className="input"
-                  style={{ maxWidth: 220 }}
-                  placeholder="Your name"
-                  value={scan.confirmedBy}
-                  onChange={(e) => scan.setConfirmedBy(e.target.value)}
-                />
-                <button className="btn btn--primary btn--sm" onClick={() => scan.onConfirm()} disabled={scan.busy != null}>
-                  <CheckCircle2 size={13} /> Confirm reading &amp; map
-                </button>
-                <button className="btn btn--sm" onClick={() => scan.onRemoveScan()} disabled={scan.removingScan}>
-                  Remove scan
-                </button>
-              </div>
+              <button className="btn btn--sm" onClick={() => scan.onRemoveScan()} disabled={scan.removingScan}>
+                Remove scan
+              </button>
             )}
 
             {scan.mapped && (
@@ -261,14 +268,14 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
               </div>
             )}
 
+            {/* Classifying auto-chains inside the hook the moment mapping comes back with
+                nothing blocked -- no button for the ordinary case. Re-run mapping stays as
+                a real recovery action for the one case that does need a person: a blocked
+                question, which usually means the underlying concept families need fixing
+                before mapping can find it a home. */}
             {scan.mapped && scan.mapped.blocked > 0 && !scan.placed && (
               <button className="btn btn--sm" onClick={() => scan.onMap()} disabled={scan.busy != null}>
                 Re-run mapping
-              </button>
-            )}
-            {scan.mapped && scan.mapped.blocked === 0 && !scan.placed && !scan.alreadyClassified && (
-              <button className="btn btn--primary btn--sm" onClick={() => scan.onClassify()} disabled={scan.busy != null}>
-                <Sparkles size={13} /> Read &amp; classify every question
               </button>
             )}
 

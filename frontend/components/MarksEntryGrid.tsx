@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Camera, CheckCircle2, FileUp, Loader2, Save, Upload, X } from "lucide-react";
 import { FilePickButtons } from "@/components/FilePickButtons";
 import { useGridSheet } from "@/lib/useGridSheet";
+import { useAuth } from "@/lib/auth";
 import type { GridRowMark, GridSheetRowView } from "@/lib/api";
 
 /** One class's real mark-entry pipeline for one paper: upload a photographed answer-card
@@ -24,12 +25,22 @@ export function MarksEntryGrid({
   /** Pin the paper: when omitted the grid offers a paper picker itself. */
   paperId?: string;
 }) {
+  const { user } = useAuth();
   const grid = useGridSheet({ role: "teacher", subjectCode: subject, fixedSectionId: section });
 
   useEffect(() => {
     if (paperId && grid.paperId !== paperId) grid.pickPaper(paperId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
+
+  // Real, but not a step a teacher should have to type through every time -- attributed to
+  // whoever is actually signed in. Confirm itself stays a real button press: saving marks
+  // is consequential, worth a deliberate tap, unlike the read-only "who read this" name a
+  // paper scan asks for.
+  useEffect(() => {
+    if (!grid.by && user?.name) grid.setBy(user.name);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.name]);
 
   const rows = grid.review?.rows ?? [];
   // Unmatched/name-mismatch rows still need a person to say who they are before any mark
@@ -253,12 +264,9 @@ export function MarksEntryGrid({
 
           {rows.length > 0 && (
             <>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <input className="input" style={{ maxWidth: 220 }} placeholder="Your name" value={grid.by} onChange={(e) => grid.setBy(e.target.value)} />
-                <button className="btn btn--primary btn--sm" onClick={() => grid.confirmAll()} disabled={grid.busy != null}>
-                  <Save size={13} /> Confirm &amp; save marks
-                </button>
-              </div>
+              <button className="btn btn--primary btn--sm" onClick={() => grid.confirmAll()} disabled={grid.busy != null} style={{ width: "fit-content" }}>
+                <Save size={13} /> Confirm &amp; save marks
+              </button>
               {grid.confirmResult && (
                 <div className="flagbar flagbar--ok" role="status">
                   <CheckCircle2 size={16} /> <span>{grid.confirmResult}</span>
