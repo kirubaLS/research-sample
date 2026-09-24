@@ -6,6 +6,13 @@
  * score and how many papers actually have marks on them. Tap a class to see its
  * students.
  *
+ * Restyled to match the reference's ClassOverview page (KPI tile row + segmented
+ * distribution bar + a subject/score table look), while keeping this page's own real
+ * shape: a school-wide roll-up over every class, not one class's per-subject detail --
+ * the backend's AcademicsOverview has status_counts/avg_score_pct/test_count per class,
+ * nothing per-subject, so the reference's subject-band table has no honest equivalent
+ * here.
+ *
  * Deliberately does not show an "aspiration", "action plan" or "recheck" column -- this
  * deployment has no data model for any of those, and this screen only ever shows a
  * number it can trace back to a real MarkEvent.
@@ -20,9 +27,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { BarChartIcon, ClipboardIcon, PeopleIcon } from "@/components/academics/Icons";
-import { StatTile, StatTileRow } from "@/components/academics/StatTile";
-import { StatusOverviewBar } from "@/components/academics/StatusOverviewBar";
+import { AlertCircle, AlertTriangle, ClipboardList, Download, TrendingUp, Users } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { api, type AcademicsOverview, type ClassAcademicSummary } from "@/lib/api";
 import { downloadBlob } from "@/lib/download";
@@ -75,7 +80,7 @@ export default function AcademicsOverviewPage() {
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
           <button type="button" className="btn btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
-            {downloading === "pdf" ? "Preparing…" : "Download PDF"}
+            {downloading === "pdf" ? <>Preparing…</> : <><Download size={13} /> Download PDF</>}
           </button>
         </div>
       </div>
@@ -129,19 +134,30 @@ function worstFirst(classes: ClassAcademicSummary[]): ClassAcademicSummary[] {
   return [...scored, ...unscored];
 }
 
-const STATUS_SERIES: { key: keyof ClassAcademicSummary["status_counts"]; label: string; color: string }[] = [
-  { key: "on_track", label: "On Track", color: "var(--brand-green)" },
-  { key: "needs_attention", label: "Needs Attention", color: "var(--brand-gold)" },
-  { key: "requires_review", label: "Requires Review", color: "var(--risk)" },
-  { key: "not_assessed", label: "Not Yet Assessed", color: "var(--muted)" },
-];
+/** Whole-percent shares of a set of counts, rounded so they still add to 100 --
+ * matches the reference's own `percentShares` rounding behaviour. */
+function percentShares(counts: number[]): number[] {
+  const total = counts.reduce((a, b) => a + b, 0);
+  if (total === 0) return counts.map(() => 0);
+  const raw = counts.map((c) => (c / total) * 100);
+  const floors = raw.map(Math.floor);
+  let remainder = 100 - floors.reduce((a, b) => a + b, 0);
+  const order = raw
+    .map((v, i) => ({ i, frac: v - Math.floor(v) }))
+    .sort((a, b) => b.frac - a.frac);
+  const shares = [...floors];
+  for (let k = 0; k < remainder; k++) shares[order[k % order.length].i] += 1;
+  return shares;
+}
 
 /**
  * Two real, school-wide reads on the same class rows the cards below list one at a
- * time: how every student in the school currently splits across the four status
- * bands, and how each class's average score compares to the others. Nothing here is a
- * second computation -- both charts are the exact `status_counts`/`avg_score_pct` each
- * `ClassAcademicSummary` already carries, just rolled up or sorted differently.
+ * time, restyled to the reference's KPI-tile row + segmented-distribution-bar look:
+ * a headline tile row (students / on track / needs support / at risk), the same
+ * split as one full-width segmented bar with a legend, and average score by class as
+ * a table of pill values. Nothing here is a second computation -- every number is the
+ * exact `status_counts`/`avg_score_pct` each `ClassAcademicSummary` already carries,
+ * just rolled up or laid out differently.
  */
 function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
   const totals = classes.reduce(
@@ -154,79 +170,130 @@ function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
     },
     { on_track: 0, needs_attention: 0, requires_review: 0, not_assessed: 0 },
   );
-  const totalStudents = Object.values(totals).reduce((a, b) => a + b, 0) || 1;
-  const totalTests = classes.reduce((sum, c) => sum + c.test_count, 0);
-  const scoredClasses = classes.filter((c) => c.avg_score_pct != null);
-  const schoolAvg = scoredClasses.length
-    ? Math.round(scoredClasses.reduce((sum, c) => sum + (c.avg_score_pct ?? 0), 0) / scoredClasses.length)
-    : null;
+  const totalStudents = Object.values(totals).reduce((a, b) => a + b, 0);
+  const [onTrackShare, supportShare, riskShare] = percentShares([totals.on_track, totals.needs_attention, totals.requires_review]);
 
+  const tiles = [
+    { key: "total", label: "Total Students", value: totalStudents, sub: `Across ${classes.length} classes`, accent: "var(--brand-blue)", icon: <Users size={21} /> },
+    { key: "ontrack", label: "On Track", value: totals.on_track, sub: `${onTrackShare}% of students`, accent: "var(--brand-green)", icon: <TrendingUp size={21} /> },
+    { key: "support", label: "Needs Attention", value: totals.needs_attention, sub: `${supportShare}% of students`, accent: "var(--brand-gold)", icon: <AlertTriangle size={21} /> },
+    { key: "risk", label: "Requires Review", value: totals.requires_review, sub: `${riskShare}% of students`, accent: "var(--risk)", icon: <AlertCircle size={21} /> },
+  ];
+
+  const totalTests = classes.reduce((sum, c) => sum + c.test_count, 0);
   const scored = classes
     .filter((c) => c.avg_score_pct != null)
-    .sort((a, b) => (b.avg_score_pct ?? 0) - (a.avg_score_pct ?? 0));
-  const maxScore = Math.max(100, ...scored.map((c) => c.avg_score_pct ?? 0));
+    .sort((a, b) => (a.avg_score_pct ?? 0) - (b.avg_score_pct ?? 0));
+
+  const segments = [
+    { key: "on_track", label: "On Track", count: totals.on_track, color: "var(--brand-green)" },
+    { key: "needs_attention", label: "Needs Attention", count: totals.needs_attention, color: "var(--brand-gold)" },
+    { key: "requires_review", label: "Requires Review", count: totals.requires_review, color: "var(--risk)" },
+    { key: "not_assessed", label: "Not Yet Assessed", count: totals.not_assessed, color: "var(--muted)" },
+  ];
+  const segTotal = segments.reduce((s, x) => s + x.count, 0) || 1;
 
   return (
     <div>
-      <StatTileRow>
-        <StatTile icon={<PeopleIcon />} value={classes.reduce((s, c) => s + c.student_count, 0)} label="Total Students" tone="violet" />
-        <StatTile icon={<ClipboardIcon />} value={totalTests} label="Papers With Marks" tone="info" />
-        <StatTile
-          icon={<BarChartIcon />}
-          value={schoolAvg != null ? `${schoolAvg}%` : "N/A"}
-          label="School Avg. Score"
-          tone="gold"
-        />
-      </StatTileRow>
+      <div className="grid grid--4" style={{ marginTop: 20 }}>
+        {tiles.map((tile) => (
+          <div key={tile.key} className="kpi" style={{ "--accent": tile.accent } as React.CSSProperties}>
+            <span className="kpi__icon">{tile.icon}</span>
+            <div className="kpi__text">
+              <div className="kpi__label">{tile.label}</div>
+              <div className="kpi__value">{tile.value}</div>
+              <div className="kpi__sub">{tile.sub}</div>
+            </div>
+          </div>
+        ))}
+      </div>
 
-      <div className="insights">
-      <div className="card">
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card__head">
+          <div>
+            <h3 style={{ fontSize: 16 }}>Status across the whole school</h3>
+            <p className="small muted" style={{ marginTop: 2 }}>{totalStudents} students, every class combined.</p>
+          </div>
+          <span className="tag">{totalTests} paper{totalTests === 1 ? "" : "s"} with marks</span>
+        </div>
         <div className="card__body">
-          <StatusOverviewBar counts={totals} title="Status Across the Whole School" />
-          <p className="small muted" style={{ margin: "10px 0 0" }}>{totalStudents} students, every class combined</p>
+          <div className="segbar">
+            {segments.map((seg) =>
+              seg.count === 0 ? null : (
+                <div
+                  key={seg.key}
+                  className="segbar__seg"
+                  style={{ "--seg": seg.color, flexGrow: seg.count, flexBasis: 0 } as React.CSSProperties}
+                  title={`${seg.label}: ${seg.count}`}
+                >
+                  {(seg.count / segTotal) * 100 >= 8 ? `${Math.round((seg.count / segTotal) * 100)}%` : ""}
+                </div>
+              )
+            )}
+          </div>
+          <div className="segbar__legend">
+            {segments.map((seg) => (
+              <div key={seg.key} className="segbar__legend-item" style={{ "--seg": seg.color } as React.CSSProperties}>
+                <span style={{ display: "grid", gap: 1, minWidth: 0 }}>
+                  <span style={{ display: "flex", alignItems: "baseline", gap: 6, flexWrap: "wrap" }}>
+                    <b style={{ fontSize: 19, letterSpacing: "-0.01em" }}>{seg.count}</b>
+                    <span style={{ fontSize: 12 }}>({seg.label})</span>
+                  </span>
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card__body">
-          <h2 style={{ marginTop: 0, fontSize: 15 }}>Average score by class</h2>
-          <p className="small muted" style={{ margin: "0 0 12px" }}>Classes with no marks yet are left out -- there is no score to compare.</p>
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card__head">
+          <div>
+            <h3 style={{ fontSize: 16 }}>Average score by class</h3>
+            <p className="small muted" style={{ marginTop: 2 }}>Classes with no marks yet are left out -- there is no score to compare.</p>
+          </div>
+        </div>
+        <div className="card__body" style={{ paddingTop: 14 }}>
           {scored.length === 0 ? (
             <p className="muted small">No class has a scored paper yet.</p>
           ) : (
-            <div className="scorebars">
-              {scored.map((c) => (
-                <div className="scorebar-row" key={c.section_id}>
-                  <span className="scorebar-label">{c.grade}{c.name}</span>
-                  <div className="scorebar-track">
-                    <div
-                      className="scorebar-fill"
-                      style={{ width: `${((c.avg_score_pct ?? 0) / maxScore) * 100}%` }}
-                    />
-                  </div>
-                  <span className="scorebar-value">{c.avg_score_pct}%</span>
-                </div>
-              ))}
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Class</th>
+                    <th className="num">Average Score</th>
+                    <th className="num">Students</th>
+                    <th className="num">Papers With Marks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {scored.map((c) => (
+                    <tr key={c.section_id}>
+                      <td className="strong">{c.grade}{c.name}</td>
+                      <td className="num">
+                        <span className="pillnum pillnum--solid" style={{ "--accent": scoreAccent(c.avg_score_pct ?? 0) } as React.CSSProperties}>
+                          {(c.avg_score_pct ?? 0).toFixed(1)}
+                        </span>
+                      </td>
+                      <td className="num">{c.student_count}</td>
+                      <td className="num">{c.test_count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
       </div>
-      </div>
-
-      <style jsx>{`
-        .insights {
-          display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-          gap: 16px; margin-top: 20px;
-        }
-        .scorebars { display: flex; flex-direction: column; gap: 9px; }
-        .scorebar-row { display: grid; grid-template-columns: 56px 1fr 42px; align-items: center; gap: 10px; }
-        .scorebar-label { font-size: 13px; font-weight: 600; color: var(--brand-ink-soft); }
-        .scorebar-track { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
-        .scorebar-fill { height: 100%; border-radius: 999px; background: var(--brand-teal); transition: width 0.3s ease; }
-        .scorebar-value { font-size: 12.5px; color: var(--brand-ink-soft); text-align: right; font-variant-numeric: tabular-nums; }
-      `}</style>
     </div>
   );
+}
+
+function scoreAccent(pct: number): string {
+  if (pct >= 78) return "var(--brand-green)";
+  if (pct >= 60) return "var(--brand-gold)";
+  return "var(--risk)";
 }
 
 function ClassCard({ c }: { c: ClassAcademicSummary }) {
