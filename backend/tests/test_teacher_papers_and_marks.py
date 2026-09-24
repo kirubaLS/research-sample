@@ -354,15 +354,32 @@ def test_gridsheet_document_scope_is_refused_for_a_different_subject_teacher(cli
     ).status_code == 404
 
 
-def test_deleting_a_paper_with_a_judged_question_does_not_500(client, school, mapped_paper):
-    """QuestionJudgment (the Layer 2B review trail) is keyed on question_id with no
-    cascade and was missing from delete_assessment's cleanup -- any paper with at least
-    one judged question failed the delete on a bare foreign key violation (a 500, no
-    explanation) instead of the 204 every other paper delete already returned cleanly."""
+def test_deleting_a_paper_with_marks_and_a_judged_question_does_not_500(client, school, mapped_paper, student):
+    """Two real, separate foreign-key bugs in delete_assessment's cleanup order, both
+    live in production before this test existed:
+
+    - MarkEvent.question_id is a hard (non-nullable) FK onto Question -- a real mark
+      always names the question it was awarded on -- but MarkEvent was deleted AFTER
+      Question in the cleanup loop, so any paper that had ever had a mark entered against
+      it (i.e. almost any real paper) 500'd on delete with a bare foreign key violation.
+    - QuestionJudgment (the Layer 2B review trail) is keyed on question_id with no
+      cascade and was missing from the cleanup entirely -- any paper with at least one
+      judged question failed the same way.
+
+    Both are reproduced together here: a real confirmed mark (a real MarkEvent) plus a
+    real QuestionJudgment row, then delete must return 204 like any other paper.
+    """
     from sqlalchemy import select
 
     from app.db import SessionLocal
     from app.models import Question, QuestionJudgment
+
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm", headers=h,
+        json={"answers": [{"address": "A/1//", "marks": 7, "state": "awarded"}], "by": "teacher"},
+    )
+    assert r.status_code == 200, r.text
 
     db = SessionLocal()
     q_id = db.execute(select(Question.id).where(Question.assessment_id == mapped_paper)).scalar_one()

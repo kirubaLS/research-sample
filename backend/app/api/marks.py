@@ -281,11 +281,15 @@ def delete_assessment(
             QuestionJudgment.question_id.in_(question_ids)
         ))
     for model in (
-        # ScannedQuestion before Question: its question_id is a nullable FK onto Question,
-        # set once a scanned row is promoted, so deleting Question first leaves a promoted
-        # scan row pointing at nothing and the foreign key rejects the whole delete.
-        ScannedQuestion, Question, LogicalPage, DataQualityFlag, AnalysisRun,
-        MarkEvent, StudentReport, ProposedMark,
+        # ScannedQuestion and MarkEvent both go before Question: ScannedQuestion.question_id
+        # is a nullable FK onto Question, set once a scanned row is promoted, and
+        # MarkEvent.question_id is a hard (non-nullable) one -- a real mark always names
+        # the question it was awarded on. Either one still existing when Question is
+        # deleted rejects the whole delete with a bare foreign key violation; a paper that
+        # had ever had a mark entered against it (i.e. almost any real paper) could never
+        # actually be deleted until MarkEvent was moved ahead of Question here.
+        ScannedQuestion, MarkEvent, Question, LogicalPage, DataQualityFlag, AnalysisRun,
+        StudentReport, ProposedMark,
         # The background-job tables each scan/grid-sheet/placement step writes -- each one
         # carries its own hard FK onto assessment.id, and none of them was ever cleaned up
         # here, so a paper that had gone through a scan, a grid-sheet read, or "Read and
