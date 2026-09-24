@@ -352,3 +352,56 @@ def test_gridsheet_document_scope_is_refused_for_a_different_subject_teacher(cli
     assert client.post(
         f"/assessments/{aid}/gridsheet/{document_id}/confirm", headers=other, json={"by": "x"},
     ).status_code == 404
+
+
+def test_deleting_a_paper_with_a_judged_question_does_not_500(client, school, mapped_paper):
+    """QuestionJudgment (the Layer 2B review trail) is keyed on question_id with no
+    cascade and was missing from delete_assessment's cleanup -- any paper with at least
+    one judged question failed the delete on a bare foreign key violation (a 500, no
+    explanation) instead of the 204 every other paper delete already returned cleanly."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Question, QuestionJudgment
+
+    db = SessionLocal()
+    q_id = db.execute(select(Question.id).where(Question.assessment_id == mapped_paper)).scalar_one()
+    db.add(QuestionJudgment(
+        question_id=q_id, field="chapter", value="X.MATH.U.MENSURATION",
+        reviewer_id="reviewer-a",
+    ))
+    db.commit()
+    db.close()
+
+    r = client.delete(f"/assessments/{mapped_paper}", headers=_auth(school))
+    assert r.status_code == 204, r.text
+
+
+def test_teacher_can_read_their_own_section_cohort_report(client, school, mapped_paper, student):
+    """/reports/cohort refuses every teacher key outright (require_reader) -- a real
+    teacher hit that 403 from the Insights tab, which had no teacher-scoped route to call
+    instead until now."""
+    h = _subject_teacher(client, school, "X.MATH")
+    assert client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm", headers=h,
+        json={"answers": [{"address": "A/1//", "marks": 7, "state": "awarded"}], "by": "teacher"},
+    ).status_code == 200
+
+    # The principal-only route still refuses a teacher key exactly as before.
+    assert client.get(
+        f"/reports/cohort/{mapped_paper}?section_id={school['section_id']}", headers=h,
+    ).status_code == 403
+
+    r = client.get(
+        f"/reports/teacher/cohort/{mapped_paper}?section_id={school['section_id']}", headers=h,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["students_analysed"] >= 1
+
+
+def test_teacher_cohort_report_is_refused_for_a_different_subject(client, school, mapped_paper, student):
+    h = _subject_teacher(client, school, "X.SCI")
+    r = client.get(
+        f"/reports/teacher/cohort/{mapped_paper}?section_id={school['section_id']}", headers=h,
+    )
+    assert r.status_code == 404

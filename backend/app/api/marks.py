@@ -54,6 +54,7 @@ from app.models import (
     PlacementJob,
     ProposedMark,
     Question,
+    QuestionJudgment,
     QuestionPlacement,
     QuestionSkill,
     QuestionTier,
@@ -271,6 +272,13 @@ def delete_assessment(
         ))
         db.execute(QuestionPlacement.__table__.delete().where(
             QuestionPlacement.question_id.in_(question_ids)
+        ))
+        # Layer 2B's review trail -- also keyed on question_id with no cascade, same as
+        # the three above. Missing here meant any paper with at least one judged question
+        # (rare, but real) 500'd on delete with a foreign key violation and no explanation,
+        # exactly the failure mode the job-table fix below already describes.
+        db.execute(QuestionJudgment.__table__.delete().where(
+            QuestionJudgment.question_id.in_(question_ids)
         ))
     for model in (
         # ScannedQuestion before Question: its question_id is a nullable FK onto Question,

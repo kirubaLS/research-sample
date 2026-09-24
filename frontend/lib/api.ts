@@ -2143,6 +2143,13 @@ export const api = {
   cohortReport: (key: string, assessmentId: string, sectionId?: string) =>
     authed<CohortReport>(`/reports/cohort/${assessmentId}${qs({ section_id: sectionId })}`, key),
 
+  /** The same real findings, scoped to one teacher key's own section -- /reports/cohort
+   *  refuses every teacher key outright (it has no section/subject filter of its own).
+   *  section_id is required here, unlike the principal route's optional one: a teacher's
+   *  read is always scoped to one class they actually hold. */
+  teacherCohortReport: (key: string, assessmentId: string, sectionId: string) =>
+    authed<CohortReport>(`/reports/teacher/cohort/${assessmentId}${qs({ section_id: sectionId })}`, key),
+
   /** Every concept family's board multiplier/urgency for one subject -- GET /board-frequency.
    *  Used by BoardX to enrich a cohort finding with "X/4 recent years" (years_appeared /
    *  years_eligible), which GET /reports/cohort/{id} itself does not carry per family.

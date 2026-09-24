@@ -30,7 +30,7 @@ from app.analysis.paper_quality import (
     typology_alignment,
 )
 from app.analysis.report_pdf import render_student_report_pdf
-from app.api.deps import require_reader
+from app.api.deps import Staff, current_staff, require_reader, require_teacher_read_scope
 from app.db import get_session
 from app.models import (
     Assessment,
@@ -316,6 +316,42 @@ def cohort_report(
     school: School = Depends(require_reader),
     db: Session = Depends(get_session),
 ) -> dict:
+    """How the whole class did on one paper -- the principal/admin view, every section.
+    See _cohort_report_payload for what this actually computes."""
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != school.id:
+        raise HTTPException(404, "not found")
+    return _cohort_report_payload(db, school, assessment, section_id)
+
+
+@router.get("/teacher/cohort/{assessment_id}")
+def teacher_cohort_report(
+    assessment_id: str,
+    section_id: str,
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    """The same real findings a principal's own cohort report shows, scoped down to one
+    teacher key's own section -- require_reader refuses every teacher key outright (this
+    surface has no section/subject filter of its own), so a teacher never had a route to
+    this data at all until now. section_id is required here, not optional like the
+    principal route's, because a teacher's read is always scoped to one class they
+    actually hold -- there is no "every section" view for a key that was never issued one.
+    """
+    if not staff.is_teacher:
+        raise HTTPException(403, "this route is for teacher keys; use /reports/cohort/{id}")
+    assert staff.home is not None, "a teacher key always names its school"
+    school = staff.home
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != school.id:
+        raise HTTPException(404, "not found")
+    require_teacher_read_scope(staff, db, section_id, assessment.subject_code)
+    return _cohort_report_payload(db, school, assessment, section_id)
+
+
+def _cohort_report_payload(
+    db: Session, school: School, assessment: Assessment, section_id: str | None,
+) -> dict:
     """How the whole class did on one paper, not just one student.
 
     ``_rows`` already reads every (student, question) mark on this assessment in one
@@ -338,10 +374,6 @@ def cohort_report(
     this class's own top losses rather than the whole school's. Omitted, this behaves
     exactly as it always has.
     """
-    assessment = db.get(Assessment, assessment_id)
-    if assessment is None or assessment.school_id != school.id:
-        raise HTTPException(404, "not found")
-
     rows = _rows(db, assessment)
     if section_id:
         in_section = set(db.scalars(

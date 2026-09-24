@@ -52,7 +52,7 @@ export default function SubjectView() {
     const key = getApiKey();
     if (!key || !allowed || !latestTest) return;
     api
-      .cohortReport(key, latestTest.assessment_id, section)
+      .teacherCohortReport(key, latestTest.assessment_id, section)
       .then(setCohort)
       .catch(() => {
         /* cohort report is best-effort -- the students table above still works without it */
