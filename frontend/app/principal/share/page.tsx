@@ -15,17 +15,24 @@
  * however their school actually reaches parents -- same "shown once" rule a single share
  * already follows, just gathered into one table instead of one modal at a time.
  *
+ * Restyled to the reference Share page's KPI row + tabbed, checkbox-select list look
+ * (.kpi, .tabs, .sharelist), swapping its fictional WhatsApp send for this deployment's
+ * real issue+share-PIN flow, and its parent-phone-number column for the PIN this flow
+ * actually produces (never fabricating a phone number this deployment has no field for).
+ *
  * A report already issued for this exact test is reused rather than re-issued: issuing
  * always creates a fresh StudentReport snapshot (by design -- see reports.py's own
  * issue_student_report), so re-issuing on every visit to this screen would pile up
  * duplicate snapshots of marks that have not changed.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { CheckCircle2, Clock, KeyRound, Search, Send, X } from "lucide-react";
 import { api, type ClassStudentRow, type IssuedReportRow, type SectionSummary } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 
 type RowStatus = "checking" | "not_issued" | "issued" | "shared";
+type View = "all" | "unshared" | "shared";
 
 interface Row {
   student: ClassStudentRow;
@@ -44,6 +51,8 @@ export default function ShareReportsPage() {
   const [by, setBy] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<View>("all");
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     const key = getApiKey();
@@ -87,7 +96,7 @@ export default function ShareReportsPage() {
             .studentIssuedReports(key, student.student_id)
             .then((r) => {
               if (cancelled) return;
-              const existing = r.reports.find((rep) => rep.assessment_id === assessmentId) ?? null;
+              const existing = r.reports.find((rep: IssuedReportRow) => rep.assessment_id === assessmentId) ?? null;
               setRows((prev) =>
                 prev?.map((row) =>
                   row.student.student_id === student.student_id
@@ -158,6 +167,21 @@ export default function ShareReportsPage() {
   }
 
   const unsent = rows?.filter((r) => r.status === "not_issued" || r.status === "issued") ?? [];
+  const shared = rows?.filter((r) => r.status === "shared") ?? [];
+
+  const q = query.trim().toLowerCase();
+  const shownRows = useMemo(() => {
+    if (!rows) return [];
+    return rows.filter((r) => {
+      if (view === "shared" && r.status !== "shared") return false;
+      if (view === "unshared" && r.status === "shared") return false;
+      if (q && !r.student.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q))) return false;
+      return true;
+    });
+  }, [rows, view, q]);
+
+  const testTitle = tests.find((t) => t.assessment_id === assessmentId)?.title ?? "this test";
+  const sectionLabel = sections.find((s) => s.section_id === sectionId)?.label ?? "";
 
   return (
     <div>
@@ -196,65 +220,123 @@ export default function ShareReportsPage() {
         </div>
       </div>
 
-      {error && <p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p>}
-
-      {rows && rows.length > 0 && (
-        <div className="share-actions" style={{ display: "flex", marginBottom: 14 }}>
-          <button
-            type="button"
-            className="btn btn--primary"
-            disabled={!by.trim() || !!busy || unsent.length === 0}
-            onClick={() => void shareAllUnsent()}
-          >
-            {busy ? "Working…" : `Share with everyone not yet shared (${unsent.length})`}
-          </button>
-        </div>
-      )}
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 12 }}>{error}</p>}
 
       {rows && (
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr>
-                <th>Roll</th>
-                <th>Name</th>
-                <th>Status</th>
-                <th>PIN (this session only)</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr key={row.student.student_id}>
-                  <td>{row.student.roll_no}</td>
-                  <td className="strong">{row.student.name}</td>
-                  <td>
-                    {row.status === "checking" && <span className="muted">Checking…</span>}
-                    {row.status === "not_issued" && <span className="muted">Not issued</span>}
-                    {row.status === "issued" && <span className="attn attn--medium">Issued, not shared</span>}
-                    {row.status === "shared" && <span className="attn attn--low">Shared</span>}
-                    {row.error && <p className="small" style={{ color: "var(--risk)", margin: "4px 0 0" }}>{row.error}</p>}
-                  </td>
-                  <td className="mono">{row.pin ?? "—"}</td>
-                  <td>
-                    <button
-                      type="button"
-                      className="btn btn--ghost btn--sm"
-                      disabled={!by.trim() || row.status === "checking"}
-                      onClick={() => void shareOne(row)}
-                    >
-                      {row.status === "shared" ? "Reset PIN" : "Share"}
-                    </button>
-                  </td>
-                </tr>
+        <>
+          <div className="grid grid--3" style={{ marginTop: 16 }}>
+            <div className="kpi" style={{ "--accent": "var(--brand-green)" } as React.CSSProperties}>
+              <span className="kpi__icon"><CheckCircle2 size={20} /></span>
+              <div className="kpi__text">
+                <div className="kpi__label">Shared</div>
+                <div className="kpi__value">
+                  {shared.length}
+                  <span className="small muted" style={{ fontWeight: 500 }}> of {rows.length}</span>
+                </div>
+                <div className="kpi__sub">Parents who have a live PIN for {testTitle}</div>
+              </div>
+            </div>
+            <div className="kpi" style={{ "--accent": "var(--brand-gold)" } as React.CSSProperties}>
+              <span className="kpi__icon"><KeyRound size={20} /></span>
+              <div className="kpi__text">
+                <div className="kpi__label">Not yet shared</div>
+                <div className="kpi__value">{unsent.length}</div>
+                <div className="kpi__sub">{unsent.length ? "Still waiting for a PIN" : "Every report has been shared"}</div>
+              </div>
+            </div>
+            <div className="kpi" style={{ "--accent": "var(--brand-blue)" } as React.CSSProperties}>
+              <span className="kpi__icon"><Clock size={20} /></span>
+              <div className="kpi__text">
+                <div className="kpi__label">Scope</div>
+                <div className="kpi__value" style={{ fontSize: 18 }}>{sectionLabel || "-"}</div>
+                <div className="kpi__sub">{testTitle}</div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card" style={{ marginTop: 16 }}>
+            <div className="card__head share-actions">
+              <div>
+                <h3 style={{ fontSize: 16 }}>Issue &amp; share PINs</h3>
+                <p className="small muted" style={{ marginTop: 2 }}>
+                  Each PIN opens this student&apos;s {testTitle} report. Shown once here, pass it on yourself.
+                </p>
+              </div>
+              <div className="share-actions__btns">
+                <button
+                  type="button"
+                  className="btn btn--primary"
+                  disabled={!by.trim() || !!busy || unsent.length === 0}
+                  onClick={() => void shareAllUnsent()}
+                >
+                  <Send size={14} /> {busy ? "Working…" : `Share with everyone not yet shared (${unsent.length})`}
+                </button>
+              </div>
+            </div>
+
+            <div className="share-toolbar">
+              <div className="tabs" role="tablist">
+                {(
+                  [
+                    ["all", `All (${rows.length})`],
+                    ["unshared", `Not shared (${unsent.length})`],
+                    ["shared", `Shared (${shared.length})`],
+                  ] as [View, string][]
+                ).map(([k, l]) => (
+                  <button key={k} role="tab" aria-selected={view === k} className={`tab ${view === k ? "tab--active" : ""}`} onClick={() => setView(k)}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              <div className="searchbox">
+                <Search size={15} aria-hidden="true" />
+                <input className="input" type="search" placeholder="Search student" aria-label="Search student" value={query} onChange={(e) => setQuery(e.target.value)} />
+                {query && (
+                  <button type="button" className="iconbtn" aria-label="Clear search" onClick={() => setQuery("")}>
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            </div>
+
+            <div className="sharelist">
+              {shownRows.map((row) => (
+                <div key={row.student.student_id} className="sharelist__row" style={{ gridTemplateColumns: "34px minmax(0, 1fr) auto auto" }}>
+                  <span className="sharelist__roll mono">{row.student.roll_no}</span>
+                  <div className="sharelist__who">
+                    <span className="strong">{row.student.name}</span>
+                    <span className="small muted">
+                      {row.status === "checking" && "Checking…"}
+                      {row.status === "not_issued" && "Not issued"}
+                      {row.status === "issued" && "Issued, not shared"}
+                      {row.status === "shared" && (row.pin ? `PIN ${row.pin}` : "Shared")}
+                    </span>
+                    {row.error && <span className="small" style={{ color: "var(--risk)" }}>{row.error}</span>}
+                  </div>
+                  <span className={`tag ${row.status === "shared" ? "tag--green" : ""}`}>
+                    {row.status === "checking" && "Checking"}
+                    {row.status === "not_issued" && "Not shared"}
+                    {row.status === "issued" && "Not shared"}
+                    {row.status === "shared" && "Shared"}
+                  </span>
+                  <button
+                    type="button"
+                    className="btn btn--sm"
+                    disabled={!by.trim() || row.status === "checking"}
+                    onClick={() => void shareOne(row)}
+                  >
+                    <Send size={12} /> {row.status === "shared" ? "Reset PIN" : "Share"}
+                  </button>
+                </div>
               ))}
-            </tbody>
-          </table>
-        </div>
+              {shownRows.length === 0 && <p className="small muted" style={{ padding: "14px 16px", margin: 0 }}>No students match.</p>}
+            </div>
+          </div>
+        </>
       )}
 
       {sectionId && assessmentId && rows?.length === 0 && (
-        <p className="muted">No students in this class.</p>
+        <p className="muted" style={{ marginTop: 20 }}>No students in this class.</p>
       )}
     </div>
   );
