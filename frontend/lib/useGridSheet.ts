@@ -241,6 +241,36 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
     }
   }
 
+  // A mis-scanned or wrong-class upload had no way out except picking a different paper
+  // and back again, which does nothing (the same document loads right back via the
+  // review fetch above) -- there was no real "start over" for this class's answer sheet,
+  // unlike the question-paper flow's own "Remove scan". DELETE /documents/{id} already
+  // supports this (see documents.py's own docstring); this just wires a button to it.
+  const [removingScan, setRemovingScan] = useState(false);
+
+  async function removeScan() {
+    const key = getApiKey();
+    if (!key || !documentId) return;
+    if (!window.confirm(
+      "Remove this scan? The uploaded pages cannot be brought back -- you would need to " +
+        "photograph or upload the sheet again. Any student already confirmed from it keeps " +
+        "their marks; only the raw scan and its still-unresolved rows go.",
+    )) return;
+    setRemovingScan(true);
+    setError(null);
+    try {
+      await api.deleteDocument(key, documentId);
+      setDocumentId("");
+      setReview(null);
+      setUploadSummary(null);
+      setConfirmResult(null);
+    } catch (err) {
+      setError(explain(err));
+    } finally {
+      setRemovingScan(false);
+    }
+  }
+
   async function downloadAnswerCard() {
     const key = getApiKey();
     if (!key || !paperId || !sectionId) return;
@@ -374,6 +404,8 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
     pickSection,
     uploadPhoto,
     uploadSpreadsheet,
+    removeScan,
+    removingScan,
     downloadAnswerCard,
     resolveWithStudent,
     resolveWithNewStudent,

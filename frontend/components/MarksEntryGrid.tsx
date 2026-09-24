@@ -2,8 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Camera, CheckCircle2, FileUp, Loader2, Save, Upload, X } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ClipboardList, FileUp, Save, Trash2, Upload, X } from "lucide-react";
 import { FilePickButtons } from "@/components/FilePickButtons";
+import { BusyBanner } from "@/components/BusyBanner";
+import { Scanner } from "@/components/Scanner";
+import { toFiles } from "@/lib/usePaperScan";
 import { useGridSheet } from "@/lib/useGridSheet";
 import { useAuth } from "@/lib/auth";
 import type { GridRowMark, GridSheetRowView } from "@/lib/api";
@@ -117,9 +120,18 @@ export function MarksEntryGrid({
         </div>
       )}
 
+      {!paperId && !grid.paperId && (
+        <div className="card__body">
+          <div className="placeholder" style={{ display: "grid", gap: 8, justifyItems: "center" }}>
+            <ClipboardList size={22} />
+            <div className="small">Choose a paper above to read its answer sheets.</div>
+          </div>
+        </div>
+      )}
+
       {grid.paperId && grid.sectionId && (
         <div className="card__body" style={{ display: "grid", gap: 12 }}>
-          {!grid.documentId && (
+          {!grid.documentId && !grid.busy && (
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
               <div className="tabs" role="tablist">
                 <button role="tab" aria-selected={grid.photoMode === "class"} className={`tab ${grid.photoMode === "class" ? "tab--active" : ""}`} onClick={() => grid.setPhotoMode("class")}>
@@ -129,26 +141,30 @@ export function MarksEntryGrid({
                   Single script
                 </button>
               </div>
-              {grid.busy ? (
-                <span className="small muted" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <Loader2 size={14} className="spin" /> {grid.busy}
-                </span>
-              ) : (
-                <>
-                  <button className="btn btn--sm" onClick={() => grid.setShowCamera(true)}>
-                    <Camera size={13} /> Photograph
-                  </button>
-                  <FilePickButtons size="sm" accept="image/*,.pdf,.xlsx,.csv" fileLabel="Upload file" onPick={(f) => grid.uploadPhoto([f])} />
-                  <label className="btn btn--sm" style={{ cursor: "pointer" }}>
-                    <Upload size={13} /> Upload spreadsheet
-                    <input type="file" accept=".xlsx,.csv" hidden onChange={(e) => grid.uploadSpreadsheet(e.target.files)} />
-                  </label>
-                  <button className="btn btn--sm" onClick={() => grid.downloadAnswerCard()}>
-                    <FileUp size={13} /> Blank answer card
-                  </button>
-                </>
-              )}
+              <button className="btn btn--sm" onClick={() => grid.setShowCamera(true)}>
+                <Camera size={13} /> Photograph
+              </button>
+              <FilePickButtons size="sm" accept="image/*,.pdf,.xlsx,.csv" fileLabel="Upload file" onPick={(f) => grid.uploadPhoto([f])} />
+              <label className="btn btn--sm" style={{ cursor: "pointer" }}>
+                <Upload size={13} /> Upload spreadsheet
+                <input type="file" accept=".xlsx,.csv" hidden onChange={(e) => grid.uploadSpreadsheet(e.target.files)} />
+              </label>
+              <button className="btn btn--sm" onClick={() => grid.downloadAnswerCard()}>
+                <FileUp size={13} /> Blank answer card
+              </button>
             </div>
+          )}
+
+          {grid.busy && <BusyBanner label={grid.busy} />}
+
+          {/* Once a sheet is read, "Remove scan" is the only way to start over on a
+              mis-scanned or wrong-class upload -- picking a different paper and back did
+              nothing, since the same document simply reloaded. Confirmed marks are
+              untouched (see removeScan's own comment); only the raw scan goes. */}
+          {grid.documentId && !grid.busy && (
+            <button className="btn btn--sm" onClick={() => grid.removeScan()} disabled={grid.removingScan} style={{ width: "fit-content" }}>
+              <Trash2 size={13} /> Remove scan
+            </button>
           )}
 
           {grid.uploadSummary && <div className="small muted">{grid.uploadSummary}</div>}
@@ -288,12 +304,15 @@ export function MarksEntryGrid({
                 </button>
               </div>
               <div className="modal__body">
-                <FilePickButtons
-                  accept="image/*"
-                  fileLabel="Choose photo"
-                  onPick={(file) => {
+                {/* The real multi-page capture (see components/Scanner.tsx), same as the
+                    question-paper flow -- a "whole class sheet" is realistically several
+                    pages of scripts, and a single-photo picker could only ever submit one. */}
+                <Scanner
+                  sessionId={grid.sessionId}
+                  mode="script"
+                  onComplete={async (pages) => {
                     grid.setShowCamera(false);
-                    void grid.uploadPhoto([file]);
+                    await grid.uploadPhoto(toFiles(pages));
                   }}
                 />
               </div>

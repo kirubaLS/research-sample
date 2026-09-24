@@ -2,10 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Camera, CheckCircle2, ChevronDown, Loader2, Pencil, Plus, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, Eye, FileCheck2, Loader2, Pencil, Plus, ShieldAlert, Trash2, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { usePaperScan, toFiles } from "@/lib/usePaperScan";
 import { Scanner } from "@/components/Scanner";
+import { BusyBanner } from "@/components/BusyBanner";
+import { Stat } from "@/components/Stat";
 import { useAuth } from "@/lib/auth";
 import type { StagedQuestion } from "@/lib/api";
 
@@ -201,11 +203,7 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
               </div>
             )}
 
-            {scan.busy && (
-              <div className="small muted" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Loader2 size={14} className="spin" /> {scan.busy}
-              </div>
-            )}
+            {scan.busy && <BusyBanner label={scan.busy} />}
 
             {scan.pendingResume && (
               <div className="evidence evidence--gold">
@@ -226,18 +224,9 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
 
             {scan.scan && (
               <div className="grid grid--3">
-                <div className="stat">
-                  <div className="stat__label">Questions read</div>
-                  <div className="stat__value">{scan.scan.questions}</div>
-                </div>
-                <div className="stat">
-                  <div className="stat__label">Marks read</div>
-                  <div className="stat__value">{scan.scan.total_marks}</div>
-                </div>
-                <div className="stat">
-                  <div className="stat__label">Pages</div>
-                  <div className="stat__value">{scan.scan.pages}</div>
-                </div>
+                <Stat label="Questions read" value={scan.scan.questions} />
+                <Stat label="Marks read" value={scan.scan.total_marks} />
+                <Stat label="Pages" value={scan.scan.pages} />
               </div>
             )}
 
@@ -253,18 +242,18 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
 
             {scan.mapped && (
               <div className="grid grid--3">
-                <div className="stat">
-                  <div className="stat__label">Mapped</div>
-                  <div className="stat__value">{scan.mapped.mapped}</div>
-                </div>
-                <div className="stat">
-                  <div className="stat__label">Blocked</div>
-                  <div className="stat__value">{scan.mapped.blocked}</div>
-                </div>
-                <div className="stat">
-                  <div className="stat__label">Needs review</div>
-                  <div className="stat__value">{scan.mapped.needs_review}</div>
-                </div>
+                <Stat
+                  label="Mapped" value={scan.mapped.mapped}
+                  icon={<FileCheck2 size={12} />} tone={scan.mapped.mapped > 0 ? "green" : undefined}
+                />
+                <Stat
+                  label="Blocked" value={scan.mapped.blocked}
+                  icon={<ShieldAlert size={12} />} tone={scan.mapped.blocked > 0 ? "risk" : undefined}
+                />
+                <Stat
+                  label="Needs review" value={scan.mapped.needs_review}
+                  icon={<Eye size={12} />} tone={scan.mapped.needs_review > 0 ? "gold" : undefined}
+                />
               </div>
             )}
 
