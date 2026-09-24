@@ -1,185 +1,103 @@
 "use client";
 
+import { useParams } from "next/navigation";
+import { useMemo, useState } from "react";
+import { Check, Send, Share2 } from "lucide-react";
+import { attentionFor, findStudent, latestTest, mainBlockerFor, teacherReportFor } from "@/lib/avai-mock-data";
+import { usePageHeader } from "@/lib/pageHeader";
+import { AttentionPill } from "@/components/Status";
+import { EvidenceState } from "@/components/EvidenceState";
+
+type ReportState = { issued: boolean; sharedWithStudent: boolean };
+
 /**
- * §6.4 -- Teacher-facing student page: the same cross-subject overview a principal's
- * own app/admin/academics/students/[studentId]/page.tsx shows (same tiles, same
- * subject filter, same table columns), reusing GET /admin/teacher/academics/students/
- * {id} -- the teacher-scoped sibling of the principal's own /admin/academics/students/
- * {id}, restricted to exactly the subjects this teacher key's own assignments on the
- * student's section cover (a class assignment sees every subject; a subject
- * assignment sees only its own, including in the "overall" tiles).
- *
- * "Share with student" issues a real PIN for a report already issued elsewhere (a
- * principal, from the student's admin page) -- see ShareWithStudentModal. Download is
- * CSV only here (the explicit ask for teachers); the principal side keeps PDF/Excel.
+ * §6.4 Teacher-facing student report. Issue/Share toggle state locally:
+ * Issue → disables itself and enables Share; Share → marks shared.
+ * Nothing is persisted (🔧 share is BACKEND REQUIRED).
  */
+export default function StudentReportPage() {
+  const { studentId } = useParams<{ studentId: string }>();
+  const student = findStudent(studentId);
+  usePageHeader({ title: student?.name ?? studentId, backHref: "/teacher/home" });
+  const base = useMemo(() => (student ? teacherReportFor(student, latestTest.key) : null), [student]);
 
-import Link from "next/link";
-import { use, useEffect, useState } from "react";
-import { Avatar } from "@/components/academics/Avatar";
-import { BarChartIcon, ClipboardIcon, TargetIcon } from "@/components/academics/Icons";
-import { StatTile, StatTileRow } from "@/components/academics/StatTile";
-import { StatusBadge } from "@/components/academics/StatusBadge";
-import { Mascot } from "@/components/Mascot";
-import { ShareWithStudentModal } from "@/components/teacher/ShareWithStudentModal";
-import { api, type StudentAcademicsOverview } from "@/lib/api";
-import { downloadBlob } from "@/lib/download";
-import { getApiKey } from "@/lib/session";
+  const [state, setState] = useState<ReportState[]>(() =>
+    (student ? teacherReportFor(student, latestTest.key).subjectReports : []).map((r) => ({ issued: r.issued, sharedWithStudent: r.sharedWithStudent }))
+  );
 
-const STATUS_TONE = { on_track: "verify", needs_attention: "warn", requires_review: "risk", not_assessed: "neutral" } as const;
-
-export default function TeacherStudentPage({
-  params,
-}: {
-  params: Promise<{ studentId: string }>;
-}) {
-  const { studentId } = use(params);
-  const [data, setData] = useState<StudentAcademicsOverview | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [subjectFilter, setSubjectFilter] = useState("");
-  const [downloading, setDownloading] = useState(false);
-  const [shareOpen, setShareOpen] = useState(false);
-
-  useEffect(() => {
-    const key = getApiKey();
-    if (!key) return;
-    api
-      .teacherStudentAcademics(key, studentId)
-      .then(setData)
-      .catch(() => setError("Could not load this student -- they may not be in one of your assigned classes."));
-  }, [studentId]);
-
-  async function downloadCsv() {
-    const key = getApiKey();
-    if (!key) return;
-    setDownloading(true);
-    try {
-      const blob = await api.teacherStudentAcademicsCsv(key, studentId, subjectFilter || undefined);
-      downloadBlob(blob, `student-overview.csv`);
-    } catch {
-      setError("Could not generate the CSV file.");
-    } finally {
-      setDownloading(false);
-    }
-  }
-
-  if (error) return <p className="page-sub" style={{ color: "var(--risk)" }}>{error}</p>;
-  if (!data) {
-    return (
-      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <Mascot pose="loading" size={24} />
-        <p className="muted" style={{ margin: 0 }}>Loading…</p>
-      </div>
-    );
-  }
-
-  const subjects = subjectFilter
-    ? data.subjects.filter((s) => s.subject_code === subjectFilter)
-    : data.subjects;
+  if (!student || !base) return <EvidenceState kind="early">No student with id {studentId} in this dataset.</EvidenceState>;
 
   return (
     <>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
-        <div>
-          <p className="eyebrow">
-            {data.student.section_label && (
-              <>
-                <Link href="/teacher/home">Home</Link> &rsaquo;{" "}
-                <Link href={`/teacher/home/${data.student.section_id}`}>{data.student.section_label}</Link> &rsaquo;{" "}
-              </>
-            )}
-            {data.student.name}
-          </p>
-          <h1 className="page-title" style={{ marginTop: 4, display: "flex", gap: 12, alignItems: "center" }}>
-            <Avatar name={data.student.name} seed={data.student.id} size={40} />
-            {data.student.name}
-          </h1>
-          <p className="page-sub">Roll {data.student.roll_no}</p>
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" className="btn btn--ghost" onClick={() => setShareOpen(true)}>
-            Share with student
-          </button>
-          <button type="button" className="btn btn--primary" disabled={downloading} onClick={downloadCsv}>
-            {downloading ? "Preparing…" : "Download CSV"}
-          </button>
-        </div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16 }}>
+        <p className="page-sub" style={{ marginTop: 0 }}>
+          {student.section} · Roll no. {student.rollNo} · Main blocker: {mainBlockerFor(student)}
+        </p>
+        <AttentionPill level={attentionFor(student)} />
       </div>
 
-      <StatTileRow>
-        <StatTile
-          icon={<BarChartIcon />}
-          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "N/A"}
-          label="Overall Average"
-          tone="gold"
-        />
-        <StatTile icon={<ClipboardIcon />} value={data.overall.tests_taken} label="Tests Taken" tone="info" />
-        <StatTile
-          icon={<TargetIcon />}
-          value={<StatusBadge status={data.overall.status} />}
-          label="Overall Status"
-          tone={STATUS_TONE[data.overall.status]}
-        />
-      </StatTileRow>
+      <div style={{ display: "grid", gap: 16, marginTop: 22 }}>
+        {base.subjectReports.map((r, i) => {
+          const st = state[i];
+          return (
+            <div className="card" key={r.subject}>
+              <div className="card__head">
+                <div>
+                  <div className="eyebrow">{r.assessment}</div>
+                  <h3 style={{ fontSize: 18, marginTop: 4 }}>{r.subject}</h3>
+                </div>
+                <div style={{ fontSize: 22, fontWeight: 700 }}>{r.score}</div>
+              </div>
+              <div className="card__body">
+                <div className="grid grid--2">
+                  <div>
+                    <div className="eyebrow">Strengths</div>
+                    <ul className="list-plain" style={{ marginTop: 6 }}>
+                      {r.strengths.map((s) => (
+                        <li key={s}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                  <div>
+                    <div className="eyebrow">Focus areas</div>
+                    <ul className="list-plain" style={{ marginTop: 6 }}>
+                      {r.focusAreas.map((s) => (
+                        <li key={s}>{s}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              <div className="card__foot" style={{ justifyContent: "space-between" }}>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {st.issued ? <span className="tag tag--green"><Check size={12} /> Issued</span> : <span className="tag">Draft</span>}
+                  {st.sharedWithStudent ? <span className="tag tag--teal"><Check size={12} /> Shared with student</span> : <span className="tag">Not shared</span>}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button
+                    className="btn"
+                    disabled={st.issued}
+                    onClick={() => setState((s) => s.map((x, j) => (j === i ? { ...x, issued: true } : x)))}
+                  >
+                    <Send size={13} /> {st.issued ? "Issued" : "Issue"}
+                  </button>
+                  <button
+                    className="btn btn--primary"
+                    disabled={!st.issued || st.sharedWithStudent}
+                    onClick={() => setState((s) => s.map((x, j) => (j === i ? { ...x, sharedWithStudent: true } : x)))}
+                  >
+                    <Share2 size={13} /> {st.sharedWithStudent ? "Shared" : "Share with student"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
 
-      {data.subjects.length > 0 && (
-        <div className="filterbar">
-          <div className="field" style={{ maxWidth: 260 }}>
-            <label>Filter by subject</label>
-            <select className="select" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
-              <option value="">All subjects</option>
-              {data.subjects.map((s) => (
-                <option key={s.subject_code} value={s.subject_code}>{s.label}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      )}
-
-      {subjects.length === 0 ? (
-        <p className="muted">No marks recorded for this student yet.</p>
-      ) : (
-        <div className="card">
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Subject</th>
-                  <th>Avg Score</th>
-                  <th>Tests Taken</th>
-                  <th>Status</th>
-                  <th>Strengths</th>
-                  <th>Areas to Improve</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {subjects.map((s) => (
-                  <tr key={s.subject_code}>
-                    <td className="strong">{s.label}</td>
-                    <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "N/A"}</td>
-                    <td className="num">{s.tests_taken}</td>
-                    <td><StatusBadge status={s.status} /></td>
-                    <td className="small">{s.strengths.join(", ") || "N/A"}</td>
-                    <td className="small">{s.improve.join(", ") || "N/A"}</td>
-                    <td>
-                      <Link href={`/teacher/student/${studentId}/subjects/${s.subject_code}`} className="btn btn--ghost btn--sm">Details</Link>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {shareOpen && (
-        <ShareWithStudentModal
-          studentId={studentId}
-          studentName={data.student.name}
-          onClose={() => setShareOpen(false)}
-        />
-      )}
+      <div style={{ marginTop: 16 }}>
+        <EvidenceState kind="early">Issue and share are demo-only in this build: state resets on reload and nothing reaches the student account.</EvidenceState>
+      </div>
     </>
   );
 }

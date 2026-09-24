@@ -1,59 +1,106 @@
+"use client";
+
 /**
- * The Avai bird mascot -- real artwork supplied by the brand designer, cropped from the
- * reference sheet at frontend/public/brand/12.jpeg into one PNG per pose
- * (frontend/public/brand/mascot-<pose>-bare.png, captions cropped off so it drops into any
- * layout). No inline-SVG redraw anymore; this *is* the designer's art.
+ * AVAI mascot & logo, the blue/orange bird artwork (public/mascot, public/brand).
  *
- * Per §0 of the Avai design spec, the mascot is a student-facing / transitional-moment
- * device, not a dashboard decoration -- see the placement table there for exactly where
- * it is and isn't allowed to appear (never on BoardX, rosters, or mark-entry grids).
- *
- * `pose` maps to the poses named in the brand sheet:
- *   - "hello"    : login screen, student empty states.
- *   - "loading"  : any async job-wait state (scan/gridsheet/placement/report polling) --
- *                  uses the designer's own ring-around-bird loading art.
- *   - "improve"  : student report screen when this attempt beats the last one on file.
- *   - "achieve"  : student report screen for a standout result.
- *   - "explore"  : roadmap pathway/stream-exploration surfaces (not wired anywhere yet).
- *   - "learn" / "practice" : available for future surfaces the brand sheet names.
+ * Placement rule (spec §0) still applies: <Mascot> only appears on login,
+ * loading states and student screens, never inside the Principal or
+ * Teacher shells. <Logomark> is the compact app-icon glyph and is allowed
+ * everywhere, including the staff sidebars.
  */
+import { motion, useReducedMotion } from "framer-motion";
 
-type Pose = "hello" | "loading" | "improve" | "achieve" | "explore" | "learn" | "practice";
+export type MascotPose = "hello" | "improve" | "achieve" | "neutral" | "thinking";
 
-const SRC: Record<Pose, string> = {
-  hello: "/brand/mascot-hello-bare.png",
-  loading: "/brand/mascot-loading-bare.png",
-  improve: "/brand/mascot-improve-bare.png",
-  achieve: "/brand/mascot-achieve-bare.png",
-  explore: "/brand/mascot-explore-bare.png",
-  learn: "/brand/mascot-learn-bare.png",
-  practice: "/brand/mascot-practice-bare.png",
+const poseSrc: Record<MascotPose, string> = {
+  hello: "/mascot/avai-wave.png",
+  achieve: "/mascot/avai-wave.png",
+  improve: "/mascot/avai-head.png",
+  neutral: "/mascot/avai-head.png",
+  thinking: "/mascot/avai-head.png",
 };
 
 export function Mascot({
-  pose = "hello",
-  size = 48,
+  pose = "neutral",
+  size = 120,
   className,
+  float = false,
+  glow = true,
 }: {
-  pose?: Pose;
+  pose?: MascotPose;
   size?: number;
   className?: string;
+  /** Slow idle float. Off by default; ignored under reduced motion. */
+  float?: boolean;
+  /** Soft radial halo behind the bird. The art has no background of its own. */
+  glow?: boolean;
 }) {
+  const reduce = useReducedMotion();
+  const floating = float && !reduce;
+  return (
+    <motion.span
+      className={className}
+      animate={floating ? { y: [0, -7, 0] } : undefined}
+      transition={floating ? { repeat: Infinity, duration: 4.4, ease: "easeInOut" } : undefined}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        width: size,
+        height: size,
+        flex: "0 0 auto",
+        padding: Math.round(size * 0.06),
+        borderRadius: "50%",
+        background: glow
+          ? "radial-gradient(circle at 50% 56%, rgba(31,138,138,.18), rgba(29,95,208,.12) 42%, rgba(240,147,43,.08) 62%, transparent 72%)"
+          : "none",
+      }}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={poseSrc[pose]}
+        alt={`AVAI mascot, ${pose} pose`}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "contain",
+          display: "block",
+          filter: "drop-shadow(0 10px 18px rgba(21,37,46,.18))",
+        }}
+      />
+    </motion.span>
+  );
+}
+
+/** Compact app-icon logomark used in sidebars/topbars/login. Self-contained artwork. */
+export function Logomark({ size = 28 }: { size?: number }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={SRC[pose]}
-      alt={`Avai mascot, ${pose} pose`}
+      src="/brand/logo-icon.png"
       width={size}
       height={size}
-      className={className}
+      alt="AVAI"
       style={{
-        width: size,
-        height: size,
-        objectFit: "contain",
-        display: "inline-block",
-        animation: pose === "loading" ? "mascot-spin 1.6s linear infinite" : undefined,
+        display: "block",
+        borderRadius: size * 0.28,
+        flex: "0 0 auto",
+        boxShadow: "0 4px 12px -4px rgba(21,37,46,.45), inset 0 1px 0 rgba(255,255,255,.2)",
       }}
+    />
+  );
+}
+
+/** The AVAI wordmark. `onDark` swaps the navy letters for white so the
+ *  logo stays legible on the dark sidebars and sign-in panels. */
+export function Wordmark({ height = 28, onDark = false }: { height?: number; onDark?: boolean }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={onDark ? "/brand/avai-wordmark-light.png" : "/brand/avai-wordmark.png"}
+      alt="AVAI"
+      height={height}
+      style={{ height, width: "auto", display: "block", flex: "0 0 auto" }}
     />
   );
 }

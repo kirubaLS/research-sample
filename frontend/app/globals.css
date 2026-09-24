@@ -2,11 +2,6 @@
    AVAI, design tokens (spec §0 brand system)
    ============================================================ */
 :root {
-  /* The brand is a fixed light theme -- no dark-mode token swap anywhere in this file, on
-     purpose. Without this, a browser/OS set to dark mode still auto-darkens native form
-     controls, scrollbars and the page background-before-paint flash, even though every
-     color here stays the same; declaring the theme explicitly stops that. */
-  color-scheme: light only;
   --brand-ink: #15252e;
   --brand-ink-soft: #3c4c56;
   --brand-teal: #1f8a8a;
@@ -1388,29 +1383,3 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
   .ops-toolbar__right { width: 100%; }
   .ops-toolbar__right .searchbox { flex: 1 1 100%; }
 }
-/* ---------------------------------------------------------------------------------------
-   Small permanent utility classes -- generic text/layout helpers still used across pages
-   that are otherwise fully on the design-system's real component classes (.card__*,
-   .btn--*, .table, .field wrapper below, etc). None of these shadow a real component class
-   defined above (that bug existed here once with .card and .btn -- keep it that way). ----- */
-.muted { color: var(--muted); }
-.small { font-size: 12.5px; }
-.strong { font-weight: 650; }
-.mono { font-family: var(--font-mono, monospace); }
-.error { color: var(--risk); font-size: 13.5px; }
-.row { display: flex; align-items: center; }
-.row.between { justify-content: space-between; }
-.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 14px; }
-.field label { font-size: 12px; font-weight: 650; color: var(--muted); }
-.field input, .field select, .field textarea { padding: 9px 11px; border-radius: 9px; border: 1px solid var(--line-strong); font: inherit; background: #fff; }
-.section-head { display: flex; align-items: center; justify-content: space-between; }
-.wrap-outer { min-height: 100vh; display: flex; flex-direction: column; }
-/* A handful of plain <button> elements have no .btn class yet -- give them the same real
-   look as .btn .btn--primary without touching any element that already carries a class. */
-button:not([class]) { padding: 8px 16px; border-radius: 10px; border: 1px solid var(--brand-blue); background: var(--brand-blue); color: #fff; font-weight: 650; font-size: 13.5px; cursor: pointer; }
-button:not([class]):disabled { opacity: .55; cursor: not-allowed; }
-.siteheader { padding: 14px 22px; }
-.siteheader .inner { max-width: var(--max, 1180px); margin: 0 auto; display: flex; align-items: center; justify-content: space-between; }
-.siteheader .navlinks a { font-weight: 650; font-size: 13.5px; color: var(--brand-blue); }
-.sitefooter { margin-top: auto; padding: 18px 22px; border-top: 1px solid var(--line); }
-.sitefooter .inner { max-width: var(--max, 1180px); margin: 0 auto; display: flex; justify-content: space-between; color: var(--muted); font-size: 12.5px; }

@@ -1,43 +1,18 @@
 import type { Metadata } from "next";
-import { JetBrains_Mono, Manrope, Source_Sans_3 } from "next/font/google";
-import { PublicChrome } from "@/components/PublicChrome";
 import "./globals.css";
-
-// Manrope, not the old serif (Spectral): a premium EdTech dashboard reads as friendly and
-// modern with a clean sans throughout, headings included -- a serif display face is the
-// one thing that would make this look like a print report rather than a product.
-const display = Manrope({
-  subsets: ["latin"],
-  weight: ["500", "600", "700", "800"],
-  variable: "--font-display",
-  display: "swap",
-});
-const body = Source_Sans_3({
-  subsets: ["latin"],
-  weight: ["400", "600", "700"],
-  variable: "--font-body",
-  display: "swap",
-});
-const mono = JetBrains_Mono({
-  subsets: ["latin"],
-  weight: ["400", "600"],
-  variable: "--font-mono",
-  display: "swap",
-});
+import { AuthProvider } from "@/lib/auth";
 
 export const metadata: Metadata = {
-  title: "Avai",
-  description: "Turning assessments into brighter futures.",
-  // Fixed light brand theme -- tells the browser not to substitute its own dark UI (form
-  // controls, scrollbars, the pre-paint background) when the OS/browser is set to dark mode.
-  other: { "color-scheme": "light" },
+  title: "AVAI, Board-ready school intelligence",
+  description:
+    "AVAI turns every school test into board-ready intelligence: where each class is losing marks, which students need attention now, and what to teach next. For principals, teachers and students.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${display.variable} ${body.variable} ${mono.variable}`}>
+    <html lang="en">
       <body>
-        <PublicChrome>{children}</PublicChrome>
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

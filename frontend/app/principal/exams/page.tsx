@@ -1,186 +1,211 @@
 "use client";
 
-/**
- * Every paper with at least one resolved mark -- the Test tab's landing list. Tap a
- * test to see its own student-by-student summary, the same status bands every other
- * academics screen uses.
- */
-
+import { useState } from "react";
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { ArrowRight } from "lucide-react";
-import { Mascot } from "@/components/Mascot";
-import { api, type AcademicTestRow } from "@/lib/api";
-import { downloadBlob } from "@/lib/download";
-import { getApiKey } from "@/lib/session";
+import { ArrowRight, CalendarCheck, CalendarClock, ChevronDown } from "lucide-react";
+import { analysedTests, assessmentContext, classRosterFull, latestTest, markingProgress, sections, subjects, subjectsByAverage, testsConducted } from "@/lib/avai-mock-data";
+import { usePageHeader } from "@/lib/pageHeader";
+import { DeltaCell } from "@/components/StudentRosterTable";
 
-export default function TestsTabPage() {
-  const [tests, setTests] = useState<AcademicTestRow[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [downloading, setDownloading] = useState<"pdf" | "xlsx" | null>(null);
+function sectionSubjectPct(section: string, testKey: string, subject: string): number | null {
+  const roster = classRosterFull[section] ?? [];
+  if (!roster.length) return null;
+  const scored = roster.map((s) => s.scores[testKey]?.[subject]).filter((x): x is { scored: number; outOf: number } => !!x);
+  if (!scored.length) return null;
+  return Math.round((scored.reduce((sum, x) => sum + x.scored / x.outOf, 0) / scored.length) * 100);
+}
 
-  useEffect(() => {
-    const key = getApiKey();
-    if (!key) return;
-    api
-      .academicsTests(key)
-      .then((res) => setTests(res.tests))
-      .catch(() => setError("Could not load tests."));
-  }, []);
+function sectionOverallPct(section: string, testKey: string): number {
+  const vals = subjects.map((subj) => sectionSubjectPct(section, testKey, subj)).filter((v): v is number => v !== null);
+  return vals.length ? Math.round(vals.reduce((a, b) => a + b, 0) / vals.length) : 0;
+}
 
-  async function download(kind: "pdf" | "xlsx") {
-    const key = getApiKey();
-    if (!key) return;
-    setDownloading(kind);
-    try {
-      const blob = kind === "pdf" ? await api.academicsTestsPdf(key) : await api.academicsTestsXlsx(key);
-      downloadBlob(blob, `tests.${kind}`);
-    } catch {
-      setError(`Could not generate the ${kind === "pdf" ? "PDF" : "Excel"} file.`);
-    } finally {
-      setDownloading(null);
-    }
+function daysUntil(dateStr: string): number {
+  const today = new Date(assessmentContext.today);
+  const target = new Date(dateStr);
+  return Math.round((target.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+/** Principal → Exams. A read-only calendar of every test: conducted, with
+ * a full section × subject breakdown (every number labeled, no bare
+ * percentages), and upcoming. Papers and marks are entered by subject
+ * teachers now, this is where the principal sees the assessment calendar
+ * and opens a test's own class-by-class report. */
+export default function ExamsPage() {
+  usePageHeader({ title: "Exams" });
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set([latestTest.key]));
+
+  const conducted = [...testsConducted.filter((t) => t.status === "Analysed")].reverse(); // most recent first
+  const upcoming = testsConducted.filter((t) => t.status === "Scheduled");
+  const nextExam = upcoming[0];
+
+  const prevTestKey = analysedTests.length > 1 ? analysedTests[analysedTests.length - 2].key : null;
+  const latestSchoolAvg = Math.round(sections.reduce((sum, s) => sum + sectionOverallPct(s, latestTest.key), 0) / sections.length);
+  const prevSchoolAvg = prevTestKey ? Math.round(sections.reduce((sum, s) => sum + sectionOverallPct(s, prevTestKey), 0) / sections.length) : null;
+  const weakestSubject = subjectsByAverage(latestTest.key)[0];
+
+  function toggle(key: string) {
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
   return (
-    <div>
-      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
-        <div>
-          <p className="eyebrow">Test</p>
-          <h1 className="page-title">Every Test</h1>
-          <p className="page-sub">Every paper with marks recorded on it -- open one to see how the whole class did.</p>
-        </div>
-        {tests && tests.length > 0 && (
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            <button type="button" className="btn btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
-              {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
-            </button>
-            <button type="button" className="btn btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
-              {downloading === "pdf" ? "Preparing…" : "Download PDF"}
-            </button>
+    <>
+      <p className="page-sub" style={{ marginTop: 0 }}>
+        Every test on the calendar. Open one to see how each section did, subject by subject.
+      </p>
+
+      <div className="grid grid--3" style={{ marginTop: 20 }}>
+        <div className="stat">
+          <div className="stat__label">{latestTest.name}, school average</div>
+          <div className="stat__value" style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+            {latestSchoolAvg}%
+            {prevSchoolAvg !== null && <DeltaCell delta={latestSchoolAvg - prevSchoolAvg} />}
           </div>
-        )}
-      </div>
-
-      {error && <p style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 12 }}>{error}</p>}
-      {!tests && !error && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 20 }}>
-          <Mascot pose="loading" size={24} />
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
-      )}
-      {tests && tests.length === 0 && <p className="muted" style={{ marginTop: 20 }}>No test has any marks recorded yet.</p>}
-
-      {tests && tests.length > 0 && (
-        <>
-          <TestsSummary tests={tests} />
-
-          <section className="section">
-            <div className="section__head">
-              <div>
-                <h2 className="section-q">Every test</h2>
-                <p className="section__lead">Most recent first. Open one to see how each student did.</p>
-              </div>
-            </div>
-            <div className="card">
-              <div className="table-wrap">
-                <table className="table table--hover">
-                  <thead>
-                    <tr>
-                      <th>Test</th>
-                      <th>Subject</th>
-                      <th className="num">Students Marked</th>
-                      <th className="num">Avg Score</th>
-                      <th className="num">Movement</th>
-                      <th />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {tests.map((t) => (
-                      <tr key={t.assessment_id}>
-                        <td className="strong">{t.title}</td>
-                        <td>{t.label}</td>
-                        <td className="num">{t.students_marked}</td>
-                        <td className="num">
-                          {t.avg_score_pct != null ? (
-                            <span className="pillnum pillnum--solid" style={{ "--accent": scoreAccent(t.avg_score_pct) } as React.CSSProperties}>
-                              {t.avg_score_pct}
-                            </span>
-                          ) : (
-                            <span className="muted">N/A</span>
-                          )}
-                        </td>
-                        <td className="num">
-                          {t.delta_pct == null ? (
-                            <span className="muted">&mdash;</span>
-                          ) : (
-                            <span className="delta" data-dir={t.delta_pct >= 0 ? "up" : "down"}>
-                              {t.delta_pct >= 0 ? "▲" : "▼"} {Math.abs(t.delta_pct)}%
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ textAlign: "right" }}>
-                          <Link href={`/principal/exams/${t.assessment_id}`} className="btn btn--sm">
-                            View <ArrowRight size={12} />
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </section>
-        </>
-      )}
-    </div>
-  );
-}
-
-function scoreAccent(pct: number): string {
-  if (pct >= 78) return "var(--brand-green)";
-  if (pct >= 60) return "var(--brand-gold)";
-  return "var(--risk)";
-}
-
-/** A real, school-wide read on the same rows the table below lists one at a time:
- * the overall average across every test with marks, how many tests that spans, and
- * the single most-improved test -- nothing here is a second computation, every value
- * is derived directly from the `AcademicTestRow`s the API already returned. */
-function TestsSummary({ tests }: { tests: AcademicTestRow[] }) {
-  const scored = tests.filter((t) => t.avg_score_pct != null);
-  const overallAvg = scored.length
-    ? Math.round(scored.reduce((sum, t) => sum + (t.avg_score_pct ?? 0), 0) / scored.length)
-    : null;
-  const withDelta = tests.filter((t) => t.delta_pct != null);
-  const biggestMover = withDelta.length
-    ? withDelta.reduce((a, b) => (Math.abs(b.delta_pct ?? 0) > Math.abs(a.delta_pct ?? 0) ? b : a))
-    : null;
-
-  return (
-    <div className="grid grid--3" style={{ marginTop: 20 }}>
-      <div className="stat">
-        <div className="stat__label">Average score across all tests</div>
-        <div className="stat__value">{overallAvg != null ? `${overallAvg}%` : "N/A"}</div>
-      </div>
-      <div className="stat">
-        <div className="stat__label">Tests with marks recorded</div>
-        <div className="stat__value">{tests.length}</div>
-      </div>
-      <div className="stat">
-        <div className="stat__label">Biggest movement</div>
-        <div className="stat__value stat__value--sm">
-          {biggestMover ? biggestMover.title : "-"}
-          {biggestMover && biggestMover.delta_pct != null && (
-            <span className="small muted" style={{ fontWeight: 400 }}>
-              {" "}
-              · <span className="delta" data-dir={biggestMover.delta_pct >= 0 ? "up" : "down"} style={{ fontSize: "inherit" }}>
-                {biggestMover.delta_pct >= 0 ? "▲" : "▼"} {Math.abs(biggestMover.delta_pct)}%
+        <div className="stat">
+          <div className="stat__label">Weakest subject this term</div>
+          <div className="stat__value stat__value--sm">
+            {weakestSubject?.subject}
+            <span className="small muted" style={{ fontWeight: 400 }}> · {weakestSubject?.avgPct}% school average</span>
+          </div>
+        </div>
+        <div className="stat">
+          <div className="stat__label">Next exam</div>
+          <div className="stat__value stat__value--sm">
+            {nextExam ? nextExam.name : "None scheduled"}
+            {nextExam && (
+              <span className="small muted" style={{ fontWeight: 400 }}>
+                {" "}
+                · {nextExam.date} ({daysUntil(nextExam.date)} day{daysUntil(nextExam.date) === 1 ? "" : "s"} away)
               </span>
-            </span>
-          )}
+            )}
+          </div>
         </div>
       </div>
-    </div>
+
+      <section className="section">
+        <div className="section__head">
+          <div>
+            <h2 className="section-q">
+              <CalendarCheck size={16} style={{ verticalAlign: "-3px", marginRight: 6 }} /> Conducted
+            </h2>
+            <p className="section__lead">
+              Percentages below are each section&apos;s average score in that subject for that test, e.g. &quot;X-A · Mathematics · 82%&quot; means
+              X-A&apos;s students scored 82% of the marks on average in the Mathematics paper.
+            </p>
+          </div>
+        </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {conducted.map((t) => {
+            const isOpen = expanded.has(t.key);
+            const avg = Math.round(sections.reduce((sum, s) => sum + sectionOverallPct(s, t.key), 0) / sections.length);
+            return (
+              <div className="card" key={t.key}>
+                <button
+                  onClick={() => toggle(t.key)}
+                  style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
+                  aria-expanded={isOpen}
+                >
+                  <div className="card__head">
+                    <div>
+                      <div className="strong" style={{ fontSize: 15 }}>
+                        {t.name}
+                      </div>
+                      <div className="small muted" style={{ marginTop: 2 }}>
+                        {t.date}
+                      </div>
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                      <div style={{ textAlign: "right" }}>
+                        <div className="stat__label">All-subjects school average</div>
+                        <div className="strong">{avg}%</div>
+                      </div>
+                      <ChevronDown size={16} className="muted" style={{ transform: isOpen ? "rotate(180deg)" : undefined, transition: "transform .15s" }} />
+                    </div>
+                  </div>
+                </button>
+                {isOpen && (
+                  <div className="table-wrap">
+                    <table className="table">
+                      <thead>
+                        <tr>
+                          <th>Section</th>
+                          {subjects.map((s) => (
+                            <th key={s} className="num">
+                              {s}
+                            </th>
+                          ))}
+                          <th className="num">Overall</th>
+                          <th></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {sections.map((s) => (
+                          <tr key={s}>
+                            <td className="strong">{s}</td>
+                            {subjects.map((subj) => (
+                              <td key={subj} className="num">
+                                {sectionSubjectPct(s, t.key, subj) === null ? "-" : `${sectionSubjectPct(s, t.key, subj)}%`}
+                              </td>
+                            ))}
+                            <td className="num strong">{sectionOverallPct(s, t.key)}%</td>
+                            <td style={{ textAlign: "right" }}>
+                              <Link href={`/principal/classes/${s}/tests/${t.key}`} className="btn--link" style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+                                Full report <ArrowRight size={12} />
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            );
+          })}
+          {conducted.length === 0 && <p className="small muted">No tests conducted yet.</p>}
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="section__head">
+          <h2 className="section-q">
+            <CalendarClock size={16} style={{ verticalAlign: "-3px", marginRight: 6 }} /> Upcoming
+          </h2>
+        </div>
+        <div style={{ display: "grid", gap: 12 }}>
+          {upcoming.map((t) => (
+            <div className="card" key={t.key}>
+              <div className="card__head">
+                <div>
+                  <div className="strong" style={{ fontSize: 15 }}>
+                    {t.name}
+                  </div>
+                  <div className="small muted" style={{ marginTop: 2 }}>
+                    {t.date} · {daysUntil(t.date)} day{daysUntil(t.date) === 1 ? "" : "s"} away
+                  </div>
+                </div>
+                {(() => {
+                  const p = markingProgress(t.key);
+                  return p.done > 0 ? (
+                    <span className="tag tag--gold">
+                      Marking {p.done} of {p.total}
+                    </span>
+                  ) : (
+                    <span className="tag">Scheduled</span>
+                  );
+                })()}
+              </div>
+            </div>
+          ))}
+          {upcoming.length === 0 && <p className="small muted">Nothing scheduled.</p>}
+        </div>
+      </section>
+    </>
   );
 }

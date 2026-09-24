@@ -1,343 +1,326 @@
 "use client";
 
-/**
- * Share reports -- the bulk version of the "Share ⋮" button already on every class
- * roster (ShareWithStudentModal), for a whole class and one test at once instead of one
- * student at a time.
- *
- * What this cannot be, and does not pretend to be: an actual send. There is no WhatsApp
- * integration in this deployment, and inventing one here -- a phone number field with
- * nowhere real to send to -- would be exactly the kind of thing this codebase refuses to
- * fake. What IS real: issuing a report (POST .../reports/{studentId}/issue, unchanged
- * from the single-student flow) and turning it into a live PIN
- * (POST .../reports/{id}/share, same endpoint ShareWithStudentModal already calls). This
- * screen is that, run over a whole class, with the PIN handed to a person to pass along
- * however their school actually reaches parents -- same "shown once" rule a single share
- * already follows, just gathered into one table instead of one modal at a time.
- *
- * Restyled to the reference Share page's KPI row + tabbed, checkbox-select list look
- * (.kpi, .tabs, .sharelist), swapping its fictional WhatsApp send for this deployment's
- * real issue+share-PIN flow, and its parent-phone-number column for the PIN this flow
- * actually produces (never fabricating a phone number this deployment has no field for).
- *
- * A report already issued for this exact test is reused rather than re-issued: issuing
- * always creates a fresh StudentReport snapshot (by design -- see reports.py's own
- * issue_student_report), so re-issuing on every visit to this screen would pile up
- * duplicate snapshots of marks that have not changed.
- */
+import { useMemo, useState } from "react";
+import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
+import { CheckCircle2, Clock, MessageCircle, Search, Send, X } from "lucide-react";
+import { analysedTests, classRosterFull, latestTest, school, sectionLabel, sections, type FullRosterStudent } from "@/lib/avai-mock-data";
+import { markSent, sentLog, useLiveVersion } from "@/lib/liveData";
+import { parentWhatsAppFor } from "@/lib/opsDirectory";
+import { usePageHeader } from "@/lib/pageHeader";
 
-import { useEffect, useMemo, useState } from "react";
-import { CheckCircle2, Clock, KeyRound, Search, Send, X } from "lucide-react";
-import { api, type ClassStudentRow, type IssuedReportRow, type SectionSummary } from "@/lib/api";
-import { getApiKey } from "@/lib/session";
+type View = "all" | "unsent" | "sent";
 
-type RowStatus = "checking" | "not_issued" | "issued" | "shared";
-type View = "all" | "unshared" | "shared";
-
-interface Row {
-  student: ClassStudentRow;
-  status: RowStatus;
-  reportId: string | null;
-  pin: string | null;
-  error: string | null;
+/** The parent's WhatsApp number held by AVAI ops, masked as it would be on screen. */
+function parentPhone(id: string): string {
+  const n = parentWhatsAppFor(id);
+  return n ? `+91 ${n.slice(0, 2)}XXX XX${n.slice(-3)}` : "No number on file";
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function when(iso: string): string {
+  const d = new Date(iso);
+  const hh = d.getHours();
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${d.getDate()} ${MONTHS[d.getMonth()]}, ${((hh + 11) % 12) + 1}:${mm} ${hh < 12 ? "am" : "pm"}`;
+}
+
+/** Principal → Share reports. Pick a class and a test, then send every
+ * student's report to their parent on WhatsApp, or pick individual
+ * students. Every send is logged per student, so the page always shows who
+ * has it and who is still waiting.
+ * 🔧 BACKEND REQUIRED, nothing is actually sent from this demo. */
 export default function ShareReportsPage() {
-  const [sections, setSections] = useState<SectionSummary[]>([]);
-  const [sectionId, setSectionId] = useState("");
-  const [tests, setTests] = useState<{ assessment_id: string; title: string }[]>([]);
-  const [assessmentId, setAssessmentId] = useState("");
-  const [rows, setRows] = useState<Row[] | null>(null);
-  const [by, setBy] = useState("");
-  const [busy, setBusy] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  usePageHeader({ title: "Share reports", subtitle: "Send test reports to parents on WhatsApp" });
+  useLiveVersion();
+
+  const [section, setSection] = useState<string>(sections[0]);
+  const [testKey, setTestKey] = useState<string>(latestTest.key);
   const [view, setView] = useState<View>("all");
   const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [confirm, setConfirm] = useState<FullRosterStudent[] | null>(null);
+  const [sending, setSending] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-  useEffect(() => {
-    const key = getApiKey();
-    if (!key) return;
-    api.overview(key).then((res) => setSections(res.sections)).catch(() => setError("Could not load your classes."));
-  }, []);
+  const roster = useMemo(() => classRosterFull[section] ?? [], [section]);
+  const test = analysedTests.find((t) => t.key === testKey) ?? latestTest;
+  const log = sentLog(section, testKey);
+  const sentIds = roster.filter((s) => log[s.id]);
+  const unsent = roster.filter((s) => !log[s.id]);
+  const lastSent = Object.values(log).sort().at(-1);
 
-  useEffect(() => {
-    const key = getApiKey();
-    if (!key || !sectionId) {
-      setTests([]);
-      setAssessmentId("");
-      return;
-    }
-    api
-      .classStudents(key, sectionId, {})
-      .then((res) => {
-        setTests(res.filters.tests);
-        setAssessmentId((current) => (res.filters.tests.some((t) => t.assessment_id === current) ? current : ""));
-      })
-      .catch(() => setError("Could not load this class's tests."));
-  }, [sectionId]);
-
-  // Every row starts "checking" and resolves independently -- one student's slow or
-  // failed lookup must never block the rest of the class from showing its real status.
-  useEffect(() => {
-    const key = getApiKey();
-    if (!key || !sectionId || !assessmentId) {
-      setRows(null);
-      return;
-    }
-    let cancelled = false;
-    setError(null);
-    api
-      .classStudents(key, sectionId, { assessmentId })
-      .then((res) => {
-        if (cancelled) return;
-        setRows(res.students.map((student) => ({ student, status: "checking", reportId: null, pin: null, error: null })));
-        for (const student of res.students) {
-          api
-            .studentIssuedReports(key, student.student_id)
-            .then((r) => {
-              if (cancelled) return;
-              const existing = r.reports.find((rep: IssuedReportRow) => rep.assessment_id === assessmentId) ?? null;
-              setRows((prev) =>
-                prev?.map((row) =>
-                  row.student.student_id === student.student_id
-                    ? {
-                        ...row,
-                        status: existing ? (existing.shared ? "shared" : "issued") : "not_issued",
-                        reportId: existing?.report_id ?? null,
-                      }
-                    : row,
-                ) ?? null,
-              );
-            })
-            .catch(() => {
-              if (cancelled) return;
-              setRows((prev) =>
-                prev?.map((row) =>
-                  row.student.student_id === student.student_id
-                    ? { ...row, status: "not_issued", error: "Could not check this student's reports." }
-                    : row,
-                ) ?? null,
-              );
-            });
-        }
-      })
-      .catch(() => setError("Could not load this class's roster for that test."));
-    return () => {
-      cancelled = true;
-    };
-  }, [sectionId, assessmentId]);
-
-  async function shareOne(row: Row): Promise<void> {
-    const key = getApiKey();
-    if (!key || !by.trim()) return;
-    setRows((prev) =>
-      prev?.map((r) => (r.student.student_id === row.student.student_id ? { ...r, error: null } : r)) ?? null,
-    );
-    try {
-      let reportId = row.reportId;
-      if (!reportId) {
-        const issued = await api.issueReport(key, row.student.student_id, assessmentId, by.trim());
-        reportId = issued.report_id;
-      }
-      const shared = await api.shareReport(key, reportId, by.trim());
-      setRows((prev) =>
-        prev?.map((r) =>
-          r.student.student_id === row.student.student_id
-            ? { ...r, status: "shared", reportId, pin: shared.pin, error: null }
-            : r,
-        ) ?? null,
-      );
-    } catch {
-      setRows((prev) =>
-        prev?.map((r) =>
-          r.student.student_id === row.student.student_id ? { ...r, error: "Could not share this report." } : r,
-        ) ?? null,
-      );
-    }
-  }
-
-  async function shareAllUnsent() {
-    if (!rows || !by.trim()) return;
-    setBusy("Sharing with everyone not yet shared");
-    for (const row of rows) {
-      if (row.status === "shared" || row.status === "checking") continue;
-      await shareOne(row);
-    }
-    setBusy(null);
-  }
-
-  const unsent = rows?.filter((r) => r.status === "not_issued" || r.status === "issued") ?? [];
-  const shared = rows?.filter((r) => r.status === "shared") ?? [];
+  const history = useMemo(() => {
+    const byTime = new Map<string, number>();
+    for (const t of Object.values(log)) byTime.set(t, (byTime.get(t) ?? 0) + 1);
+    return [...byTime.entries()].sort((a, b) => b[0].localeCompare(a[0]));
+  }, [log]);
 
   const q = query.trim().toLowerCase();
-  const shownRows = useMemo(() => {
-    if (!rows) return [];
-    return rows.filter((r) => {
-      if (view === "shared" && r.status !== "shared") return false;
-      if (view === "unshared" && r.status === "shared") return false;
-      if (q && !r.student.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q))) return false;
-      return true;
-    });
-  }, [rows, view, q]);
+  const rows = roster.filter((s) => {
+    if (view === "sent" && !log[s.id]) return false;
+    if (view === "unsent" && log[s.id]) return false;
+    if (q && !s.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q))) return false;
+    return true;
+  });
 
-  const testTitle = tests.find((t) => t.assessment_id === assessmentId)?.title ?? "this test";
-  const sectionLabel = sections.find((s) => s.section_id === sectionId)?.label ?? "";
+  function changeScope(nextSection: string, nextTest: string) {
+    setSection(nextSection);
+    setTestKey(nextTest);
+    setSelected(new Set());
+  }
+
+  function toggle(id: string) {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  const allShownSelected = rows.length > 0 && rows.every((s) => selected.has(s.id));
+  function toggleAllShown() {
+    setSelected((cur) => {
+      const next = new Set(cur);
+      if (allShownSelected) rows.forEach((s) => next.delete(s.id));
+      else rows.forEach((s) => next.add(s.id));
+      return next;
+    });
+  }
+
+  function send(list: FullRosterStudent[]) {
+    setSending(true);
+    setTimeout(() => {
+      markSent(section, testKey, list.map((s) => s.id), new Date().toISOString());
+      setSending(false);
+      setConfirm(null);
+      setSelected(new Set());
+      setToast(`${test.name} report sent on WhatsApp to ${list.length} parent${list.length === 1 ? "" : "s"}.`);
+      setTimeout(() => setToast(null), 3000);
+    }, 900);
+  }
+
+  const selectedStudents = roster.filter((s) => selected.has(s.id));
 
   return (
-    <div>
-      <div>
-        <p className="eyebrow">Share</p>
-        <h1 className="page-title">Share reports</h1>
-        <p className="page-sub">
-          Issue and share a PIN for a whole class at once. There is no messaging service
-          wired up here -- the PIN is shown once, for you to pass on however your school
-          reaches parents.
-        </p>
-      </div>
-
-      <div className="filterbar" style={{ marginTop: 18 }}>
-        <div className="filter" style={{ minWidth: 180 }}>
-          <label>Class</label>
-          <select className="select" value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
-            <option value="">Choose a class…</option>
+    <>
+      <div className="filterbar share-filters">
+        <div className="filter">
+          <label htmlFor="share-class">Class</label>
+          <select id="share-class" className="select" value={section} onChange={(e) => changeScope(e.target.value, testKey)}>
             {sections.map((s) => (
-              <option key={s.section_id} value={s.section_id}>{s.label}</option>
+              <option key={s} value={s}>
+                {sectionLabel(s)}
+              </option>
             ))}
           </select>
         </div>
-        <div className="filter" style={{ minWidth: 200 }}>
-          <label>Test</label>
-          <select className="select" value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)} disabled={!sectionId}>
-            <option value="">Choose a test…</option>
-            {tests.map((t) => (
-              <option key={t.assessment_id} value={t.assessment_id}>{t.title}</option>
+        <div className="filter">
+          <label htmlFor="share-test">Test</label>
+          <select id="share-test" className="select" value={testKey} onChange={(e) => changeScope(section, e.target.value)}>
+            {[...analysedTests].reverse().map((t) => (
+              <option key={t.key} value={t.key}>
+                {t.name}
+              </option>
             ))}
           </select>
-        </div>
-        <div className="filter" style={{ minWidth: 180 }}>
-          <label>Your name</label>
-          <input className="input" value={by} onChange={(e) => setBy(e.target.value)} placeholder="required before sharing" />
         </div>
       </div>
 
-      {error && <p style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 12 }}>{error}</p>}
-
-      {rows && (
-        <>
-          <div className="grid grid--3" style={{ marginTop: 16 }}>
-            <div className="kpi" style={{ "--accent": "var(--brand-green)" } as React.CSSProperties}>
-              <span className="kpi__icon"><CheckCircle2 size={20} /></span>
-              <div className="kpi__text">
-                <div className="kpi__label">Shared</div>
-                <div className="kpi__value">
-                  {shared.length}
-                  <span className="small muted" style={{ fontWeight: 500 }}> of {rows.length}</span>
-                </div>
-                <div className="kpi__sub">Parents who have a live PIN for {testTitle}</div>
-              </div>
+      <div className="grid grid--3" style={{ marginTop: 16 }}>
+        <div className="kpi" style={{ "--accent": "var(--brand-green)" } as React.CSSProperties}>
+          <span className="kpi__icon">
+            <CheckCircle2 size={20} />
+          </span>
+          <div className="kpi__text">
+            <div className="kpi__label">Sent</div>
+            <div className="kpi__value">
+              {sentIds.length}
+              <span className="small muted" style={{ fontWeight: 500 }}>
+                of {roster.length}
+              </span>
             </div>
-            <div className="kpi" style={{ "--accent": "var(--brand-gold)" } as React.CSSProperties}>
-              <span className="kpi__icon"><KeyRound size={20} /></span>
-              <div className="kpi__text">
-                <div className="kpi__label">Not yet shared</div>
-                <div className="kpi__value">{unsent.length}</div>
-                <div className="kpi__sub">{unsent.length ? "Still waiting for a PIN" : "Every report has been shared"}</div>
-              </div>
+            <div className="kpi__sub">Parents who have the {test.name} report</div>
+          </div>
+        </div>
+        <div className="kpi" style={{ "--accent": "var(--brand-gold)" } as React.CSSProperties}>
+          <span className="kpi__icon">
+            <MessageCircle size={20} />
+          </span>
+          <div className="kpi__text">
+            <div className="kpi__label">Not sent</div>
+            <div className="kpi__value">{unsent.length}</div>
+            <div className="kpi__sub">{unsent.length ? "Still waiting for their report" : "Every parent has it"}</div>
+          </div>
+        </div>
+        <div className="kpi" style={{ "--accent": "var(--brand-blue)" } as React.CSSProperties}>
+          <span className="kpi__icon">
+            <Clock size={20} />
+          </span>
+          <div className="kpi__text">
+            <div className="kpi__label">Last sent</div>
+            <div className="kpi__value" style={{ fontSize: 18 }}>
+              {lastSent ? when(lastSent) : "Never"}
             </div>
-            <div className="kpi" style={{ "--accent": "var(--brand-blue)" } as React.CSSProperties}>
-              <span className="kpi__icon"><Clock size={20} /></span>
-              <div className="kpi__text">
-                <div className="kpi__label">Scope</div>
-                <div className="kpi__value" style={{ fontSize: 18 }}>{sectionLabel || "-"}</div>
-                <div className="kpi__sub">{testTitle}</div>
-              </div>
+            <div className="kpi__sub">
+              {sectionLabel(section)} · {test.name}
             </div>
           </div>
+        </div>
+      </div>
 
-          <div className="card" style={{ marginTop: 16 }}>
-            <div className="card__head share-actions">
-              <div>
-                <h3 style={{ fontSize: 16 }}>Issue &amp; share PINs</h3>
-                <p className="small muted" style={{ marginTop: 2 }}>
-                  Each PIN opens this student&apos;s {testTitle} report. Shown once here, pass it on yourself.
-                </p>
-              </div>
-              <div className="share-actions__btns">
-                <button
-                  type="button"
-                  className="btn btn--primary"
-                  disabled={!by.trim() || !!busy || unsent.length === 0}
-                  onClick={() => void shareAllUnsent()}
-                >
-                  <Send size={14} /> {busy ? "Working…" : `Share with everyone not yet shared (${unsent.length})`}
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card__head share-actions">
+          <div>
+            <h3 style={{ fontSize: 16 }}>Send on WhatsApp</h3>
+            <p className="small muted" style={{ marginTop: 2 }}>
+              Each parent gets their child&apos;s {test.name} report for all subjects.
+            </p>
+          </div>
+          <div className="share-actions__btns">
+            <button className="btn" disabled={selected.size === 0 || sending} onClick={() => setConfirm(selectedStudents)}>
+              <Send size={14} /> Send selected ({selected.size})
+            </button>
+            <button className="btn btn--primary btn--wa" disabled={unsent.length === 0 || sending} onClick={() => setConfirm(unsent)}>
+              <MessageCircle size={15} /> Send to all not sent ({unsent.length})
+            </button>
+          </div>
+        </div>
+
+        <div className="share-toolbar">
+          <div className="tabs" role="tablist">
+            {(
+              [
+                ["all", `All (${roster.length})`],
+                ["unsent", `Not sent (${unsent.length})`],
+                ["sent", `Sent (${sentIds.length})`],
+              ] as [View, string][]
+            ).map(([k, l]) => (
+              <button key={k} role="tab" aria-selected={view === k} className={`tab ${view === k ? "tab--active" : ""}`} onClick={() => setView(k)}>
+                {l}
+              </button>
+            ))}
+          </div>
+          <div className="searchbox">
+            <Search size={15} aria-hidden="true" />
+            <input className="input" type="search" placeholder="Search student" aria-label="Search student" value={query} onChange={(e) => setQuery(e.target.value)} />
+            {query && (
+              <button type="button" className="iconbtn" aria-label="Clear search" onClick={() => setQuery("")}>
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="sharelist">
+          <label className="sharelist__row sharelist__row--head">
+            <input type="checkbox" checked={allShownSelected} onChange={toggleAllShown} aria-label="Select all shown" />
+            <span>Select all shown ({rows.length})</span>
+          </label>
+          {rows.map((s) => {
+            const at = log[s.id];
+            return (
+              <div key={s.id} className={`sharelist__row ${selected.has(s.id) ? "sharelist__row--on" : ""}`}>
+                <input type="checkbox" checked={selected.has(s.id)} onChange={() => toggle(s.id)} aria-label={`Select ${s.name}`} />
+                <span className="sharelist__roll mono">{s.rollNo}</span>
+                <div className="sharelist__who">
+                  <Link href={`/principal/classes/${section}/${s.id}`} className="strong">
+                    {s.name}
+                  </Link>
+                  <span className="small muted">Parent {parentPhone(s.id)}</span>
+                </div>
+                <span className={`tag ${at ? "tag--green" : ""}`}>{at ? `Sent ${when(at)}` : "Not sent"}</span>
+                <button className="btn btn--sm" disabled={sending} onClick={() => setConfirm([s])}>
+                  <Send size={12} /> {at ? "Resend" : "Send"}
                 </button>
               </div>
-            </div>
+            );
+          })}
+          {rows.length === 0 && <p className="small muted" style={{ padding: "14px 16px", margin: 0 }}>No students match.</p>}
+        </div>
+      </div>
 
-            <div className="share-toolbar">
-              <div className="tabs" role="tablist">
-                {(
-                  [
-                    ["all", `All (${rows.length})`],
-                    ["unshared", `Not shared (${unsent.length})`],
-                    ["shared", `Shared (${shared.length})`],
-                  ] as [View, string][]
-                ).map(([k, l]) => (
-                  <button key={k} role="tab" aria-selected={view === k} className={`tab ${view === k ? "tab--active" : ""}`} onClick={() => setView(k)}>
-                    {l}
-                  </button>
-                ))}
-              </div>
-              <div className="searchbox">
-                <Search size={15} aria-hidden="true" />
-                <input className="input" type="search" placeholder="Search student" aria-label="Search student" value={query} onChange={(e) => setQuery(e.target.value)} />
-                {query && (
-                  <button type="button" className="iconbtn" aria-label="Clear search" onClick={() => setQuery("")}>
-                    <X size={14} />
-                  </button>
-                )}
-              </div>
-            </div>
-
+      <section className="section">
+        <h2 className="section-q">Send history</h2>
+        <p className="section__lead">
+          {sectionLabel(section)} · {test.name}
+        </p>
+        <div className="card" style={{ marginTop: 12 }}>
+          {history.length === 0 ? (
+            <p className="small muted" style={{ padding: 16, margin: 0 }}>
+              Nothing sent yet for this class and test.
+            </p>
+          ) : (
             <div className="sharelist">
-              {shownRows.map((row) => (
-                <div key={row.student.student_id} className="sharelist__row" style={{ gridTemplateColumns: "34px minmax(0, 1fr) auto auto" }}>
-                  <span className="sharelist__roll mono">{row.student.roll_no}</span>
+              {history.map(([t, n]) => (
+                <div key={t} className="sharelist__row">
+                  <Clock size={15} style={{ color: "var(--muted)" }} />
                   <div className="sharelist__who">
-                    <span className="strong">{row.student.name}</span>
+                    <span className="strong">{when(t)}</span>
                     <span className="small muted">
-                      {row.status === "checking" && "Checking…"}
-                      {row.status === "not_issued" && "Not issued"}
-                      {row.status === "issued" && "Issued, not shared"}
-                      {row.status === "shared" && (row.pin ? `PIN ${row.pin}` : "Shared")}
+                      {n} parent{n === 1 ? "" : "s"} on WhatsApp
                     </span>
-                    {row.error && <span className="small" style={{ color: "var(--risk)" }}>{row.error}</span>}
                   </div>
-                  <span className={`tag ${row.status === "shared" ? "tag--green" : ""}`}>
-                    {row.status === "checking" && "Checking"}
-                    {row.status === "not_issued" && "Not shared"}
-                    {row.status === "issued" && "Not shared"}
-                    {row.status === "shared" && "Shared"}
-                  </span>
-                  <button
-                    type="button"
-                    className="btn btn--sm"
-                    disabled={!by.trim() || row.status === "checking"}
-                    onClick={() => void shareOne(row)}
-                  >
-                    <Send size={12} /> {row.status === "shared" ? "Reset PIN" : "Share"}
-                  </button>
                 </div>
               ))}
-              {shownRows.length === 0 && <p className="small muted" style={{ padding: "14px 16px", margin: 0 }}>No students match.</p>}
             </div>
-          </div>
-        </>
-      )}
+          )}
+        </div>
+      </section>
 
-      {sectionId && assessmentId && rows?.length === 0 && (
-        <p className="muted" style={{ marginTop: 20 }}>No students in this class.</p>
-      )}
-    </div>
+      <AnimatePresence>
+        {confirm && (
+          <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => !sending && setConfirm(null)}>
+            <motion.div
+              className="modal"
+              role="dialog"
+              aria-modal="true"
+              initial={{ y: 16, opacity: 0 }}
+              animate={{ y: 0, opacity: 1 }}
+              exit={{ y: 16, opacity: 0 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="modal__head">
+                <h3 style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <MessageCircle size={16} style={{ color: "#1faa59" }} /> Send on WhatsApp
+                </h3>
+                <button className="iconbtn" onClick={() => setConfirm(null)} aria-label="Close" disabled={sending}>
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal__body">
+                <p style={{ margin: 0 }}>
+                  Send the <b>{test.name}</b> report to{" "}
+                  <b>
+                    {confirm.length === 1 ? `${confirm[0].name}'s parent` : `${confirm.length} parents`}
+                  </b>{" "}
+                  in {sectionLabel(section)}?
+                </p>
+                <div className="wa-preview">
+                  Dear parent, {confirm[0]?.name ?? "your child"}&apos;s {test.name} report from {school.name} is ready. Open it here: avai.in/r/…
+                </div>
+              </div>
+              <div className="modal__foot">
+                <button className="btn" onClick={() => setConfirm(null)} disabled={sending}>
+                  Cancel
+                </button>
+                <button className="btn btn--primary btn--wa" onClick={() => send(confirm)} disabled={sending}>
+                  <Send size={14} /> {sending ? "Sending…" : `Send ${confirm.length === 1 ? "report" : `${confirm.length} reports`}`}
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {toast && (
+          <motion.div className="toast" role="status" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}>
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }

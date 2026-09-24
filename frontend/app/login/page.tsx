@@ -1,80 +1,104 @@
 "use client";
 
-/**
- * §4 sign-in -- the reference design's own .auth/.authchoice/.stepper shell, copied
- * structurally and visually (gradient icon tiles, box-shadows, stepper progress bar):
- * step 1 picks School Staff vs Student, step 2 shows that choice's real credential form.
- *
- * Unlike the reference (a UI mock with a fake signIn() and canned demo accounts), every
- * submit here is a real call: `api.whoami` for staff (identical to AdminGate's own flow --
- * a principal, admin and teacher key all use this one form; GET /admin/me's `role` decides
- * which shell to land on) and `api.studentLogin` for students (class code + roll + PIN,
- * matching app/api/student.py). No demo accounts, no role pre-split the backend doesn't
- * actually have -- principal vs teacher isn't chosen here, it's resolved server-side from
- * whichever key was entered.
- */
-
-import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useState } from "react";
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
   ArrowRight,
+  Building2,
+  ChevronRight,
   Eye,
   EyeOff,
   GraduationCap,
   KeyRound,
   PenLine,
+  School,
   ShieldAlert,
   ShieldCheck,
-  UserRound,
 } from "lucide-react";
-import { AvaiLogo } from "@/components/AvaiLogo";
-import { Mascot } from "@/components/Mascot";
-import { api, ApiError, ApiUnreachable } from "@/lib/api";
-import { setApiKey, setRole, setStudentSession } from "@/lib/session";
+import { Mascot, Wordmark } from "@/components/Mascot";
+import { EASE_OUT } from "@/components/motion";
+import { homeFor, initials, useAuth } from "@/lib/auth";
+import { devLoginOptions, mockPrincipal, mockTeachers, type TeacherAssignment } from "@/lib/avai-mock-data";
 
-const EASE_OUT = [0.22, 0.68, 0.36, 1] as const;
+type StaffRole = "principal" | "teacher";
 
-type Choice = "staff" | "student";
-
-const CHOICES: Array<{ choice: Choice; title: string; blurb: string; accent: string; icon: typeof GraduationCap }> = [
+const ROLES: Array<{
+  role: StaffRole;
+  title: string;
+  blurb: string;
+  accent: string;
+  icon: typeof Building2;
+}> = [
   {
-    choice: "staff",
-    title: "School Staff sign-in",
-    blurb: "Principals, admins and teachers -- one sign-in key.",
+    role: "principal",
+    title: "Principal sign-in",
+    blurb: "For the school principal.",
     accent: "var(--brand-teal)",
-    icon: GraduationCap,
+    icon: Building2,
   },
   {
-    choice: "student",
-    title: "Student sign-in",
-    blurb: "The PIN your teacher gave you when they shared your report.",
+    role: "teacher",
+    title: "Teacher sign-in",
+    blurb: "Your classes and your subjects, with the findings that matter.",
     accent: "var(--brand-blue)",
-    icon: UserRound,
+    icon: GraduationCap,
   },
 ];
 
-function explainStaff(err: unknown): string {
-  return err instanceof ApiUnreachable
-    ? "Could not reach the server. Try again in a minute."
-    : "That key was not recognised. Check it and try again.";
+/** "X-A class teacher · Mathematics · X-A, X-B", what a demo account will
+ *  actually see. Subjects taught to the same sections are grouped so the line
+ *  stays one or two rows on a phone. */
+function describeAssignments(assignments: TeacherAssignment[]) {
+  const parts: string[] = [];
+  const bySections = new Map<string, string[]>();
+
+  for (const a of assignments) {
+    if (a.type === "class") parts.push(`${a.section} class teacher`);
+    else {
+      const key = a.sections.join(", ");
+      bySections.set(key, [...(bySections.get(key) ?? []), a.subject]);
+    }
+  }
+  for (const [sectionList, subjectList] of bySections) {
+    parts.push(`${subjectList.join(", ")} · ${sectionList}`);
+  }
+  return parts.join(" · ");
 }
 
+const principalDemo = devLoginOptions.find((o) => o.role === "principal");
+
+/**
+ * §4 Sign in. Step 1 picks a staff role, step 2 shows that role's credential
+ * form. The form is design only, the demo accounts beneath it are what
+ * actually call signIn(). Students never sign in here; they go to /attend.
+ */
 export default function LoginPage() {
-  return (
-    <Suspense fallback={null}>
-      <LoginForm />
-    </Suspense>
-  );
-}
+  const [role, setRole] = useState<StaffRole | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const { signIn } = useAuth();
+  const router = useRouter();
 
-function LoginForm() {
-  const params = useSearchParams();
-  const initial = params.get("tab") === "student" ? "student" : null;
-  const [choice, setChoice] = useState<Choice | null>(initial);
+  const chosen = ROLES.find((r) => r.role === role) ?? null;
 
-  const chosen = CHOICES.find((c) => c.choice === choice) ?? null;
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setNotice("Sign-in is not connected in this preview build. Use a demo account below.");
+  }
+
+  function enter(r: StaffRole, userId: string) {
+    const u = signIn(r, userId);
+    if (u) router.push(homeFor(u));
+  }
+
+  function back() {
+    setRole(null);
+    setNotice(null);
+    setShowPassword(false);
+  }
 
   return (
     <div className="auth">
@@ -85,8 +109,10 @@ function LoginForm() {
           transition={{ duration: 0.55, ease: EASE_OUT }}
           style={{ position: "relative", zIndex: 1, display: "flex", flexDirection: "column", gap: 20, alignItems: "center" }}
         >
-          <AvaiLogo height={52} />
-          <Mascot pose="hello" size={170} />
+          <Wordmark height={52} onDark />
+
+          <Mascot pose="hello" size={170} float />
+
           <h1
             style={{
               fontFamily: "var(--font-display)",
@@ -98,18 +124,19 @@ function LoginForm() {
           >
             Every opportunity belongs to every student.
           </h1>
+
         </motion.div>
       </section>
 
       <section className="auth__panel">
         <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
           <div className="stepper" aria-hidden="true">
-            <div className="stepper__bar" style={{ "--progress": choice ? "75%" : "25%" } as React.CSSProperties} />
-            <div className="stepper__step" data-state={choice ? "done" : "current"}>
+            <div className="stepper__bar" style={{ "--progress": role ? "75%" : "25%" } as React.CSSProperties} />
+            <div className="stepper__step" data-state={role ? "done" : "current"}>
               <span className="stepper__dot">1</span>
-              Who are you
+              Choose role
             </div>
-            <div className="stepper__step" data-state={choice ? "current" : "todo"}>
+            <div className="stepper__step" data-state={role ? "current" : "todo"}>
               <span className="stepper__dot">2</span>
               Sign in
             </div>
@@ -130,32 +157,32 @@ function LoginForm() {
                     Sign in to <span className="gradient-text">AVAI</span>
                   </h2>
                   <p className="muted small" style={{ marginTop: 4 }}>
-                    Pick the one that&rsquo;s you: the sign-in fields are different for each.
+                    Sign in with your school code and access key.
                   </p>
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {CHOICES.map((c, i) => {
-                    const Icon = c.icon;
+                  {ROLES.map((r, i) => {
+                    const Icon = r.icon;
                     return (
                       <motion.button
-                        key={c.choice}
+                        key={r.role}
                         type="button"
                         className="authchoice"
-                        style={{ "--accent": c.accent } as React.CSSProperties}
+                        style={{ "--accent": r.accent } as React.CSSProperties}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.4, delay: 0.06 + i * 0.08, ease: EASE_OUT }}
-                        onClick={() => setChoice(c.choice)}
+                        onClick={() => setRole(r.role)}
                       >
                         <span className="authchoice__icon">
                           <Icon size={21} />
                         </span>
                         <div>
-                          <strong>{c.title}</strong>
-                          <small>{c.blurb}</small>
+                          <strong>{r.title}</strong>
+                          <small>{r.blurb}</small>
                         </div>
-                        <ArrowRight size={17} style={{ marginLeft: "auto", color: "var(--muted)", flex: "0 0 auto" }} />
+                        <ChevronRight size={17} style={{ marginLeft: "auto", color: "var(--muted)", flex: "0 0 auto" }} />
                       </motion.button>
                     );
                   })}
@@ -163,7 +190,7 @@ function LoginForm() {
               </motion.div>
             ) : (
               <motion.div
-                key={chosen.choice}
+                key={chosen.role}
                 initial={{ opacity: 0, x: 16 }}
                 animate={{ opacity: 1, x: 0 }}
                 exit={{ opacity: 0, x: 16 }}
@@ -171,12 +198,7 @@ function LoginForm() {
                 style={{ display: "flex", flexDirection: "column", gap: 16 }}
               >
                 <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                  <button
-                    type="button"
-                    className="btn btn--ghost btn--sm"
-                    onClick={() => setChoice(null)}
-                    aria-label="Back"
-                  >
+                  <button type="button" className="btn btn--ghost btn--sm" onClick={back} aria-label="Back to role selection">
                     <ArrowLeft size={15} />
                   </button>
                   <span
@@ -191,7 +213,63 @@ function LoginForm() {
                   </div>
                 </div>
 
-                {chosen.choice === "staff" ? <StaffSignIn /> : <StudentSignIn />}
+                <form className="login__form" onSubmit={onSubmit}>
+                  <div className="field">
+                    <label htmlFor="schoolCode">School code</label>
+                    <div style={{ position: "relative" }}>
+                      <School size={15} style={{ position: "absolute", left: 11, top: 12, color: "var(--muted)" }} />
+                      <input id="schoolCode" className="input" style={{ paddingLeft: 34 }} placeholder="e.g. BIS-TN-001" autoComplete="off" />
+                    </div>
+                  </div>
+
+                  <div className="field">
+                    <label htmlFor="accessKey">Access key</label>
+                    <div style={{ position: "relative" }}>
+                      <KeyRound size={15} style={{ position: "absolute", left: 11, top: 12, color: "var(--muted)" }} />
+                      <input
+                        id="accessKey"
+                        className="input"
+                        style={{ paddingLeft: 34, paddingRight: 40 }}
+                        type={showPassword ? "text" : "password"}
+                        placeholder="Your personal AVAI access key"
+                        autoComplete="current-password"
+                      />
+                      <button
+                        type="button"
+                        className="btn btn--ghost btn--sm"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? "Hide access key" : "Show access key"}
+                        style={{ position: "absolute", right: 5, top: 5, padding: 6 }}
+                      >
+                        {showPassword ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  </div>
+
+                  <button
+                    type="submit"
+                    className={`btn ${chosen.role === "principal" ? "btn--primary" : "btn--blue"}`}
+                    style={{ justifyContent: "center", padding: 11 }}
+                  >
+                    Continue <ArrowRight size={15} />
+                  </button>
+
+                  {notice && (
+                    <motion.div
+                      className="evidence evidence--gold"
+                      role="status"
+                      initial={{ opacity: 0, y: -6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.3, ease: EASE_OUT }}
+                    >
+                      <ShieldAlert size={16} />
+                      <div>{notice}</div>
+                    </motion.div>
+                  )}
+                </form>
+
+
+                <DemoAccounts role={chosen.role} accent={chosen.accent} onPick={enter} />
               </motion.div>
             )}
           </AnimatePresence>
@@ -199,7 +277,8 @@ function LoginForm() {
           <div style={{ height: 1, background: "var(--line)", margin: "2px 0" }} />
 
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.2, ease: EASE_OUT }}>
-            <div
+            <Link
+              href="/attend"
               className="surface surface--tinted hoverlift"
               style={{
                 "--accent": "var(--brand-gold)",
@@ -207,6 +286,8 @@ function LoginForm() {
                 alignItems: "center",
                 gap: 13,
                 padding: "13px 15px",
+                textDecoration: "none",
+                color: "inherit",
               } as React.CSSProperties}
             >
               <span
@@ -226,19 +307,22 @@ function LoginForm() {
                 <PenLine size={17} />
               </span>
               <div style={{ minWidth: 0 }}>
-                <strong style={{ display: "block", fontSize: 13.5, fontWeight: 650 }}>Trouble signing in?</strong>
+                <strong style={{ display: "block", fontSize: 13.5, fontWeight: 650 }}>Attending an AVAI assessment? Start here</strong>
                 <small className="muted" style={{ display: "block", fontSize: 12, lineHeight: 1.35 }}>
-                  Ask your school office for your key or PIN.
+                  For students with a test ID. This is not a staff login.
                 </small>
               </div>
-            </div>
+              <ArrowRight size={17} style={{ marginLeft: "auto", color: "#8a6410", flex: "0 0 auto" }} />
+            </Link>
 
-            <span
+            {/* AVAI's own staff console, deliberately quiet, and not a school login. */}
+            <Link
+              href="/admin"
               className="small muted"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14 }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14, textDecoration: "none" }}
             >
               <ShieldCheck size={13} /> AVAI staff console
-            </span>
+            </Link>
           </motion.div>
         </div>
       </section>
@@ -246,175 +330,106 @@ function LoginForm() {
   );
 }
 
-function StaffSignIn() {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [showKey, setShowKey] = useState(false);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    setBusy(true);
-    const key = String(new FormData(event.currentTarget).get("key") ?? "").trim();
-    try {
-      const me = await api.whoami(key);
-      setApiKey(key, me.name);
-      setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments });
-      router.push(me.role === "teacher" ? "/teacher/home" : "/principal/classes");
-    } catch (err) {
-      if (err instanceof ApiError && err.status === 400) {
-        // Valid admin key, no school picked yet -- same as AdminGate: let /principal/classes
-        // (any AdminGate-wrapped route works) resolve it.
-        setApiKey(key, "");
-        router.push("/principal/classes");
-        return;
-      }
-      setError(explainStaff(err));
-    } finally {
-      setBusy(false);
-    }
-  }
+function DemoAccounts({
+  role,
+  accent,
+  onPick,
+}: {
+  role: StaffRole;
+  accent: string;
+  onPick: (role: StaffRole, userId: string) => void;
+}) {
+  const rows =
+    role === "principal"
+      ? [
+          {
+            id: principalDemo?.userId ?? mockPrincipal.id,
+            name: principalDemo?.sub ?? mockPrincipal.name,
+            sub: "Principal · every section, every subject",
+          },
+        ]
+      : mockTeachers.map((t) => ({
+          id: t.id,
+          name: t.name,
+          sub: t.examsOnly ? "Question papers & marks · every subject" : describeAssignments(t.assignments),
+        }));
 
   return (
-    <form className="login__form" onSubmit={submit}>
-      <div className="field">
-        <label htmlFor="key">Sign-in key</label>
-        <div style={{ position: "relative" }}>
-          <KeyRound size={15} style={{ position: "absolute", left: 11, top: 12, color: "var(--muted)" }} />
-          <input
-            id="key"
-            name="key"
-            className="input"
-            style={{ paddingLeft: 34, paddingRight: 40 }}
-            type={showKey ? "text" : "password"}
-            autoComplete="current-password"
-            required
-            placeholder="zozx6r94sEf1KWs7fRdXTNJNYXKEteuW"
-          />
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={() => setShowKey((v) => !v)}
-            aria-label={showKey ? "Hide sign-in key" : "Show sign-in key"}
-            style={{ position: "absolute", right: 5, top: 5, padding: 6 }}
-          >
-            {showKey ? <EyeOff size={15} /> : <Eye size={15} />}
-          </button>
-        </div>
-        <p className="small muted">
-          The key you were personally issued: a principal&rsquo;s school key, or a
-          teacher&rsquo;s own sign-in key.
-        </p>
+    <div className="surface" style={{ padding: 14, background: "linear-gradient(180deg, #ffffff, #faf7f1)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 4 }}>
+        <span className="tag tag--dev">DEMO</span>
+        <strong style={{ fontSize: 13, fontWeight: 650 }}>Demo accounts</strong>
       </div>
-
-      <button type="submit" className="btn btn--primary" disabled={busy} style={{ justifyContent: "center", padding: 11 }}>
-        {busy ? "Checking…" : "Continue"} {!busy && <ArrowRight size={15} />}
-      </button>
-
-      {error && (
-        <motion.div
-          className="evidence evidence--gold"
-          role="status"
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: EASE_OUT }}
-        >
-          <ShieldAlert size={16} />
-          <div>{error}</div>
-        </motion.div>
-      )}
-    </form>
-  );
-}
-
-function StudentSignIn() {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [showPin, setShowPin] = useState(false);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    const data = new FormData(event.currentTarget);
-    const roll = String(data.get("roll") ?? "").trim();
-    const classCode = String(data.get("classCode") ?? "").trim();
-    const pin = String(data.get("pin") ?? "").trim();
-    if (!roll || !classCode || !pin) {
-      setError("Enter your class code, roll number and PIN.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await api.studentLogin(classCode, roll, pin);
-      setStudentSession(result.session_token, result.student_name);
-      router.push("/student");
-    } catch (err) {
-      setError(
-        err instanceof ApiUnreachable
-          ? "Could not reach the server. Try again in a minute."
-          : "That roll number, class code or PIN was not recognised. Check with your teacher.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form className="login__form" onSubmit={submit}>
-      <p className="small muted" style={{ marginTop: 0 }}>
-        Sign in with the PIN your teacher gave you when they shared your report.
+      <p className="muted small" style={{ marginBottom: 10 }}>
+        {role === "principal"
+          ? "Signs you straight in as the principal with mock school data."
+          : `Each teacher sees only their own classes and subjects. Pick one of the ${rows.length}.`}
       </p>
-      <div className="field">
-        <label htmlFor="classCode">Class code</label>
-        <input id="classCode" name="classCode" className="input" placeholder="the code your teacher gave you" required />
-      </div>
-      <div className="field">
-        <label htmlFor="roll">Roll number</label>
-        <input id="roll" name="roll" className="input" placeholder="e.g. 7" required />
-      </div>
-      <div className="field">
-        <label htmlFor="pin">PIN</label>
-        <div style={{ position: "relative" }}>
-          <input
-            id="pin"
-            name="pin"
-            className="input"
-            style={{ paddingRight: 40 }}
-            type={showPin ? "text" : "password"}
-            inputMode="numeric"
-            placeholder="••••••"
-            required
-          />
-          <button
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 7,
+          maxHeight: role === "teacher" ? 268 : undefined,
+          overflowY: role === "teacher" ? "auto" : undefined,
+          paddingRight: role === "teacher" ? 4 : undefined,
+        }}
+      >
+        {rows.map((r, i) => (
+          <motion.button
+            key={r.id}
             type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={() => setShowPin((v) => !v)}
-            aria-label={showPin ? "Hide PIN" : "Show PIN"}
-            style={{ position: "absolute", right: 5, top: 5, padding: 6 }}
+            onClick={() => onPick(role, r.id)}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3, delay: 0.04 + i * 0.035, ease: EASE_OUT }}
+            whileHover={{ y: -2 }}
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 11,
+              width: "100%",
+              textAlign: "left",
+              padding: "9px 11px",
+              borderRadius: "var(--radius-md)",
+              border: "1px solid var(--line)",
+              background: "linear-gradient(180deg, #ffffff, #fdfbf7)",
+              boxShadow: "var(--shadow-xs)",
+              font: "inherit",
+              color: "inherit",
+              cursor: "pointer",
+            }}
           >
-            {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
-          </button>
-        </div>
+            <span
+              aria-hidden="true"
+              style={{
+                width: 32,
+                height: 32,
+                flex: "0 0 32px",
+                borderRadius: "50%",
+                display: "inline-flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 11.5,
+                fontWeight: 700,
+                color: "#fff",
+                background: `linear-gradient(160deg, color-mix(in srgb, ${accent} 68%, #fff), ${accent})`,
+                boxShadow: `0 6px 14px -7px ${accent}`,
+              }}
+            >
+              {initials(r.name)}
+            </span>
+            <span style={{ minWidth: 0 }}>
+              <span style={{ display: "block", fontSize: 13.5, fontWeight: 620 }}>{r.name}</span>
+              <span className="muted" style={{ display: "block", fontSize: 11.5, lineHeight: 1.35 }}>
+                {r.sub}
+              </span>
+            </span>
+            <ArrowRight size={15} style={{ marginLeft: "auto", color: "var(--muted)", flex: "0 0 auto" }} />
+          </motion.button>
+        ))}
       </div>
-
-      <button type="submit" className="btn btn--primary" disabled={busy} style={{ justifyContent: "center", padding: 11 }}>
-        {busy ? "Checking…" : "Continue"} {!busy && <ArrowRight size={15} />}
-      </button>
-
-      {error && (
-        <motion.div
-          className="evidence evidence--gold"
-          role="status"
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: EASE_OUT }}
-        >
-          <ShieldAlert size={16} />
-          <div>{error}</div>
-        </motion.div>
-      )}
-    </form>
+    </div>
   );
 }

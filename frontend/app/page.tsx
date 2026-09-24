@@ -1,120 +1,73 @@
 "use client";
 
-/**
- * The front door. Two audiences, two doors — the previous version described them in prose
- * and offered no way in.
- *
- * framer-motion drives the entrance (a staggered rise, matching the timing the rest of the
- * app already commits to via --ease/--dur-slow) and the card hover lift; lucide-react gives
- * every card a crisp vector icon instead of a bare heading, and the hero art is the real
- * Avai brand banner (frontend/public/brand/hero-banner.png, cropped from the designer's
- * reference sheet) rather than a hand-drawn placeholder.
- */
-
-import { ArrowRight, GraduationCap, LayoutDashboard } from "lucide-react";
+import { useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
-import Link from "next/link";
+import { Mascot, Wordmark } from "@/components/Mascot";
+import { EASE_OUT } from "@/components/motion";
+import { homeFor, useAuth } from "@/lib/auth";
+import { school } from "@/lib/avai-mock-data";
 
-const EASE = [0.16, 1, 0.3, 1] as const;
+/** "/" is a router, not a screen, but it is the first paint, so it carries
+ *  the brand while auth resolves from storage. */
+export default function Index() {
+  const { user, ready } = useAuth();
+  const router = useRouter();
 
-const rise = {
-  hidden: { opacity: 0, y: 16 },
-  show: (i: number = 0) => ({
-    opacity: 1, y: 0,
-    transition: { duration: 0.5, delay: i * 0.08, ease: EASE },
-  }),
-};
+  useEffect(() => {
+    if (!ready) return;
+    router.replace(user ? homeFor(user) : "/login");
+  }, [ready, user, router]);
 
-export default function Home() {
   return (
-    <main className="content" style={{ maxWidth: 960 }}>
-      <motion.section
-        initial={{ opacity: 0 }}
-        animate={{ opacity: 1 }}
-        transition={{ duration: 0.7, ease: EASE }}
-        style={{ marginTop: 20 }}
+    <div
+      style={{
+        minHeight: "100vh",
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        gap: 18,
+        padding: 24,
+        textAlign: "center",
+        color: "#fff",
+        background:
+          "radial-gradient(720px 520px at 20% 12%, rgba(31,138,138,.5), transparent 62%)," +
+          "radial-gradient(620px 520px at 92% 96%, rgba(29,95,208,.42), transparent 64%)," +
+          "radial-gradient(420px 340px at 84% 16%, rgba(240,147,43,.2), transparent 62%)," +
+          "linear-gradient(160deg, #1c2f39, #0d191f)",
+      }}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: EASE_OUT }}
+        style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}
       >
-        <div style={{ display: "flex", gap: 32, alignItems: "center", flexWrap: "wrap" }}>
-          <motion.div
-            initial="hidden"
-            animate="show"
-            variants={rise}
-            style={{ flex: "1 1 380px", minWidth: 0 }}
-          >
-            <p className="eyebrow">CBSE Class X · Tamil Nadu</p>
-            <h1 className="page-title" style={{ fontSize: 34, marginTop: 8, lineHeight: 1.2 }}>
-              Turn a mark sheet into something a teacher can act on.
-            </h1>
-            <p className="page-sub" style={{ fontSize: 15, marginTop: 12, maxWidth: 520 }}>
-              Avai reads question-level performance and says where marks were lost, whether
-              the gap is recall or application, and which concepts need reteaching, plus an
-              interest profile that helps a student choose a stream.
-            </p>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0, y: 18, scale: 0.97 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
-            whileHover={{ y: -4 }}
-            style={{ flex: "1 1 280px", minWidth: 220, maxWidth: 380 }}
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/brand/hero-banner.png"
-              alt="Avai mascot, standing on a stack of books labelled Higher Marks, New Opportunities, Brighter Futures, with a path leading toward Learn, Improve, Explore, Achieve"
-              style={{ width: "100%", height: "auto", display: "block" }}
-            />
-          </motion.div>
-        </div>
-      </motion.section>
+        <Mascot pose="hello" size={132} float />
+        <Wordmark height={40} onDark />
+      </motion.div>
 
-      <div className="grid grid--2" style={{ marginTop: 30 }}>
-        <motion.div initial="hidden" whileInView="show" viewport={{ once: true }} custom={0} variants={rise}>
-          <Link href="/t" className="card card--hover" style={{ "--accent": "var(--brand-teal)" } as React.CSSProperties}>
-            <div className="card__body">
-              <span
-                aria-hidden
-                style={{
-                  width: 40, height: 40, borderRadius: "var(--radius-sm)",
-                  display: "grid", placeItems: "center", marginBottom: 14,
-                  background: "var(--brand-teal-soft)", color: "var(--brand-teal)",
-                }}
-              >
-                <GraduationCap size={22} />
-              </span>
-              <p className="eyebrow">For students</p>
-              <h2 style={{ marginTop: 4 }}>Take the interest test</h2>
-              <span className="btn--link" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 10 }}>
-                Find your class <ArrowRight size={14} />
-              </span>
-            </div>
-          </Link>
-        </motion.div>
+      <motion.div
+        className="small"
+        style={{ color: "#b9c6ce", fontWeight: 600 }}
+        animate={{ opacity: [0.5, 1, 0.5] }}
+        transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
+      >
+        Preparing your workspace…
+      </motion.div>
 
-        <motion.div initial="hidden" whileInView="show" viewport={{ once: true }} custom={1} variants={rise}>
-          <Link href="/login" className="card card--hover" style={{ "--accent": "var(--brand-blue)" } as React.CSSProperties}>
-            <div className="card__body">
-              <span
-                aria-hidden
-                style={{
-                  width: 40, height: 40, borderRadius: "var(--radius-sm)",
-                  display: "grid", placeItems: "center", marginBottom: 14,
-                  background: "var(--brand-blue-soft)", color: "var(--brand-blue)",
-                }}
-              >
-                <LayoutDashboard size={22} />
-              </span>
-              <p className="eyebrow" style={{ color: "var(--brand-blue)" }}>
-                For principals, staff and students
-              </p>
-              <h2 style={{ marginTop: 4 }}>Sign in</h2>
-              <span className="btn--link" style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 10 }}>
-                Sign in <ArrowRight size={14} />
-              </span>
-            </div>
-          </Link>
-        </motion.div>
+      <div style={{ width: 150, height: 4, borderRadius: 999, background: "rgba(255,255,255,.14)", overflow: "hidden" }}>
+        <motion.div
+          style={{ width: "40%", height: "100%", borderRadius: 999, background: "linear-gradient(90deg, var(--brand-teal), var(--brand-blue))" }}
+          animate={{ x: ["-100%", "250%"] }}
+          transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
+        />
       </div>
-    </main>
+
+      <div style={{ color: "#8b99a3", fontSize: 12.5 }}>
+        {school.name} · {school.board}
+      </div>
+    </div>
   );
 }

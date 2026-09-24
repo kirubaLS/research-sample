@@ -1,77 +1,31 @@
 "use client";
 
-/**
- * Teacher shell (§3, §6): same sidebar-plus-content shape as the staff shell, navigated
- * from this teacher key's real assignments (GET /admin/me's `assignments`) rather than a
- * fixture. Gated exactly like AdminGate -- a stored key is re-validated against
- * /admin/me on mount, and only a key whose role is actually "teacher" gets in; a
- * principal/admin key that somehow lands here is sent to /admin instead of shown a
- * teacher's nav it was never issued for.
- */
-
-import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { StaffShell } from "@/components/StaffShell";
-import { TEACHER_NAV } from "@/components/staffNav";
-import { Mascot } from "@/components/Mascot";
-import { api, ApiUnreachable } from "@/lib/api";
-import { getApiKey, setApiKey, setRole, signOut } from "@/lib/session";
+import { BookOpen, FileUp, Home, Users } from "lucide-react";
+import { RoleGuard, StaffShell, type NavItem } from "@/components/Shell";
 
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
-  const router = useRouter();
-  const [ready, setReady] = useState(false);
-  const [ok, setOk] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    const key = getApiKey();
-    if (!key) {
-      router.replace("/login");
-      return;
-    }
-    api
-      .whoami(key)
-      .then((me) => {
-        setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments });
-        if (me.role !== "teacher") {
-          router.replace("/principal/classes");
-          return;
-        }
-        setApiKey(key, me.name);
-        setOk(true);
-        setReady(true);
-      })
-      .catch((err) => {
-        if (err instanceof ApiUnreachable) {
-          setError("Could not reach the server. Try again in a minute.");
-          setReady(true);
-          return;
-        }
-        signOut();
-        router.replace("/login");
-      });
-  }, [router]);
-
-  if (!ready) {
-    return (
-      <div className="loading">
-        <Mascot pose="loading" size={28} />
-        <p className="muted">Loading…</p>
-      </div>
-    );
-  }
-  if (error) {
-    return (
-      <div className="error-fallback">
-        <p>{error}</p>
-      </div>
-    );
-  }
-  if (!ok) return null;
-
   return (
-    <StaffShell nav={TEACHER_NAV} roleLabel="Teacher">
-      {children}
-    </StaffShell>
+    <RoleGuard role="teacher">
+      {(user) => {
+        const examsOnly = user.role === "teacher" && user.examsOnly;
+        const nav: NavItem[] = examsOnly
+          ? [{ href: "/teacher/papers", label: "Papers & Marks", icon: FileUp }]
+          : [{ href: "/teacher/home", label: "My Home", icon: Home }];
+        if (user.role === "teacher" && !examsOnly) {
+          for (const a of user.assignments) {
+            if (a.type === "class") nav.push({ href: `/teacher/class/${a.section}`, label: `Class ${a.section}`, icon: Users, group: "My classes" });
+          }
+          for (const a of user.assignments) {
+            if (a.type === "subject")
+              for (const s of a.sections) nav.push({ href: `/teacher/subject/${encodeURIComponent(a.subject)}/${s}`, label: `${a.subject} · ${s}`, icon: BookOpen, group: "My subjects" });
+          }
+        }
+        return (
+          <StaffShell user={user} nav={nav} roleLabel="Teacher">
+            {children}
+          </StaffShell>
+        );
+      }}
+    </RoleGuard>
   );
 }

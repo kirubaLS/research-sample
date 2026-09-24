@@ -1,66 +1,120 @@
 "use client";
 
-/**
- * Help & Contact -- structured after the reference help page (FAQ list + a
- * "reach us" card), but this deployment has no support inbox/phone number
- * wired up yet and no message-submission endpoint, so this page does not
- * fabricate either one. The contact card links to the account's existing
- * AVAI contact instead of a made-up email/phone.
- *
- * TODO(support-contact): once a real support email/phone (or in-app ticket
- * endpoint) exists, wire it in here in place of the "ask your AVAI account
- * contact" placeholder below.
- */
+import { useEffect, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
+import { Mail, MessageCircle, Phone, Send } from "lucide-react";
+import { helpContact, pageHeaders } from "@/lib/avai-mock-data";
+import { useAuth } from "@/lib/auth";
+import { usePageHeader } from "@/lib/pageHeader";
 
-const FAQS: { q: string; a: string }[] = [
-  {
-    q: "A score or status looks wrong -- what should I check first?",
-    a: "Every score on these screens is read straight from a recorded mark. Open the student or test it came from and check the individual paper -- if a mark was entered incorrectly, it needs to be corrected at the source (Enter Marks or Scan Answer Sheets), and every screen that shows it will update.",
-  },
-  {
-    q: "Why does a class show \"Not Yet Assessed\" for some students?",
-    a: "A student is only counted once a paper has a recorded mark for them. \"Not Yet Assessed\" means no test in the selected range has a mark on file for that student yet.",
-  },
-  {
-    q: "How do I get a class or test report as a file?",
-    a: "Use the \"Download PDF\" or \"Download Excel\" button at the top of the Classes, Exams and Share screens -- each downloads exactly what's on screen, including any filters you've applied.",
-  },
-  {
-    q: "Who do I contact about a data or account issue?",
-    a: "Reach your AVAI account contact directly -- the person who set up this school's AVAI account. They can escalate anything that needs a fix on AVAI's side.",
-  },
-];
+const categories = ["A number looks wrong", "Something isn't working", "A feature I need", "Something else"];
 
+/** Help & Contact, replaces the old Settings screen. Nothing here is
+ * configuration; it's the one place to reach AVAI when a number looks
+ * wrong or something breaks. The message form is local-only: it confirms
+ * with a toast and nothing is actually sent anywhere. */
 export default function HelpPage() {
-  return (
-    <div>
-      <p className="eyebrow">Help</p>
-      <h1 className="page-title">Help &amp; Contact</h1>
-      <p className="page-sub" style={{ marginTop: 4 }}>
-        Answers to common questions, and how to reach AVAI about anything else.
-      </p>
+  usePageHeader({ title: pageHeaders.help.title });
+  const { user } = useAuth();
+  const [category, setCategory] = useState(categories[0]);
+  const [message, setMessage] = useState("");
+  const [sent, setSent] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
 
-      <div className="card" style={{ marginTop: 20, maxWidth: 520 }}>
-        <div className="card__head">
-          <h3 style={{ fontSize: 16 }}>Reach us</h3>
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 2800);
+    return () => clearTimeout(t);
+  }, [toast]);
+
+  function send() {
+    if (!message.trim()) return;
+    setSent(true);
+    setToast("Message sent to AVAI support (demo only), we'll follow up by email.");
+    setMessage("");
+    setTimeout(() => setSent(false), 2400);
+  }
+
+  return (
+    <>
+      <p className="page-sub" style={{ marginTop: 0 }}>{pageHeaders.help.blurb}</p>
+
+      <div className="grid grid--2" style={{ marginTop: 20, alignItems: "start" }}>
+        <div className="card">
+          <div className="card__head">
+            <h3 style={{ fontSize: 16 }}>Reach us directly</h3>
+          </div>
+          <div className="card__body" style={{ display: "grid", gap: 14 }}>
+            <a href={`mailto:${helpContact.supportEmail}`} className="subject-row">
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Mail size={16} className="muted" />
+                <div>
+                  <div className="strong">Email support</div>
+                  <div className="small muted">{helpContact.supportEmail}</div>
+                </div>
+              </div>
+            </a>
+            <a href={`tel:${helpContact.supportPhone.replace(/\s+/g, "")}`} className="subject-row">
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <Phone size={16} className="muted" />
+                <div>
+                  <div className="strong">Call support</div>
+                  <div className="small muted">
+                    {helpContact.supportPhone} · {helpContact.hours}
+                  </div>
+                </div>
+              </div>
+            </a>
+          </div>
+          <div className="card__foot small muted">Demo only, these details don&apos;t connect to a real support line yet.</div>
         </div>
-        <div className="card__body">
-          <p className="small muted" style={{ margin: 0 }}>
-            For anything not answered below, reach out to your AVAI account contact --
-            the person who set up this school&apos;s AVAI account. They can route data
-            or account issues to the AVAI team on your behalf.
-          </p>
+
+        <div className="card">
+          <div className="card__head">
+            <h3 style={{ fontSize: 16, display: "flex", alignItems: "center", gap: 8 }}>
+              <MessageCircle size={16} /> Message us
+            </h3>
+          </div>
+          <div className="card__body" style={{ display: "grid", gap: 14 }}>
+            <div className="field">
+              <label htmlFor="help-category">What&apos;s this about?</label>
+              <select id="help-category" className="select" value={category} onChange={(e) => setCategory(e.target.value)}>
+                {categories.map((c) => (
+                  <option key={c}>{c}</option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label htmlFor="help-message">Message</label>
+              <textarea
+                id="help-message"
+                className="input"
+                rows={5}
+                placeholder="Tell us what you're seeing, the page, the class or student, and what looks off."
+                value={message}
+                onChange={(e) => setMessage(e.target.value)}
+              />
+            </div>
+            <div style={{ display: "flex", justifyContent: "flex-end" }}>
+              <button className="btn btn--primary" disabled={!message.trim() || sent} onClick={send}>
+                <Send size={13} /> {sent ? "Sent" : "Send message"}
+              </button>
+            </div>
+          </div>
+          <div className="card__foot small muted">Sent as {user?.name ?? "you"} · demo only, nothing leaves this session.</div>
         </div>
       </div>
 
-      <section style={{ marginTop: 24 }}>
-        <h2 style={{ fontSize: 15, margin: "0 0 12px" }}>Common questions</h2>
-        <div style={{ display: "grid", gap: 12 }}>
-          {FAQS.map((f) => (
+      <section className="section">
+        <div className="section__head">
+          <h2 className="section-q">Common questions</h2>
+        </div>
+        <div className="grid" style={{ gap: 12 }}>
+          {helpContact.faqs.map((f) => (
             <div className="card card--flat" key={f.q}>
               <div className="card__body">
                 <div className="strong">{f.q}</div>
-                <p className="small muted" style={{ marginTop: 6, marginBottom: 0 }}>
+                <p className="small muted" style={{ marginTop: 6 }}>
                   {f.a}
                 </p>
               </div>
@@ -68,6 +122,14 @@ export default function HelpPage() {
           ))}
         </div>
       </section>
-    </div>
+
+      <AnimatePresence>
+        {toast && (
+          <motion.div className="toast" role="status" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 8 }}>
+            {toast}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
