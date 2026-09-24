@@ -3,6 +3,10 @@
     python -m scripts.apply_concept_families https://frontend1.onrender.com X.MATH
     python -m scripts.apply_concept_families https://frontend1.onrender.com X.MATH --apply
 
+Every route under /platform/books requires the operator key (X-Platform-Key), and 404s
+without it rather than 401/403 -- same as a route that does not exist. This script reads
+it from $YAADHUM_PLATFORM_ADMIN_KEY by default, or pass --platform-key explicitly.
+
 Fetches GET /platform/books/{subject}/concept-families, merges proposals that are the
 same idea, and POSTs the cleaned set to /platform/books/{subject}/concept-families.
 
@@ -23,6 +27,7 @@ Without --apply this only prints what it would create -- nothing is written.
 from __future__ import annotations
 
 import argparse
+import os
 
 import httpx
 
@@ -65,10 +70,25 @@ def main() -> None:
     parser.add_argument("subject", help="e.g. X.MATH")
     parser.add_argument("--apply", action="store_true", help="actually POST; default is dry-run")
     parser.add_argument("--batch-size", type=int, default=200, help="max families per POST (API caps at 200)")
+    parser.add_argument(
+        "--platform-key",
+        default=os.environ.get("YAADHUM_PLATFORM_ADMIN_KEY"),
+        help="operator key for X-Platform-Key; every route under /platform/books requires "
+        "it (or a cross-school admin X-API-Key) and 404s otherwise -- defaults to "
+        "$YAADHUM_PLATFORM_ADMIN_KEY",
+    )
     args = parser.parse_args()
 
+    if not args.platform_key:
+        parser.error(
+            "no platform key: pass --platform-key or set YAADHUM_PLATFORM_ADMIN_KEY "
+            "(the /platform/books routes 404 without it, indistinguishable from a "
+            "missing route)"
+        )
+
+    headers = {"X-Platform-Key": args.platform_key}
     base = args.base_url.rstrip("/")
-    with httpx.Client(timeout=60) as client:
+    with httpx.Client(timeout=60, headers=headers) as client:
         resp = client.get(f"{base}/platform/books/{args.subject}/concept-families")
         resp.raise_for_status()
         data = resp.json()
