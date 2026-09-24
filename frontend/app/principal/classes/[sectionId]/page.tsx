@@ -67,15 +67,15 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
     }
   }
 
-  if (error) return <main className="wrap"><p className="error">{error}</p></main>;
+  if (error) return <div><p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p></div>;
   if (!data) {
     return (
-      <main className="wrap">
+      <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -95,27 +95,27 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
   const totalTestsTaken = rows.reduce((sum, s) => sum + s.tests_taken, 0);
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">
             <Link href="/principal/classes">Overview</Link> &rsaquo; {data.section.label}
           </p>
-          <h1 style={{ margin: 0 }}>{data.section.label}</h1>
-          <p className="lede">{data.students.length} students</p>
+          <h1 className="page-title">{data.section.label}</h1>
+          <p className="page-sub">{data.students.length} students</p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
-          <button type="button" className="btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
+          <button type="button" className="btn btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
             {downloading === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <div className="classoverview-grid">
+      <div className="card" style={{ margin: "20px 0" }}>
+        <div className="card__body classoverview-grid">
           <StatusOverviewBar counts={counts} title="Class Overview" />
           <div className="classoverview-stats">
             <StatTile icon={<PeopleIcon />} value={rows.length} label="Students" tone="violet" />
@@ -141,28 +141,28 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
       <ScoreDistribution students={rows} />
       {assessmentId && <ClassFindings sectionId={sectionId} assessmentId={assessmentId} />}
 
-      <div className="row" style={{ gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-        <div className="field" style={{ marginBottom: 0, minWidth: 160 }}>
+      <div className="filterbar" style={{ marginTop: 20 }}>
+        <div className="filter" style={{ minWidth: 160 }}>
           <label>Subject</label>
-          <select value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)}>
+          <select className="select" value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)}>
             <option value="">All subjects</option>
             {data.filters.subjects.map((s) => (
               <option key={s.subject_code} value={s.subject_code}>{s.label}</option>
             ))}
           </select>
         </div>
-        <div className="field" style={{ marginBottom: 0, minWidth: 180 }}>
+        <div className="filter" style={{ minWidth: 180 }}>
           <label>Test</label>
-          <select value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
+          <select className="select" value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
             <option value="">All tests</option>
             {data.filters.tests.map((t) => (
               <option key={t.assessment_id} value={t.assessment_id}>{t.title}</option>
             ))}
           </select>
         </div>
-        <div className="field" style={{ marginBottom: 0, minWidth: 170 }}>
+        <div className="filter" style={{ minWidth: 170 }}>
           <label>Status</label>
-          <select value={status} onChange={(e) => setStatus(e.target.value as AcademicStatus | "")}>
+          <select className="select" value={status} onChange={(e) => setStatus(e.target.value as AcademicStatus | "")}>
             <option value="">All statuses</option>
             <option value="on_track">On Track</option>
             <option value="needs_attention">Needs Attention</option>
@@ -170,14 +170,14 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
             <option value="not_assessed">Not Yet Assessed</option>
           </select>
         </div>
-        <label className="row" style={{ gap: 6, alignItems: "center", marginTop: 20 }}>
+        <label className="check" style={{ marginTop: 18 }}>
           <input type="checkbox" checked={top5} onChange={(e) => setTop5(e.target.checked)} />
-          <span className="small">Top 5 scorers</span>
+          <span>Top 5 scorers</span>
         </label>
       </div>
 
-      <div className="tablewrap">
-        <table>
+      <div className="table-wrap">
+        <table className="table table--hover">
           <thead>
             <tr>
               <th>Roll</th>
@@ -194,7 +194,7 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
               <tr key={s.student_id}>
                 <td>{s.roll_no}</td>
                 <td className="strong">
-                  <span className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
                     <Avatar name={s.name} seed={s.student_id} size={30} />
                     {s.name}
                   </span>
@@ -205,7 +205,7 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
                 <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "N/A"}</td>
                 <td>
                   <Link href={`/principal/students/${s.student_id}`}>
-                    <button type="button" className="btn--ghost btn--sm">View</button>
+                    <button type="button" className="btn btn--ghost btn--sm">View</button>
                   </Link>
                 </td>
               </tr>
@@ -216,6 +216,6 @@ export default function ClassAcademicsPage({ params }: { params: Promise<{ secti
           </tbody>
         </table>
       </div>
-    </main>
+    </div>
   );
 }

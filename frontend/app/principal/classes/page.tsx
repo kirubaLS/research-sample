@@ -57,40 +57,40 @@ export default function AcademicsOverviewPage() {
   }
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">Overview</p>
-          <h1 style={{ margin: 0 }}>All Classes</h1>
-          <p className="lede">
+          <h1 className="page-title">All Classes</h1>
+          <p className="page-sub">
             Tap a class to see every student, their subject-wise marks and what needs
             attention.
           </p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
           <Link href="/admin/boardx">
-            <button type="button" className="btn--ghost">Full diagnostic (BoardX)</button>
+            <button type="button" className="btn btn--ghost btn--sm">Full diagnostic (BoardX)</button>
           </Link>
-          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
+          <button type="button" className="btn btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
-          <button type="button" className="btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
+          <button type="button" className="btn btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
             {downloading === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 12 }}>{error}</p>}
 
       {!data && !error && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 20 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
       )}
 
       {data && data.classes.length === 0 && (
-        <p className="muted">No classes yet.</p>
+        <p className="muted" style={{ marginTop: 20 }}>No classes yet.</p>
       )}
 
       {data && data.classes.length > 0 && (
@@ -110,7 +110,7 @@ export default function AcademicsOverviewPage() {
           gap: 16px; margin-top: 20px;
         }
       `}</style>
-    </main>
+    </div>
   );
 }
 
@@ -130,10 +130,10 @@ function worstFirst(classes: ClassAcademicSummary[]): ClassAcademicSummary[] {
 }
 
 const STATUS_SERIES: { key: keyof ClassAcademicSummary["status_counts"]; label: string; color: string }[] = [
-  { key: "on_track", label: "On Track", color: "var(--verify)" },
-  { key: "needs_attention", label: "Needs Attention", color: "var(--warn)" },
+  { key: "on_track", label: "On Track", color: "var(--brand-green)" },
+  { key: "needs_attention", label: "Needs Attention", color: "var(--brand-gold)" },
   { key: "requires_review", label: "Requires Review", color: "var(--risk)" },
-  { key: "not_assessed", label: "Not Yet Assessed", color: "var(--ink-3)" },
+  { key: "not_assessed", label: "Not Yet Assessed", color: "var(--muted)" },
 ];
 
 /**
@@ -180,32 +180,36 @@ function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
       </StatTileRow>
 
       <div className="insights">
-      <div className="card insight-card">
-        <StatusOverviewBar counts={totals} title="Status Across the Whole School" />
-        <p className="cardnote" style={{ margin: "10px 0 0" }}>{totalStudents} students, every class combined</p>
+      <div className="card">
+        <div className="card__body">
+          <StatusOverviewBar counts={totals} title="Status Across the Whole School" />
+          <p className="small muted" style={{ margin: "10px 0 0" }}>{totalStudents} students, every class combined</p>
+        </div>
       </div>
 
-      <div className="card insight-card">
-        <h2 style={{ marginTop: 0, fontSize: 15 }}>Average score by class</h2>
-        <p className="cardnote" style={{ margin: "0 0 12px" }}>Classes with no marks yet are left out -- there is no score to compare.</p>
-        {scored.length === 0 ? (
-          <p className="muted small">No class has a scored paper yet.</p>
-        ) : (
-          <div className="scorebars">
-            {scored.map((c) => (
-              <div className="scorebar-row" key={c.section_id}>
-                <span className="scorebar-label">{c.grade}{c.name}</span>
-                <div className="scorebar-track">
-                  <div
-                    className="scorebar-fill"
-                    style={{ width: `${((c.avg_score_pct ?? 0) / maxScore) * 100}%` }}
-                  />
+      <div className="card">
+        <div className="card__body">
+          <h2 style={{ marginTop: 0, fontSize: 15 }}>Average score by class</h2>
+          <p className="small muted" style={{ margin: "0 0 12px" }}>Classes with no marks yet are left out -- there is no score to compare.</p>
+          {scored.length === 0 ? (
+            <p className="muted small">No class has a scored paper yet.</p>
+          ) : (
+            <div className="scorebars">
+              {scored.map((c) => (
+                <div className="scorebar-row" key={c.section_id}>
+                  <span className="scorebar-label">{c.grade}{c.name}</span>
+                  <div className="scorebar-track">
+                    <div
+                      className="scorebar-fill"
+                      style={{ width: `${((c.avg_score_pct ?? 0) / maxScore) * 100}%` }}
+                    />
+                  </div>
+                  <span className="scorebar-value">{c.avg_score_pct}%</span>
                 </div>
-                <span className="scorebar-value">{c.avg_score_pct}%</span>
-              </div>
-            ))}
-          </div>
-        )}
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       </div>
 
@@ -214,13 +218,12 @@ function SchoolInsights({ classes }: { classes: ClassAcademicSummary[] }) {
           display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
           gap: 16px; margin-top: 20px;
         }
-        .insight-card { margin: 0; }
         .scorebars { display: flex; flex-direction: column; gap: 9px; }
         .scorebar-row { display: grid; grid-template-columns: 56px 1fr 42px; align-items: center; gap: 10px; }
-        .scorebar-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
-        .scorebar-track { height: 10px; border-radius: 999px; background: var(--rule); overflow: hidden; }
-        .scorebar-fill { height: 100%; border-radius: 999px; background: var(--mark); transition: width 0.3s ease; }
-        .scorebar-value { font-size: 12.5px; color: var(--ink-2); text-align: right; font-variant-numeric: tabular-nums; }
+        .scorebar-label { font-size: 13px; font-weight: 600; color: var(--brand-ink-soft); }
+        .scorebar-track { height: 10px; border-radius: 999px; background: var(--line); overflow: hidden; }
+        .scorebar-fill { height: 100%; border-radius: 999px; background: var(--brand-teal); transition: width 0.3s ease; }
+        .scorebar-value { font-size: 12.5px; color: var(--brand-ink-soft); text-align: right; font-variant-numeric: tabular-nums; }
       `}</style>
     </div>
   );
@@ -230,10 +233,10 @@ function ClassCard({ c }: { c: ClassAcademicSummary }) {
   const counts = c.status_counts;
   const total = c.student_count || 1;
   const segments: { key: string; n: number; color: string }[] = [
-    { key: "on_track", n: counts.on_track, color: "var(--verify)" },
-    { key: "needs_attention", n: counts.needs_attention, color: "var(--warn)" },
+    { key: "on_track", n: counts.on_track, color: "var(--brand-green)" },
+    { key: "needs_attention", n: counts.needs_attention, color: "var(--brand-gold)" },
     { key: "requires_review", n: counts.requires_review, color: "var(--risk)" },
-    { key: "not_assessed", n: counts.not_assessed, color: "var(--rule-2)" },
+    { key: "not_assessed", n: counts.not_assessed, color: "var(--line-strong)" },
   ];
 
   // The reference's own attn dimension: one dominant read per class, standing in for
@@ -253,13 +256,13 @@ function ClassCard({ c }: { c: ClassAcademicSummary }) {
         <div className="card__head">
           <div>
             <h2 style={{ margin: 0 }}>{c.grade}{c.name}</h2>
-            <p className="cardnote" style={{ margin: "2px 0 0" }}>{c.student_count} Students</p>
+            <p className="small muted" style={{ margin: "2px 0 0" }}>{c.student_count} Students</p>
           </div>
           {attn && <span className={`attn ${attn.cls}`}>{attn.label}</span>}
         </div>
         <div className="card__body" style={{ paddingTop: 14 }}>
           {c.avg_score_pct != null && (
-            <p className="strong" style={{ margin: "0 0 10px", fontSize: 20 }}>{c.avg_score_pct}% avg</p>
+            <p style={{ margin: "0 0 10px", fontSize: 20, fontWeight: 650 }}>{c.avg_score_pct}% avg</p>
           )}
           <div className="stackbar" aria-hidden>
             {segments.map((s) => (
@@ -272,12 +275,12 @@ function ClassCard({ c }: { c: ClassAcademicSummary }) {
             ))}
           </div>
 
-          <div className="row" style={{ gap: 14, flexWrap: "wrap", marginTop: 10 }}>
-            <Legend label="On Track" n={counts.on_track} color="var(--verify)" />
-            <Legend label="Attention" n={counts.needs_attention} color="var(--warn)" />
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap", marginTop: 10 }}>
+            <Legend label="On Track" n={counts.on_track} color="var(--brand-green)" />
+            <Legend label="Attention" n={counts.needs_attention} color="var(--brand-gold)" />
             <Legend label="Review" n={counts.requires_review} color="var(--risk)" />
             {counts.not_assessed > 0 && (
-              <Legend label="Not Assessed" n={counts.not_assessed} color="var(--ink-3)" />
+              <Legend label="Not Assessed" n={counts.not_assessed} color="var(--muted)" />
             )}
           </div>
 
@@ -300,7 +303,7 @@ function ClassCard({ c }: { c: ClassAcademicSummary }) {
 
 function Legend({ label, n, color }: { label: string; n: number; color: string }) {
   return (
-    <span className="small" style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--ink-2)" }}>
+    <span className="small" style={{ display: "inline-flex", alignItems: "center", gap: 5, color: "var(--brand-ink-soft)" }}>
       <span style={{ width: 8, height: 8, borderRadius: 999, background: color, display: "inline-block" }} />
       {n} {label}
     </span>

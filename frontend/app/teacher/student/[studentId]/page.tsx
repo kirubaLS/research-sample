@@ -63,15 +63,13 @@ export default function TeacherStudentPage({
     }
   }
 
-  if (error) return <main className="wrap"><p className="error">{error}</p></main>;
+  if (error) return <p className="page-sub" style={{ color: "var(--risk)" }}>{error}</p>;
   if (!data) {
     return (
-      <main className="wrap">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Mascot pose="loading" size={24} />
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
-        </div>
-      </main>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Mascot pose="loading" size={24} />
+        <p className="muted" style={{ margin: 0 }}>Loading…</p>
+      </div>
     );
   }
 
@@ -80,8 +78,8 @@ export default function TeacherStudentPage({
     : data.subjects;
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">
             {data.student.section_label && (
@@ -92,17 +90,17 @@ export default function TeacherStudentPage({
             )}
             {data.student.name}
           </p>
-          <h1 className="row" style={{ margin: 0, gap: 12, alignItems: "center" }}>
+          <h1 className="page-title" style={{ marginTop: 4, display: "flex", gap: 12, alignItems: "center" }}>
             <Avatar name={data.student.name} seed={data.student.id} size={40} />
             {data.student.name}
           </h1>
-          <p className="lede">Roll {data.student.roll_no}</p>
+          <p className="page-sub">Roll {data.student.roll_no}</p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="btn--ghost" onClick={() => setShareOpen(true)}>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button type="button" className="btn btn--ghost" onClick={() => setShareOpen(true)}>
             Share with student
           </button>
-          <button type="button" disabled={downloading} onClick={downloadCsv}>
+          <button type="button" className="btn btn--primary" disabled={downloading} onClick={downloadCsv}>
             {downloading ? "Preparing…" : "Download CSV"}
           </button>
         </div>
@@ -125,51 +123,53 @@ export default function TeacherStudentPage({
       </StatTileRow>
 
       {data.subjects.length > 0 && (
-        <div className="field" style={{ maxWidth: 260, marginBottom: 14 }}>
-          <label>Filter by subject</label>
-          <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
-            <option value="">All subjects</option>
-            {data.subjects.map((s) => (
-              <option key={s.subject_code} value={s.subject_code}>{s.label}</option>
-            ))}
-          </select>
+        <div className="filterbar">
+          <div className="field" style={{ maxWidth: 260 }}>
+            <label>Filter by subject</label>
+            <select className="select" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
+              <option value="">All subjects</option>
+              {data.subjects.map((s) => (
+                <option key={s.subject_code} value={s.subject_code}>{s.label}</option>
+              ))}
+            </select>
+          </div>
         </div>
       )}
 
       {subjects.length === 0 ? (
         <p className="muted">No marks recorded for this student yet.</p>
       ) : (
-        <div className="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Subject</th>
-                <th>Avg Score</th>
-                <th>Tests Taken</th>
-                <th>Status</th>
-                <th>Strengths</th>
-                <th>Areas to Improve</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {subjects.map((s) => (
-                <tr key={s.subject_code}>
-                  <td className="strong">{s.label}</td>
-                  <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "N/A"}</td>
-                  <td className="num">{s.tests_taken}</td>
-                  <td><StatusBadge status={s.status} /></td>
-                  <td className="small">{s.strengths.join(", ") || "N/A"}</td>
-                  <td className="small">{s.improve.join(", ") || "N/A"}</td>
-                  <td>
-                    <Link href={`/teacher/student/${studentId}/subjects/${s.subject_code}`}>
-                      <button type="button" className="btn--ghost btn--sm">Details</button>
-                    </Link>
-                  </td>
+        <div className="card">
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Subject</th>
+                  <th>Avg Score</th>
+                  <th>Tests Taken</th>
+                  <th>Status</th>
+                  <th>Strengths</th>
+                  <th>Areas to Improve</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {subjects.map((s) => (
+                  <tr key={s.subject_code}>
+                    <td className="strong">{s.label}</td>
+                    <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "N/A"}</td>
+                    <td className="num">{s.tests_taken}</td>
+                    <td><StatusBadge status={s.status} /></td>
+                    <td className="small">{s.strengths.join(", ") || "N/A"}</td>
+                    <td className="small">{s.improve.join(", ") || "N/A"}</td>
+                    <td>
+                      <Link href={`/teacher/student/${studentId}/subjects/${s.subject_code}`} className="btn btn--ghost btn--sm">Details</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
@@ -180,6 +180,6 @@ export default function TeacherStudentPage({
           onClose={() => setShareOpen(false)}
         />
       )}
-    </main>
+    </>
   );
 }

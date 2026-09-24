@@ -42,37 +42,37 @@ export default function TestsTabPage() {
   }
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">Test</p>
-          <h1 style={{ margin: 0 }}>Every Test</h1>
-          <p className="lede">Every paper with marks recorded on it -- open one to see how the whole class did.</p>
+          <h1 className="page-title">Every Test</h1>
+          <p className="page-sub">Every paper with marks recorded on it -- open one to see how the whole class did.</p>
         </div>
         {tests && tests.length > 0 && (
-          <div className="row" style={{ gap: 8 }}>
-            <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
               {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
             </button>
-            <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
+            <button type="button" className="btn btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
               {downloading === "pdf" ? "Preparing…" : "Download PDF"}
             </button>
           </div>
         )}
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 12 }}>{error}</p>}
       {!tests && !error && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 20 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
       )}
-      {tests && tests.length === 0 && <p className="muted">No test has any marks recorded yet.</p>}
+      {tests && tests.length === 0 && <p className="muted" style={{ marginTop: 20 }}>No test has any marks recorded yet.</p>}
 
       {tests && tests.length > 0 && (
-        <div className="tablewrap">
-          <table>
+        <div className="table-wrap" style={{ marginTop: 20 }}>
+          <table className="table table--hover">
             <thead>
               <tr>
                 <th>Test</th>
@@ -94,14 +94,14 @@ export default function TestsTabPage() {
                     {t.delta_pct == null ? (
                       <span className="muted">&mdash;</span>
                     ) : (
-                      <span style={{ color: t.delta_pct >= 0 ? "var(--verify)" : "var(--risk)" }}>
+                      <span className="delta" data-dir={t.delta_pct >= 0 ? "up" : "down"}>
                         {t.delta_pct >= 0 ? "▲" : "▼"} {Math.abs(t.delta_pct)}%
                       </span>
                     )}
                   </td>
                   <td>
                     <Link href={`/principal/exams/${t.assessment_id}`}>
-                      <button type="button" className="btn--ghost btn--sm">View</button>
+                      <button type="button" className="btn btn--ghost btn--sm">View</button>
                     </Link>
                   </td>
                 </tr>
@@ -110,6 +110,6 @@ export default function TestsTabPage() {
           </table>
         </div>
       )}
-    </main>
+    </div>
   );
 }

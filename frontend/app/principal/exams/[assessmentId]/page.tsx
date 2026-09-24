@@ -44,44 +44,46 @@ export default function TestSummaryPage({ params }: { params: Promise<{ assessme
     }
   }
 
-  if (error) return <main className="wrap"><p className="error">{error}</p></main>;
+  if (error) return <div><p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p></div>;
   if (!data) {
     return (
-      <main className="wrap">
+      <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
-      </main>
+      </div>
     );
   }
 
   const counts = data.status_counts;
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow"><Link href="/principal/exams">Test</Link> &rsaquo; {data.assessment.title}</p>
-          <h1 style={{ margin: 0 }}>{data.assessment.title}</h1>
-          <p className="lede">{data.assessment.subject_label}</p>
+          <h1 className="page-title">{data.assessment.title}</h1>
+          <p className="page-sub">{data.assessment.subject_label}</p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
-          <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
+          <button type="button" className="btn btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
             {downloading === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <StatusOverviewBar counts={counts} title="Test Overview" />
+      <div className="card" style={{ margin: "20px 0" }}>
+        <div className="card__body">
+          <StatusOverviewBar counts={counts} title="Test Overview" />
+        </div>
       </div>
 
-      <div className="tablewrap">
-        <table>
+      <div className="table-wrap">
+        <table className="table table--hover">
           <thead>
             <tr>
               <th>Roll</th>
@@ -96,7 +98,7 @@ export default function TestSummaryPage({ params }: { params: Promise<{ assessme
               <tr key={s.student_id}>
                 <td>{s.roll_no}</td>
                 <td className="strong">
-                  <span className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
+                  <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
                     <Avatar name={s.name} seed={s.student_id} size={30} />
                     {s.name}
                   </span>
@@ -105,7 +107,7 @@ export default function TestSummaryPage({ params }: { params: Promise<{ assessme
                 <td><StatusBadge status={s.status} /></td>
                 <td>
                   <Link href={`/principal/students/${s.student_id}`}>
-                    <button type="button" className="btn--ghost btn--sm">View</button>
+                    <button type="button" className="btn btn--ghost btn--sm">View</button>
                   </Link>
                 </td>
               </tr>
@@ -116,6 +118,6 @@ export default function TestSummaryPage({ params }: { params: Promise<{ assessme
           </tbody>
         </table>
       </div>
-    </main>
+    </div>
   );
 }

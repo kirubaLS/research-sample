@@ -38,25 +38,23 @@ export default function TeacherHomePage() {
   }, []);
 
   return (
-    <main className="narrow">
-      <div className="hero">
-        <p className="eyebrow">Teacher Home</p>
-        <h1 style={{ margin: 0 }}>{name ? `Welcome, ${name}` : "My Subjects"}</h1>
-      </div>
+    <>
+      <p className="eyebrow">Teacher Home</p>
+      <h1 className="page-title" style={{ marginTop: 4 }}>{name ? `Welcome, ${name}` : "My Subjects"}</h1>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="page-sub" style={{ color: "var(--risk)" }}>{error}</p>}
       {!classes && !error && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
       )}
       {classes && classes.length === 0 && (
-        <p className="muted">No classes or subjects are assigned to this key yet.</p>
+        <p className="muted" style={{ marginTop: 16 }}>No classes or subjects are assigned to this key yet.</p>
       )}
 
       {classes && classes.length > 0 && <SubjectGroups classes={classes} />}
-    </main>
+    </>
   );
 }
 
@@ -76,7 +74,7 @@ function SubjectGroups({ classes }: { classes: TeacherAcademicClassRow[] }) {
   }
 
   return (
-    <div className="stack" style={{ gap: 20 }}>
+    <div className="section" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
       {wholeClass.length > 0 && (
         <SubjectCard title="Your Classes" rows={wholeClass} />
       )}
@@ -109,7 +107,7 @@ function SubjectCard({ title, rows }: { title: string; rows: TeacherAcademicClas
         <span className="small muted">{rows.length} class{rows.length === 1 ? "" : "es"}</span>
       </div>
       <div className="card__body">
-        <div className="stack" style={{ gap: 8 }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
           {rows.map((c) => {
             const attn = dominantAttn(c);
             return (
@@ -132,15 +130,6 @@ function SubjectCard({ title, rows }: { title: string; rows: TeacherAcademicClas
           })}
         </div>
       </div>
-
-      <style jsx>{`
-        .subject-row {
-          display: flex; align-items: center; justify-content: space-between; gap: 12px;
-          padding: 10px 12px; border: 1px solid var(--rule); border-radius: var(--radius-sm, 10px);
-          text-decoration: none; color: inherit; transition: border-color 0.15s ease;
-        }
-        .subject-row:hover { border-color: var(--brand-teal); }
-      `}</style>
     </div>
   );
 }

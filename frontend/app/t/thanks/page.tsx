@@ -7,8 +7,8 @@
  */
 export default function ThanksPage() {
   return (
-    <main className="narrow">
-      <div className="hero" style={{ textAlign: "center", paddingTop: 60 }}>
+    <main className="content" style={{ maxWidth: 520 }}>
+      <div style={{ textAlign: "center", paddingTop: 60 }}>
         <div
           aria-hidden
           style={{
@@ -16,8 +16,8 @@ export default function ThanksPage() {
             height: 56,
             margin: "0 auto 20px",
             borderRadius: "50%",
-            background: "var(--verify-soft)",
-            color: "var(--verify)",
+            background: "var(--brand-green-soft)",
+            color: "var(--brand-green)",
             display: "grid",
             placeItems: "center",
             fontSize: 28,
@@ -25,13 +25,13 @@ export default function ThanksPage() {
         >
           &#10003;
         </div>
-        <h1>Thank you</h1>
-        <p className="lede" style={{ margin: "0 auto" }}>
+        <h1 className="page-title">Thank you</h1>
+        <p className="page-sub" style={{ margin: "8px auto 0" }}>
           Your answers have been recorded.
         </p>
       </div>
 
-      <div className="notice" style={{ marginTop: 26 }}>
+      <div className="evidence evidence--neutral" style={{ marginTop: 26 }}>
         Your school&apos;s counsellor will go through the results with you. There is nothing
         else to do here. You can close this page.
       </div>

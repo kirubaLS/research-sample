@@ -45,8 +45,8 @@ function TestFlow() {
 
   if (!sessionId || !payload) {
     return (
-      <main>
-        <h1>Session not found</h1>
+      <main className="content">
+        <h1 className="page-title">Session not found</h1>
         <p className="muted">Please open the link your teacher gave you again.</p>
       </main>
     );
@@ -96,35 +96,34 @@ function TestFlow() {
 
   if (screenIndex < 0) {
     return (
-      <main className="narrow">
-        <div className="hero">
-          <p className="eyebrow">Ready when you are</p>
-          <h1>Before you start</h1>
-        </div>
+      <main className="content" style={{ maxWidth: 520 }}>
+        <p className="eyebrow">Ready when you are</p>
+        <h1 className="page-title" style={{ marginTop: 6 }}>Before you start</h1>
+
         <div className="card" style={{ marginTop: 18 }}>
-          <div className="stack" style={{ gap: 14 }}>
-            <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
-              <span className="badge">1</span>
+          <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span className="pillnum">1</span>
               <span>36 questions across six screens. About eight minutes.</span>
             </div>
-            <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
-              <span className="badge">2</span>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span className="pillnum">2</span>
               <span>There are no right or wrong answers.</span>
             </div>
-            <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
-              <span className="badge">3</span>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span className="pillnum">3</span>
               <span>
                 Answer about what you would <em>enjoy doing</em>, not what you think you
                 should say.
               </span>
             </div>
-            <div className="row" style={{ gap: 12, alignItems: "flex-start" }}>
-              <span className="badge">4</span>
+            <div style={{ display: "flex", gap: 12, alignItems: "flex-start" }}>
+              <span className="pillnum">4</span>
               <span>Your answers save as you go. If the page closes, you can come back.</span>
             </div>
           </div>
         </div>
-        <button onClick={() => setScreenIndex(0)} style={{ marginTop: 22, width: "100%" }}>
+        <button onClick={() => setScreenIndex(0)} className="btn btn--primary" style={{ marginTop: 22, width: "100%", justifyContent: "center", padding: 11 }}>
           Take the test
         </button>
       </main>
@@ -132,8 +131,8 @@ function TestFlow() {
   }
 
   return (
-    <main className="narrow">
-      <div className="row between small muted" style={{ marginBottom: 8 }}>
+    <main className="content" style={{ maxWidth: 520 }}>
+      <div className="small muted" style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
         <span>
           Screen {screenIndex + 1} of {payload.screens.length}
         </span>
@@ -141,36 +140,40 @@ function TestFlow() {
           {answeredCount} / {payload.total_items}
         </span>
       </div>
-      <div className="progress">
-        <div style={{ width: `${(answeredCount / payload.total_items) * 100}%` }} />
+      <div className="bar">
+        <div className="bar__fill" style={{ width: `${(answeredCount / payload.total_items) * 100}%` }} />
       </div>
 
       <h2 style={{ margin: "22px 0 14px" }}>How much would you enjoy doing this?</h2>
 
       <div className="card">
-        {(screen ?? []).map((item) => (
-          <div className="item" key={item.item_id}>
-            <div className="qtext">{item.text}</div>
-            <div className="likert">
-              {item.options.map((label, i) => (
-                <button
-                  key={label}
-                  type="button"
-                  aria-pressed={answers[item.item_id]?.value === i + 1}
-                  onClick={() => choose(item.item_id, i + 1)}
-                >
-                  {label}
-                </button>
-              ))}
+        <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {(screen ?? []).map((item) => (
+            <div className="test-item" key={item.item_id}>
+              <div className="test-item__text">{item.text}</div>
+              <div className="test-item__likert">
+                {item.options.map((label, i) => (
+                  <button
+                    key={label}
+                    type="button"
+                    className={`btn btn--sm${answers[item.item_id]?.value === i + 1 ? " btn--primary" : ""}`}
+                    aria-pressed={answers[item.item_id]?.value === i + 1}
+                    onClick={() => choose(item.item_id, i + 1)}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
 
       <button
         onClick={next}
         disabled={!allOnScreenAnswered || saving}
-        style={{ marginTop: 20, width: "100%" }}
+        className="btn btn--primary"
+        style={{ marginTop: 20, width: "100%", justifyContent: "center", padding: 11 }}
       >
         {saving
           ? "Saving…"
@@ -178,6 +181,12 @@ function TestFlow() {
             ? "Continue"
             : "Finish"}
       </button>
+
+      <style jsx>{`
+        .test-item { display: flex; flex-direction: column; gap: 8px; }
+        .test-item__text { font-size: 14.5px; font-weight: 600; }
+        .test-item__likert { display: flex; gap: 6px; flex-wrap: wrap; }
+      `}</style>
     </main>
   );
 }
@@ -186,7 +195,7 @@ function TestFlow() {
 /** useSearchParams needs a Suspense boundary for Next's static generation. */
 export default function TestPage() {
   return (
-    <Suspense fallback={<main><p className="muted">Loading…</p></main>}>
+    <Suspense fallback={<main className="content"><p className="muted">Loading…</p></main>}>
       <TestFlow />
     </Suspense>
   );

@@ -45,67 +45,69 @@ export default function TeacherTestSummaryPage({ params }: { params: Promise<{ a
     }
   }
 
-  if (error) return <main className="wrap"><p className="error">{error}</p></main>;
+  if (error) return <p className="page-sub" style={{ color: "var(--risk)" }}>{error}</p>;
   if (!data) {
     return (
-      <main className="wrap">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Mascot pose="loading" size={24} />
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
-        </div>
-      </main>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Mascot pose="loading" size={24} />
+        <p className="muted" style={{ margin: 0 }}>Loading…</p>
+      </div>
     );
   }
 
   const counts = data.status_counts;
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow"><Link href="/teacher/tests">Test</Link> &rsaquo; {data.assessment.title}</p>
-          <h1 style={{ margin: 0 }}>{data.assessment.title}</h1>
-          <p className="lede">{data.assessment.subject_label}</p>
+          <h1 className="page-title" style={{ marginTop: 4 }}>{data.assessment.title}</h1>
+          <p className="page-sub">{data.assessment.subject_label}</p>
         </div>
-        <button type="button" className="btn--ghost" disabled={downloading} onClick={downloadCsv}>
+        <button type="button" className="btn btn--ghost" disabled={downloading} onClick={downloadCsv}>
           {downloading ? "Preparing…" : "Download CSV"}
         </button>
       </div>
 
-      <div className="card" style={{ marginBottom: 20 }}>
-        <StatusOverviewBar counts={counts} title="Test Overview" />
+      <div className="card" style={{ marginTop: 18, marginBottom: 20 }}>
+        <div className="card__body">
+          <StatusOverviewBar counts={counts} title="Test Overview" />
+        </div>
       </div>
 
-      <div className="tablewrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Roll</th>
-              <th>Name</th>
-              <th>Score</th>
-              <th>Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.students.map((s) => (
-              <tr key={s.student_id}>
-                <td>{s.roll_no}</td>
-                <td className="strong">
-                  <span className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
-                    <Avatar name={s.name} seed={s.student_id} size={30} />
-                    {s.name}
-                  </span>
-                </td>
-                <td className="num">{s.earned}/{s.available}{s.avg_score_pct != null ? ` (${s.avg_score_pct}%)` : ""}</td>
-                <td><StatusBadge status={s.status} /></td>
+      <div className="card">
+        <div className="table-wrap">
+          <table className="table">
+            <thead>
+              <tr>
+                <th>Roll</th>
+                <th>Name</th>
+                <th>Score</th>
+                <th>Status</th>
               </tr>
-            ))}
-            {data.students.length === 0 && (
-              <tr><td colSpan={4} className="muted">No marks recorded for this test yet.</td></tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.students.map((s) => (
+                <tr key={s.student_id}>
+                  <td>{s.roll_no}</td>
+                  <td className="strong">
+                    <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
+                      <Avatar name={s.name} seed={s.student_id} size={30} />
+                      {s.name}
+                    </span>
+                  </td>
+                  <td className="num">{s.earned}/{s.available}{s.avg_score_pct != null ? ` (${s.avg_score_pct}%)` : ""}</td>
+                  <td><StatusBadge status={s.status} /></td>
+                </tr>
+              ))}
+              {data.students.length === 0 && (
+                <tr><td colSpan={4} className="muted">No marks recorded for this test yet.</td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </main>
+    </>
   );
 }

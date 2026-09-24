@@ -83,15 +83,13 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
     }
   }
 
-  if (error) return <main className="wrap"><p className="error">{error}</p></main>;
+  if (error) return <p className="page-sub" style={{ color: "var(--risk)" }}>{error}</p>;
   if (!students || !section) {
     return (
-      <main className="wrap">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Mascot pose="loading" size={24} />
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
-        </div>
-      </main>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Mascot pose="loading" size={24} />
+        <p className="muted" style={{ margin: 0 }}>Loading…</p>
+      </div>
     );
   }
 
@@ -101,24 +99,24 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
   const canEnterMarks = role?.can.enter_marks && subjectCode;
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">
             <Link href="/teacher/home">Home</Link> &rsaquo; {section.label}
           </p>
-          <h1 style={{ margin: 0 }}>{section.label}</h1>
-          <p className="lede">
+          <h1 className="page-title" style={{ marginTop: 4 }}>{section.label}</h1>
+          <p className="page-sub">
             {subjectCode ? `${subjectCode} only` : "All subjects"} · {students.length} students
           </p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
+        <div style={{ display: "flex", gap: 8 }}>
           {canEnterMarks && (
-            <Link href={`/principal/enter-marks?assessment_subject=${subjectCode}&section_id=${sectionId}`}>
-              <button type="button" className="btn--ghost">Enter marks</button>
+            <Link href={`/principal/enter-marks?assessment_subject=${subjectCode}&section_id=${sectionId}`} className="btn btn--ghost">
+              Enter marks
             </Link>
           )}
-          <button type="button" className="btn--ghost" disabled={downloading} onClick={downloadCsv}>
+          <button type="button" className="btn btn--ghost" disabled={downloading} onClick={downloadCsv}>
             {downloading ? "Preparing…" : "Download CSV"}
           </button>
         </div>
@@ -134,8 +132,8 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
           ? Math.round(scored.reduce((sum, s) => sum + (s.avg_score_pct ?? 0), 0) / scored.length)
           : null;
         return (
-          <div className="card" style={{ marginBottom: 20 }}>
-            <div className="classoverview-grid">
+          <div className="card" style={{ marginTop: 18, marginBottom: 20 }}>
+            <div className="card__body classoverview-grid">
               <StatusOverviewBar counts={counts} title="Class Overview" />
               <div className="classoverview-stats">
                 <StatTile icon={<PeopleIcon />} value={students.length} label="Students" tone="violet" />
@@ -153,19 +151,13 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
         );
       })()}
 
-      <div className="subtabbar" style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "1px solid var(--rule)" }}>
+      <div className="tabs" style={{ marginBottom: 16 }}>
         {(["students", "cohort"] as Tab[]).map((t) => (
           <button
             key={t}
             type="button"
             onClick={() => setTab(t)}
-            className={`subtab-btn${tab === t ? " on" : ""}`}
-            style={{
-              border: 0, background: "transparent", padding: "8px 4px", marginRight: 14,
-              fontSize: 13.5, fontWeight: 600, cursor: "pointer",
-              color: tab === t ? "var(--brand-ink)" : "var(--ink-3)",
-              borderBottom: tab === t ? "2px solid var(--brand-ink)" : "2px solid transparent",
-            }}
+            className={`tab${tab === t ? " tab--active" : ""}`}
           >
             {t === "students" ? "Students" : "Cohort snapshot"}
           </button>
@@ -176,10 +168,10 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
         <>
           <ScoreDistribution students={students} />
 
-          <div className="row" style={{ gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-            <div className="field" style={{ marginBottom: 0, minWidth: 170 }}>
+          <div className="filterbar">
+            <div className="field">
               <label>Status</label>
-              <select value={status} onChange={(e) => setStatus(e.target.value as AcademicStatus | "")}>
+              <select className="select" value={status} onChange={(e) => setStatus(e.target.value as AcademicStatus | "")}>
                 <option value="">All statuses</option>
                 <option value="on_track">On Track</option>
                 <option value="needs_attention">Needs Attention</option>
@@ -189,110 +181,110 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
             </div>
           </div>
 
-          <div className="tablewrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Roll</th>
-                  <th>Name</th>
-                  <th>Status</th>
-                  <th>Avg Score</th>
-                  <th>Tests Taken</th>
-                  <th>Top Area to Improve</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {students.map((s) => (
-                  <tr key={s.student_id}>
-                    <td>{s.roll_no}</td>
-                    <td className="strong">
-                      <span className="row" style={{ gap: 10, flexWrap: "nowrap" }}>
-                        <Avatar name={s.name} seed={s.student_id} size={30} />
-                        {s.name}
-                      </span>
-                    </td>
-                    <td><StatusBadge status={s.status} /></td>
-                    <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "N/A"}</td>
-                    <td className="num">{s.tests_taken}</td>
-                    <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "N/A"}</td>
-                    <td className="row" style={{ gap: 6 }}>
-                      <Link href={`/teacher/student/${s.student_id}`}>
-                        <button type="button" className="btn--ghost btn--sm">View</button>
-                      </Link>
-                      <button
-                        type="button"
-                        className="btn--ghost btn--sm"
-                        title="Report must be issued before it can be shared"
-                        onClick={() => setShareFor({ studentId: s.student_id, name: s.name })}
-                      >
-                        Share ⋮
-                      </button>
-                    </td>
+          <div className="card">
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Roll</th>
+                    <th>Name</th>
+                    <th>Status</th>
+                    <th>Avg Score</th>
+                    <th>Tests Taken</th>
+                    <th>Top Area to Improve</th>
+                    <th />
                   </tr>
-                ))}
-                {students.length === 0 && (
-                  <tr><td colSpan={7} className="muted">No students match these filters.</td></tr>
-                )}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {students.map((s) => (
+                    <tr key={s.student_id}>
+                      <td>{s.roll_no}</td>
+                      <td className="strong">
+                        <span style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "nowrap" }}>
+                          <Avatar name={s.name} seed={s.student_id} size={30} />
+                          {s.name}
+                        </span>
+                      </td>
+                      <td><StatusBadge status={s.status} /></td>
+                      <td className="num">{s.avg_score_pct != null ? `${s.avg_score_pct}%` : "N/A"}</td>
+                      <td className="num">{s.tests_taken}</td>
+                      <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${s.top_improvement_area.rate}%)` : "N/A"}</td>
+                      <td>
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <Link href={`/teacher/student/${s.student_id}`} className="btn btn--ghost btn--sm">View</Link>
+                          <button
+                            type="button"
+                            className="btn btn--ghost btn--sm"
+                            title="Report must be issued before it can be shared"
+                            onClick={() => setShareFor({ studentId: s.student_id, name: s.name })}
+                          >
+                            Share ⋮
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {students.length === 0 && (
+                    <tr><td colSpan={7} className="muted">No students match these filters.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}
 
       {tab === "cohort" && (
         <div className="card">
-          <p className="cardnote" style={{ marginTop: 0 }}>
-            Cohort snapshot for {section.label}: Holland-code and stream-fit counts
-            across the interest test, scoped to this section only.
-          </p>
-          {!cohort && <p className="muted">Loading…</p>}
-          {cohort && cohort.counted === 0 && (
-            <p className="muted">
-              No student in this section has a countable interest profile yet
-              {cohort.withheld > 0 && ` (${cohort.withheld} withheld as too undifferentiated to call)`}.
+          <div className="card__body">
+            <p className="muted" style={{ marginTop: 0 }}>
+              Cohort snapshot for {section.label}: Holland-code and stream-fit counts
+              across the interest test, scoped to this section only.
             </p>
-          )}
-          {cohort && cohort.counted > 0 && (
-            <>
-              <div className="section-head" style={{ marginTop: 4 }}>
-                <h3 style={{ margin: 0 }}>Where this class leans</h3>
-              </div>
-              {Object.entries(cohort.streams)
-                .sort((a, b) => b[1] - a[1])
-                .map(([stream, n]) => (
-                  <div className="scalerow" key={stream}>
-                    <span className="nm">{stream}</span>
-                    <div className="scaletrack">
-                      <div className="scalefill" style={{ width: `${(n / cohort.counted) * 100}%` }} />
-                    </div>
-                    <span className="pct">{n}</span>
-                  </div>
-                ))}
-
-              <div className="section-head" style={{ marginTop: 18 }}>
-                <h3 style={{ margin: 0 }}>Holland codes</h3>
-              </div>
-              {Object.entries(cohort.holland)
-                .sort((a, b) => b[1] - a[1])
-                .map(([code, n]) => (
-                  <div className="scalerow" key={code}>
-                    <span className="nm">{code}</span>
-                    <div className="scaletrack">
-                      <div className="scalefill" style={{ width: `${(n / cohort.counted) * 100}%` }} />
-                    </div>
-                    <span className="pct">{n}</span>
-                  </div>
-                ))}
-
-              <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
-                {cohort.counted} profile{cohort.counted === 1 ? "" : "s"} counted
-                {cohort.withheld > 0 && (
-                  <> · {cohort.withheld} withheld as too undifferentiated to call</>
-                )}
+            {!cohort && <p className="muted">Loading…</p>}
+            {cohort && cohort.counted === 0 && (
+              <p className="muted">
+                No student in this section has a countable interest profile yet
+                {cohort.withheld > 0 && ` (${cohort.withheld} withheld as too undifferentiated to call)`}.
               </p>
-            </>
-          )}
+            )}
+            {cohort && cohort.counted > 0 && (
+              <>
+                <h3 style={{ marginTop: 4 }}>Where this class leans</h3>
+                {Object.entries(cohort.streams)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([stream, n]) => (
+                    <div className="bar-row" key={stream}>
+                      <span className="bar-row__label">{stream}</span>
+                      <div className="bar">
+                        <div className="bar__fill" style={{ width: `${(n / cohort.counted) * 100}%` }} />
+                      </div>
+                      <span className="bar-row__val">{n}</span>
+                    </div>
+                  ))}
+
+                <h3 style={{ marginTop: 18 }}>Holland codes</h3>
+                {Object.entries(cohort.holland)
+                  .sort((a, b) => b[1] - a[1])
+                  .map(([code, n]) => (
+                    <div className="bar-row" key={code}>
+                      <span className="bar-row__label">{code}</span>
+                      <div className="bar">
+                        <div className="bar__fill" style={{ width: `${(n / cohort.counted) * 100}%` }} />
+                      </div>
+                      <span className="bar-row__val">{n}</span>
+                    </div>
+                  ))}
+
+                <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
+                  {cohort.counted} profile{cohort.counted === 1 ? "" : "s"} counted
+                  {cohort.withheld > 0 && (
+                    <> · {cohort.withheld} withheld as too undifferentiated to call</>
+                  )}
+                </p>
+              </>
+            )}
+          </div>
         </div>
       )}
 
@@ -303,6 +295,6 @@ export default function TeacherClassPage({ params }: { params: Promise<{ section
           onClose={() => setShareFor(null)}
         />
       )}
-    </main>
+    </>
   );
 }

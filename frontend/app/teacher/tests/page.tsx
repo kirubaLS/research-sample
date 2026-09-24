@@ -26,50 +26,48 @@ export default function TeacherTestsPage() {
   }, []);
 
   return (
-    <main className="wrap">
-      <div className="hero">
-        <p className="eyebrow">Test</p>
-        <h1 style={{ margin: 0 }}>Every Test</h1>
-        <p className="lede">Every paper with marks recorded in your own classes and subjects.</p>
-      </div>
+    <>
+      <p className="eyebrow">Test</p>
+      <h1 className="page-title" style={{ marginTop: 4 }}>Every Test</h1>
+      <p className="page-sub">Every paper with marks recorded in your own classes and subjects.</p>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p className="page-sub" style={{ color: "var(--risk)" }}>{error}</p>}
       {!tests && !error && (
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 16 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
       )}
-      {tests && tests.length === 0 && <p className="muted">No test has any marks recorded yet.</p>}
+      {tests && tests.length === 0 && <p className="muted" style={{ marginTop: 16 }}>No test has any marks recorded yet.</p>}
 
       {tests && tests.length > 0 && (
-        <div className="tablewrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Test</th>
-                <th>Subject</th>
-                <th>Students Marked</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {tests.map((t) => (
-                <tr key={t.assessment_id}>
-                  <td className="strong">{t.title}</td>
-                  <td>{t.label}</td>
-                  <td className="num">{t.students_marked}</td>
-                  <td>
-                    <Link href={`/teacher/tests/${t.assessment_id}`}>
-                      <button type="button" className="btn--ghost btn--sm">View</button>
-                    </Link>
-                  </td>
+        <div className="card" style={{ marginTop: 18 }}>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Test</th>
+                  <th>Subject</th>
+                  <th>Students Marked</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {tests.map((t) => (
+                  <tr key={t.assessment_id}>
+                    <td className="strong">{t.title}</td>
+                    <td>{t.label}</td>
+                    <td className="num">{t.students_marked}</td>
+                    <td>
+                      <Link href={`/teacher/tests/${t.assessment_id}`} className="btn btn--ghost btn--sm">View</Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
-    </main>
+    </>
   );
 }

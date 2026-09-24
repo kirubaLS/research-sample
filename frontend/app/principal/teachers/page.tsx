@@ -58,25 +58,25 @@ export default function ManageTeachers() {
   }, []);
 
   return (
-    <main className="narrow">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
-        <h1 style={{ margin: 0 }}>Manage Teachers</h1>
-        <button type="button" onClick={() => setAdding(true)}>+ Add teacher</button>
+    <div style={{ maxWidth: 760, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+        <h1 className="page-title">Manage Teachers</h1>
+        <button type="button" className="btn btn--primary" onClick={() => setAdding(true)}>+ Add teacher</button>
       </div>
 
-      {error && <p className="error">{error}</p>}
-      {loading && <p className="muted">Loading…</p>}
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 12 }}>{error}</p>}
+      {loading && <p className="muted" style={{ marginTop: 12 }}>Loading…</p>}
 
       {!loading && teachers.length === 0 ? (
         <div style={{ textAlign: "center", padding: "60px 0" }}>
-          <p className="lede">No teacher logins yet</p>
-          <button type="button" onClick={() => setAdding(true)} style={{ marginTop: 10 }}>
+          <p className="page-sub">No teacher logins yet</p>
+          <button type="button" className="btn btn--primary" onClick={() => setAdding(true)} style={{ marginTop: 10 }}>
             + Add teacher
           </button>
         </div>
       ) : (
-        <div className="tablewrap">
-          <table>
+        <div className="table-wrap" style={{ marginTop: 20 }}>
+          <table className="table">
             <thead>
               <tr>
                 <th>Label</th>
@@ -96,7 +96,7 @@ export default function ManageTeachers() {
                     <CopySecret value={t.api_key} />
                   </td>
                   <td>
-                    <div className="stack" style={{ gap: 3 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
                       {t.assignments.map((a) => (
                         <span className="small" key={a.id}>{assignmentLabel(a, sections)}</span>
                       ))}
@@ -105,51 +105,49 @@ export default function ManageTeachers() {
                   </td>
                   <td style={{ position: "relative" }}>
                     {!t.revoked_at && (
-                      <div className="row" style={{ gap: 6 }}>
-                        <button type="button" className="btn--ghost btn--sm" onClick={() => setEditing(t)}>
+                      <div style={{ display: "flex", gap: 6 }} className="menu-wrap">
+                        <button type="button" className="btn btn--ghost btn--sm" onClick={() => setEditing(t)}>
                           Edit
                         </button>
                         <button
                           type="button"
-                          className="btn--ghost btn--sm"
+                          className="btn btn--ghost btn--sm"
                           onClick={() => setMenuFor(menuFor === t.id ? null : t.id)}
                         >
                           ⋮
                         </button>
-                      </div>
-                    )}
-                    {menuFor === t.id && (
-                      <div className="dropdown">
-                        <button
-                          type="button"
-                          className="dropdown-item"
-                          onClick={() => {
-                            setMenuFor(null);
-                            setRenaming(t);
-                          }}
-                        >
-                          Rename
-                        </button>
-                        <button
-                          type="button"
-                          className="dropdown-item"
-                          onClick={() => {
-                            setMenuFor(null);
-                            setReissuing(t);
-                          }}
-                        >
-                          Reissue key
-                        </button>
-                        <button
-                          type="button"
-                          className="dropdown-item risk"
-                          onClick={() => {
-                            setMenuFor(null);
-                            setRevoking(t);
-                          }}
-                        >
-                          Revoke key
-                        </button>
+                        {menuFor === t.id && (
+                          <div className="menu">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuFor(null);
+                                setRenaming(t);
+                              }}
+                            >
+                              Rename
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setMenuFor(null);
+                                setReissuing(t);
+                              }}
+                            >
+                              Reissue key
+                            </button>
+                            <button
+                              type="button"
+                              className="danger"
+                              onClick={() => {
+                                setMenuFor(null);
+                                setRevoking(t);
+                              }}
+                            >
+                              Revoke key
+                            </button>
+                          </div>
+                        )}
                       </div>
                     )}
                   </td>
@@ -219,37 +217,16 @@ export default function ManageTeachers() {
         />
       )}
 
-      <style jsx>{`
-        .dropdown {
-          position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--surface);
-          border: 1px solid var(--rule); border-radius: var(--radius-sm); box-shadow: var(--shadow);
-          z-index: 20; min-width: 140px;
-        }
-        .dropdown-item {
-          display: block; width: 100%; text-align: left; border: 0; background: transparent;
-          padding: 9px 12px; font-size: 13.5px; cursor: pointer;
-        }
-        .dropdown-item:hover { background: var(--surface-2); }
-        .dropdown-item.risk { color: var(--risk); }
-      `}</style>
-    </main>
+    </div>
   );
 }
 
 function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="card modal-card" onClick={(e) => e.stopPropagation()}>
-        {children}
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal__body">{children}</div>
       </div>
-      <style jsx>{`
-        .modal-overlay {
-          position: fixed; inset: 0; background: rgba(20, 33, 61, 0.45);
-          display: flex; align-items: flex-start; justify-content: center;
-          padding: 8vh 16px 40px; z-index: 60; overflow-y: auto;
-        }
-        .modal-card { max-width: 460px; width: 100%; margin: 0; }
-      `}</style>
     </div>
   );
 }
@@ -299,12 +276,12 @@ function AddTeacherModal({
           <h3 style={{ marginTop: 0 }}>Add teacher</h3>
           <div className="field">
             <label htmlFor="tname">Label (name)</label>
-            <input id="tname" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Mr. Ravi" />
+            <input id="tname" className="input" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="e.g. Mr. Ravi" />
           </div>
-          {error && <p className="error">{error}</p>}
-          <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-            <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
-            <button type="button" disabled={!label.trim()} onClick={createKey}>Next</button>
+          {error && <p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p>}
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+            <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+            <button type="button" className="btn btn--primary" disabled={!label.trim()} onClick={createKey}>Next</button>
           </div>
         </>
       )}
@@ -312,11 +289,11 @@ function AddTeacherModal({
       {step === "key" && issued && (
         <>
           <h3 style={{ marginTop: 0 }}>Sign-in key generated</h3>
-          <p className="cardnote">
+          <p className="small muted">
             Give this key to {label}. It is shown once and cannot be retrieved again.
           </p>
           <CopySecret value={issued.api_key} />
-          <button type="button" style={{ marginTop: 12 }} onClick={() => setStep("assignments")}>
+          <button type="button" className="btn btn--primary" style={{ marginTop: 12 }} onClick={() => setStep("assignments")}>
             Add assignments →
           </button>
         </>

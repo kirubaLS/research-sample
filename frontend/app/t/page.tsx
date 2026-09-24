@@ -28,52 +28,58 @@ export default function ClassPicker() {
   }
 
   return (
-    <main>
-      <div className="hero hero-story">
-        <div className="hero-copy">
+    <main className="content" style={{ maxWidth: 960 }}>
+      <div
+        style={{
+          display: "flex", alignItems: "center", gap: 28, flexWrap: "wrap", marginTop: 20,
+        }}
+      >
+        <div style={{ flex: "1 1 320px", minWidth: 0 }}>
           <p className="eyebrow">Interest test</p>
-          <h1>Find your class</h1>
-          <p className="lede">
+          <h1 className="page-title" style={{ marginTop: 6 }}>Find your class</h1>
+          <p className="page-sub" style={{ fontSize: 14.5, maxWidth: 520 }}>
             Tap your class to begin. 36 short questions, about eight minutes, in English,
             தமிழ் or हिन्दी. There are no right or wrong answers, and no login.
           </p>
         </div>
-        <GrowthIllustration className="hero-illustration" />
+        <div style={{ flex: "0 1 260px", minWidth: 180, maxWidth: 260 }}>
+          <GrowthIllustration />
+        </div>
       </div>
 
-      <style jsx>{`
-        .hero-story {
-          display: flex;
-          align-items: center;
-          gap: 28px;
-          flex-wrap: wrap;
-        }
-        .hero-copy { flex: 1 1 320px; min-width: 0; }
-        .hero-illustration { flex: 0 1 260px; min-width: 180px; max-width: 260px; }
-        @media (max-width: 640px) {
-          .hero-story { flex-direction: column-reverse; }
-          .hero-illustration { max-width: 220px; }
-        }
-      `}</style>
-
-      {error && <div className="notice warn">{error}</div>}
-      {!classes && !error && <p className="cardnote">Loading classes…</p>}
+      {error && (
+        <div className="evidence evidence--gold" style={{ marginTop: 20 }}>
+          <div>{error}</div>
+        </div>
+      )}
+      {!classes && !error && <p className="muted small" style={{ marginTop: 20 }}>Loading classes…</p>}
       {classes?.length === 0 && (
-        <div className="notice">
+        <div className="evidence evidence--neutral" style={{ marginTop: 20 }}>
           No classes have been set up yet. Ask your teacher for the class link.
         </div>
       )}
 
       {[...schools.entries()].map(([school, options]) => (
-        <section key={school}>
-          <div className="section-head">
-            <h2>{school}</h2>
+        <section className="section" key={school}>
+          <div className="section__head">
+            <h2 className="section-q">{school}</h2>
           </div>
-          <div className="grid three">
+          <div className="grid grid--3">
             {options.map((option) => (
-              <Link key={option.class_code} href={`/t/${option.class_code}`} className="card accentbar">
-                <h3>{option.label}</h3>
-                <span className="arrow">Start the test →</span>
+              <Link
+                key={option.class_code}
+                href={`/t/${option.class_code}`}
+                className="card card--hover"
+              >
+                <div className="card__body">
+                  <h3 style={{ fontSize: 16, fontWeight: 650 }}>{option.label}</h3>
+                  <span
+                    className="btn--link"
+                    style={{ display: "inline-flex", alignItems: "center", gap: 4, marginTop: 10 }}
+                  >
+                    Start the test →
+                  </span>
+                </div>
               </Link>
             ))}
           </div>

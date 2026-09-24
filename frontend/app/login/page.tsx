@@ -39,81 +39,56 @@ function LoginForm() {
   const [tab, setTab] = useState<Tab>(params.get("tab") === "student" ? "student" : "staff");
 
   return (
-    <main className="narrow login-page">
-      <div className="login-head">
-        <AvaiLogo height={30} />
-        <Mascot pose="hello" size={34} />
-      </div>
+    <div className="login">
+      <section className="login__brand">
+        <div className="login__logo">
+          <AvaiLogo height={30} />
+          <span className="login__wordmark">AVAI</span>
+        </div>
 
-      <p className="login-sub">
-        Pick the one that&rsquo;s you: the sign-in fields are different for each.
-      </p>
+        <div className="login__hero">
+          <Mascot pose="hello" size={64} />
+          <h1>Every opportunity belongs to every student.</h1>
+          <p>Sign in to see the findings, findings and follow-ups for your school.</p>
+        </div>
 
-      <div className="tabbar" role="tablist" aria-label="Sign in as">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "staff"}
-          className={`tabbtn${tab === "staff" ? " on" : ""}`}
-          onClick={() => setTab("staff")}
-        >
-          <span className="tabtitle">School Staff</span>
-          <span className="tabhint">Principal or teacher, sign in with your key</span>
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === "student"}
-          className={`tabbtn${tab === "student" ? " on" : ""}`}
-          onClick={() => setTab("student")}
-        >
-          <span className="tabtitle">Student</span>
-          <span className="tabhint">Viewing a report your teacher shared</span>
-        </button>
-      </div>
+        <div className="login__foot">Trouble signing in? Ask your school office.</div>
+      </section>
 
-      <div className="card login-card">
-        {tab === "staff" ? <StaffSignIn /> : <StudentSignIn />}
-      </div>
+      <section className="login__panel">
+        <div className="login__card">
+          <h2>Sign in</h2>
+          <p className="muted small" style={{ marginTop: 4 }}>
+            Pick the one that&rsquo;s you: the sign-in fields are different for each.
+          </p>
 
-      <p className="small muted" style={{ marginTop: 14, textAlign: "center" }}>
-        Trouble signing in? Ask your school office.
-      </p>
+          <div className="tabs" role="tablist" aria-label="Sign in as">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "staff"}
+              className={`tab${tab === "staff" ? " tab--active" : ""}`}
+              onClick={() => setTab("staff")}
+            >
+              School Staff
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "student"}
+              className={`tab${tab === "student" ? " tab--active" : ""}`}
+              onClick={() => setTab("student")}
+            >
+              Student
+            </button>
+          </div>
 
-      <style jsx>{`
-        .login-page { max-width: 460px; padding-top: 48px; }
-        .login-head {
-          display: flex; align-items: center; justify-content: center; gap: 12px;
-          margin-bottom: 22px;
-        }
-        .login-sub {
-          text-align: center; color: var(--ink-3); font-size: 13.5px; margin: 0 0 16px;
-        }
-        .tabbar {
-          display: flex; gap: 6px; background: var(--surface-2); border-radius: var(--radius-sm);
-          padding: 4px; margin-bottom: 16px;
-        }
-        .tabbtn {
-          flex: 1; border: 0; background: transparent; padding: 10px 12px; border-radius: 8px;
-          cursor: pointer; display: flex; flex-direction: column; gap: 2px; text-align: left;
-        }
-        .tabtitle { font-weight: 700; font-size: 14.5px; color: var(--ink-3); }
-        .tabhint { font-size: 11.5px; color: var(--ink-3); opacity: 0.8; }
-        .tabbtn.on { background: var(--surface); box-shadow: var(--shadow-xs); }
-        .tabbtn.on .tabtitle { color: var(--brand-ink); }
-        .tabbtn.on .tabhint { color: var(--ink-2); }
-        .login-card { padding: 22px; }
-        .subtabbar {
-          display: flex; gap: 4px; margin-bottom: 16px; border-bottom: 1px solid var(--rule);
-        }
-        .subtab {
-          border: 0; background: transparent; padding: 8px 4px; margin-right: 14px;
-          font-size: 13.5px; font-weight: 600; color: var(--ink-3); cursor: pointer;
-          border-bottom: 2px solid transparent;
-        }
-        .subtab.on { color: var(--brand-ink); border-bottom-color: var(--brand-ink); }
-      `}</style>
-    </main>
+          {tab === "staff" ? <StaffSignIn /> : <StudentSignIn />}
+
+          <p className="login__help">Trouble signing in? Ask your school office.</p>
+        </div>
+      </section>
+    </div>
   );
 }
 
@@ -151,18 +126,29 @@ function StaffSignIn() {
   }
 
   return (
-    <form onSubmit={submit}>
+    <form className="login__form" onSubmit={submit}>
       <div className="field">
         <label htmlFor="key">Sign-in key</label>
-        <input id="key" name="key" type="password" autoComplete="current-password" required
-          placeholder="zozx6r94sEf1KWs7fRdXTNJNYXKEteuW" />
-        <p className="hint">
+        <input
+          id="key"
+          name="key"
+          className="input"
+          type="password"
+          autoComplete="current-password"
+          required
+          placeholder="zozx6r94sEf1KWs7fRdXTNJNYXKEteuW"
+        />
+        <p className="small muted">
           The key you were personally issued: a principal&rsquo;s school key, or a
           teacher&rsquo;s own sign-in key. Not sure which you have? Ask your school office.
         </p>
       </div>
-      {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy} style={{ width: "100%", display: "inline-flex", justifyContent: "center", gap: 8 }}>
+      {error && (
+        <div className="evidence evidence--gold">
+          <div>{error}</div>
+        </div>
+      )}
+      <button type="submit" className="btn btn--primary" disabled={busy} style={{ justifyContent: "center", padding: 11 }}>
         {busy && <Mascot pose="loading" size={18} />}
         {busy ? "Checking…" : "Sign in"}
       </button>
@@ -203,24 +189,28 @@ function StudentSignIn() {
   }
 
   return (
-    <form onSubmit={submit}>
-      <p className="cardnote" style={{ marginTop: 0 }}>
+    <form className="login__form" onSubmit={submit}>
+      <p className="small muted" style={{ marginTop: 0 }}>
         Sign in with the PIN your teacher gave you when they shared your report.
       </p>
       <div className="field">
         <label htmlFor="classCode">Class code</label>
-        <input id="classCode" name="classCode" placeholder="the code your teacher gave you" required />
+        <input id="classCode" name="classCode" className="input" placeholder="the code your teacher gave you" required />
       </div>
       <div className="field">
         <label htmlFor="roll">Roll number</label>
-        <input id="roll" name="roll" placeholder="e.g. 7" required />
+        <input id="roll" name="roll" className="input" placeholder="e.g. 7" required />
       </div>
       <div className="field">
         <label htmlFor="pin">PIN</label>
-        <input id="pin" name="pin" type="password" inputMode="numeric" placeholder="••••••" required />
+        <input id="pin" name="pin" className="input" type="password" inputMode="numeric" placeholder="••••••" required />
       </div>
-      {error && <p className="error">{error}</p>}
-      <button type="submit" disabled={busy} style={{ width: "100%", display: "inline-flex", justifyContent: "center", gap: 8 }}>
+      {error && (
+        <div className="evidence evidence--gold">
+          <div>{error}</div>
+        </div>
+      )}
+      <button type="submit" className="btn btn--primary" disabled={busy} style={{ justifyContent: "center", padding: 11 }}>
         {busy && <Mascot pose="loading" size={18} />}
         {busy ? "Checking…" : "Sign in"}
       </button>

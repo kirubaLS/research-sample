@@ -78,29 +78,27 @@ export default function TeacherStudentSubjectPage({
     }
   }
 
-  if (error) return <main className="wrap"><p className="error">{error}</p></main>;
+  if (error) return <p className="page-sub" style={{ color: "var(--risk)" }}>{error}</p>;
   if (!data) {
     return (
-      <main className="wrap">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <Mascot pose="loading" size={24} />
-          <p className="muted" style={{ margin: 0 }}>Loading…</p>
-        </div>
-      </main>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <Mascot pose="loading" size={24} />
+        <p className="muted" style={{ margin: 0 }}>Loading…</p>
+      </div>
     );
   }
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">
             <Link href={`/teacher/student/${studentId}`}>{data.student.name}</Link> &rsaquo; {data.subject.label}
           </p>
-          <h1 style={{ margin: 0 }}>{data.subject.label}</h1>
-          <p className="lede">{data.student.name} · Roll {data.student.roll_no}</p>
+          <h1 className="page-title" style={{ marginTop: 4 }}>{data.subject.label}</h1>
+          <p className="page-sub">{data.student.name} · Roll {data.student.roll_no}</p>
         </div>
-        <button type="button" disabled={downloading} onClick={downloadCsv}>
+        <button type="button" className="btn btn--primary" disabled={downloading} onClick={downloadCsv}>
           {downloading ? "Preparing…" : "Download CSV"}
         </button>
       </div>
@@ -122,22 +120,22 @@ export default function TeacherStudentSubjectPage({
         />
       </StatTileRow>
 
-      <div className="section-head"><h2>By Chapter</h2></div>
+      <div className="section__head" style={{ marginTop: 24 }}><h2 className="section-q">By Chapter</h2></div>
       <FindingsTable findings={data.by_chapter} emptyText="No chapter-tagged questions yet." />
 
-      <div className="section-head" style={{ marginTop: 24 }}><h2>By Category (Remembering, Applying, Analysing)</h2></div>
+      <div className="section__head" style={{ marginTop: 24 }}><h2 className="section-q">By Category (Remembering, Applying, Analysing)</h2></div>
       <FindingsTable findings={data.by_tier} emptyText="No category-classified questions yet." />
 
       {data.tests.length > 0 && (
         <>
-          <div className="row between" style={{ alignItems: "flex-end", marginTop: 28, marginBottom: 8 }}>
-            <div className="section-head" style={{ margin: 0 }}>
-              <h2>One-Page BoardX Report</h2>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", marginTop: 28, marginBottom: 8, gap: 16, flexWrap: "wrap" }}>
+            <div className="section__head" style={{ margin: 0 }}>
+              <h2 className="section-q">One-Page BoardX Report</h2>
             </div>
             {data.tests.length > 1 && (
-              <div className="field" style={{ marginBottom: 0, minWidth: 200 }}>
+              <div className="field" style={{ minWidth: 200 }}>
                 <label>Paper</label>
-                <select value={boardxAssessmentId} onChange={(e) => setBoardxAssessmentId(e.target.value)}>
+                <select className="select" value={boardxAssessmentId} onChange={(e) => setBoardxAssessmentId(e.target.value)}>
                   {data.tests.map((t) => (
                     <option key={t.assessment_id} value={t.assessment_id}>{t.title}</option>
                   ))}
@@ -145,7 +143,7 @@ export default function TeacherStudentSubjectPage({
               </div>
             )}
           </div>
-          {boardxError && <p className="error">{boardxError}</p>}
+          {boardxError && <p className="page-sub" style={{ color: "var(--risk)" }}>{boardxError}</p>}
           {!boardx && !boardxError && (
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Mascot pose="loading" size={20} />
@@ -155,49 +153,51 @@ export default function TeacherStudentSubjectPage({
           {boardx && <BoardXOnePager report={boardx} rollNo={data.student.roll_no} />}
         </>
       )}
-    </main>
+    </>
   );
 }
 
 function FindingsTable({ findings, emptyText }: { findings: AcademicFinding[]; emptyText: string }) {
   if (findings.length === 0) return <p className="muted">{emptyText}</p>;
   return (
-    <div className="tablewrap">
-      <table>
-        <thead>
-          <tr>
-            <th>Name</th>
-            <th>Score</th>
-            <th>Questions</th>
-            <th>Note</th>
-          </tr>
-        </thead>
-        <tbody>
-          {findings.map((f) => {
-            const pct = f.sufficient && f.rate != null ? Math.round(f.rate * 100) : null;
-            const tone = pct == null ? "" : pct >= 75 ? "verify" : pct >= 50 ? "" : "warn";
-            return (
-              <tr key={f.key}>
-                <td className="strong">{f.label}</td>
-                <td className="num" style={{ minWidth: 160 }}>
-                  {pct != null ? (
-                    <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
-                      <div className={`progress${tone ? ` ${tone}` : ""}`} style={{ flex: 1 }}>
-                        <div style={{ width: `${pct}%` }} />
+    <div className="card">
+      <div className="table-wrap">
+        <table className="table">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Score</th>
+              <th>Questions</th>
+              <th>Note</th>
+            </tr>
+          </thead>
+          <tbody>
+            {findings.map((f) => {
+              const pct = f.sufficient && f.rate != null ? Math.round(f.rate * 100) : null;
+              const fillCls = pct == null ? "" : pct >= 75 ? "bar__fill--green" : pct >= 50 ? "" : "bar__fill--risk";
+              return (
+                <tr key={f.key}>
+                  <td className="strong">{f.label}</td>
+                  <td className="num" style={{ minWidth: 160 }}>
+                    {pct != null ? (
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "nowrap" }}>
+                        <div className="bar" style={{ flex: 1 }}>
+                          <div className={`bar__fill ${fillCls}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <span style={{ whiteSpace: "nowrap" }}>{f.earned}/{f.available} ({pct}%)</span>
                       </div>
-                      <span style={{ whiteSpace: "nowrap" }}>{f.earned}/{f.available} ({pct}%)</span>
-                    </div>
-                  ) : (
-                    "N/A"
-                  )}
-                </td>
-                <td className="num">{f.questions}</td>
-                <td className="small muted">{f.message}</td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+                    ) : (
+                      "N/A"
+                    )}
+                  </td>
+                  <td className="num">{f.questions}</td>
+                  <td className="small muted">{f.message}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }

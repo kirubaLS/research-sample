@@ -285,99 +285,104 @@ export default function AnswersPage() {
   }
 
   return (
-    <main className="wrap">
+    <>
       <p className="eyebrow">Answer sheet</p>
-      <h1>Enter one student&rsquo;s marks</h1>
-      <p className="lede">
+      <h1 className="page-title" style={{ marginTop: 4 }}>Enter one student&rsquo;s marks</h1>
+      <p className="page-sub" style={{ maxWidth: "60ch" }}>
         Enter one student&rsquo;s marks against a paper that has already been scanned and
         mapped to the book. Every question appears, including the ones with nothing against
         them yet.
       </p>
 
-      <section className="panel">
-        <div className="picks">
-          <label>
-            <span>Paper</span>
-            <select
-              value={paperId}
-              onChange={(e) => {
-                setPaperId(e.target.value);
-                // A class only makes sense for the paper's own subject -- switching
-                // papers can leave a previously-chosen class no longer offered at all.
-                setSectionId("");
-              }}
-            >
-              <option value="">Choose a paper…</option>
-              {ready.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.title} · {p.subject_label} · {p.questions} questions
-                  {p.stage === "mapped" ? "" : " (not linked to the book yet)"}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Class</span>
-            <select value={sectionId} onChange={(e) => setSectionId(e.target.value)} disabled={!paperId}>
-              <option value="">Choose a class…</option>
-              {sections.map((s) => (
-                <option key={s.section_id} value={s.section_id}>
-                  {s.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            <span>Student</span>
-            <select
-              value={studentId}
-              onChange={(e) => setStudentId(e.target.value)}
-              disabled={!students.length}
-            >
-              <option value="">Choose a student…</option>
-              {students.map((s) => (
-                <option key={s.student_id} value={s.student_id}>
-                  {s.roll_no}. {s.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-
-        {papers.length > 0 && ready.length === 0 && (
-          <p className="warnish">
-            No paper has been read yet. Scan and confirm one on the Question paper screen
-            first. Marks have nothing to attach to until then.
-          </p>
-        )}
-
-        {paperId && sectionId && (
-          <div className="classconfirm">
-            <p className="muted">
-              Every student in this class whose reading is clean -- read, and nothing left
-              to fix -- confirmed in one call. A student still carrying a problem, or who
-              hasn&rsquo;t been read yet, is skipped and named.
-            </p>
-            <div className="confirmrow">
-              <label>
-                <span className="sr">Your name</span>
-                <input
-                  value={classBy}
-                  onChange={(e) => setClassBy(e.target.value)}
-                  placeholder="Your name"
-                  autoComplete="name"
-                />
-              </label>
-              <button onClick={confirmClass} disabled={!!busy}>
-                Confirm the whole class
-              </button>
+      <div className="card" style={{ marginTop: 18, marginBottom: 16 }}>
+        <div className="card__body">
+          <div className="grid grid--3">
+            <div className="field">
+              <label>Paper</label>
+              <select
+                className="select"
+                value={paperId}
+                onChange={(e) => {
+                  setPaperId(e.target.value);
+                  // A class only makes sense for the paper's own subject -- switching
+                  // papers can leave a previously-chosen class no longer offered at all.
+                  setSectionId("");
+                }}
+              >
+                <option value="">Choose a paper…</option>
+                {ready.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.title} · {p.subject_label} · {p.questions} questions
+                    {p.stage === "mapped" ? "" : " (not linked to the book yet)"}
+                  </option>
+                ))}
+              </select>
             </div>
-            {classResult && <p className="ok">{classResult}</p>}
+            <div className="field">
+              <label>Class</label>
+              <select className="select" value={sectionId} onChange={(e) => setSectionId(e.target.value)} disabled={!paperId}>
+                <option value="">Choose a class…</option>
+                {sections.map((s) => (
+                  <option key={s.section_id} value={s.section_id}>
+                    {s.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Student</label>
+              <select
+                className="select"
+                value={studentId}
+                onChange={(e) => setStudentId(e.target.value)}
+                disabled={!students.length}
+              >
+                <option value="">Choose a student…</option>
+                {students.map((s) => (
+                  <option key={s.student_id} value={s.student_id}>
+                    {s.roll_no}. {s.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
-        )}
-      </section>
 
-      {error && <p className="error">{error}</p>}
+          {papers.length > 0 && ready.length === 0 && (
+            <div className="evidence evidence--gold" style={{ marginTop: 14 }}>
+              No paper has been read yet. Scan and confirm one on the Question paper screen
+              first. Marks have nothing to attach to until then.
+            </div>
+          )}
+
+          {paperId && sectionId && (
+            <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+              <p className="muted">
+                Every student in this class whose reading is clean -- read, and nothing left
+                to fix -- confirmed in one call. A student still carrying a problem, or who
+                hasn&rsquo;t been read yet, is skipped and named.
+              </p>
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <div className="field" style={{ flex: "1 1 180px" }}>
+                  <label className="sr">Your name</label>
+                  <input
+                    className="input"
+                    value={classBy}
+                    onChange={(e) => setClassBy(e.target.value)}
+                    placeholder="Your name"
+                    autoComplete="name"
+                  />
+                </div>
+                <button type="button" className="btn btn--primary" onClick={confirmClass} disabled={!!busy}>
+                  Confirm the whole class
+                </button>
+              </div>
+              {classResult && <p style={{ color: "var(--brand-green)", marginTop: 8 }}>{classResult}</p>}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {error && <p style={{ color: "var(--risk)" }}>{error}</p>}
       {busy && <p className="muted">{busy}…</p>}
 
       {sheet && (
@@ -399,44 +404,47 @@ export default function AnswersPage() {
             onDeleted={() => setScript(null)}
             onError={(m) => setError(m)}
           />
-          <section className="panel sticky">
-            <div className="tally">
-              <div>
-                <strong>{sheet.student.name}</strong>
-                <span className="muted"> · roll {sheet.student.roll_no}</span>
+          <div className="card" style={{ position: "sticky", top: 0, zIndex: 5, marginBottom: 16 }}>
+            <div className="card__body">
+              <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 16 }}>
+                <div>
+                  <strong>{sheet.student.name}</strong>
+                  <span className="muted"> · roll {sheet.student.roll_no}</span>
+                </div>
+                <div>
+                  <strong>
+                    {running.scored} / {running.available}
+                  </strong>
+                  <span className="muted">
+                    {" "}
+                    · {running.entered} of {sheet.questions.length} entered
+                  </span>
+                </div>
               </div>
-              <div>
-                <strong>
-                  {running.scored} / {running.available}
-                </strong>
-                <span className="muted">
-                  {" "}
-                  · {running.entered} of {sheet.questions.length} entered
-                </span>
+              <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+                <div className="field" style={{ flex: "1 1 180px" }}>
+                  <label className="sr">Your name</label>
+                  <input
+                    className="input"
+                    value={by}
+                    onChange={(e) => setBy(e.target.value)}
+                    placeholder="Your name"
+                    autoComplete="name"
+                  />
+                </div>
+                <button type="button" className="btn btn--primary" onClick={confirm} disabled={!!busy}>
+                  Confirm what is typed below
+                </button>
               </div>
+              {saved && <p style={{ color: "var(--brand-green)", marginTop: 8 }}>{saved}</p>}
             </div>
-            <div className="confirmrow">
-              <label>
-                <span className="sr">Your name</span>
-                <input
-                  value={by}
-                  onChange={(e) => setBy(e.target.value)}
-                  placeholder="Your name"
-                  autoComplete="name"
-                />
-              </label>
-              <button onClick={confirm} disabled={!!busy}>
-                Confirm what is typed below
-              </button>
-            </div>
-            {saved && <p className="ok">{saved}</p>}
-          </section>
+          </div>
 
-          <p className="handnote">
+          <p className="muted small" style={{ maxWidth: "64ch", margin: "18px 0 8px" }}>
             Or enter them by hand. This list is the marks as they stand now; reading a file
             above fills it in for you, and either way nothing counts until it is confirmed.
           </p>
-          <ol className="qlist">
+          <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
             {sheet.questions.map((q) => (
               <Row
                 key={q.address}
@@ -449,37 +457,7 @@ export default function AnswersPage() {
           </ol>
         </>
       )}
-
-      <style jsx>{`
-        .wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 64px; }
-        h1 { margin: 0 0 4px; font-size: 26px; }
-        .lede { color: var(--ink-2); margin: 0 0 20px; max-width: 60ch; }
-        .panel { border: 1px solid var(--rule); border-radius: 12px; padding: 14px; margin-bottom: 16px; background: var(--surface); }
-        .sticky { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-        .picks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-        .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
-        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; background: var(--surface); }
-        .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
-        .classconfirm { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
-        .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-        .confirmrow label { flex: 1 1 180px; display: flex; }
-        .confirmrow input { width: 100%; }
-        button { padding: 10px 16px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 15px; transition: transform .16s var(--ease-spring, ease), box-shadow .2s ease; }
-        button:hover:not([disabled]) { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
-        button[disabled] { opacity: .5; }
-        .qlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-        .handnote { color: var(--ink-2); font-size: 13px; max-width: 64ch; margin: 18px 0 8px; }
-        .muted { color: var(--ink-3); }
-        .error { color: var(--mark); }
-        .ok { color: var(--verify); margin: 8px 0 0; }
-        .warnish { color: var(--warn); }
-        .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-        @media (max-width: 560px) {
-          .picks { grid-template-columns: 1fr; }
-          .sticky { position: static; }
-        }
-      `}</style>
-    </main>
+    </>
   );
 }
 
