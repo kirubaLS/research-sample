@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { Mascot, Wordmark } from "@/components/Mascot";
 import { EASE_OUT } from "@/components/motion";
+import { homeFor, useAuth } from "@/lib/auth";
 import { api, ApiError, ApiUnreachable } from "@/lib/api";
 import { setApiKey, setRole, setStudentSession } from "@/lib/session";
 
@@ -233,6 +234,7 @@ export default function LoginPage() {
 
 function StaffSignIn() {
   const router = useRouter();
+  const { refresh } = useAuth();
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [showKey, setShowKey] = useState(false);
@@ -246,11 +248,22 @@ function StaffSignIn() {
       const me = await api.whoami(key);
       setApiKey(key, me.name);
       setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments });
-      router.push(me.role === "teacher" ? "/teacher/home" : "/principal/classes");
+      // router.push is a client-side route change -- it never remounts the root
+      // AuthProvider, so without this its `user` stays whatever it was before sign-in
+      // (usually null) and the destination's RoleGuard bounces straight back to /login.
+      refresh();
+      const examsOnly =
+        me.role === "teacher" && (me.assignments?.length ?? 0) === 0 && (me.can.scan_papers || me.can.enter_marks) && !me.can.read_results;
+      router.push(
+        me.role === "teacher"
+          ? homeFor({ role: "teacher", id: key, name: me.name, assignments: me.assignments ?? [], can: me.can, examsOnly })
+          : "/principal/classes",
+      );
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
         // Valid admin key, no school picked yet -- let /principal/classes resolve it.
         setApiKey(key, "");
+        refresh();
         router.push("/principal/classes");
         return;
       }

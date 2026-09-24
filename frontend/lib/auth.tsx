@@ -38,6 +38,12 @@ interface AuthState {
   user: CurrentUser | null;
   ready: boolean;
   signOut: () => void;
+  /** Re-reads the signed-in session from storage. AuthProvider only reads it once, on
+   * first mount -- a client-side route change (router.push, no reload) after signing in
+   * never remounts it, so without this the freshly-written key/role never reaches `user`
+   * and RoleGuard bounces straight back to /login, seeing a still-null user. login/page.tsx
+   * calls this right after writing the session, before navigating away. */
+  refresh: () => void;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
@@ -94,7 +100,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
-  const value = useMemo(() => ({ user, ready, signOut }), [user, ready]);
+  const refresh = () => setUser(readUser());
+
+  const value = useMemo(() => ({ user, ready, signOut, refresh }), [user, ready]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
