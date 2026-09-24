@@ -2,6 +2,11 @@
    AVAI, design tokens (spec §0 brand system)
    ============================================================ */
 :root {
+  /* The brand is a fixed light theme -- no dark-mode token swap anywhere in this file, on
+     purpose. Without this, a browser/OS set to dark mode still auto-darkens native form
+     controls, scrollbars and the page background-before-paint flash, even though every
+     color here stays the same; declaring the theme explicitly stops that. */
+  color-scheme: light only;
   --brand-ink: #14213d;
   --brand-ink-soft: #3c4c56;
   --brand-teal: #2fb8c6;

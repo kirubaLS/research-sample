@@ -28,6 +28,9 @@ const mono = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "Avai",
   description: "Turning assessments into brighter futures.",
+  // Fixed light brand theme -- tells the browser not to substitute its own dark UI (form
+  // controls, scrollbars, the pre-paint background) when the OS/browser is set to dark mode.
+  other: { "color-scheme": "light" },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
