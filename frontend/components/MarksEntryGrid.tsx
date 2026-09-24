@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { AlertTriangle, Camera, CheckCircle2, FileUp, Loader2, Save, Upload, X } from "lucide-react";
 import { FilePickButtons } from "@/components/FilePickButtons";
 import { useGridSheet } from "@/lib/useGridSheet";
-import type { GridSheetRowView } from "@/lib/api";
+import type { GridRowMark, GridSheetRowView } from "@/lib/api";
 
 /** One class's real mark-entry pipeline for one paper: upload a photographed answer-card
  * sheet (or a spreadsheet), resolve any row the OCR could not match to a student, edit any
@@ -32,6 +32,48 @@ export function MarksEntryGrid({
   }, [paperId]);
 
   const rows = grid.review?.rows ?? [];
+  // Unmatched/name-mismatch rows still need a person to say who they are before any mark
+  // means anything -- that resolve-first flow is untouched below. Only a "clean" row (a
+  // real, matched student) gets a marks row in the per-question grid.
+  const unresolvedRows = rows.filter((r) => r.status !== "clean");
+  const cleanRows = rows.filter((r) => r.status === "clean");
+
+  // The union of every question address that appears on any clean row, in a stable sorted
+  // order -- there is no separate "paper structure" available to this hook, so the set of
+  // columns is exactly the set of addresses the reading actually produced.
+  const addresses = useMemo(() => {
+    const set = new Set<string>();
+    for (const row of cleanRows) for (const m of row.marks) set.add(m.address);
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [cleanRows]);
+
+  const [editingCell, setEditingCell] = useState<{ rowId: string; address: string } | null>(null);
+  const [cellValue, setCellValue] = useState("");
+
+  function markFor(row: GridSheetRowView, address: string): GridRowMark | undefined {
+    return row.marks.find((m) => m.address === address);
+  }
+
+  function openCell(row: GridSheetRowView, address: string, mark: GridRowMark | undefined) {
+    setEditingCell({ rowId: row.row_id, address });
+    setCellValue(mark?.marks != null ? String(mark.marks) : "");
+  }
+
+  async function saveCell(row: GridSheetRowView, address: string) {
+    const trimmed = cellValue.trim();
+    const marks = trimmed === "" ? null : Number(trimmed);
+    // "awarded" is the state edit_proposal() defaults to and the only one a numeric mark
+    // makes sense under; a cleared cell still needs a state, and "awarded" with marks=null
+    // is what the backend itself does not accept (marks required when awarded), so an
+    // empty save is not attempted -- the teacher would clear via a real "missing" state,
+    // which this grid has no affordance for and does not fabricate one for.
+    if (trimmed === "" ) {
+      setEditingCell(null);
+      return;
+    }
+    await grid.editMark(row, address, marks, "awarded");
+    setEditingCell(null);
+  }
 
   function statusTag(row: GridSheetRowView) {
     if (row.status === "clean") return <span className="tag tag--green">Ready</span>;
@@ -100,47 +142,117 @@ export function MarksEntryGrid({
 
           {grid.uploadSummary && <div className="small muted">{grid.uploadSummary}</div>}
 
-          {rows.length > 0 && (
+          {unresolvedRows.length > 0 && (
+            <div className="table-wrap table-wrap--scroll">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Roll</th>
+                    <th>Name (as read)</th>
+                    <th>Status</th>
+                    <th className="num">Marks read</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unresolvedRows.map((row) => (
+                    <tr key={row.row_id}>
+                      <td className="mono">{row.roll_no}</td>
+                      <td>{row.name_as_written}</td>
+                      <td>{statusTag(row)}</td>
+                      <td className="num">{row.marks.filter((m) => m.marks != null).length}/{row.marks.length}</td>
+                      <td style={{ textAlign: "right" }}>
+                        <button
+                          className="btn btn--sm"
+                          onClick={() => {
+                            const rollNo = window.prompt("Roll number to match to", row.roll_no);
+                            if (!rollNo) return;
+                            const name = window.prompt("Student name (if creating new)", row.name_as_written) ?? row.name_as_written;
+                            void grid.resolveWithNewStudent(row, name, rollNo);
+                          }}
+                        >
+                          Resolve
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {cleanRows.length > 0 && (
             <>
+              <div className="marks-grid__legend">
+                <span className="marks-grid__legend-item">
+                  <span className="marks-grid__legend-dot" style={{ background: "var(--risk)" }} /> flagged by the reading -- needs a look
+                </span>
+              </div>
               <div className="table-wrap table-wrap--scroll">
-                <table className="table">
+                <table className="table marks-grid">
                   <thead>
                     <tr>
                       <th>Roll</th>
-                      <th>Name (as read)</th>
-                      <th>Status</th>
-                      <th className="num">Marks read</th>
-                      <th></th>
+                      <th>Name</th>
+                      {addresses.map((addr) => (
+                        <th key={addr} className="num">{addr}</th>
+                      ))}
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row) => (
+                    {cleanRows.map((row) => (
                       <tr key={row.row_id}>
                         <td className="mono">{row.roll_no}</td>
-                        <td>{row.name_as_written}</td>
-                        <td>{statusTag(row)}</td>
-                        <td className="num">{row.marks.filter((m) => m.marks != null).length}/{row.marks.length}</td>
-                        <td style={{ textAlign: "right" }}>
-                          {row.status !== "clean" && (
-                            <button
-                              className="btn btn--sm"
-                              onClick={() => {
-                                const rollNo = window.prompt("Roll number to match to", row.roll_no);
-                                if (!rollNo) return;
-                                const name = window.prompt("Student name (if creating new)", row.name_as_written) ?? row.name_as_written;
-                                void grid.resolveWithNewStudent(row, name, rollNo);
+                        <td>{row.student?.name ?? row.name_as_written}</td>
+                        {addresses.map((addr) => {
+                          const mark = markFor(row, addr);
+                          const isEditing = editingCell?.rowId === row.row_id && editingCell.address === addr;
+                          const flagged = !!mark?.problem;
+                          if (isEditing) {
+                            return (
+                              <td key={addr} className="num">
+                                <input
+                                  autoFocus
+                                  className="input"
+                                  style={{ width: 64, padding: "2px 6px" }}
+                                  value={cellValue}
+                                  onChange={(e) => setCellValue(e.target.value)}
+                                  onBlur={() => void saveCell(row, addr)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === "Enter") void saveCell(row, addr);
+                                    if (e.key === "Escape") setEditingCell(null);
+                                  }}
+                                />
+                              </td>
+                            );
+                          }
+                          return (
+                            <td
+                              key={addr}
+                              className="num"
+                              title={mark?.problem ?? undefined}
+                              onClick={() => openCell(row, addr, mark)}
+                              style={{
+                                cursor: "pointer",
+                                background: flagged ? "var(--risk-soft)" : undefined,
+                                color: flagged ? "var(--risk)" : undefined,
+                                border: flagged ? "1px solid var(--risk)" : undefined,
                               }}
                             >
-                              Resolve
-                            </button>
-                          )}
-                        </td>
+                              {mark?.marks ?? "—"}
+                            </td>
+                          );
+                        })}
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
+            </>
+          )}
 
+          {rows.length > 0 && (
+            <>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <input className="input" style={{ maxWidth: 220 }} placeholder="Your name" value={grid.by} onChange={(e) => grid.setBy(e.target.value)} />
                 <button className="btn btn--primary btn--sm" onClick={() => grid.confirmAll()} disabled={grid.busy != null}>

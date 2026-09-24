@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { AlertTriangle, Camera, CheckCircle2, ChevronDown, Loader2, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, ChevronDown, Loader2, Pencil, Plus, Sparkles, Trash2, Upload, X } from "lucide-react";
 import { api } from "@/lib/api";
 import { usePaperScan, toFiles } from "@/lib/usePaperScan";
 import { Scanner } from "@/components/Scanner";
+import type { StagedQuestion } from "@/lib/api";
 
 /** One subject's real question-paper pipeline: create/open a paper, scan it (photo or
  * file), confirm the reading, map it against the book and classify every question -- the
@@ -19,6 +20,51 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
     prefillSubject: subject,
   });
   const [newTitle, setNewTitle] = useState("Cycle Test I");
+  // The row currently open for editing -- only ever a pre-confirmation, unmapped row (see
+  // the Edit button's own guard below); editScanned() 409s past either point, so the
+  // affordance never appears once it would fail.
+  const [editing, setEditing] = useState<StagedQuestion | null>(null);
+  const [editForm, setEditForm] = useState({ question_no: "", section: "", max_marks: "", stem_text: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  function openEdit(q: StagedQuestion) {
+    setEditing(q);
+    setEditForm({
+      question_no: q.question_no ?? "",
+      section: q.section ?? "",
+      max_marks: q.max_marks != null ? String(q.max_marks) : "",
+      stem_text: q.stem_text ?? "",
+    });
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setSavingEdit(true);
+    const patch: Record<string, unknown> = {};
+    if (editForm.question_no !== (editing.question_no ?? "")) patch.question_no = editForm.question_no;
+    if (editForm.section !== (editing.section ?? "")) patch.section = editForm.section || null;
+    if (editForm.stem_text !== (editing.stem_text ?? "")) patch.stem_text = editForm.stem_text || null;
+    const maxMarksNum = editForm.max_marks.trim() === "" ? null : Number(editForm.max_marks);
+    if (maxMarksNum !== editing.max_marks) patch.max_marks = maxMarksNum;
+    try {
+      if (Object.keys(patch).length > 0) await scan.onEdit(editing.address, patch);
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function removeEdit() {
+    if (!editing) return;
+    if (!window.confirm(`Remove ${editing.section ?? ""}${editing.question_no}${editing.sub_part ?? ""}? The extractor sometimes invents a row from a heading -- this removes it entirely.`)) return;
+    setSavingEdit(true);
+    try {
+      await scan.onEdit(editing.address, { remove: true });
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   const papersForSubject = scan.papers.filter((p) => p.subject_code === subject);
 
@@ -259,24 +305,48 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
                         <th className="num">Marks</th>
                         <th>Chapter</th>
                         <th>Needs review</th>
+                        {!scan.confirmed && <th></th>}
                       </tr>
                     </thead>
                     <tbody>
-                      {scan.rows.map((q) => (
-                        <tr key={q.address}>
-                          <td className="strong">
-                            {q.section ?? ""}
-                            {q.question_no}
-                            {q.sub_part ?? ""}
-                          </td>
-                          <td className="small" style={{ maxWidth: 320 }}>
-                            {q.stem_text ?? "—"}
-                          </td>
-                          <td className="num">{q.max_marks ?? "—"}</td>
-                          <td>{q.mapped_to?.chapter ?? <span className="tag tag--risk">{q.blocked_reason ?? "Not placed"}</span>}</td>
-                          <td>{q.mapped_to?.needs_review ? <span className="tag tag--gold">{q.mapped_to.review_reason ?? "Review"}</span> : "—"}</td>
-                        </tr>
-                      ))}
+                      {scan.rows.map((q) => {
+                        // Backend rule (marks.py edit_scanned_question): editing 409s once
+                        // the scan is confirmed, and again once a row has already been
+                        // mapped (it has moved past staging into a real Question). So the
+                        // Edit action only ever appears for a still-staged, unconfirmed row.
+                        const canEdit = !scan.confirmed && !q.mapped_to;
+                        return (
+                          <tr key={q.address}>
+                            <td className="strong">
+                              {q.section ?? ""}
+                              {q.question_no}
+                              {q.sub_part ?? ""}
+                            </td>
+                            <td className="small" style={{ maxWidth: 320 }}>
+                              {q.stem_text ?? "—"}
+                            </td>
+                            <td className="num">{q.max_marks ?? "—"}</td>
+                            <td>{q.mapped_to?.chapter ?? <span className="tag tag--risk">{q.blocked_reason ?? "Not placed"}</span>}</td>
+                            <td>
+                              {q.mapped_to?.needs_review ? (
+                                <div style={{ display: "grid", gap: 2 }}>
+                                  <span className="tag tag--gold" style={{ width: "fit-content" }}>{q.mapped_to.review_reason ?? "Review"}</span>
+                                  <span className="small muted">A family/mapping problem -- fix the concept-family data, not this row.</span>
+                                </div>
+                              ) : "—"}
+                            </td>
+                            {!scan.confirmed && (
+                              <td style={{ textAlign: "right" }}>
+                                {canEdit && (
+                                  <button className="btn btn--sm" onClick={() => openEdit(q)}>
+                                    <Pencil size={12} /> Edit
+                                  </button>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 </div>
@@ -310,6 +380,52 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
                     await scan.onFiles(toFiles(pages));
                   }}
                 />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {editing && (
+          <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditing(null)}>
+            <motion.div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <div className="modal__head">
+                <h3>Edit question {editing.section ?? ""}{editing.question_no}{editing.sub_part ?? ""}</h3>
+                <button className="iconbtn" onClick={() => setEditing(null)} aria-label="Close">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal__body" style={{ display: "grid", gap: 10 }}>
+                <div className="field">
+                  <label htmlFor="edit-qno">Question no.</label>
+                  <input id="edit-qno" className="input" value={editForm.question_no} onChange={(e) => setEditForm((f) => ({ ...f, question_no: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-section">Section</label>
+                  <input id="edit-section" className="input" value={editForm.section} onChange={(e) => setEditForm((f) => ({ ...f, section: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-max">Max marks</label>
+                  <input id="edit-max" className="input" type="number" value={editForm.max_marks} onChange={(e) => setEditForm((f) => ({ ...f, max_marks: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-stem">Stem text</label>
+                  <textarea id="edit-stem" className="input" rows={3} value={editForm.stem_text} onChange={(e) => setEditForm((f) => ({ ...f, stem_text: e.target.value }))} />
+                </div>
+              </div>
+              <div className="modal__foot" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <button className="btn btn--sm" onClick={removeEdit} disabled={savingEdit}>
+                  <Trash2 size={13} /> Remove this row
+                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn btn--sm" onClick={() => setEditing(null)} disabled={savingEdit}>
+                    Cancel
+                  </button>
+                  <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()} disabled={savingEdit}>
+                    {savingEdit ? <Loader2 size={13} className="spin" /> : <CheckCircle2 size={13} />} Save
+                  </button>
+                </div>
               </div>
             </motion.div>
           </motion.div>
