@@ -1573,12 +1573,13 @@ def map_paper_to_book(
                 effort=settings.model_effort,
                 subject_codes=book_subject_codes,
                 section=section,
+                stem_text=row.stem_text,
                 chapter=chapter,
                 candidates=candidates,
             )
             if resolution is not None:
                 family = resolution.family
-                auto_resolved = resolution.rationale
+                auto_resolved = f"from the {resolution.grounded_in}: {resolution.rationale}"
                 sections_of.setdefault(family.code, set()).add(section)
         if family is None:
             row.blocked_reason = choice.blocked

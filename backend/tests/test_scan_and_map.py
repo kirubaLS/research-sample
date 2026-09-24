@@ -571,6 +571,106 @@ def test_a_blocked_question_is_auto_resolved_when_the_book_settles_it(
     assert "Auto-resolved" in q1["mapped_to"]["review_reason"]
 
 
+def test_auto_resolve_falls_back_to_the_question_s_own_text(monkeypatch):
+    """Stage 2 of auto_resolve: no book chunk was ingested for the section at all (a real
+    gap -- an ingestion miss, or a subtopic node created without its chunk), so there is
+    nothing of the book's own to check a book-grounded answer against. The question's own
+    text is the fallback signal, and it is still real -- the guardrail below is what keeps
+    it from becoming a hallucination anyway."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.mapping.auto_resolve import _GroundedFamilyChoice, resolve_blocked_family
+    from app.models import ConceptFamilyProposal, TaxonomyNode
+
+    db = SessionLocal()
+    stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+    made: list[TaxonomyNode] = []
+    for code, label in [
+        ("X.MATH.CF.STAGE2_A", "Modal class of grouped data"),
+        ("X.MATH.CF.STAGE2_B", "Cumulative frequency and the ogive"),
+    ]:
+        existing = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        if existing is None:
+            existing = TaxonomyNode(
+                kind="concept_family", code=code, label=label, parent_id=stats.id,
+                path=code, curriculum_version=stats.curriculum_version,
+            )
+            db.add(existing)
+            db.flush()
+            db.add(ConceptFamilyProposal(
+                curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+                run_id="fixture-stage2", source="llm", model="fixture",
+                code=code, label=label, chapter_id=stats.id,
+                evidence=[], from_sections=[],
+            ))
+        made.append(existing)
+    db.commit()
+    db.close()
+
+    stem_text = "Find the modal class for the given frequency distribution table."
+
+    def fake_client(family_code: str, quote: str):
+        class _FakeMessages:
+            def parse(self, **kwargs):
+                class _Response:
+                    parsed_output = _GroundedFamilyChoice(
+                        family_code=family_code,
+                        rationale="the question asks for the modal class directly",
+                        quote=quote,
+                    )
+                return _Response()
+
+        class _FakeAnthropic:
+            def __init__(self, api_key):
+                self.messages = _FakeMessages()
+
+        return _FakeAnthropic
+
+    import sys
+    import types
+
+    def install_fake(fake_anthropic_cls):
+        mod = types.ModuleType("anthropic")
+        mod.Anthropic = fake_anthropic_cls
+        monkeypatch.setitem(sys.modules, "anthropic", mod)
+
+    db = SessionLocal()
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+    candidates = [
+        db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.STAGE2_A")),
+        db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.STAGE2_B")),
+    ]
+
+    # A real quote, actually copied from the question -- the guardrail should let this
+    # answer through, and record it as grounded in the question rather than the book.
+    install_fake(fake_client("X.MATH.CF.STAGE2_A", "modal class for the given frequency"))
+    resolution = resolve_blocked_family(
+        db, api_key="test-key", model="claude-fake", effort=None,
+        subject_codes=["X.MATH"], section="99.9", stem_text=stem_text,
+        chapter=chapter, candidates=candidates,
+    )
+    assert resolution is not None
+    assert resolution.family.code == "X.MATH.CF.STAGE2_A"
+    assert resolution.grounded_in == "question"
+    db.close()
+
+    # A fabricated quote -- words that are not in the question at all -- must be refused
+    # regardless of how plausible the chosen family sounds. This is the guardrail against
+    # hallucination: a rationale is trusted only when it can point at real words.
+    db = SessionLocal()
+    install_fake(fake_client(
+        "X.MATH.CF.STAGE2_B", "the ogive is drawn from cumulative frequencies",
+    ))
+    resolution = resolve_blocked_family(
+        db, api_key="test-key", model="claude-fake", effort=None,
+        subject_codes=["X.MATH"], section="99.9", stem_text=stem_text,
+        chapter=chapter, candidates=candidates,
+    )
+    assert resolution is None, "a quote that is not in the question must not be trusted"
+    db.close()
+
+
 def test_mapping_refuses_when_no_book_is_loaded(client, school):
     r = client.post(
         "/assessments", headers=_auth(school),
