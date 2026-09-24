@@ -199,6 +199,14 @@ export default function AnswersPage() {
     return { scored, available, entered };
   }, [sheet, drafts]);
 
+  const hasOverMax = useMemo(() => {
+    if (!sheet) return false;
+    return sheet.questions.some((q) => {
+      const d = drafts[q.address];
+      return d?.state === "awarded" && d.marks.trim() !== "" && Number(d.marks) > q.max_marks;
+    });
+  }, [sheet, drafts]);
+
   function set(address: string, patch: Partial<Draft>) {
     setDrafts((d) => ({ ...d, [address]: { ...d[address], ...patch } }));
     setRejected((r) => {
@@ -231,6 +239,21 @@ export default function AnswersPage() {
 
     if (answers.length === 0) {
       setError("Nothing has been entered yet.");
+      return;
+    }
+
+    // Caught here, before the round trip -- the server enforces this too (it is the
+    // authority, and this check never replaces that), but a value over the question's own
+    // max_marks should read as wrong the moment it's typed, not after a submit-and-reject.
+    const overMax = sheet.questions.filter((q) => {
+      const d = drafts[q.address];
+      return d?.state === "awarded" && d.marks.trim() !== "" && Number(d.marks) > q.max_marks;
+    });
+    if (overMax.length > 0) {
+      setError(
+        `${overMax.length} question${overMax.length === 1 ? "" : "s"} carry more marks than ` +
+          `they're worth: ${overMax.map((q) => `${q.question_no} (max ${q.max_marks})`).join(", ")}.`,
+      );
       return;
     }
 
@@ -432,10 +455,15 @@ export default function AnswersPage() {
                     autoComplete="name"
                   />
                 </div>
-                <button type="button" className="btn btn--primary" onClick={confirm} disabled={!!busy}>
+                <button type="button" className="btn btn--primary" onClick={confirm} disabled={!!busy || hasOverMax}>
                   Confirm what is typed below
                 </button>
               </div>
+              {hasOverMax && (
+                <p style={{ color: "var(--risk)", marginTop: 8 }}>
+                  One or more questions carry more marks than they&rsquo;re worth. Fix those before confirming.
+                </p>
+              )}
               {saved && <p style={{ color: "var(--brand-green)", marginTop: 8 }}>{saved}</p>}
             </div>
           </div>
@@ -473,7 +501,8 @@ function Row({
   onChange: (patch: Partial<Draft>) => void;
 }) {
   const entered = draft.state !== "awarded" || draft.marks.trim() !== "";
-  const borderColor = rejected ? "var(--risk)" : entered ? "var(--brand-ink)" : "var(--brand-gold)";
+  const overMax = draft.state === "awarded" && draft.marks.trim() !== "" && Number(draft.marks) > q.max_marks;
+  const borderColor = rejected || overMax ? "var(--risk)" : entered ? "var(--brand-ink)" : "var(--brand-gold)";
   return (
     <li
       className="card"
@@ -517,6 +546,7 @@ function Row({
               value={draft.marks}
               disabled={draft.state !== "awarded"}
               placeholder="marks"
+              aria-invalid={overMax}
               onChange={(e) => onChange({ marks: e.target.value })}
             />
           </div>
@@ -532,6 +562,11 @@ function Row({
           </div>
         </div>
 
+        {overMax && (
+          <p className="small" style={{ color: "var(--risk)", marginTop: 8 }}>
+            {draft.marks} is more than the {q.max_marks} this question is worth.
+          </p>
+        )}
         {rejected && <p className="small" style={{ color: "var(--risk)", marginTop: 8 }}>Not recorded. {rejected}</p>}
       </div>
     </li>

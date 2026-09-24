@@ -28,6 +28,7 @@ import {
 } from "@/lib/pageStore";
 import { getApiKey } from "@/lib/session";
 import { newSessionId } from "@/lib/id";
+import { clearJob, getJob, setJob } from "@/lib/jobStore";
 
 /** The same conversion the single-student script scanner already uses: a captured page's
  * blob, in capture order, as a real File -- nothing downstream needs to know a camera was
@@ -546,7 +547,14 @@ export default function PaperPage() {
     // while; the busy message says so rather than reading like something is stuck.
     setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
     try {
-      setPlaced(await api.placePaper(key, assessmentId));
+      setPlaced(await api.placePaper(key, assessmentId, (jobId) => {
+        // Persisted the instant the server has queued the run, so navigating away, a
+        // reload, or the tab being closed doesn't lose track of a job the backend is
+        // already running -- the next visit to this paper resumes watching it instead of
+        // showing an empty "Read and classify" button as though nothing had started.
+        setJob("paper-place", assessmentId, jobId);
+      }));
+      clearJob("paper-place", assessmentId);
       await refresh(assessmentId);
     } catch (err) {
       setError(explain(err));
@@ -554,6 +562,40 @@ export default function PaperPage() {
       setBusy(null);
     }
   }
+
+  // A classify run left in flight from an earlier visit -- resume watching it instead of
+  // showing the "Read and classify" button as though the paper were untouched. Runs once
+  // a paper is open; a fresh classify started in this session sets/clears the same key.
+  useEffect(() => {
+    if (!assessmentId) return;
+    const jobId = getJob("paper-place", assessmentId);
+    if (!jobId || placed || alreadyClassified) return;
+    const key = getApiKey();
+    if (!key) return;
+    let cancelled = false;
+    setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
+    (async () => {
+      try {
+        const result = await api.resumePlacementJob(key, assessmentId, jobId);
+        if (cancelled) return;
+        setPlaced(result);
+        clearJob("paper-place", assessmentId);
+        await refresh(assessmentId);
+      } catch (err) {
+        if (cancelled) return;
+        // Stale or dead job (the worker that was reading it died mid-run) -- nothing left
+        // to resume, so drop the id rather than retry it forever on every future visit.
+        clearJob("paper-place", assessmentId);
+        setError(explain(err));
+      } finally {
+        if (!cancelled) setBusy(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assessmentId]);
 
   const rows = (review?.questions ?? []).filter((q) =>
     filter === "all" ? true : filter === "mapped" ? !!q.mapped_to : !q.mapped_to,

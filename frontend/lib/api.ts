@@ -1031,8 +1031,36 @@ export async function pollJob<T>(
     if (Date.now() > deadline) {
       throw new ApiError(504, `job ${jobId} did not finish within 10 minutes`);
     }
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    await waitOrUntilVisible(2000);
   }
+}
+
+/**
+ * The same 2s wait between polls, except it also resolves the instant the tab becomes
+ * visible again -- switching back to a tab that was minimised or backgrounded shows the
+ * result on the next tick rather than waiting out whatever was left of a throttled
+ * background-tab interval, which browsers slow down (sometimes to once a minute or more).
+ */
+function waitOrUntilVisible(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    if (typeof document === "undefined") {
+      setTimeout(resolve, ms);
+      return;
+    }
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisible);
+      resolve();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === "visible") finish();
+    };
+    const timer = setTimeout(finish, ms);
+    document.addEventListener("visibilitychange", onVisible);
+  });
 }
 
 /**
@@ -2014,21 +2042,37 @@ export const api = {
   studentDocuments: (key: string, studentId: string) =>
     authed<{ documents: ScanDoc[] }>(`/students/${studentId}/documents`, key),
 
-  uploadGridSheet: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
+  uploadGridSheet: (
+    key: string, assessmentId: string, sectionId: string, files: File[],
+    onJobQueued?: (jobId: string) => void,
+  ) =>
     uploadMany<GridUploadResult>(
       `/assessments/${assessmentId}/sections/${sectionId}/gridsheet`, key, files, "X-API-Key",
       // Reading a photo calls a vision model and can run past Render's request timeout,
       // so this endpoint always answers 202 with a job to poll -- never the result directly.
       `/assessments/${assessmentId}/gridsheet`,
+      onJobQueued,
     ),
 
-  uploadSingleScript: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
+  uploadSingleScript: (
+    key: string, assessmentId: string, sectionId: string, files: File[],
+    onJobQueued?: (jobId: string) => void,
+  ) =>
     uploadMany<GridUploadResult>(
       `/assessments/${assessmentId}/sections/${sectionId}/script`, key, files, "X-API-Key",
       // Same reason as the class photo: a vision call can run past Render's request
       // timeout, so this always answers 202 with a job to poll.
       `/assessments/${assessmentId}/gridsheet`,
+      onJobQueued,
     ),
+
+  /** Resume watching a grid-sheet read already queued on the server (GET
+   *  .../gridsheet/jobs/{job_id}, the same route uploadGridSheet/uploadSingleScript already
+   *  poll internally) -- for a page reload or a lost connection partway through polling,
+   *  so it watches the job already running server-side instead of re-uploading the photo
+   *  as a second, separately-billed vision read. */
+  resumeGridSheetJob: (key: string, assessmentId: string, jobId: string) =>
+    pollJob<GridUploadResult>(`/assessments/${assessmentId}/gridsheet`, key, jobId, "X-API-Key"),
 
   uploadGridSheetFile: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
     uploadMany<GridUploadResult>(

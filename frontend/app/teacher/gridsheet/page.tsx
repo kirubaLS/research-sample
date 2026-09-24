@@ -17,6 +17,7 @@ import {
   TeacherSectionSummary,
 } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
+import { clearJob, getJob, setJob } from "@/lib/jobStore";
 
 /**
  * Reading a class mark-entry sheet: one photograph, many students, read in a single call
@@ -111,6 +112,10 @@ export default function GridSheetPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [paperId]);
 
+  function gridJobKey(paper: string, section: string): string {
+    return `${paper}:${section}`;
+  }
+
   async function uploadPhoto(files: File[]) {
     const key = getApiKey();
     if (!key || !paperId || !sectionId || files.length === 0) return;
@@ -119,10 +124,18 @@ export default function GridSheetPage() {
     setError(null);
     setUploadSummary(null);
     setConfirmResult(null);
+    const scope = gridJobKey(paperId, sectionId);
+    const onJobQueued = (jobId: string) => {
+      // Persisted the instant the server has queued the vision read, so switching tabs,
+      // minimising, or reloading mid-read still resumes the same job server-side rather
+      // than looking like nothing was ever uploaded.
+      setJob("gridsheet", scope, jobId);
+    };
     try {
       const out = photoMode === "class"
-        ? await api.uploadGridSheet(key, paperId, sectionId, files)
-        : await api.uploadSingleScript(key, paperId, sectionId, files);
+        ? await api.uploadGridSheet(key, paperId, sectionId, files, onJobQueued)
+        : await api.uploadSingleScript(key, paperId, sectionId, files, onJobQueued);
+      clearJob("gridsheet", scope);
       setDocumentId(out.document_id);
       setUploadSummary(
         `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
@@ -135,6 +148,42 @@ export default function GridSheetPage() {
       setBusy(null);
     }
   }
+
+  // A photo/script read left in flight from an earlier visit to this paper+class -- resume
+  // watching it instead of showing an empty upload form as though nothing had started.
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key || !paperId || !sectionId || documentId) return;
+    const scope = gridJobKey(paperId, sectionId);
+    const jobId = getJob("gridsheet", scope);
+    if (!jobId) return;
+    let cancelled = false;
+    setBusy("Reading the sheet");
+    setError(null);
+    (async () => {
+      try {
+        const out = await api.resumeGridSheetJob(key, paperId, jobId);
+        if (cancelled) return;
+        clearJob("gridsheet", scope);
+        setDocumentId(out.document_id);
+        setUploadSummary(
+          `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
+            `${out.name_mismatch} with a name to check, ${out.unmatched} with no matching student.`,
+        );
+        await loadReview(out.document_id);
+      } catch (err) {
+        if (cancelled) return;
+        clearJob("gridsheet", scope);
+        setError(explain(err));
+      } finally {
+        if (!cancelled) setBusy(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paperId, sectionId]);
 
   async function uploadSpreadsheet(files: FileList | null) {
     const key = getApiKey();
