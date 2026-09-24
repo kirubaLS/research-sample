@@ -52,15 +52,15 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
     }
   }
 
-  if (error) return <main className="wrap"><p className="error">{error}</p></main>;
+  if (error) return <div><p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p></div>;
   if (!data) {
     return (
-      <main className="wrap">
+      <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
-      </main>
+      </div>
     );
   }
 
@@ -69,8 +69,8 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
     : data.subjects;
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">
             {data.student.section_label && (
@@ -81,42 +81,44 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
             )}
             {data.student.name}
           </p>
-          <h1 className="row" style={{ margin: 0, gap: 12, alignItems: "center" }}>
+          <h1 className="page-title" style={{ display: "flex", gap: 12, alignItems: "center" }}>
             <Avatar name={data.student.name} seed={data.student.id} size={40} />
             {data.student.name}
           </h1>
-          <p className="lede">Roll {data.student.roll_no}</p>
+          <p className="page-sub">Roll {data.student.roll_no}</p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
-          <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
+          <button type="button" className="btn btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
             {downloading === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
       </div>
 
-      <StatTileRow>
-        <StatTile
-          icon={<BarChartIcon />}
-          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "N/A"}
-          label="Overall Average"
-          tone="gold"
-        />
-        <StatTile icon={<ClipboardIcon />} value={data.overall.tests_taken} label="Tests Taken" tone="info" />
-        <StatTile
-          icon={<TargetIcon />}
-          value={<StatusBadge status={data.overall.status} />}
-          label="Overall Status"
-          tone={STATUS_TONE[data.overall.status]}
-        />
-      </StatTileRow>
+      <div style={{ marginTop: 20 }}>
+        <StatTileRow>
+          <StatTile
+            icon={<BarChartIcon />}
+            value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "N/A"}
+            label="Overall Average"
+            tone="gold"
+          />
+          <StatTile icon={<ClipboardIcon />} value={data.overall.tests_taken} label="Tests Taken" tone="info" />
+          <StatTile
+            icon={<TargetIcon />}
+            value={<StatusBadge status={data.overall.status} />}
+            label="Overall Status"
+            tone={STATUS_TONE[data.overall.status]}
+          />
+        </StatTileRow>
+      </div>
 
       {data.subjects.length > 0 && (
-        <div className="field" style={{ maxWidth: 260, marginBottom: 14 }}>
+        <div className="filter" style={{ maxWidth: 260, marginTop: 20, marginBottom: 14 }}>
           <label>Filter by subject</label>
-          <select value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
+          <select className="select" value={subjectFilter} onChange={(e) => setSubjectFilter(e.target.value)}>
             <option value="">All subjects</option>
             {data.subjects.map((s) => (
               <option key={s.subject_code} value={s.subject_code}>{s.label}</option>
@@ -128,8 +130,8 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
       {subjects.length === 0 ? (
         <p className="muted">No marks recorded for this student yet.</p>
       ) : (
-        <div className="tablewrap">
-          <table>
+        <div className="table-wrap">
+          <table className="table table--hover">
             <thead>
               <tr>
                 <th>Subject</th>
@@ -152,7 +154,7 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
                   <td className="small">{s.improve.join(", ") || "N/A"}</td>
                   <td>
                     <Link href={`/principal/students/${studentId}/subjects/${s.subject_code}`}>
-                      <button type="button" className="btn--ghost btn--sm">Details</button>
+                      <button type="button" className="btn btn--ghost btn--sm">Details</button>
                     </Link>
                   </td>
                 </tr>
@@ -161,6 +163,6 @@ export default function StudentAcademicsPage({ params }: { params: Promise<{ stu
           </table>
         </div>
       )}
-    </main>
+    </div>
   );
 }

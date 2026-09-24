@@ -24,12 +24,14 @@ export default function StudentHome() {
   }, []);
 
   return (
-    <main>
-      <div className="hero">
-        <h1>Hi {getStudentName()}</h1>
-      </div>
+    <main className="content" style={{ maxWidth: 720 }}>
+      <h1 className="page-title" style={{ marginBottom: 16 }}>Hi {getStudentName()}</h1>
 
-      {error && <p className="error">{error}</p>}
+      {error && (
+        <div className="evidence evidence--gold">
+          <div>{error}</div>
+        </div>
+      )}
 
       {!reports && !error && (
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -39,9 +41,9 @@ export default function StudentHome() {
       )}
 
       {reports && reports.length === 0 && (
-        <div style={{ textAlign: "center", padding: "40px 0" }}>
+        <div className="empty-hero">
           <Mascot pose="hello" size={72} />
-          <p className="lede" style={{ marginTop: 14 }}>
+          <p>
             Nothing shared with you yet. Your teacher will let you know when a report is
             ready.
           </p>
@@ -50,21 +52,21 @@ export default function StudentHome() {
 
       {reports && reports.length > 0 && (
         <>
-          <div className="section-head">
-            <h2>Your reports</h2>
+          <div className="section__head">
+            <h2 className="section-q">Your reports</h2>
           </div>
-          <div className="stack" style={{ gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {reports.map((r) => (
-              <div className="card row between" key={r.report_id}>
+              <div className="report-card" key={r.report_id}>
                 <div>
-                  <strong>{r.assessment_title ?? "Report"}</strong>
-                  <p className="cardnote">
+                  <strong className="report-card__subj">{r.assessment_title ?? "Report"}</strong>
+                  <p className="muted small" style={{ margin: "2px 0 0" }}>
                     {r.earned} / {r.available} marks
                     {r.shared_at && ` · shared ${new Date(r.shared_at).toLocaleDateString()}`}
                   </p>
                 </div>
                 <Link href={`/student/report/${r.report_id}`}>
-                  <button type="button">Open</button>
+                  <button type="button" className="btn btn--primary btn--sm">Open</button>
                 </Link>
               </div>
             ))}

@@ -87,72 +87,76 @@ export default function StudentSubjectPage({
     }
   }
 
-  if (error) return <main className="wrap"><p className="error">{error}</p></main>;
+  if (error) return <div><p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p></div>;
   if (!data) {
     return (
-      <main className="wrap">
+      <div>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
         </div>
-      </main>
+      </div>
     );
   }
 
   return (
-    <main className="wrap">
-      <div className="hero row between" style={{ alignItems: "flex-end" }}>
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">
             <Link href={`/principal/students/${studentId}`}>{data.student.name}</Link> &rsaquo; {data.subject.label}
           </p>
-          <h1 style={{ margin: 0 }}>{data.subject.label}</h1>
-          <p className="lede">{data.student.name} · Roll {data.student.roll_no}</p>
+          <h1 className="page-title">{data.subject.label}</h1>
+          <p className="page-sub">{data.student.name} · Roll {data.student.roll_no}</p>
         </div>
-        <div className="row" style={{ gap: 8 }}>
-          <button type="button" className="btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button type="button" className="btn btn--ghost" disabled={!!downloading} onClick={() => download("xlsx")}>
             {downloading === "xlsx" ? "Preparing…" : "Download Excel"}
           </button>
-          <button type="button" disabled={!!downloading} onClick={() => download("pdf")}>
+          <button type="button" className="btn btn--primary" disabled={!!downloading} onClick={() => download("pdf")}>
             {downloading === "pdf" ? "Preparing…" : "Download PDF"}
           </button>
         </div>
       </div>
 
-      <StatTileRow>
-        <StatTile
-          icon={<BarChartIcon />}
-          value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "N/A"}
-          label="Score"
-          tone="gold"
-        />
-        <StatTile icon={<ClipboardIcon />} value={`${data.overall.earned} / ${data.overall.available}`} label="Marks" tone="info" />
-        <StatTile icon={<ClipboardIcon />} value={data.overall.tests_taken} label="Tests" tone="violet" />
-        <StatTile
-          icon={<TargetIcon />}
-          value={<StatusBadge status={data.overall.status} />}
-          label="Status"
-          tone={STATUS_TONE[data.overall.status]}
-        />
-      </StatTileRow>
+      <div style={{ marginTop: 20 }}>
+        <StatTileRow>
+          <StatTile
+            icon={<BarChartIcon />}
+            value={data.overall.avg_score_pct != null ? `${data.overall.avg_score_pct}%` : "N/A"}
+            label="Score"
+            tone="gold"
+          />
+          <StatTile icon={<ClipboardIcon />} value={`${data.overall.earned} / ${data.overall.available}`} label="Marks" tone="info" />
+          <StatTile icon={<ClipboardIcon />} value={data.overall.tests_taken} label="Tests" tone="violet" />
+          <StatTile
+            icon={<TargetIcon />}
+            value={<StatusBadge status={data.overall.status} />}
+            label="Status"
+            tone={STATUS_TONE[data.overall.status]}
+          />
+        </StatTileRow>
+      </div>
 
-      <div className="section-head"><h2>By Chapter</h2></div>
-      <FindingsTable findings={data.by_chapter} emptyText="No chapter-tagged questions yet." />
+      <section className="section">
+        <div className="section__head"><h2 className="section-q">By Chapter</h2></div>
+        <FindingsTable findings={data.by_chapter} emptyText="No chapter-tagged questions yet." />
+      </section>
 
-      <div className="section-head" style={{ marginTop: 24 }}><h2>By Category (Remembering, Applying, Analysing)</h2></div>
-      <FindingsTable findings={data.by_tier} emptyText="No category-classified questions yet." />
+      <section className="section">
+        <div className="section__head"><h2 className="section-q">By Category (Remembering, Applying, Analysing)</h2></div>
+        <FindingsTable findings={data.by_tier} emptyText="No category-classified questions yet." />
+      </section>
 
       {data.tests.length > 0 && (
-        <>
-          <div className="row between" style={{ alignItems: "flex-end", marginTop: 28, marginBottom: 8 }}>
-            <div className="section-head" style={{ margin: 0 }}>
-              <h2>One-Page BoardX Report</h2>
-            </div>
-            <div className="row" style={{ gap: 10 }}>
+        <section className="section">
+          <div className="section__head" style={{ alignItems: "flex-end" }}>
+            <h2 className="section-q">One-Page BoardX Report</h2>
+            <div style={{ display: "flex", gap: 10 }}>
               {data.tests.length > 1 && (
-                <div className="field" style={{ marginBottom: 0, minWidth: 200 }}>
+                <div className="filter">
                   <label>Paper</label>
-                  <select value={boardxAssessmentId} onChange={(e) => setBoardxAssessmentId(e.target.value)}>
+                  <select className="select" value={boardxAssessmentId} onChange={(e) => setBoardxAssessmentId(e.target.value)}>
                     {data.tests.map((t) => (
                       <option key={t.assessment_id} value={t.assessment_id}>{t.title}</option>
                     ))}
@@ -160,7 +164,7 @@ export default function StudentSubjectPage({
                 </div>
               )}
               <button
-                type="button" className="btn--ghost" disabled={!boardx || boardxDownloading}
+                type="button" className="btn btn--ghost" disabled={!boardx || boardxDownloading}
                 onClick={downloadBoardX}
                 style={{ alignSelf: "flex-end" }}
               >
@@ -168,7 +172,7 @@ export default function StudentSubjectPage({
               </button>
             </div>
           </div>
-          {boardxError && <p className="error">{boardxError}</p>}
+          {boardxError && <p style={{ color: "var(--risk)", fontSize: 13.5 }}>{boardxError}</p>}
           {!boardx && !boardxError && (
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               <Mascot pose="loading" size={20} />
@@ -176,17 +180,17 @@ export default function StudentSubjectPage({
             </div>
           )}
           {boardx && <BoardXOnePager report={boardx} rollNo={data.student.roll_no} />}
-        </>
+        </section>
       )}
-    </main>
+    </div>
   );
 }
 
 function FindingsTable({ findings, emptyText }: { findings: AcademicFinding[]; emptyText: string }) {
   if (findings.length === 0) return <p className="muted">{emptyText}</p>;
   return (
-    <div className="tablewrap">
-      <table>
+    <div className="table-wrap">
+      <table className="table">
         <thead>
           <tr>
             <th>Name</th>
@@ -198,15 +202,15 @@ function FindingsTable({ findings, emptyText }: { findings: AcademicFinding[]; e
         <tbody>
           {findings.map((f) => {
             const pct = f.sufficient && f.rate != null ? Math.round(f.rate * 100) : null;
-            const tone = pct == null ? "" : pct >= 75 ? "verify" : pct >= 50 ? "" : "warn";
+            const barCls = pct == null ? "" : pct >= 75 ? "bar__fill--green" : pct >= 50 ? "" : "bar__fill--gold";
             return (
               <tr key={f.key}>
                 <td className="strong">{f.label}</td>
                 <td className="num" style={{ minWidth: 160 }}>
                   {pct != null ? (
-                    <div className="row" style={{ gap: 8, flexWrap: "nowrap" }}>
-                      <div className={`progress${tone ? ` ${tone}` : ""}`} style={{ flex: 1 }}>
-                        <div style={{ width: `${pct}%` }} />
+                    <div style={{ display: "flex", gap: 8, flexWrap: "nowrap", alignItems: "center" }}>
+                      <div className="bar" style={{ flex: 1 }}>
+                        <div className={`bar__fill ${barCls}`} style={{ width: `${pct}%` }} />
                       </div>
                       <span style={{ whiteSpace: "nowrap" }}>{f.earned}/{f.available} ({pct}%)</span>
                     </div>

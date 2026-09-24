@@ -47,7 +47,7 @@ export default function StudentReportDetail({
   if (error) return notFound();
   if (!report) {
     return (
-      <main>
+      <main className="content" style={{ maxWidth: 720 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
           <Mascot pose="loading" size={24} />
           <p className="muted" style={{ margin: 0 }}>Loading…</p>
@@ -66,62 +66,41 @@ export default function StudentReportDetail({
   const pose = rate == null ? "hello" : rate >= 0.75 ? "achieve" : rate >= 0.4 ? "improve" : "practice";
 
   return (
-    <main>
-      <button type="button" className="btn--ghost btn--sm" onClick={() => router.push("/student")} style={{ marginBottom: 14 }}>
+    <main className="content" style={{ maxWidth: 720 }}>
+      <button type="button" className="btn btn--ghost btn--sm" onClick={() => router.push("/student")} style={{ marginBottom: 14 }}>
         ← Your reports
       </button>
 
-      <h1 style={{ marginBottom: 18 }}>{report.assessment_title ?? "Report"}</h1>
+      <h1 className="page-title" style={{ marginBottom: 18 }}>{report.assessment_title ?? "Report"}</h1>
 
-      <div className="examfeedback">
-        <Mascot pose={pose} size={64} />
-        <div className="scorecard">
-          <div className="scoreline">
-            <strong>{report.earned} / {report.available}</strong>
+      <div className="feedback">
+        <div className="feedback__hero">
+          <Mascot pose={pose} size={64} />
+          <div className="feedback__score">
+            {report.earned} / {report.available}
           </div>
         </div>
+
+        <div className="feedback__body">
+          {doingWell.length > 0 && (
+            <div>
+              <h2 className="section-q" style={{ fontSize: 15, marginBottom: 8 }}>What you&rsquo;re doing well</h2>
+              <ul className="feedback__list feedback__list--well">
+                {doingWell.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {workOnNext.length > 0 && (
+            <div>
+              <h2 className="section-q" style={{ fontSize: 15, marginBottom: 8 }}>What to work on next</h2>
+              <ul className="feedback__list feedback__list--next">
+                {workOnNext.map((item) => <li key={item}>{item}</li>)}
+              </ul>
+            </div>
+          )}
+        </div>
       </div>
-
-      {doingWell.length > 0 && (
-        <>
-          <div className="section-head">
-            <h2>What you&rsquo;re doing well</h2>
-          </div>
-          <ul className="plainlist">
-            {doingWell.map((item) => <li key={item}>{item}</li>)}
-          </ul>
-        </>
-      )}
-
-      {workOnNext.length > 0 && (
-        <>
-          <div className="section-head">
-            <h2>What to work on next</h2>
-          </div>
-          <ul className="plainlist">
-            {workOnNext.map((item) => <li key={item}>{item}</li>)}
-          </ul>
-        </>
-      )}
-
-      <style jsx>{`
-        .examfeedback {
-          display: flex; align-items: center; gap: 18px; margin: 18px 0 28px; flex-wrap: wrap;
-        }
-        .scorecard {
-          flex: 1 1 240px; background: var(--surface); border: 1px solid var(--rule);
-          border-radius: var(--radius); padding: 22px; box-shadow: var(--shadow-sm);
-        }
-        .scoreline { display: flex; align-items: baseline; gap: 10px; }
-        .scoreline strong {
-          font-size: 34px; font-family: var(--font-display), sans-serif; font-weight: 800;
-          color: var(--brand-ink);
-        }
-        .arrow { font-size: 22px; color: var(--brand-green); }
-        .encourage { margin: 8px 0 0; color: var(--ink-2); }
-        .plainlist { padding-left: 20px; color: var(--ink-2); }
-        .plainlist li { margin-bottom: 4px; }
-      `}</style>
     </main>
   );
 }

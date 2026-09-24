@@ -1271,6 +1271,7 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
 }
 .input[readonly] { background: var(--surface-2); border-color: var(--line); box-shadow: none; color: var(--text); cursor: default; }
 .navlink--sub { margin-left: 18px; padding-top: 7px; padding-bottom: 7px; font-size: 13px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 .searchbox { position: relative; display: flex; align-items: center; min-width: 220px; }
 .searchbox > svg { position: absolute; left: 11px; color: var(--muted); pointer-events: none; }
 .searchbox .input { padding-left: 34px; padding-right: 36px; }

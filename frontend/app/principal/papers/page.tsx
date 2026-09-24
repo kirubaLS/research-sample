@@ -558,26 +558,26 @@ export default function PaperPage() {
   const blockedCount = (review?.questions ?? []).filter((q) => !q.mapped_to).length;
 
   return (
-    <main className="paper-page">
-      <header className="ph">
+    <div>
+      <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">Question paper</p>
-          <h1>Read a paper, and map it onto the book</h1>
-          <p className="lede">
+          <h1 className="page-title">Read a paper, and map it onto the book</h1>
+          <p className="page-sub">
             Every question is matched to a chapter, a section and a concept family, all of
             them from the textbook you loaded, none of them from memory. A question that
             cannot be matched keeps its place here and says why.
           </p>
         </div>
         {assessmentId && (
-          <div className="ph-actions">
-            <button type="button" className="btn--ghost" onClick={() => void onRename()} disabled={renaming || !!busy}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <button type="button" className="btn btn--ghost" onClick={() => void onRename()} disabled={renaming || !!busy}>
               {renaming ? "Renaming…" : "Rename"}
             </button>
             {documentId && (
               <button
                 type="button"
-                className="btn--ghost"
+                className="btn btn--ghost"
                 onClick={onRemoveScan}
                 disabled={removingScan || !!busy}
                 title="Discard the scanned pages and start the scan over, without losing questions already mapped or confirmed"
@@ -585,15 +585,15 @@ export default function PaperPage() {
                 {removingScan ? "Removing…" : "Remove scan"}
               </button>
             )}
-            <button type="button" className="danger" onClick={() => void onDelete()} disabled={!!busy}>
+            <button type="button" className="btn btn--danger" onClick={() => void onDelete()} disabled={!!busy}>
               Delete
             </button>
           </div>
         )}
-      </header>
+      </div>
 
       {pendingResume && (
-        <section className="notice warn" style={{ marginBottom: 18 }}>
+        <div className="evidence evidence--gold" style={{ marginTop: 18, flexDirection: "column", alignItems: "stretch" }}>
           <p style={{ margin: 0 }}>
             <strong>
               {pendingPageCount} page{pendingPageCount === 1 ? "" : "s"} of &ldquo;{pendingResume.title}&rdquo;
@@ -602,10 +602,10 @@ export default function PaperPage() {
             not reach the server last time -- nothing was lost, they are still on this device.
             {retrying ? " Trying again now…" : " Retrying automatically every 20 seconds."}
           </p>
-          <div className="row" style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button
               type="button"
-              className="btn--ghost"
+              className="btn btn--ghost btn--sm"
               disabled={retrying || !!busy}
               onClick={async () => {
                 const current = await getPending(pendingResume.sessionId);
@@ -626,7 +626,7 @@ export default function PaperPage() {
             </button>
             <button
               type="button"
-              className="btn--ghost"
+              className="btn btn--ghost btn--sm"
               disabled={retrying}
               onClick={async () => {
                 if (!window.confirm(`Discard the ${pendingPageCount} captured page(s)? They cannot be brought back.`)) return;
@@ -637,61 +637,68 @@ export default function PaperPage() {
               Discard
             </button>
           </div>
-        </section>
+        </div>
       )}
 
       {deleted && (
-        <p className="notice" style={{ marginBottom: 18 }}>
+        <div className="evidence evidence--neutral" style={{ marginTop: 18 }}>
           The paper was deleted. Start a new one below.
-        </p>
+        </div>
       )}
 
       {papers.length > 0 && (
-        <section className="card" style={{ marginBottom: 18 }}>
-          <h2>Existing papers</h2>
-          <p className="lede">Open one to check it, map it, rename it, or delete it.</p>
-          <ul className="paper-list">
-            {papers.map((p) => (
-              <li key={p.id} className="paper-item">
-                <button
-                  type="button"
-                  className={p.id === assessmentId ? "paper-row active" : "paper-row"}
-                  onClick={() => void openPaper(p)}
-                >
-                  <span className="name">{p.title}</span>
-                  <span className="meta">{p.subject_label} · {p.stage}</span>
-                </button>
-                <span className="paper-row-actions">
+        <div className="card" style={{ marginTop: 18 }}>
+          <div className="card__body">
+            <h2 style={{ marginTop: 0 }}>Existing papers</h2>
+            <p className="page-sub" style={{ marginTop: 4 }}>Open one to check it, map it, rename it, or delete it.</p>
+            <ul className="list-plain" style={{ padding: 0, listStyle: "none", display: "flex", flexDirection: "column", gap: 6, marginTop: 10 }}>
+              {papers.map((p) => (
+                <li key={p.id} style={{ display: "flex", alignItems: "center", gap: 10, borderBottom: "1px solid var(--line)", paddingBottom: 8 }}>
                   <button
                     type="button"
-                    className="btn--ghost btn--sm"
-                    disabled={renaming || !!busy}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void onRename(p.id, p.title);
+                    onClick={() => void openPaper(p)}
+                    style={{
+                      flex: 1, textAlign: "left", background: "none", border: "none", padding: "6px 0", cursor: "pointer",
+                      display: "flex", flexDirection: "column", gap: 2,
+                      color: p.id === assessmentId ? "var(--brand-teal)" : "inherit",
                     }}
                   >
-                    Rename
+                    <span className="strong">{p.title}</span>
+                    <span className="small muted">{p.subject_label} · {p.stage}</span>
                   </button>
-                  <button
-                    type="button"
-                    className="danger small"
-                    disabled={!!busy}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void onDelete(p.id);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
+                  <span style={{ display: "flex", gap: 6 }}>
+                    <button
+                      type="button"
+                      className="btn btn--ghost btn--sm"
+                      disabled={renaming || !!busy}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void onRename(p.id, p.title);
+                      }}
+                    >
+                      Rename
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn--danger btn--sm"
+                      disabled={!!busy}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void onDelete(p.id);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
 
-      <ol className="steps" aria-label="Progress">
+      <div className="stepper" style={{ marginTop: 24 }} aria-label="Progress">
+        <div className="stepper__bar" style={{ "--progress": `${(["start", "scanned", "confirmed", "mapped", "classified"].indexOf(stage) / 4) * 100}%` } as React.CSSProperties} />
         {(
           [
             ["Upload", "the paper as a PDF", null],
@@ -702,55 +709,58 @@ export default function PaperPage() {
           ] as const
         ).map(([label, hint, anchor], i) => {
           const reached = ["start", "scanned", "confirmed", "mapped", "classified"].indexOf(stage);
-          const state = i < reached ? "done" : i === reached ? "now" : "todo";
+          const state = i < reached ? "done" : i === reached ? "current" : "todo";
           // A step is only worth clicking once its own section actually exists on the
           // page to scroll to -- "Upload" has no anchor at all (once a scan exists, the
           // upload form itself is gone; re-uploading is what "Remove scan" is for, not
           // this stepper), and nothing past "reached" has rendered yet either.
           const canJump = anchor !== null && i <= reached;
           return (
-            <li key={label} className={`step step-${state}`}>
-              <button
-                type="button"
-                className="step-jump"
-                disabled={!canJump}
-                onClick={() => {
-                  if (!canJump) return;
-                  document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-              >
-                <span className="step-n">{i + 1}</span>
-                <span className="step-b">
-                  <strong>{label}</strong>
-                  <em>{hint}</em>
-                </span>
-              </button>
-            </li>
+            <button
+              key={label}
+              type="button"
+              className="stepper__step"
+              data-state={state}
+              disabled={!canJump}
+              style={{ border: "none", background: "none", cursor: canJump ? "pointer" : "default" }}
+              onClick={() => {
+                if (!canJump) return;
+                document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+            >
+              <span className="stepper__dot">{i + 1}</span>
+              <span>
+                <strong style={{ display: "block" }}>{label}</strong>
+                <span className="small muted">{hint}</span>
+              </span>
+            </button>
           );
         })}
-      </ol>
+      </div>
 
       {stage === "start" && (
-        <section className="card">
-          <div className="grid-2">
-            <label className="field">
-              <span>Subject</span>
-              <select value={subject} onChange={(e) => setSubject(e.target.value)}>
+        <section className="card" style={{ marginTop: 20 }}>
+          <div className="card__body">
+          <div className="grid grid--2">
+            <div className="field">
+              <label>Subject</label>
+              <select className="select" value={subject} onChange={(e) => setSubject(e.target.value)}>
                 {subjects.map(({ subject_code: code, label: name }) => (
                   <option key={code} value={code}>
                     {name}
                   </option>
                 ))}
               </select>
-            </label>
-            <label className="field">
-              <span>What is this test called?</span>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} />
-            </label>
+            </div>
+            <div className="field">
+              <label>What is this test called?</label>
+              <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+            </div>
           </div>
 
           <div
-            className="drop"
+            className="surface surface--tinted"
+            style={{ marginTop: 16, padding: 28, textAlign: "center", borderStyle: "dashed" }}
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => {
               e.preventDefault();
@@ -758,13 +768,13 @@ export default function PaperPage() {
               if (dropped.length) onFiles(dropped);
             }}
           >
-            <p className="drop-title">Drop the question paper here</p>
-            <p className="drop-hint">
+            <p className="strong" style={{ margin: 0 }}>Drop the question paper here</p>
+            <p className="small muted" style={{ margin: "6px 0 14px", maxWidth: 460, marginInline: "auto" }}>
               One page or many, as PDFs or photographs, in the order you add them. A paper
               with selectable text is read now; a photographed one is reported plainly
               rather than returned as an empty result.
             </p>
-            <button type="button" onClick={() => fileInput.current?.click()} disabled={!!busy}>
+            <button type="button" className="btn btn--primary" onClick={() => fileInput.current?.click()} disabled={!!busy}>
               {busy ?? "Choose pages"}
             </button>
             <input
@@ -775,7 +785,7 @@ export default function PaperPage() {
               // Hidden with CSS, not the `hidden` attribute: `hidden` removes the input
               // from the accessibility tree, so assistive technology and automated tests
               // cannot reach the only control that accepts a file.
-              className="visually-hidden"
+              style={{ position: "absolute", width: 1, height: 1, padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", whiteSpace: "nowrap", border: 0 }}
               onChange={(e) => {
                 const chosen = Array.from(e.target.files ?? []);
                 if (chosen.length) onFiles(chosen);
@@ -783,8 +793,8 @@ export default function PaperPage() {
             />
           </div>
 
-          <div className="row" style={{ marginTop: 12 }}>
-            <button type="button" className="btn--ghost" onClick={() => setShowCamera((v) => !v)}>
+          <div style={{ marginTop: 12 }}>
+            <button type="button" className="btn btn--ghost" onClick={() => setShowCamera((v) => !v)}>
               {showCamera ? "Close camera" : "Use camera instead"}
             </button>
           </div>
@@ -808,18 +818,20 @@ export default function PaperPage() {
               />
             </div>
           )}
+          </div>
         </section>
       )}
 
       {error && (
-        <p className="alert" role="alert">
+        <p role="alert" style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 16 }}>
           {error}
         </p>
       )}
 
       {scan && (
-        <section className="card" id="step-confirm">
-          <div className="tiles">
+        <section className="card" id="step-confirm" style={{ marginTop: 20 }}>
+          <div className="card__body">
+          <div className="grid grid--4">
             <Tile n={scan.questions} label="questions read" />
             <Tile n={scan.sub_parts} label="sub parts" />
             <Tile n={scan.choice_alternatives} label="choice alternatives" />
@@ -836,19 +848,21 @@ export default function PaperPage() {
           {/* The marks total, on its own and in words. A sub part whose label was missed
               takes its marks with it and leaves nothing behind to notice: every row still
               on screen looks right, and only this line shows the paper is short. */}
-          <MarksCheck read={scan.total_marks} declared={scan.declared.total_marks} />
+          <div style={{ marginTop: 16 }}>
+            <MarksCheck read={scan.total_marks} declared={scan.declared.total_marks} />
+          </div>
 
           {scan.problems.length === 0 ? (
-            <p className="verdict good">
+            <div className="evidence" style={{ marginTop: 12 }}>
               What was read agrees with everything the paper says about itself.
-            </p>
+            </div>
           ) : (
-            <div className="verdict warn">
-              <p>
+            <div className="evidence evidence--gold" style={{ marginTop: 12, flexDirection: "column", alignItems: "stretch" }}>
+              <p style={{ margin: 0 }}>
                 <strong>The paper disagrees with what was read.</strong> Nothing is wrong
                 with storing it, but these are the gaps a person has to close.
               </p>
-              <ul>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
                 {scan.problems.map((p) => (
                   <li key={p}>{p}</li>
                 ))}
@@ -857,20 +871,21 @@ export default function PaperPage() {
           )}
 
           {stage === "scanned" && (
-            <div className="confirmbar">
-              <label className="field">
-                <span>Who checked this paper?</span>
+            <div style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10, alignItems: "flex-start" }}>
+              <div className="field" style={{ maxWidth: 280 }}>
+                <label>Who checked this paper?</label>
                 <input
+                  className="input"
                   value={confirmedBy}
                   onChange={(e) => setConfirmedBy(e.target.value)}
                   placeholder="Your name"
                   autoComplete="name"
                 />
-              </label>
-              <button type="button" className="primary" onClick={onConfirm} disabled={!!busy}>
+              </div>
+              <button type="button" className="btn btn--primary" onClick={onConfirm} disabled={!!busy}>
                 {busy && <Mascot pose="loading" size={16} />} {busy ?? "These questions are correct"}
               </button>
-              <p className="muted">
+              <p className="small muted">
                 Nothing is mapped until someone checks it. Correct any row below first;
                 after you confirm, the rows are locked and re-reading the paper is the only
                 way to change them.
@@ -879,21 +894,23 @@ export default function PaperPage() {
           )}
 
           {stage === "confirmed" && (
-            <button type="button" className="primary" onClick={onMap} disabled={!!busy}>
+            <button type="button" className="btn btn--primary" style={{ marginTop: 16 }} onClick={onMap} disabled={!!busy}>
               {busy && <Mascot pose="loading" size={16} />} {busy ?? "Map these questions onto the book"}
             </button>
           )}
+          </div>
         </section>
       )}
 
       {mapped && (
-        <section className="card" id="step-map">
-          <div className="tiles">
+        <section className="card" id="step-map" style={{ marginTop: 20 }}>
+          <div className="card__body">
+          <div className="grid grid--3">
             <Tile n={mapped.mapped} label="mapped to the book" tone="good" />
             <Tile n={mapped.blocked} label="could not be mapped" tone={mapped.blocked ? "warn" : undefined} />
             <Tile n={mapped.needs_review} label="want a second look" />
           </div>
-          <p className="muted">
+          <p className="small muted" style={{ marginTop: 12 }}>
             Matched by {mapped.retrieval === "hybrid" ? "keyword and meaning search together" : "keyword search alone"}.
           </p>
 
@@ -902,22 +919,24 @@ export default function PaperPage() {
               produces a category. */}
           {!placed && !alreadyClassified && mapped.mapped > 0 && (
             <>
-              <p className="note">
+              <p className="small" style={{ marginTop: 12 }}>
                 Every question now sits in a chapter. Reading each one against the passages
                 it matched settles its topic and sub topic, and gives it a category. A
                 question the reading cannot settle keeps what it has and says so.
               </p>
-              <button type="button" className="primary" onClick={onClassify} disabled={!!busy}>
+              <button type="button" className="btn btn--primary" style={{ marginTop: 8 }} onClick={onClassify} disabled={!!busy}>
                 {busy && <Mascot pose="loading" size={16} />} {busy ?? "Read and classify these questions"}
               </button>
             </>
           )}
+          </div>
         </section>
       )}
 
       {placed && (
-        <section className="card" id="step-classify">
-          <div className="tiles">
+        <section className="card" id="step-classify" style={{ marginTop: 20 }}>
+          <div className="card__body">
+          <div className="grid grid--4">
             <Tile n={placed.labelled} label="chapter, topic and sub topic settled" tone="good" />
             <Tile
               n={placed.tiers}
@@ -937,7 +956,7 @@ export default function PaperPage() {
           </div>
 
           {placed.tiers < placed.placed && (
-            <p className="note">
+            <p className="small" style={{ marginTop: 12 }}>
               {placed.placed - placed.tiers} question
               {placed.placed - placed.tiers === 1 ? "" : "s"} came back without a category.
               That is an answer, not a gap: where the passages do not settle which kind of
@@ -949,7 +968,7 @@ export default function PaperPage() {
           {/* Measured, not estimated. A model choice is a cost decision, and it should be
               made on the figure this run produced rather than on arithmetic about a
               prompt nobody had looked at. */}
-          <p className="small muted">
+          <p className="small muted" style={{ marginTop: 12 }}>
             {placed.spend.calls} reading{placed.spend.calls === 1 ? "" : "s"} by{" "}
             {placed.spend.model} at {placed.spend.effort} effort, each shown{" "}
             {placed.spend.passages_shown} passages from up to{" "}
@@ -959,8 +978,8 @@ export default function PaperPage() {
           </p>
 
           {placed.grounding_violations.length > 0 && (
-            <div className="verdict warn">
-              <p>
+            <div className="evidence evidence--gold" style={{ marginTop: 12, flexDirection: "column", alignItems: "stretch" }}>
+              <p style={{ margin: 0 }}>
                 <strong>
                   The book had to correct the reading on{" "}
                   {placed.grounding_violations.length} question
@@ -969,7 +988,7 @@ export default function PaperPage() {
                 Every corrected field was dropped rather than stored. How often this
                 happens is the measure of whether the next paper can be left to it.
               </p>
-              <ul>
+              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
                 {placed.grounding_violations.slice(0, 6).map((v) => (
                   <li key={v.question}>
                     {v.question} &middot; {v.problems.join("; ")}
@@ -978,14 +997,16 @@ export default function PaperPage() {
               </ul>
             </div>
           )}
+          </div>
         </section>
       )}
 
       {review && review.questions.length > 0 && (
-        <section className="card" id="step-check">
-          <div className="toolbar">
-            <h2>The paper, question by question</h2>
-            <div className="filters" role="group" aria-label="Filter questions">
+        <section className="card" id="step-check" style={{ marginTop: 20 }}>
+          <div className="card__body">
+          <div className="section__head" style={{ marginBottom: 12, marginTop: 0 }}>
+            <h2 style={{ margin: 0 }}>The paper, question by question</h2>
+            <div className="tabs" role="group" aria-label="Filter questions" style={{ border: "none", boxShadow: "none" }}>
               {(
                 [
                   ["all", `All ${review.questions.length}`],
@@ -996,7 +1017,7 @@ export default function PaperPage() {
                 <button
                   key={value}
                   type="button"
-                  className={filter === value ? "on" : ""}
+                  className={`tab${filter === value ? " tab--active" : ""}`}
                   onClick={() => setFilter(value)}
                 >
                   {label}
@@ -1006,14 +1027,14 @@ export default function PaperPage() {
           </div>
 
           {review.confirmed_at && (
-            <p className="verdict good">
+            <div className="evidence" style={{ marginBottom: 12 }}>
               Confirmed by {review.confirmed_by ?? "someone"}
               {review.edited > 0 && ` · ${review.edited} row(s) corrected first`}. These
               rows are locked; re-read the paper to change them.
-            </p>
+            </div>
           )}
 
-          <ul className="qlist">
+          <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 12 }}>
             {rows.map((q) => (
               <QuestionRow
                 key={q.address}
@@ -1023,16 +1044,17 @@ export default function PaperPage() {
               />
             ))}
           </ul>
+          </div>
         </section>
       )}
-    </main>
+    </div>
   );
 }
 
 function MarksCheck({ read, declared }: { read: number; declared: number | null }) {
   if (declared == null) {
     return (
-      <p className="markscheck">
+      <p className="small">
         <strong>{read} marks</strong> were read. This paper does not print a total of its
         own, so there is nothing to check the reading against.
       </p>
@@ -1041,24 +1063,24 @@ function MarksCheck({ read, declared }: { read: number; declared: number | null 
   const short = Math.round((declared - read) * 100) / 100;
   if (short === 0) {
     return (
-      <p className="markscheck good">
+      <div className="evidence">
         <strong>
           {read} of {declared} marks
-        </strong>{" "}
-        were read. The paper adds up to what it says it is worth.
-      </p>
+        </strong>
+        &nbsp;were read. The paper adds up to what it says it is worth.
+      </div>
     );
   }
   return (
-    <div className="markscheck warn">
-      <p>
+    <div className="evidence evidence--gold" style={{ flexDirection: "column", alignItems: "stretch" }}>
+      <p style={{ margin: 0 }}>
         <strong>
           {read} of {declared} marks
         </strong>{" "}
         were read, so {Math.abs(short)}{" "}
         {short > 0 ? "are missing" : "are counted twice"}.
       </p>
-      <p className="small">
+      <p className="small" style={{ margin: "6px 0 0" }}>
         {short > 0
           ? "A question whose parts are worth different marks is the usual cause. Open the ones with parts (i), (ii) and (iii) and check that each part carries its own marks."
           : "A question with an internal choice is the usual cause. Only one half of a choice counts towards the total."}
@@ -1068,10 +1090,11 @@ function MarksCheck({ read, declared }: { read: number; declared: number | null 
 }
 
 function Tile({ n, label, tone }: { n: number; label: string; tone?: "good" | "warn" }) {
+  const accent = tone === "good" ? "var(--brand-green)" : tone === "warn" ? "var(--brand-gold)" : undefined;
   return (
-    <div className={`tile${tone ? ` tile-${tone}` : ""}`}>
-      <span className="tile-n">{n}</span>
-      <span className="tile-l">{label}</span>
+    <div className="stat" style={accent ? ({ "--accent": accent } as React.CSSProperties) : undefined}>
+      <div className="stat__value">{n}</div>
+      <div className="stat__label">{label}</div>
     </div>
   );
 }
@@ -1090,34 +1113,38 @@ function QuestionRow({
   // and showing it as a question with no marks sends a person hunting for a mark that was
   // never printed.
   const missing = q.max_marks == null && !q.is_context;
+  const blocked = !(placed || q.is_context);
   return (
-    <li className={`qrow${placed || q.is_context ? "" : " qrow-blocked"}${missing ? " qrow-missing" : ""}`}>
-      <div className="qhead">
-        <span className="qno">
+    <li className="card" style={blocked || missing ? { borderColor: "var(--risk)" } : undefined}>
+      <div className="card__body">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap" }}>
+        <span className="strong">
           {q.section ? `${q.section} · ` : ""}
           {q.question_no}
           {q.sub_part ? ` (${q.sub_part})` : ""}
           {q.choice_alt ? ` (${q.choice_alt})` : ""}
           {/* A choice is answered instead of its other half, never as well as it. Saying
               so on the row is what stops the pair being read as two questions. */}
-          {q.choice_alt === "b" && <span className="editedby">instead of (a)</span>}
-          {q.edited_by && <span className="editedby">corrected by {q.edited_by}</span>}
+          {q.choice_alt === "b" && <span className="small muted"> instead of (a)</span>}
+          {q.edited_by && <span className="small muted"> corrected by {q.edited_by}</span>}
         </span>
         {q.is_context ? (
-          <span className="qmarks">
-            <em className="muted">the stem its parts share</em>
+          <span className="small muted">
+            <em>the stem its parts share</em>
           </span>
         ) : editable ? (
-          <span className="qedit">
+          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <label>
-              <span className="sr">Marks for question {q.question_no}</span>
+              <span className="small" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>Marks for question {q.question_no}</span>
               <input
+                className="input"
                 type="number"
                 inputMode="decimal"
                 min={0}
                 step={0.5}
                 defaultValue={q.max_marks ?? ""}
                 placeholder="marks"
+                style={{ width: 90 }}
                 onBlur={(e) => {
                   const value = e.target.value.trim();
                   if (value === "" || Number(value) === q.max_marks) return;
@@ -1127,7 +1154,7 @@ function QuestionRow({
             </label>
             <button
               type="button"
-              className="remove"
+              className="btn btn--ghost btn--sm"
               onClick={() => onEdit(q.address, { remove: true })}
               aria-label={`Remove question ${q.question_no}, it is not a question`}
             >
@@ -1135,16 +1162,16 @@ function QuestionRow({
             </button>
           </span>
         ) : (
-          <span className="qmarks">
-            {missing ? <em className="warnish">no marks read</em> : `${q.max_marks} marks`}
+          <span className="small muted">
+            {missing ? <em style={{ color: "var(--risk)" }}>no marks read</em> : `${q.max_marks} marks`}
           </span>
         )}
       </div>
 
-      <p className="qstem">{q.stem_text || <em>no text was extracted for this question</em>}</p>
+      <p className="small" style={{ marginTop: 10 }}>{q.stem_text || <em className="muted">no text was extracted for this question</em>}</p>
 
       {placed ? (
-        <div className="qmap">
+        <div className="chipset" style={{ marginTop: 10 }}>
           <Chip label="Chapter" value={placed.chapter} />
           {/* The topic is the book's own heading for the section the passages came from,
               so it is shown in the book's words with the number beside it. */}
@@ -1171,8 +1198,9 @@ function QuestionRow({
           />
         </div>
       ) : (
-        <p className="qblocked">{q.blocked_reason ?? "not mapped"}</p>
+        <p className="small" style={{ marginTop: 10, color: "var(--risk)" }}>{q.blocked_reason ?? "not mapped"}</p>
       )}
+      </div>
     </li>
   );
 }
@@ -1190,9 +1218,8 @@ function Chip({
 }) {
   if (!value) return null;
   return (
-    <span className={`chip${strong ? " chip-strong" : ""}`} title={title}>
-      <span className="chip-l">{label}</span>
-      {value}
+    <span className={`tag${strong ? " tag--teal" : ""}`} title={title}>
+      <b>{label}:</b> {value}
     </span>
   );
 }

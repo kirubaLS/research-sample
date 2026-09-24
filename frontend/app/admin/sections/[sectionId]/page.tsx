@@ -6,9 +6,9 @@ import { CopyLink } from "@/components/CopyLink";
 import { api, ApiError, type RosterRow } from "@/lib/api";
 import { getApiKey, getRole } from "@/lib/session";
 
-const STATUS: Record<RosterRow["status"], { label: string; cls: string }> = {
-  complete: { label: "Complete", cls: "green" },
-  in_progress: { label: "In progress", cls: "amber" },
+const STATUS: Record<RosterRow["status"], { label: string; cls: "low" | "medium" | "" }> = {
+  complete: { label: "Complete", cls: "low" },
+  in_progress: { label: "In progress", cls: "medium" },
   not_started: { label: "Not started", cls: "" },
 };
 
@@ -113,104 +113,103 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
 
   if (!data) {
     return (
-      <main>
+      <main className="content">
         <p className="muted">Loading…</p>
       </main>
     );
   }
 
   return (
-    <main>
-      <div className="hero">
-        <p className="eyebrow">
-          <Link href="/admin" style={{ color: "inherit" }}>
-            ← Dashboard
-          </Link>
-        </p>
-        <h1>{data.section.label}</h1>
-      </div>
+    <main className="content">
+      <p className="eyebrow">
+        <Link href="/admin" style={{ color: "inherit" }}>
+          ← Dashboard
+        </Link>
+      </p>
+      <h1 className="page-title" style={{ marginTop: 6 }}>{data.section.label}</h1>
 
       <div className="card" style={{ marginTop: 16 }}>
-        <label>Student link</label>
-        <CopyLink path={data.section.student_path} />
+        <div className="card__body">
+          <label className="small muted" style={{ display: "block", marginBottom: 6 }}>Student link</label>
+          <CopyLink path={data.section.student_path} />
+        </div>
       </div>
 
       {cohort && cohort.counted > 0 && (
         <>
-          <div className="section-head">
-            <h2>Where this class leans</h2>
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">Where this class leans</h2>
           </div>
           <div className="card">
-            {Object.entries(cohort.streams)
-              .sort((a, b) => b[1] - a[1])
-              .map(([stream, n]) => (
-                <div className="scalerow" key={stream}>
-                  <span className="nm">{stream}</span>
-                  <div className="scaletrack">
-                    <div
-                      className="scalefill"
-                      style={{ width: `${(n / cohort.counted) * 100}%` }}
-                    />
+            <div className="card__body">
+              {Object.entries(cohort.streams)
+                .sort((a, b) => b[1] - a[1])
+                .map(([stream, n]) => (
+                  <div className="bar-row" key={stream}>
+                    <span className="bar-row__label">{stream}</span>
+                    <div className="bar">
+                      <div className="bar__fill" style={{ width: `${(n / cohort.counted) * 100}%` }} />
+                    </div>
+                    <span className="bar-row__val">{n}</span>
                   </div>
-                  <span className="pct">{n}</span>
-                </div>
-              ))}
-            <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
-              {cohort.counted} profile{cohort.counted === 1 ? "" : "s"} counted
-              {cohort.withheld > 0 && (
-                <> · {cohort.withheld} withheld as too undifferentiated to call</>
-              )}
-            </p>
+                ))}
+              <p className="small muted" style={{ marginTop: 12, marginBottom: 0 }}>
+                {cohort.counted} profile{cohort.counted === 1 ? "" : "s"} counted
+                {cohort.withheld > 0 && (
+                  <> · {cohort.withheld} withheld as too undifferentiated to call</>
+                )}
+              </p>
+            </div>
           </div>
         </>
       )}
 
-      <div className="section-head">
-        <h2>Students</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">Students</h2>
         {canManageRoster && !adding && (
-          <button type="button" className="btn--ghost btn--sm" onClick={() => setAdding(true)}>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => setAdding(true)}>
             Add student
           </button>
         )}
       </div>
 
       {canManageRoster && adding && (
-        <div className="card">
-          <div className="row" style={{ gap: 8 }}>
-            <div>
-              <label>Roll no.</label>
-              <input value={newRoll} onChange={(e) => setNewRoll(e.target.value)} autoFocus />
+        <div className="card" style={{ marginBottom: 16 }}>
+          <div className="card__body">
+            <div style={{ display: "flex", gap: 8 }}>
+              <div className="field" style={{ width: 100 }}>
+                <label>Roll no.</label>
+                <input className="input" value={newRoll} onChange={(e) => setNewRoll(e.target.value)} autoFocus />
+              </div>
+              <div className="field" style={{ flex: 1 }}>
+                <label>Name</label>
+                <input className="input" value={newName} onChange={(e) => setNewName(e.target.value)} />
+              </div>
             </div>
-            <div style={{ flex: 1 }}>
-              <label>Name</label>
-              <input value={newName} onChange={(e) => setNewName(e.target.value)} />
+            {addError && <div className="evidence evidence--gold" style={{ marginTop: 8 }}><div>{addError}</div></div>}
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button type="button" className="btn btn--primary" onClick={onAdd} disabled={savingAdd}>
+                {savingAdd ? "Adding…" : "Add"}
+              </button>
+              <button
+                type="button"
+                className="btn btn--ghost"
+                onClick={() => {
+                  setAdding(false);
+                  setAddError(null);
+                }}
+                disabled={savingAdd}
+              >
+                Cancel
+              </button>
             </div>
-          </div>
-          {addError && (
-            <p className="error">{addError}</p>
-          )}
-          <div className="row" style={{ gap: 8, marginTop: 8 }}>
-            <button type="button" className="primary" onClick={onAdd} disabled={savingAdd}>
-              {savingAdd ? "Adding…" : "Add"}
-            </button>
-            <button
-              type="button"
-              className="btn--ghost"
-              onClick={() => {
-                setAdding(false);
-                setAddError(null);
-              }}
-              disabled={savingAdd}
-            >
-              Cancel
-            </button>
           </div>
         </div>
       )}
 
-      <div className="card flush">
-        <div className="tablewrap">
-          <table>
+      <div className="card">
+        <div className="table-wrap">
+          <table className="table">
             <thead>
               <tr>
                 <th>Roll</th>
@@ -229,18 +228,18 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                     <>
                       <td>
                         <input
-                          className="tiny"
+                          className="input"
                           value={editRoll}
                           onChange={(e) => setEditRoll(e.target.value)}
                           style={{ width: 60 }}
                         />
                       </td>
                       <td colSpan={5}>
-                        <div className="row" style={{ gap: 8, alignItems: "center" }}>
-                          <input value={editName} onChange={(e) => setEditName(e.target.value)} />
+                        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                          <input className="input" value={editName} onChange={(e) => setEditName(e.target.value)} />
                           <button
                             type="button"
-                            className="primary tiny"
+                            className="btn btn--primary btn--sm"
                             onClick={() => onSaveEdit(s.student_id)}
                             disabled={savingEdit}
                           >
@@ -248,13 +247,13 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                           </button>
                           <button
                             type="button"
-                            className="btn--ghost btn--sm"
+                            className="btn btn--ghost btn--sm"
                             onClick={() => setEditingId(null)}
                             disabled={savingEdit}
                           >
                             Cancel
                           </button>
-                          {editError && <span className="error">{editError}</span>}
+                          {editError && <span className="small" style={{ color: "var(--risk)" }}>{editError}</span>}
                         </div>
                       </td>
                     </>
@@ -270,11 +269,13 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                         )}
                       </td>
                       <td>
-                        <span className={`badge ${STATUS[s.status].cls}`}>
-                          {STATUS[s.status].label}
-                        </span>
+                        {STATUS[s.status].cls ? (
+                          <span className={`attn attn--${STATUS[s.status].cls}`}>{STATUS[s.status].label}</span>
+                        ) : (
+                          <span className="tag">{STATUS[s.status].label}</span>
+                        )}
                         {s.validity && s.validity !== "valid" && (
-                          <span className="badge red" style={{ marginLeft: 6 }}>
+                          <span className="attn attn--high" style={{ marginLeft: 6 }}>
                             {s.validity}
                           </span>
                         )}
@@ -282,25 +283,25 @@ export default function RosterPage({ params }: { params: Promise<{ sectionId: st
                       <td className="mono">{s.holland_code ?? "not yet"}</td>
                       <td>{s.withheld ? <span className="muted">withheld</span> : (s.top_stream ?? "not yet")}</td>
                       <td>
-                        <div className="row" style={{ gap: 6 }}>
+                        <div style={{ display: "flex", gap: 6 }}>
                           {/* Always linked. Gating this on the interest test being complete
                               made a student who had sat a written test unreachable, which is
                               the one record a principal opens the roster to read. */}
-                          <Link className="btn secondary tiny" href={`/admin/students/${s.student_id}`}>
+                          <Link className="btn btn--sm" href={`/admin/students/${s.student_id}`}>
                             Open
                           </Link>
                           {canManageRoster && (
                             <>
                               <button
                                 type="button"
-                                className="btn--ghost btn--sm"
+                                className="btn btn--ghost btn--sm"
                                 onClick={() => startEdit(s)}
                               >
                                 Edit
                               </button>
                               <button
                                 type="button"
-                                className="danger tiny"
+                                className="btn btn--danger btn--sm"
                                 onClick={() => onRemove(s)}
                                 disabled={removingId === s.student_id}
                               >

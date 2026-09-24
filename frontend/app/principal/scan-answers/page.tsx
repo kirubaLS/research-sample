@@ -254,10 +254,10 @@ export default function GridSheetPage() {
   const ready = papers.filter((p) => p.ready_for_answer_sheets);
 
   return (
-    <main className="wrap">
+    <div style={{ maxWidth: 900, margin: "0 auto" }}>
       <p className="eyebrow">Mark-entry sheet</p>
-      <h1>Read marks off a photo -- a whole class, or one script</h1>
-      <p className="lede">
+      <h1 className="page-title">Read marks off a photo -- a whole class, or one script</h1>
+      <p className="page-sub" style={{ maxWidth: "68ch" }}>
         A whole class&rsquo;s mark-entry sheet in one photo -- one row per roll number, one
         column per question -- or one student&rsquo;s own script, its name and roll read
         straight off the page rather than picked from a list first. A roll already on the
@@ -266,29 +266,28 @@ export default function GridSheetPage() {
         settle before it counts.
       </p>
 
-      <section className="panel">
-        <div className="row" style={{ marginBottom: 10 }}>
-          <div className="filters">
-            <button
-              type="button"
-              className={photoMode === "class" ? "on" : ""}
-              onClick={() => setPhotoMode("class")}
-            >
-              Whole class
-            </button>
-            <button
-              type="button"
-              className={photoMode === "single" ? "on" : ""}
-              onClick={() => setPhotoMode("single")}
-            >
-              One student&rsquo;s script
-            </button>
-          </div>
+      <section className="card" style={{ marginTop: 18 }}>
+        <div className="card__body">
+        <div className="tabs" style={{ marginBottom: 14, border: "none", boxShadow: "none" }}>
+          <button
+            type="button"
+            className={`tab${photoMode === "class" ? " tab--active" : ""}`}
+            onClick={() => setPhotoMode("class")}
+          >
+            Whole class
+          </button>
+          <button
+            type="button"
+            className={`tab${photoMode === "single" ? " tab--active" : ""}`}
+            onClick={() => setPhotoMode("single")}
+          >
+            One student&rsquo;s script
+          </button>
         </div>
-        <div className="picks">
-          <label>
-            <span>Paper</span>
-            <select value={paperId} onChange={(e) => { setPaperId(e.target.value); setDocumentId(""); setReview(null); }}>
+        <div className="grid grid--2">
+          <div className="field">
+            <label>Paper</label>
+            <select className="select" value={paperId} onChange={(e) => { setPaperId(e.target.value); setDocumentId(""); setReview(null); }}>
               <option value="">Choose a paper…</option>
               {ready.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -297,10 +296,10 @@ export default function GridSheetPage() {
                 </option>
               ))}
             </select>
-          </label>
-          <label>
-            <span>Class</span>
-            <select value={sectionId} onChange={(e) => { setSectionId(e.target.value); setDocumentId(""); setReview(null); }}>
+          </div>
+          <div className="field">
+            <label>Class</label>
+            <select className="select" value={sectionId} onChange={(e) => { setSectionId(e.target.value); setDocumentId(""); setReview(null); }}>
               <option value="">Choose a class…</option>
               {sections.map((s) => (
                 <option key={s.section_id} value={s.section_id}>
@@ -308,13 +307,13 @@ export default function GridSheetPage() {
                 </option>
               ))}
             </select>
-          </label>
+          </div>
         </div>
 
-        <div className="row" style={{ marginTop: 4 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 12, flexWrap: "wrap" }}>
           <button
             type="button"
-            className="btn--ghost"
+            className="btn btn--ghost"
             disabled={!paperId || !sectionId || !!busy}
             onClick={() => void downloadAnswerCard()}
           >
@@ -326,9 +325,9 @@ export default function GridSheetPage() {
           </span>
         </div>
 
-        <div className="picks">
-          <label>
-            <span>{photoMode === "class" ? "Photograph" : "Photo(s) of the script"}</span>
+        <div className="grid grid--2" style={{ marginTop: 14 }}>
+          <div className="field">
+            <label>{photoMode === "class" ? "Photograph" : "Photo(s) of the script"}</label>
             <input
               type="file"
               multiple
@@ -341,23 +340,23 @@ export default function GridSheetPage() {
                 Select every page of this student&rsquo;s script at once -- they&rsquo;re stored and read together as one script.
               </span>
             )}
-          </label>
-          <label>
-            <span>Spreadsheet or PDF</span>
+          </div>
+          <div className="field">
+            <label>Spreadsheet or PDF</label>
             <input
               type="file"
               accept=".csv,.tsv,.txt,.xlsx,.xlsm,.pdf"
               disabled={!paperId || !sectionId || !!busy}
               onChange={(e) => void uploadSpreadsheet(e.target.files)}
             />
-            <span className="hint">One row per student, one column per question -- a CSV, an Excel file, or a printed PDF.</span>
-          </label>
+            <span className="small muted">One row per student, one column per question -- a CSV, an Excel file, or a printed PDF.</span>
+          </div>
         </div>
 
-        <div className="row" style={{ marginTop: 4 }}>
+        <div style={{ marginTop: 12 }}>
           <button
             type="button"
-            className="btn--ghost"
+            className="btn btn--ghost"
             disabled={!paperId || !sectionId || !!busy}
             onClick={() => setShowCamera((v) => !v)}
           >
@@ -375,21 +374,23 @@ export default function GridSheetPage() {
         )}
 
         {papers.length > 0 && ready.length === 0 && (
-          <p className="warnish">
+          <p className="small" style={{ color: "var(--brand-gold)", marginTop: 12 }}>
             No paper has been read yet. Scan and confirm one on the Question paper screen
             first. Marks have nothing to attach to until then.
           </p>
         )}
-        {uploadSummary && <p className="ok">{uploadSummary}</p>}
+        {uploadSummary && <p className="small" style={{ color: "var(--brand-green)", marginTop: 8 }}>{uploadSummary}</p>}
+        </div>
       </section>
 
-      {error && <p className="error">{error}</p>}
-      {busy && <p className="muted">{busy}…</p>}
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 12 }}>{error}</p>}
+      {busy && <p className="muted" style={{ marginTop: 12 }}>{busy}…</p>}
 
       {review && (
         <>
-          <section className="panel sticky">
-            <div className="tally">
+          <section className="card" style={{ marginTop: 16, position: "sticky", top: 0, zIndex: 5 }}>
+            <div className="card__body">
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 16 }}>
               <div>
                 <strong>{review.assessment.title}</strong>
               </div>
@@ -398,24 +399,26 @@ export default function GridSheetPage() {
                 <span className="muted"> of {review.rows.length} ready to confirm</span>
               </div>
             </div>
-            <div className="confirmrow">
-              <label>
-                <span className="sr">Your name</span>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ flex: "1 1 180px" }}>
+                <label className="small" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>Your name</label>
                 <input
+                  className="input"
                   value={by}
                   onChange={(e) => setBy(e.target.value)}
                   placeholder="Your name"
                   autoComplete="name"
                 />
-              </label>
-              <button onClick={confirmAll} disabled={!!busy || review.ready_to_confirm === 0}>
+              </div>
+              <button className="btn btn--primary" onClick={confirmAll} disabled={!!busy || review.ready_to_confirm === 0}>
                 Confirm all ready rows
               </button>
             </div>
-            {confirmResult && <p className="ok">{confirmResult}</p>}
+            {confirmResult && <p className="small" style={{ color: "var(--brand-green)", marginTop: 8 }}>{confirmResult}</p>}
+            </div>
           </section>
 
-          <ol className="rows">
+          <ol style={{ listStyle: "none", margin: "16px 0 0", padding: 0, display: "grid", gap: 10 }}>
             {review.rows.map((row) => (
               <GridRow
                 key={row.row_id}
@@ -430,35 +433,7 @@ export default function GridSheetPage() {
           </ol>
         </>
       )}
-
-      <style jsx>{`
-        .wrap { max-width: 900px; margin: 0 auto; padding: 20px 16px 64px; }
-        h1 { margin: 0 0 4px; font-size: 26px; }
-        .lede { color: var(--ink-2); margin: 0 0 20px; max-width: 68ch; }
-        .panel { border: 1px solid var(--rule); border-radius: 12px; padding: 14px; margin-bottom: 16px; background: var(--surface); }
-        .sticky { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-        .picks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-        .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
-        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; background: var(--surface); }
-        .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
-        .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-        .confirmrow label { flex: 1 1 180px; display: flex; }
-        .confirmrow input { width: 100%; }
-        button { padding: 10px 16px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 15px; transition: transform .16s var(--ease-spring, ease), box-shadow .2s ease; }
-        button:hover:not([disabled]) { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
-        button[disabled] { opacity: .5; }
-        .rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-        .muted { color: var(--ink-3); }
-        .error { color: var(--mark); }
-        .ok { color: var(--verify); margin: 8px 0 0; }
-        .warnish { color: var(--warn); }
-        .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-        @media (max-width: 560px) {
-          .picks { grid-template-columns: 1fr; }
-          .sticky { position: static; }
-        }
-      `}</style>
-    </main>
+    </div>
   );
 }
 
@@ -486,19 +461,21 @@ function GridRow({
   const [editValue, setEditValue] = useState("");
 
   const blocked = row.marks.filter((m) => m.problem);
+  const borderColor = row.status === "name_mismatch" ? "var(--brand-gold)" : row.status === "unmatched" ? "var(--risk)" : "var(--brand-ink)";
 
   return (
-    <li className={`row row-${row.status}`}>
-      <div className="head">
-        <span className="who">
+    <li className="card" style={{ borderLeft: `4px solid ${borderColor}`, background: row.status === "unmatched" ? "var(--risk-soft)" : undefined }}>
+      <div className="card__body" style={{ padding: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+        <span className="strong">
           Roll {row.roll_no}
           {row.student ? ` · ${row.student.name}` : row.name_as_written ? ` · written as “${row.name_as_written}”` : ""}
         </span>
-        <span className={`badge badge-${row.status}`}>{STATUS_LABEL[row.status]}</span>
+        <span className={`attn ${row.status === "clean" ? "attn--low" : row.status === "name_mismatch" ? "attn--medium" : "attn--high"}`}>{STATUS_LABEL[row.status]}</span>
       </div>
 
       {row.status === "name_mismatch" && row.student && (
-        <p className="note">
+        <p className="small" style={{ margin: "8px 0 0" }}>
           The sheet reads &ldquo;{row.name_as_written}&rdquo; but roll {row.roll_no} on the
           roster is {row.student.name}. If that&rsquo;s the same student, say so below;
           otherwise pick or create the right one.
@@ -506,21 +483,22 @@ function GridRow({
       )}
 
       {row.marks.length > 0 && (
-        <div className="marks">
+        <div className="chipset" style={{ margin: "8px 0 0" }}>
           {row.marks.map((m) =>
             editing === m.address ? (
-              <span key={m.address} className="mark mark-editing">
+              <span key={m.address} className="chip" style={{ paddingRight: 4 }}>
                 <input
+                  className="input"
                   value={editValue}
                   onChange={(e) => setEditValue(e.target.value)}
                   placeholder="marks"
                   inputMode="decimal"
                   autoFocus
-                  style={{ width: 56 }}
+                  style={{ width: 56, padding: "3px 6px", fontSize: 12 }}
                 />
                 <button
                   type="button"
-                  className="tiny"
+                  className="btn btn--sm btn--primary"
                   disabled={busy}
                   onClick={() => {
                     const trimmed = editValue.trim();
@@ -530,23 +508,24 @@ function GridRow({
                 >
                   Save
                 </button>
-                <button type="button" className="tiny ghost" disabled={busy} onClick={() => setEditing(null)}>
+                <button type="button" className="btn btn--sm btn--ghost" disabled={busy} onClick={() => setEditing(null)}>
                   Cancel
                 </button>
               </span>
             ) : (
               <span
                 key={m.address}
-                className={m.problem ? "mark mark-bad" : "mark"}
+                className={m.problem ? "tag" : "tag"}
+                style={m.problem ? { background: "var(--risk-soft)", color: "var(--risk)", borderColor: "transparent" } : undefined}
                 title={row.student ? "Tap to correct this mark" : "Resolve this row to a student before editing its marks"}
               >
                 {m.address}: {m.marks ?? (m.raw_value || "N/A")}
                 {row.student && (
                   <button
                     type="button"
-                    className="editbtn"
                     aria-label={`Edit ${m.address}`}
                     disabled={busy}
+                    style={{ border: "none", background: "none", cursor: "pointer", padding: 0, opacity: 0.7 }}
                     onClick={() => {
                       setEditValue(m.marks != null ? String(m.marks) : "");
                       setEditing(m.address);
@@ -561,21 +540,22 @@ function GridRow({
         </div>
       )}
       {blocked.length > 0 && (
-        <p className="note bad">
+        <p className="small" style={{ color: "var(--risk)", margin: "8px 0 0" }}>
           {blocked.length} cell{blocked.length === 1 ? "" : "s"} need a look: {blocked.map((m) => `${m.address} (${m.problem})`).join("; ")}
         </p>
       )}
 
       {row.status !== "clean" && (
-        <div className="resolve">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10, alignItems: "center" }}>
           {row.status === "name_mismatch" && row.student && (
-            <button type="button" onClick={() => onPick(row.student!.id)} disabled={busy}>
+            <button type="button" className="btn btn--primary" onClick={() => onPick(row.student!.id)} disabled={busy}>
               This is {row.student.name}
             </button>
           )}
           {!creating && (
             <>
               <select
+                className="select"
                 value={picked}
                 onChange={(e) => setPicked(e.target.value)}
                 disabled={busy || !students.length}
@@ -587,10 +567,10 @@ function GridRow({
                   </option>
                 ))}
               </select>
-              <button type="button" onClick={() => picked && onPick(picked)} disabled={busy || !picked}>
+              <button type="button" className="btn btn--primary" onClick={() => picked && onPick(picked)} disabled={busy || !picked}>
                 Use this student
               </button>
-              <button type="button" className="ghost" onClick={() => setCreating(true)} disabled={busy}>
+              <button type="button" className="btn btn--ghost" onClick={() => setCreating(true)} disabled={busy}>
                 Create a new student
               </button>
             </>
@@ -598,55 +578,28 @@ function GridRow({
           {creating && (
             <>
               <input
+                className="input"
+                style={{ width: "auto" }}
                 value={newName}
                 onChange={(e) => setNewName(e.target.value)}
                 placeholder="Student's name"
               />
               <button
                 type="button"
+                className="btn btn--primary"
                 onClick={() => newName.trim() && onCreate(newName.trim(), row.roll_no)}
                 disabled={busy || !newName.trim()}
               >
                 Create roll {row.roll_no}
               </button>
-              <button type="button" className="ghost" onClick={() => setCreating(false)} disabled={busy}>
+              <button type="button" className="btn btn--ghost" onClick={() => setCreating(false)} disabled={busy}>
                 Cancel
               </button>
             </>
           )}
         </div>
       )}
-
-      <style jsx>{`
-        .row { border: 1px solid var(--rule); border-left: 4px solid var(--ink); border-radius: 10px; padding: 12px; background: var(--surface); }
-        .row-name_mismatch { border-left-color: var(--warn); }
-        .row-unmatched { border-left-color: var(--mark); background: var(--mark-soft); }
-        .head { display: flex; justify-content: space-between; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .who { font-weight: 600; }
-        .badge { font-size: 12px; padding: 3px 10px; border-radius: 999px; background: var(--verify-soft); color: var(--verify); }
-        .badge-name_mismatch { background: var(--warn-soft); color: var(--warn); }
-        .badge-unmatched { background: var(--mark-soft); color: var(--mark); }
-        .note { font-size: 13px; color: var(--ink-2); margin: 8px 0 0; }
-        .note.bad { color: var(--mark); }
-        .marks { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
-        .mark { display: inline-flex; align-items: center; gap: 5px; font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 6px 3px 10px; color: var(--ink-2); }
-        .mark-bad { background: var(--risk-soft, var(--mark-soft)); color: var(--risk, var(--mark)); }
-        .mark-editing { background: var(--surface); border: 1px solid var(--rule-2); padding: 3px 4px 3px 8px; }
-        .mark-editing input { padding: 3px 6px; font-size: 12px; border-radius: var(--radius-sm); }
-        .editbtn {
-          all: unset; cursor: pointer; font-size: 11px; line-height: 1; padding: 3px 5px;
-          border-radius: 999px; color: inherit; opacity: 0.6;
-        }
-        .editbtn:hover { opacity: 1; background: var(--surface); }
-        button.tiny { padding: 4px 8px; font-size: 12px; }
-        button.tiny.ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
-        .resolve { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
-        select, input { padding: 8px 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 14px; background: var(--surface); }
-        button { padding: 8px 14px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 14px; transition: transform .16s var(--ease-spring, ease); }
-        button:hover:not([disabled]) { transform: translateY(-1px); }
-        button.ghost { background: transparent; color: var(--ink); border: 1px solid var(--ink); }
-        button[disabled] { opacity: .5; }
-      `}</style>
+      </div>
     </li>
   );
 }

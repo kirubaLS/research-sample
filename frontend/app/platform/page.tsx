@@ -282,42 +282,40 @@ export default function PlatformConsole() {
   }
 
   return (
-    <main>
-      <div className="hero">
-        <p className="eyebrow">Operator console</p>
-        <h1>Schools</h1>
-        <p className="lede">
+    <main className="content">
+      <p className="eyebrow">Operator console</p>
+      <h1 className="page-title" style={{ marginTop: 6 }}>Schools</h1>
+      <p className="page-sub">
           Create a school, add its classes, and issue the key its principal signs in with.
-          No student data is visible here. That stays inside each school&apos;s own dashboard.
-        </p>
-      </div>
+        No student data is visible here. That stays inside each school&apos;s own dashboard.
+      </p>
 
       {overview && (
         <>
-          <div className="section-head">
-            <h2>Every school, at a glance</h2>
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">Every school, at a glance</h2>
           </div>
-          <div className="grid three" style={{ marginBottom: 18 }}>
+          <div className="grid grid--4" style={{ marginBottom: 18 }}>
             <div className="stat">
-              <span className="label">Schools</span>
-              <span className="value">{overview.totals.schools}</span>
+              <span className="stat__label">Schools</span>
+              <span className="stat__value">{overview.totals.schools}</span>
             </div>
             <div className="stat">
-              <span className="label">Students</span>
-              <span className="value">{overview.totals.students}</span>
+              <span className="stat__label">Students</span>
+              <span className="stat__value">{overview.totals.students}</span>
             </div>
             <div className="stat">
-              <span className="label">Papers</span>
-              <span className="value">{overview.totals.papers}</span>
+              <span className="stat__label">Papers</span>
+              <span className="stat__value">{overview.totals.papers}</span>
             </div>
             <div className="stat">
-              <span className="label">Answer scripts</span>
-              <span className="value">{overview.totals.answer_scripts}</span>
+              <span className="stat__label">Answer scripts</span>
+              <span className="stat__value">{overview.totals.answer_scripts}</span>
             </div>
           </div>
-          <div className="card flush">
-            <div className="tablewrap">
-              <table>
+          <div className="card">
+            <div className="table-wrap">
+              <table className="table">
                 <thead>
                   <tr>
                     <th>School</th>
@@ -343,7 +341,7 @@ export default function PlatformConsole() {
                       <td>
                         <button
                           type="button"
-                          className="btn--ghost btn--sm"
+                          className="btn btn--ghost btn--sm"
                           onClick={() => openAsAdmin(row)}
                         >
                           Open dashboard
@@ -366,29 +364,32 @@ export default function PlatformConsole() {
       )}
 
       {issued && (
-        <div className="card accentbar" style={{ marginTop: 22 }}>
-          <p className="eyebrow">New key for {issued.name}</p>
-          <h2>Copy this now</h2>
-          <p className="cardnote" style={{ marginBottom: 14 }}>
-            {issued.notice}
-          </p>
-          <CopySecret value={issued.api_key} />
-          <button
-            className="btn--ghost btn--sm"
-            style={{ marginTop: 14 }}
-            onClick={() => setIssued(null)}
-          >
-            I have saved it
-          </button>
+        <div className="card" style={{ marginTop: 22, borderLeft: "3px solid var(--brand-teal)" }}>
+          <div className="card__body">
+            <p className="eyebrow">New key for {issued.name}</p>
+            <h2 className="section-q">Copy this now</h2>
+            <p className="muted small" style={{ marginBottom: 14 }}>
+              {issued.notice}
+            </p>
+            <CopySecret value={issued.api_key} />
+            <button
+              className="btn btn--ghost btn--sm"
+              style={{ marginTop: 14 }}
+              onClick={() => setIssued(null)}
+            >
+              I have saved it
+            </button>
+          </div>
         </div>
       )}
 
-      {error && <div className="notice warn" style={{ marginTop: 18 }}>{error}</div>}
+      {error && <div className="evidence evidence--gold" style={{ marginTop: 18 }}><div>{error}</div></div>}
 
-      <div className="section-head">
-        <h2>Deputy operator keys</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">Deputy operator keys</h2>
       </div>
       <div className="card">
+       <div className="card__body">
         <p className="small muted" style={{ marginTop: 0 }}>
           Not a school role. This is a second credential for this console itself --
           someone who helps run the whole deployment: creating schools, loading books,
@@ -400,16 +401,16 @@ export default function PlatformConsole() {
         {adminKeys.length === 0 ? (
           <p className="small muted">None issued yet.</p>
         ) : (
-          <div className="stack" style={{ gap: 10 }}>
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {adminKeys.map((entry) => (
               <div key={entry.id} style={entry.revoked_at ? { opacity: 0.55 } : undefined}>
-                <div className="row between">
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <span className="small">
                     {entry.label || <span className="muted">unnamed</span>}
                     {entry.revoked_at && <span className="muted"> · revoked</span>}
                   </span>
                   {!entry.revoked_at && (
-                    <button className="btn--ghost btn--sm" onClick={() => revokeAdminKey(entry)}>
+                    <button className="btn btn--ghost btn--sm" onClick={() => revokeAdminKey(entry)}>
                       Revoke
                     </button>
                   )}
@@ -420,66 +421,70 @@ export default function PlatformConsole() {
           </div>
         )}
         <div style={{ marginTop: 12 }}>
-          <button className="btn--ghost btn--sm" onClick={issueAdminKey}>
+          <button className="btn btn--ghost btn--sm" onClick={issueAdminKey}>
             Issue a deputy operator key
           </button>
         </div>
+       </div>
       </div>
 
-      <div className="section-head">
-        <h2>Add a school</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">Add a school</h2>
       </div>
       <form onSubmit={createSchool} className="card">
-        <div className="field">
-          <label htmlFor="name">School name</label>
-          <input id="name" name="name" required placeholder="Bharath International Sr. Sec. School" />
-        </div>
-        <div className="grid two">
+        <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div className="field">
-            <label htmlFor="board">Board</label>
-            <input id="board" name="board" defaultValue="CBSE" />
+            <label htmlFor="name">School name</label>
+            <input id="name" name="name" className="input" required placeholder="Bharath International Sr. Sec. School" />
+          </div>
+          <div className="grid grid--2">
+            <div className="field">
+              <label htmlFor="board">Board</label>
+              <input id="board" name="board" className="input" defaultValue="CBSE" />
+            </div>
+            <div className="field">
+              <label htmlFor="state">State</label>
+              <input id="state" name="state" className="input" defaultValue="Tamil Nadu" />
+            </div>
           </div>
           <div className="field">
-            <label htmlFor="state">State</label>
-            <input id="state" name="state" defaultValue="Tamil Nadu" />
+            <label htmlFor="sections">Classes</label>
+            <input id="sections" name="sections" className="input" defaultValue="10-A" placeholder="10-A, 10-B" />
+            <p className="muted small">Comma separated, written as grade-section. You can add more later.</p>
           </div>
+          <div className="field">
+            <label htmlFor="consent">What the school has agreed to</label>
+            <select id="consent" name="consent" className="select" defaultValue="operational_only">
+              {CONSENT.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <p className="muted small">
+              Recorded per school and honoured at capture time. Start at operational only unless
+              the school has signed for more.
+            </p>
+          </div>
+          <button type="submit" className="btn btn--primary" disabled={busy}>
+            {busy ? "Creating…" : "Create school and issue key"}
+          </button>
         </div>
-        <div className="field">
-          <label htmlFor="sections">Classes</label>
-          <input id="sections" name="sections" defaultValue="10-A" placeholder="10-A, 10-B" />
-          <p className="hint">Comma separated, written as grade-section. You can add more later.</p>
-        </div>
-        <div className="field">
-          <label htmlFor="consent">What the school has agreed to</label>
-          <select id="consent" name="consent" defaultValue="operational_only">
-            {CONSENT.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-          <p className="hint">
-            Recorded per school and honoured at capture time. Start at operational only unless
-            the school has signed for more.
-          </p>
-        </div>
-        <button type="submit" disabled={busy}>
-          {busy ? "Creating…" : "Create school and issue key"}
-        </button>
       </form>
 
-      <div className="section-head">
-        <h2>Existing schools</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">Existing schools</h2>
       </div>
-      {!schools && <p className="cardnote">Loading…</p>}
+      {!schools && <p className="muted small">Loading…</p>}
       {schools?.length === 0 && (
-        <div className="notice">No schools yet. Create the first one above.</div>
+        <div className="evidence evidence--neutral"><div>No schools yet. Create the first one above.</div></div>
       )}
-      <div className="grid two">
+      <div className="grid grid--2">
         {schools?.map((school) => (
           <div key={school.id} className="card">
+           <div className="card__body">
             <h3>{school.name}</h3>
-            <p className="cardnote">
+            <p className="muted small">
               {school.board}
               {school.state ? ` · ${school.state}` : ""} · {school.students} students ·{" "}
               {CONSENT_LABEL[school.training_consent] ?? school.training_consent}
@@ -490,7 +495,7 @@ export default function PlatformConsole() {
               {" - "}
               <button
                 type="button"
-                className="btn--ghost btn--sm"
+                className="btn btn--ghost btn--sm"
                 onClick={() => toggleDirectoryVisibility(school)}
               >
                 {school.hidden_from_directory ? "Show on /t" : "Hide from /t"}
@@ -510,10 +515,10 @@ export default function PlatformConsole() {
             ))}
 
             <div style={{ display: "flex", gap: 10, marginTop: 16, flexWrap: "wrap" }}>
-              <button className="btn--ghost btn--sm" onClick={() => addSection(school)}>
+              <button className="btn btn--ghost btn--sm" onClick={() => addSection(school)}>
                 Add a class
               </button>
-              <button className="btn--ghost btn--sm" onClick={() => rotate(school)}>
+              <button className="btn btn--ghost btn--sm" onClick={() => rotate(school)}>
                 Rotate the school&rsquo;s key
               </button>
             </div>
@@ -533,10 +538,10 @@ export default function PlatformConsole() {
                 None issued. The school&rsquo;s own key below already works as one.
               </p>
             ) : (
-              <div className="stack" style={{ gap: 10 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                 {(staffKeys[school.id] ?? []).map((entry) => (
                   <div key={entry.id} style={entry.revoked_at ? { opacity: 0.55 } : undefined}>
-                    <div className="row between">
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                       <span className="small">
                         <strong>Principal</strong>
                         {entry.role === "admin" && (
@@ -547,7 +552,7 @@ export default function PlatformConsole() {
                       </span>
                       {!entry.revoked_at && (
                         <button
-                          className="btn--ghost btn--sm"
+                          className="btn btn--ghost btn--sm"
                           onClick={() => revokeKey(school, entry)}
                         >
                           Revoke
@@ -560,10 +565,11 @@ export default function PlatformConsole() {
               </div>
             )}
             <div style={{ display: "flex", gap: 10, marginTop: 10, flexWrap: "wrap" }}>
-              <button className="btn--ghost btn--sm" onClick={() => issueKey(school, "principal")}>
+              <button className="btn btn--ghost btn--sm" onClick={() => issueKey(school, "principal")}>
                 Issue a principal key
               </button>
             </div>
+           </div>
           </div>
         ))}
       </div>

@@ -561,26 +561,26 @@ export default function PaperPage() {
   const blockedCount = (review?.questions ?? []).filter((q) => !q.mapped_to).length;
 
   return (
-    <main className="paper-page">
-      <header className="ph">
+    <>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-end", gap: 16, flexWrap: "wrap" }}>
         <div>
           <p className="eyebrow">Question paper</p>
-          <h1>Read a paper, and map it onto the book</h1>
-          <p className="lede">
+          <h1 className="page-title" style={{ marginTop: 4 }}>Read a paper, and map it onto the book</h1>
+          <p className="page-sub" style={{ maxWidth: "70ch" }}>
             Every question is matched to a chapter, a section and a concept family, all of
             them from the textbook you loaded, none of them from memory. A question that
             cannot be matched keeps its place here and says why.
           </p>
         </div>
         {assessmentId && (
-          <div className="ph-actions">
-            <button type="button" className="btn--ghost" onClick={() => void onRename()} disabled={renaming || !!busy}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn btn--ghost" onClick={() => void onRename()} disabled={renaming || !!busy}>
               {renaming ? "Renaming…" : "Rename"}
             </button>
             {documentId && (
               <button
                 type="button"
-                className="btn--ghost"
+                className="btn btn--ghost"
                 onClick={onRemoveScan}
                 disabled={removingScan || !!busy}
                 title="Discard the scanned pages and start the scan over, without losing questions already mapped or confirmed"
@@ -588,15 +588,15 @@ export default function PaperPage() {
                 {removingScan ? "Removing…" : "Remove scan"}
               </button>
             )}
-            <button type="button" className="danger" onClick={() => void onDelete()} disabled={!!busy}>
+            <button type="button" className="btn btn--danger" onClick={() => void onDelete()} disabled={!!busy}>
               Delete
             </button>
           </div>
         )}
-      </header>
+      </div>
 
       {pendingResume && (
-        <section className="notice warn" style={{ marginBottom: 18 }}>
+        <div className="evidence evidence--gold" style={{ marginTop: 18, flexDirection: "column", alignItems: "flex-start" }}>
           <p style={{ margin: 0 }}>
             <strong>
               {pendingPageCount} page{pendingPageCount === 1 ? "" : "s"} of &ldquo;{pendingResume.title}&rdquo;
@@ -605,10 +605,10 @@ export default function PaperPage() {
             not reach the server last time -- nothing was lost, they are still on this device.
             {retrying ? " Trying again now…" : " Retrying automatically every 20 seconds."}
           </p>
-          <div className="row" style={{ marginTop: 10 }}>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
             <button
               type="button"
-              className="btn--ghost"
+              className="btn btn--ghost"
               disabled={retrying || !!busy}
               onClick={async () => {
                 const current = await getPending(pendingResume.sessionId);
@@ -629,7 +629,7 @@ export default function PaperPage() {
             </button>
             <button
               type="button"
-              className="btn--ghost"
+              className="btn btn--ghost"
               disabled={retrying}
               onClick={async () => {
                 if (!window.confirm(`Discard the ${pendingPageCount} captured page(s)? They cannot be brought back.`)) return;
@@ -640,61 +640,67 @@ export default function PaperPage() {
               Discard
             </button>
           </div>
-        </section>
+        </div>
       )}
 
       {deleted && (
-        <p className="notice" style={{ marginBottom: 18 }}>
+        <div className="evidence evidence--neutral" style={{ marginTop: 18 }}>
           The paper was deleted. Start a new one below.
-        </p>
+        </div>
       )}
 
       {papers.length > 0 && (
-        <section className="card" style={{ marginBottom: 18 }}>
-          <h2>Existing papers</h2>
-          <p className="lede">Open one to check it, map it, rename it, or delete it.</p>
-          <ul className="paper-list">
+        <div className="card" style={{ marginTop: 18, marginBottom: 18 }}>
+          <div className="card__head">
+            <div>
+              <h2 style={{ fontSize: 18 }}>Existing papers</h2>
+              <p className="page-sub">Open one to check it, map it, rename it, or delete it.</p>
+            </div>
+          </div>
+          <div className="card__body" style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {papers.map((p) => (
-              <li key={p.id} className="paper-item">
+              <div key={p.id} style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button
                   type="button"
-                  className={p.id === assessmentId ? "paper-row active" : "paper-row"}
+                  className="subject-row"
+                  style={p.id === assessmentId ? { borderColor: "var(--brand-teal)", flex: 1 } : { flex: 1 }}
                   onClick={() => void openPaper(p)}
                 >
-                  <span className="name">{p.title}</span>
-                  <span className="meta">{p.subject_label} · {p.stage}</span>
+                  <div>
+                    <div className="strong">{p.title}</div>
+                    <div className="small muted">{p.subject_label} · {p.stage}</div>
+                  </div>
                 </button>
-                <span className="paper-row-actions">
-                  <button
-                    type="button"
-                    className="btn--ghost btn--sm"
-                    disabled={renaming || !!busy}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void onRename(p.id, p.title);
-                    }}
-                  >
-                    Rename
-                  </button>
-                  <button
-                    type="button"
-                    className="danger small"
-                    disabled={!!busy}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      void onDelete(p.id);
-                    }}
-                  >
-                    Delete
-                  </button>
-                </span>
-              </li>
+                <button
+                  type="button"
+                  className="btn btn--ghost btn--sm"
+                  disabled={renaming || !!busy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onRename(p.id, p.title);
+                  }}
+                >
+                  Rename
+                </button>
+                <button
+                  type="button"
+                  className="btn btn--danger btn--sm"
+                  disabled={!!busy}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    void onDelete(p.id);
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
             ))}
-          </ul>
-        </section>
+          </div>
+        </div>
       )}
 
-      <ol className="steps" aria-label="Progress">
+      <div className="stepper" style={{ marginTop: 18, marginBottom: 18 }} aria-label="Progress">
+        <div className="stepper__bar" style={{ ["--progress" as string]: `${(["start", "scanned", "confirmed", "mapped", "classified"].indexOf(stage) / 4) * 100}%` }} />
         {(
           [
             ["Upload", "the paper as a PDF", null],
@@ -705,290 +711,299 @@ export default function PaperPage() {
           ] as const
         ).map(([label, hint, anchor], i) => {
           const reached = ["start", "scanned", "confirmed", "mapped", "classified"].indexOf(stage);
-          const state = i < reached ? "done" : i === reached ? "now" : "todo";
+          const state = i < reached ? "done" : i === reached ? "current" : "todo";
           // A step is only worth clicking once its own section actually exists on the
           // page to scroll to -- "Upload" has no anchor at all (once a scan exists, the
           // upload form itself is gone; re-uploading is what "Remove scan" is for, not
           // this stepper), and nothing past "reached" has rendered yet either.
           const canJump = anchor !== null && i <= reached;
           return (
-            <li key={label} className={`step step-${state}`}>
-              <button
-                type="button"
-                className="step-jump"
-                disabled={!canJump}
-                onClick={() => {
-                  if (!canJump) return;
-                  document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
-                }}
-              >
-                <span className="step-n">{i + 1}</span>
-                <span className="step-b">
-                  <strong>{label}</strong>
-                  <em>{hint}</em>
-                </span>
-              </button>
-            </li>
+            <button
+              key={label}
+              type="button"
+              className="stepper__step"
+              data-state={state}
+              disabled={!canJump}
+              style={{ border: "none", background: "none", cursor: canJump ? "pointer" : "default" }}
+              onClick={() => {
+                if (!canJump) return;
+                document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}
+              title={hint}
+            >
+              <span className="stepper__dot">{i + 1}</span>
+              {label}
+            </button>
           );
         })}
-      </ol>
+      </div>
 
       {stage === "start" && (
-        <section className="card">
-          <div className="grid-2">
-            <label className="field">
-              <span>Subject</span>
-              <select value={subject} onChange={(e) => setSubject(e.target.value)}>
-                {subjects.map(({ subject_code: code, label: name }) => (
-                  <option key={code} value={code}>
-                    {name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="field">
-              <span>What is this test called?</span>
-              <input value={title} onChange={(e) => setTitle(e.target.value)} />
-            </label>
-          </div>
+        <div className="card">
+          <div className="card__body">
+            <div className="grid grid--2">
+              <div className="field">
+                <label>Subject</label>
+                <select className="select" value={subject} onChange={(e) => setSubject(e.target.value)}>
+                  {subjects.map(({ subject_code: code, label: name }) => (
+                    <option key={code} value={code}>
+                      {name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="field">
+                <label>What is this test called?</label>
+                <input className="input" value={title} onChange={(e) => setTitle(e.target.value)} />
+              </div>
+            </div>
 
-          <div
-            className="drop"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              const dropped = Array.from(e.dataTransfer.files ?? []);
-              if (dropped.length) onFiles(dropped);
-            }}
-          >
-            <p className="drop-title">Drop the question paper here</p>
-            <p className="drop-hint">
-              One page or many, as PDFs or photographs, in the order you add them. A paper
-              with selectable text is read now; a photographed one is reported plainly
-              rather than returned as an empty result.
-            </p>
-            <button type="button" onClick={() => fileInput.current?.click()} disabled={!!busy}>
-              {busy ?? "Choose pages"}
-            </button>
-            <input
-              ref={fileInput}
-              type="file"
-              accept="application/pdf,image/*"
-              multiple
-              // Hidden with CSS, not the `hidden` attribute: `hidden` removes the input
-              // from the accessibility tree, so assistive technology and automated tests
-              // cannot reach the only control that accepts a file.
-              className="visually-hidden"
-              onChange={(e) => {
-                const chosen = Array.from(e.target.files ?? []);
-                if (chosen.length) onFiles(chosen);
+            <div
+              className="placeholder"
+              style={{ marginTop: 16 }}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const dropped = Array.from(e.dataTransfer.files ?? []);
+                if (dropped.length) onFiles(dropped);
               }}
-            />
-          </div>
-
-          <div className="row" style={{ marginTop: 12 }}>
-            <button type="button" className="btn--ghost" onClick={() => setShowCamera((v) => !v)}>
-              {showCamera ? "Close camera" : "Use camera instead"}
-            </button>
-          </div>
-          {showCamera && (
-            <div style={{ marginTop: 10 }}>
-              <p className="muted" style={{ margin: "0 0 8px", fontSize: 13 }}>
-                Captured pages are kept on this device until you press Complete, even with
-                no signal -- pick up where you left off if the connection drops mid-scan.
+            >
+              <p className="strong" style={{ color: "var(--text)" }}>Drop the question paper here</p>
+              <p className="small muted" style={{ maxWidth: "50ch", margin: "6px auto 14px" }}>
+                One page or many, as PDFs or photographs, in the order you add them. A paper
+                with selectable text is read now; a photographed one is reported plainly
+                rather than returned as an empty result.
               </p>
-              <Scanner
-                sessionId={scanSessionId}
-                mode="script"
-                onComplete={async (pages) => {
-                  if (!subject) {
-                    setError("Choose a subject before reading the paper.");
-                    return;
-                  }
-                  await submitScan(subject, title, assessmentId, toFiles(pages), scanSessionId);
-                  setShowCamera(false);
+              <button type="button" className="btn btn--primary" onClick={() => fileInput.current?.click()} disabled={!!busy}>
+                {busy ?? "Choose pages"}
+              </button>
+              <input
+                ref={fileInput}
+                type="file"
+                accept="application/pdf,image/*"
+                multiple
+                // Hidden accessibly, not with the `hidden` attribute: `hidden` removes the
+                // input from the accessibility tree, so assistive technology and automated
+                // tests cannot reach the only control that accepts a file.
+                className="sr"
+                onChange={(e) => {
+                  const chosen = Array.from(e.target.files ?? []);
+                  if (chosen.length) onFiles(chosen);
                 }}
               />
             </div>
-          )}
-        </section>
+
+            <div style={{ display: "flex", marginTop: 12 }}>
+              <button type="button" className="btn btn--ghost" onClick={() => setShowCamera((v) => !v)}>
+                {showCamera ? "Close camera" : "Use camera instead"}
+              </button>
+            </div>
+            {showCamera && (
+              <div style={{ marginTop: 10 }}>
+                <p className="muted small" style={{ margin: "0 0 8px" }}>
+                  Captured pages are kept on this device until you press Complete, even with
+                  no signal -- pick up where you left off if the connection drops mid-scan.
+                </p>
+                <Scanner
+                  sessionId={scanSessionId}
+                  mode="script"
+                  onComplete={async (pages) => {
+                    if (!subject) {
+                      setError("Choose a subject before reading the paper.");
+                      return;
+                    }
+                    await submitScan(subject, title, assessmentId, toFiles(pages), scanSessionId);
+                    setShowCamera(false);
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {error && (
-        <p className="alert" role="alert">
+        <p role="alert" style={{ color: "var(--risk)", marginTop: 18 }}>
           {error}
         </p>
       )}
 
       {scan && (
-        <section className="card" id="step-confirm">
-          <div className="tiles">
-            <Tile n={scan.questions} label="questions read" />
-            <Tile n={scan.sub_parts} label="sub parts" />
-            <Tile n={scan.choice_alternatives} label="choice alternatives" />
-            <Tile n={scan.pages} label="pages" />
-            {scan.declared.questions != null && (
-              <Tile
-                n={scan.declared.questions}
-                label="the paper declares"
-                tone={scan.declared.questions === scan.questions ? "good" : "warn"}
-              />
+        <div className="card" id="step-confirm" style={{ marginTop: 18 }}>
+          <div className="card__body">
+            <div className="grid grid--4">
+              <Tile n={scan.questions} label="questions read" />
+              <Tile n={scan.sub_parts} label="sub parts" />
+              <Tile n={scan.choice_alternatives} label="choice alternatives" />
+              <Tile n={scan.pages} label="pages" />
+              {scan.declared.questions != null && (
+                <Tile
+                  n={scan.declared.questions}
+                  label="the paper declares"
+                  tone={scan.declared.questions === scan.questions ? "good" : "warn"}
+                />
+              )}
+            </div>
+
+            {/* The marks total, on its own and in words. A sub part whose label was missed
+                takes its marks with it and leaves nothing behind to notice: every row still
+                on screen looks right, and only this line shows the paper is short. */}
+            <MarksCheck read={scan.total_marks} declared={scan.declared.total_marks} />
+
+            {scan.problems.length === 0 ? (
+              <div className="evidence" style={{ marginTop: 14 }}>
+                What was read agrees with everything the paper says about itself.
+              </div>
+            ) : (
+              <div className="evidence evidence--gold" style={{ marginTop: 14, flexDirection: "column", alignItems: "flex-start" }}>
+                <p style={{ margin: 0 }}>
+                  <strong>The paper disagrees with what was read.</strong> Nothing is wrong
+                  with storing it, but these are the gaps a person has to close.
+                </p>
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                  {scan.problems.map((p) => (
+                    <li key={p}>{p}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
+            {stage === "scanned" && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: "1px solid var(--line)" }}>
+                <div className="field" style={{ maxWidth: 320 }}>
+                  <label>Who checked this paper?</label>
+                  <input
+                    className="input"
+                    value={confirmedBy}
+                    onChange={(e) => setConfirmedBy(e.target.value)}
+                    placeholder="Your name"
+                    autoComplete="name"
+                  />
+                </div>
+                <button type="button" className="btn btn--primary" style={{ marginTop: 10 }} onClick={onConfirm} disabled={!!busy}>
+                  {busy && <Mascot pose="loading" size={16} />} {busy ?? "These questions are correct"}
+                </button>
+                <p className="muted small" style={{ marginTop: 10 }}>
+                  Nothing is mapped until someone checks it. Correct any row below first;
+                  after you confirm, the rows are locked and re-reading the paper is the only
+                  way to change them.
+                </p>
+              </div>
+            )}
+
+            {stage === "confirmed" && (
+              <button type="button" className="btn btn--primary" style={{ marginTop: 16 }} onClick={onMap} disabled={!!busy}>
+                {busy && <Mascot pose="loading" size={16} />} {busy ?? "Map these questions onto the book"}
+              </button>
             )}
           </div>
-
-          {/* The marks total, on its own and in words. A sub part whose label was missed
-              takes its marks with it and leaves nothing behind to notice: every row still
-              on screen looks right, and only this line shows the paper is short. */}
-          <MarksCheck read={scan.total_marks} declared={scan.declared.total_marks} />
-
-          {scan.problems.length === 0 ? (
-            <p className="verdict good">
-              What was read agrees with everything the paper says about itself.
-            </p>
-          ) : (
-            <div className="verdict warn">
-              <p>
-                <strong>The paper disagrees with what was read.</strong> Nothing is wrong
-                with storing it, but these are the gaps a person has to close.
-              </p>
-              <ul>
-                {scan.problems.map((p) => (
-                  <li key={p}>{p}</li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {stage === "scanned" && (
-            <div className="confirmbar">
-              <label className="field">
-                <span>Who checked this paper?</span>
-                <input
-                  value={confirmedBy}
-                  onChange={(e) => setConfirmedBy(e.target.value)}
-                  placeholder="Your name"
-                  autoComplete="name"
-                />
-              </label>
-              <button type="button" className="primary" onClick={onConfirm} disabled={!!busy}>
-                {busy && <Mascot pose="loading" size={16} />} {busy ?? "These questions are correct"}
-              </button>
-              <p className="muted">
-                Nothing is mapped until someone checks it. Correct any row below first;
-                after you confirm, the rows are locked and re-reading the paper is the only
-                way to change them.
-              </p>
-            </div>
-          )}
-
-          {stage === "confirmed" && (
-            <button type="button" className="primary" onClick={onMap} disabled={!!busy}>
-              {busy && <Mascot pose="loading" size={16} />} {busy ?? "Map these questions onto the book"}
-            </button>
-          )}
-        </section>
+        </div>
       )}
 
       {mapped && (
-        <section className="card" id="step-map">
-          <div className="tiles">
-            <Tile n={mapped.mapped} label="mapped to the book" tone="good" />
-            <Tile n={mapped.blocked} label="could not be mapped" tone={mapped.blocked ? "warn" : undefined} />
-            <Tile n={mapped.needs_review} label="want a second look" />
-          </div>
-          <p className="muted">
-            Matched by {mapped.retrieval === "hybrid" ? "keyword and meaning search together" : "keyword search alone"}.
-          </p>
+        <div className="card" id="step-map" style={{ marginTop: 18 }}>
+          <div className="card__body">
+            <div className="grid grid--3">
+              <Tile n={mapped.mapped} label="mapped to the book" tone="good" />
+              <Tile n={mapped.blocked} label="could not be mapped" tone={mapped.blocked ? "warn" : undefined} />
+              <Tile n={mapped.needs_review} label="want a second look" />
+            </div>
+            <p className="muted" style={{ marginTop: 14 }}>
+              Matched by {mapped.retrieval === "hybrid" ? "keyword and meaning search together" : "keyword search alone"}.
+            </p>
 
-          {/* Retrieval finds the passages; it does not judge what a question asks a
-              student to do. That is a separate reading, and it is the only thing that
-              produces a category. */}
-          {!placed && !alreadyClassified && mapped.mapped > 0 && (
-            <>
-              <p className="note">
-                Every question now sits in a chapter. Reading each one against the passages
-                it matched settles its topic and sub topic, and gives it a category. A
-                question the reading cannot settle keeps what it has and says so.
-              </p>
-              <button type="button" className="primary" onClick={onClassify} disabled={!!busy}>
-                {busy && <Mascot pose="loading" size={16} />} {busy ?? "Read and classify these questions"}
-              </button>
-            </>
-          )}
-        </section>
+            {/* Retrieval finds the passages; it does not judge what a question asks a
+                student to do. That is a separate reading, and it is the only thing that
+                produces a category. */}
+            {!placed && !alreadyClassified && mapped.mapped > 0 && (
+              <>
+                <p className="muted" style={{ marginTop: 10 }}>
+                  Every question now sits in a chapter. Reading each one against the passages
+                  it matched settles its topic and sub topic, and gives it a category. A
+                  question the reading cannot settle keeps what it has and says so.
+                </p>
+                <button type="button" className="btn btn--primary" style={{ marginTop: 10 }} onClick={onClassify} disabled={!!busy}>
+                  {busy && <Mascot pose="loading" size={16} />} {busy ?? "Read and classify these questions"}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
       )}
 
       {placed && (
-        <section className="card" id="step-classify">
-          <div className="tiles">
-            <Tile n={placed.labelled} label="chapter, topic and sub topic settled" tone="good" />
-            <Tile
-              n={placed.tiers}
-              label="given a category"
-              tone={placed.tiers === placed.placed ? "good" : "warn"}
-            />
-            <Tile
-              n={placed.unsettled_family}
-              label="sub topic wants a second look"
-              tone={placed.unsettled_family ? "warn" : undefined}
-            />
-            <Tile
-              n={placed.family_refused}
-              label="left as they were"
-              tone={placed.family_refused ? "warn" : undefined}
-            />
-          </div>
-
-          {placed.tiers < placed.placed && (
-            <p className="note">
-              {placed.placed - placed.tiers} question
-              {placed.placed - placed.tiers === 1 ? "" : "s"} came back without a category.
-              That is an answer, not a gap: where the passages do not settle which kind of
-              thinking a question asks for, nothing is recorded rather than a letter
-              nobody can stand behind.
-            </p>
-          )}
-
-          {/* Measured, not estimated. A model choice is a cost decision, and it should be
-              made on the figure this run produced rather than on arithmetic about a
-              prompt nobody had looked at. */}
-          <p className="small muted">
-            {placed.spend.calls} reading{placed.spend.calls === 1 ? "" : "s"} by{" "}
-            {placed.spend.model} at {placed.spend.effort} effort, each shown{" "}
-            {placed.spend.passages_shown} passages from up to{" "}
-            {placed.spend.chapters_shown} chapters.{" "}
-            {(placed.spend.input_tokens / 1000).toFixed(1)}k in,{" "}
-            {(placed.spend.output_tokens / 1000).toFixed(1)}k out.
-          </p>
-
-          {placed.grounding_violations.length > 0 && (
-            <div className="verdict warn">
-              <p>
-                <strong>
-                  The book had to correct the reading on{" "}
-                  {placed.grounding_violations.length} question
-                  {placed.grounding_violations.length === 1 ? "" : "s"}.
-                </strong>{" "}
-                Every corrected field was dropped rather than stored. How often this
-                happens is the measure of whether the next paper can be left to it.
-              </p>
-              <ul>
-                {placed.grounding_violations.slice(0, 6).map((v) => (
-                  <li key={v.question}>
-                    {v.question} &middot; {v.problems.join("; ")}
-                  </li>
-                ))}
-              </ul>
+        <div className="card" id="step-classify" style={{ marginTop: 18 }}>
+          <div className="card__body">
+            <div className="grid grid--4">
+              <Tile n={placed.labelled} label="chapter, topic and sub topic settled" tone="good" />
+              <Tile
+                n={placed.tiers}
+                label="given a category"
+                tone={placed.tiers === placed.placed ? "good" : "warn"}
+              />
+              <Tile
+                n={placed.unsettled_family}
+                label="sub topic wants a second look"
+                tone={placed.unsettled_family ? "warn" : undefined}
+              />
+              <Tile
+                n={placed.family_refused}
+                label="left as they were"
+                tone={placed.family_refused ? "warn" : undefined}
+              />
             </div>
-          )}
-        </section>
+
+            {placed.tiers < placed.placed && (
+              <p className="muted" style={{ marginTop: 14 }}>
+                {placed.placed - placed.tiers} question
+                {placed.placed - placed.tiers === 1 ? "" : "s"} came back without a category.
+                That is an answer, not a gap: where the passages do not settle which kind of
+                thinking a question asks for, nothing is recorded rather than a letter
+                nobody can stand behind.
+              </p>
+            )}
+
+            {/* Measured, not estimated. A model choice is a cost decision, and it should be
+                made on the figure this run produced rather than on arithmetic about a
+                prompt nobody had looked at. */}
+            <p className="small muted" style={{ marginTop: 10 }}>
+              {placed.spend.calls} reading{placed.spend.calls === 1 ? "" : "s"} by{" "}
+              {placed.spend.model} at {placed.spend.effort} effort, each shown{" "}
+              {placed.spend.passages_shown} passages from up to{" "}
+              {placed.spend.chapters_shown} chapters.{" "}
+              {(placed.spend.input_tokens / 1000).toFixed(1)}k in,{" "}
+              {(placed.spend.output_tokens / 1000).toFixed(1)}k out.
+            </p>
+
+            {placed.grounding_violations.length > 0 && (
+              <div className="evidence evidence--gold" style={{ marginTop: 14, flexDirection: "column", alignItems: "flex-start" }}>
+                <p style={{ margin: 0 }}>
+                  <strong>
+                    The book had to correct the reading on{" "}
+                    {placed.grounding_violations.length} question
+                    {placed.grounding_violations.length === 1 ? "" : "s"}.
+                  </strong>{" "}
+                  Every corrected field was dropped rather than stored. How often this
+                  happens is the measure of whether the next paper can be left to it.
+                </p>
+                <ul style={{ margin: "6px 0 0", paddingLeft: 18 }}>
+                  {placed.grounding_violations.slice(0, 6).map((v) => (
+                    <li key={v.question}>
+                      {v.question} &middot; {v.problems.join("; ")}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </div>
       )}
 
       {review && review.questions.length > 0 && (
-        <section className="card" id="step-check">
-          <div className="toolbar">
-            <h2>The paper, question by question</h2>
-            <div className="filters" role="group" aria-label="Filter questions">
+        <div className="card" id="step-check" style={{ marginTop: 18 }}>
+          <div className="card__head" style={{ flexWrap: "wrap" }}>
+            <h2 style={{ fontSize: 18 }}>The paper, question by question</h2>
+            <div className="tabs" role="group" aria-label="Filter questions" style={{ border: "none", boxShadow: "none" }}>
               {(
                 [
                   ["all", `All ${review.questions.length}`],
@@ -999,7 +1014,7 @@ export default function PaperPage() {
                 <button
                   key={value}
                   type="button"
-                  className={filter === value ? "on" : ""}
+                  className={`tab${filter === value ? " tab--active" : ""}`}
                   onClick={() => setFilter(value)}
                 >
                   {label}
@@ -1008,34 +1023,36 @@ export default function PaperPage() {
             </div>
           </div>
 
-          {review.confirmed_at && (
-            <p className="verdict good">
-              Confirmed by {review.confirmed_by ?? "someone"}
-              {review.edited > 0 && ` · ${review.edited} row(s) corrected first`}. These
-              rows are locked; re-read the paper to change them.
-            </p>
-          )}
+          <div className="card__body">
+            {review.confirmed_at && (
+              <div className="evidence" style={{ marginBottom: 14 }}>
+                Confirmed by {review.confirmed_by ?? "someone"}
+                {review.edited > 0 && ` · ${review.edited} row(s) corrected first`}. These
+                rows are locked; re-read the paper to change them.
+              </div>
+            )}
 
-          <ul className="qlist">
-            {rows.map((q) => (
-              <QuestionRow
-                key={q.address}
-                q={q}
-                editable={!confirmed && !q.mapped_to}
-                onEdit={onEdit}
-              />
-            ))}
-          </ul>
-        </section>
+            <ul style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
+              {rows.map((q) => (
+                <QuestionRow
+                  key={q.address}
+                  q={q}
+                  editable={!confirmed && !q.mapped_to}
+                  onEdit={onEdit}
+                />
+              ))}
+            </ul>
+          </div>
+        </div>
       )}
-    </main>
+    </>
   );
 }
 
 function MarksCheck({ read, declared }: { read: number; declared: number | null }) {
   if (declared == null) {
     return (
-      <p className="markscheck">
+      <p className="muted" style={{ marginTop: 14 }}>
         <strong>{read} marks</strong> were read. This paper does not print a total of its
         own, so there is nothing to check the reading against.
       </p>
@@ -1044,7 +1061,7 @@ function MarksCheck({ read, declared }: { read: number; declared: number | null 
   const short = Math.round((declared - read) * 100) / 100;
   if (short === 0) {
     return (
-      <p className="markscheck good">
+      <p style={{ marginTop: 14, color: "var(--brand-green)" }}>
         <strong>
           {read} of {declared} marks
         </strong>{" "}
@@ -1053,15 +1070,15 @@ function MarksCheck({ read, declared }: { read: number; declared: number | null 
     );
   }
   return (
-    <div className="markscheck warn">
-      <p>
+    <div className="evidence evidence--gold" style={{ marginTop: 14, flexDirection: "column", alignItems: "flex-start" }}>
+      <p style={{ margin: 0 }}>
         <strong>
           {read} of {declared} marks
         </strong>{" "}
         were read, so {Math.abs(short)}{" "}
         {short > 0 ? "are missing" : "are counted twice"}.
       </p>
-      <p className="small">
+      <p className="small" style={{ margin: "4px 0 0" }}>
         {short > 0
           ? "A question whose parts are worth different marks is the usual cause. Open the ones with parts (i), (ii) and (iii) and check that each part carries its own marks."
           : "A question with an internal choice is the usual cause. Only one half of a choice counts towards the total."}
@@ -1072,9 +1089,9 @@ function MarksCheck({ read, declared }: { read: number; declared: number | null 
 
 function Tile({ n, label, tone }: { n: number; label: string; tone?: "good" | "warn" }) {
   return (
-    <div className={`tile${tone ? ` tile-${tone}` : ""}`}>
-      <span className="tile-n">{n}</span>
-      <span className="tile-l">{label}</span>
+    <div className="stat" style={tone ? { ["--accent" as string]: tone === "good" ? "var(--brand-green)" : "var(--brand-gold)" } : undefined}>
+      <div className="stat__label">{label}</div>
+      <div className="stat__value" style={tone ? { color: tone === "good" ? "var(--brand-green)" : "var(--brand-gold)" } : undefined}>{n}</div>
     </div>
   );
 }
@@ -1093,28 +1110,29 @@ function QuestionRow({
   // and showing it as a question with no marks sends a person hunting for a mark that was
   // never printed.
   const missing = q.max_marks == null && !q.is_context;
+  const borderColor = placed || q.is_context ? "var(--line)" : "var(--risk)";
   return (
-    <li className={`qrow${placed || q.is_context ? "" : " qrow-blocked"}${missing ? " qrow-missing" : ""}`}>
-      <div className="qhead">
-        <span className="qno">
-          {q.section ? `${q.section} · ` : ""}
-          {q.question_no}
-          {q.sub_part ? ` (${q.sub_part})` : ""}
-          {q.choice_alt ? ` (${q.choice_alt})` : ""}
-          {/* A choice is answered instead of its other half, never as well as it. Saying
-              so on the row is what stops the pair being read as two questions. */}
-          {q.choice_alt === "b" && <span className="editedby">instead of (a)</span>}
-          {q.edited_by && <span className="editedby">corrected by {q.edited_by}</span>}
-        </span>
-        {q.is_context ? (
-          <span className="qmarks">
-            <em className="muted">the stem its parts share</em>
+    <li className="card" style={{ borderLeft: `4px solid ${borderColor}`, listStyle: "none" }}>
+      <div className="card__body">
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, flexWrap: "wrap" }}>
+          <span className="strong">
+            {q.section ? `${q.section} · ` : ""}
+            {q.question_no}
+            {q.sub_part ? ` (${q.sub_part})` : ""}
+            {q.choice_alt ? ` (${q.choice_alt})` : ""}
+            {/* A choice is answered instead of its other half, never as well as it. Saying
+                so on the row is what stops the pair being read as two questions. */}
+            {q.choice_alt === "b" && <span className="small muted"> instead of (a)</span>}
+            {q.edited_by && <span className="small muted"> corrected by {q.edited_by}</span>}
           </span>
-        ) : editable ? (
-          <span className="qedit">
-            <label>
-              <span className="sr">Marks for question {q.question_no}</span>
+          {q.is_context ? (
+            <span className="small muted"><em>the stem its parts share</em></span>
+          ) : editable ? (
+            <span style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <label className="sr">Marks for question {q.question_no}</label>
               <input
+                className="input"
+                style={{ width: 90 }}
                 type="number"
                 inputMode="decimal"
                 min={0}
@@ -1127,55 +1145,55 @@ function QuestionRow({
                   onEdit(q.address, { max_marks: Number(value) });
                 }}
               />
-            </label>
-            <button
-              type="button"
-              className="remove"
-              onClick={() => onEdit(q.address, { remove: true })}
-              aria-label={`Remove question ${q.question_no}, it is not a question`}
-            >
-              Not a question
-            </button>
-          </span>
+              <button
+                type="button"
+                className="btn btn--ghost btn--sm"
+                onClick={() => onEdit(q.address, { remove: true })}
+                aria-label={`Remove question ${q.question_no}, it is not a question`}
+              >
+                Not a question
+              </button>
+            </span>
+          ) : (
+            <span className="small muted">
+              {missing ? <em style={{ color: "var(--risk)" }}>no marks read</em> : `${q.max_marks} marks`}
+            </span>
+          )}
+        </div>
+
+        <p className="small" style={{ marginTop: 6 }}>{q.stem_text || <em className="muted">no text was extracted for this question</em>}</p>
+
+        {placed ? (
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+            <Chip label="Chapter" value={placed.chapter} />
+            {/* The topic is the book's own heading for the section the passages came from,
+                so it is shown in the book's words with the number beside it. */}
+            {placed.topic && (
+              <Chip
+                label="Topic"
+                value={
+                  placed.curriculum_section
+                    ? `${placed.curriculum_section} ${placed.topic}`
+                    : placed.topic
+                }
+              />
+            )}
+            {!placed.topic && placed.curriculum_section && (
+              <Chip label="Topic" value={placed.curriculum_section} />
+            )}
+            <Chip label="Sub topic" value={placed.concept_family} strong />
+            <Chip label="Board unit" value={placed.board_unit} />
+            {/* A tier nobody has worked out must not read as one that was. */}
+            <Chip
+              label="Category"
+              value={placed.tier ?? "not classified yet"}
+              title={placed.tier_label ?? undefined}
+            />
+          </div>
         ) : (
-          <span className="qmarks">
-            {missing ? <em className="warnish">no marks read</em> : `${q.max_marks} marks`}
-          </span>
+          <p className="small" style={{ color: "var(--risk)", marginTop: 8 }}>{q.blocked_reason ?? "not mapped"}</p>
         )}
       </div>
-
-      <p className="qstem">{q.stem_text || <em>no text was extracted for this question</em>}</p>
-
-      {placed ? (
-        <div className="qmap">
-          <Chip label="Chapter" value={placed.chapter} />
-          {/* The topic is the book's own heading for the section the passages came from,
-              so it is shown in the book's words with the number beside it. */}
-          {placed.topic && (
-            <Chip
-              label="Topic"
-              value={
-                placed.curriculum_section
-                  ? `${placed.curriculum_section} ${placed.topic}`
-                  : placed.topic
-              }
-            />
-          )}
-          {!placed.topic && placed.curriculum_section && (
-            <Chip label="Topic" value={placed.curriculum_section} />
-          )}
-          <Chip label="Sub topic" value={placed.concept_family} strong />
-          <Chip label="Board unit" value={placed.board_unit} />
-          {/* A tier nobody has worked out must not read as one that was. */}
-          <Chip
-            label="Category"
-            value={placed.tier ?? "not classified yet"}
-            title={placed.tier_label ?? undefined}
-          />
-        </div>
-      ) : (
-        <p className="qblocked">{q.blocked_reason ?? "not mapped"}</p>
-      )}
     </li>
   );
 }
@@ -1193,9 +1211,8 @@ function Chip({
 }) {
   if (!value) return null;
   return (
-    <span className={`chip${strong ? " chip-strong" : ""}`} title={title}>
-      <span className="chip-l">{label}</span>
-      {value}
+    <span className={`tag${strong ? " tag--teal" : ""}`} title={title}>
+      <span className="small muted">{label}:</span> {value}
     </span>
   );
 }

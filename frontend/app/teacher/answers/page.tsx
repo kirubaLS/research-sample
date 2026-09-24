@@ -473,80 +473,67 @@ function Row({
   onChange: (patch: Partial<Draft>) => void;
 }) {
   const entered = draft.state !== "awarded" || draft.marks.trim() !== "";
+  const borderColor = rejected ? "var(--risk)" : entered ? "var(--brand-ink)" : "var(--brand-gold)";
   return (
-    <li className={`row${entered ? "" : " pending"}${rejected ? " bad" : ""}`}>
-      <div className="head">
-        <span className="no">
-          {q.section ? `${q.section} · ` : ""}
-          {q.question_no}
-          {q.sub_part ? ` (${q.sub_part})` : ""}
-          {q.choice_alt ? ` (${q.choice_alt})` : ""}
-          {/* A choice is answered instead of its other half, never as well as it. Saying
-              so on the row is what stops the pair being read as two questions. */}
-          {q.choice_alt === "b" && <span className="editedby">instead of (a)</span>}
-        </span>
-        <span className="worth">out of {q.max_marks}</span>
+    <li
+      className="card"
+      style={{ borderLeft: `4px solid ${borderColor}`, background: rejected ? "var(--risk-soft)" : undefined, listStyle: "none" }}
+    >
+      <div className="card__body">
+        <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15 }}>
+          <span className="strong">
+            {q.section ? `${q.section} · ` : ""}
+            {q.question_no}
+            {q.sub_part ? ` (${q.sub_part})` : ""}
+            {q.choice_alt ? ` (${q.choice_alt})` : ""}
+            {/* A choice is answered instead of its other half, never as well as it. Saying
+                so on the row is what stops the pair being read as two questions. */}
+            {q.choice_alt === "b" && <span className="small muted"> instead of (a)</span>}
+          </span>
+          <span className="small muted">out of {q.max_marks}</span>
+        </div>
+
+        {q.stem_text && <p style={{ margin: "6px 0", fontSize: 14 }}>{q.stem_text}</p>}
+
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "6px 0" }}>
+          {q.chapter && <span className="tag">{q.chapter}</span>}
+          {q.concept_family && <span className="tag tag--teal">{q.concept_family}</span>}
+          {q.source && q.source !== "teacher" && (
+            <span className="tag">{SOURCE_LABEL[q.source] ?? "read automatically"}</span>
+          )}
+          {q.source === "teacher" && <span className="tag tag--green">confirmed</span>}
+        </div>
+
+        <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+          <div className="field" style={{ width: 110 }}>
+            <label className="sr">Marks for question {q.question_no}</label>
+            <input
+              className="input"
+              type="number"
+              inputMode="decimal"
+              min={0}
+              max={q.max_marks}
+              step={0.5}
+              value={draft.marks}
+              disabled={draft.state !== "awarded"}
+              placeholder="marks"
+              onChange={(e) => onChange({ marks: e.target.value })}
+            />
+          </div>
+          <div className="field" style={{ flex: "1 1 180px" }}>
+            <label className="sr">State for question {q.question_no}</label>
+            <select className="select" value={draft.state} onChange={(e) => onChange({ state: e.target.value })}>
+              {STATES.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {rejected && <p className="small" style={{ color: "var(--risk)", marginTop: 8 }}>Not recorded. {rejected}</p>}
       </div>
-
-      {q.stem_text && <p className="stem">{q.stem_text}</p>}
-
-      <div className="chips">
-        {q.chapter && <span className="chip">{q.chapter}</span>}
-        {q.concept_family && <span className="chip strong">{q.concept_family}</span>}
-        {q.source && q.source !== "teacher" && (
-          <span className="chip">{SOURCE_LABEL[q.source] ?? "read automatically"}</span>
-        )}
-        {q.source === "teacher" && <span className="chip strong">confirmed</span>}
-      </div>
-
-      <div className="entry">
-        <label>
-          <span className="sr">Marks for question {q.question_no}</span>
-          <input
-            type="number"
-            inputMode="decimal"
-            min={0}
-            max={q.max_marks}
-            step={0.5}
-            value={draft.marks}
-            disabled={draft.state !== "awarded"}
-            placeholder="marks"
-            onChange={(e) => onChange({ marks: e.target.value })}
-          />
-        </label>
-        <label>
-          <span className="sr">State for question {q.question_no}</span>
-          <select value={draft.state} onChange={(e) => onChange({ state: e.target.value })}>
-            {STATES.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {rejected && <p className="rej">Not recorded. {rejected}</p>}
-
-      <style jsx>{`
-        li { border: 1px solid var(--rule); border-left: 4px solid var(--ink); border-radius: 10px; padding: 12px; background: var(--surface); }
-        li.pending { border-left-color: var(--warn); }
-        li.bad { border-left-color: var(--mark); background: var(--mark-soft); }
-        .head { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
-        .no { font-weight: 600; }
-        .worth { color: var(--ink-3); font-size: 13px; }
-        .stem { margin: 6px 0; color: var(--ink); font-size: 14px; }
-        .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
-        .chip { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 2px 9px; color: var(--ink-2); }
-        .chip.strong { background: var(--ink); color: var(--surface); }
-        .entry { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-        .entry label { display: flex; }
-        input { width: 110px; padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; }
-        select { flex: 1 1 180px; padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; background: var(--surface); }
-        input[disabled] { background: var(--surface-2); color: var(--ink-3); }
-        .rej { color: var(--mark); font-size: 13px; margin: 8px 0 0; }
-        .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-      `}</style>
     </li>
   );
 }
@@ -628,76 +615,62 @@ function ScriptPanel({
   }
 
   return (
-    <section className="panel scriptpanel">
-      <div className="scriptrow">
-        <div>
-          <strong>Answer script</strong>
-          <p className="muted">
-            {script
-              ? `${script.page_count} page${script.page_count === 1 ? "" : "s"} on file. ` +
-                "Uploading again replaces them."
-              : "Nothing on file for this paper. The marks below stand on their own until a script is stored."}
-          </p>
-        </div>
-        <div className="scriptbtns">
-          <input
-            ref={input}
-            type="file"
-            multiple
-            accept="image/*,application/pdf"
-            onChange={(e) => send(e.target.files)}
-            disabled={busy || showCamera}
-          />
-          <button
-            type="button"
-            className="btn--ghost"
-            disabled={busy}
-            onClick={() => { setShowCamera((v) => !v); setCameraMode("cover"); }}
-          >
-            {showCamera ? "Close camera" : "Use camera instead"}
-          </button>
-          {script && (
-            <button type="button" className="danger" onClick={remove} disabled={busy}>
-              Delete
+    <div className="card" style={{ borderStyle: "dashed", marginBottom: 16 }}>
+      <div className="card__body">
+        <div style={{ display: "flex", gap: 12, justifyContent: "space-between", flexWrap: "wrap", alignItems: "center" }}>
+          <div>
+            <strong>Answer script</strong>
+            <p className="small muted" style={{ margin: "4px 0 0", maxWidth: "60ch" }}>
+              {script
+                ? `${script.page_count} page${script.page_count === 1 ? "" : "s"} on file. ` +
+                  "Uploading again replaces them."
+                : "Nothing on file for this paper. The marks below stand on their own until a script is stored."}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <input
+              ref={input}
+              type="file"
+              multiple
+              accept="image/*,application/pdf"
+              onChange={(e) => send(e.target.files)}
+              disabled={busy || showCamera}
+            />
+            <button
+              type="button"
+              className="btn btn--ghost"
+              disabled={busy}
+              onClick={() => { setShowCamera((v) => !v); setCameraMode("cover"); }}
+            >
+              {showCamera ? "Close camera" : "Use camera instead"}
             </button>
-          )}
+            {script && (
+              <button type="button" className="btn btn--danger" onClick={remove} disabled={busy}>
+                Delete
+              </button>
+            )}
+          </div>
         </div>
+        {showCamera && (
+          <div style={{ marginTop: 12 }}>
+            <p className="small muted">
+              {cameraMode === "cover"
+                ? "The cover carries the question numbers and marks. One clear frame is enough."
+                : "Capture each page in order. Retake replaces a single page and keeps its position."}
+            </p>
+            <Scanner sessionId={sessionId} mode={cameraMode} onComplete={captured} />
+          </div>
+        )}
+        {script && (
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 10 }}>
+            {script.pages.map((p) => (
+              <span className="tag" key={p.index}>
+                Page {p.index + 1}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      {showCamera && (
-        <div className="camerawrap">
-          <p className="muted">
-            {cameraMode === "cover"
-              ? "The cover carries the question numbers and marks. One clear frame is enough."
-              : "Capture each page in order. Retake replaces a single page and keeps its position."}
-          </p>
-          <Scanner sessionId={sessionId} mode={cameraMode} onComplete={captured} />
-        </div>
-      )}
-      {script && (
-        <div className="thumbs">
-          {script.pages.map((p) => (
-            <span className="thumb" key={p.index}>
-              Page {p.index + 1}
-            </span>
-          ))}
-        </div>
-      )}
-
-      <style jsx>{`
-        .scriptpanel {
-          border: 1px dashed var(--rule-2);
-          border-radius: 12px;
-          padding: 14px;
-          margin-bottom: 16px;
-          background: var(--surface);
-        }
-        .scriptrow { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; align-items: center; }
-        .scriptbtns { display: flex; gap: 8px; align-items: center; }
-        .muted { color: var(--ink-3); margin: 4px 0 0; font-size: 13px; max-width: 60ch; }
-        .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-        .thumb { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
-        .camerawrap { margin-top: 12px; }
-      `}</style>
-    </section>
+    </div>
   );
 }

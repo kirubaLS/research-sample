@@ -273,20 +273,21 @@ export default function AnswersPage() {
   }
 
   return (
-    <main className="wrap">
+    <div style={{ maxWidth: 860, margin: "0 auto" }}>
       <p className="eyebrow">Answer sheet</p>
-      <h1>Enter one student&rsquo;s marks</h1>
-      <p className="lede">
+      <h1 className="page-title">Enter one student&rsquo;s marks</h1>
+      <p className="page-sub">
         Enter one student&rsquo;s marks against a paper that has already been scanned and
         mapped to the book. Every question appears, including the ones with nothing against
         them yet.
       </p>
 
-      <section className="panel">
-        <div className="picks">
-          <label>
-            <span>Paper</span>
-            <select value={paperId} onChange={(e) => setPaperId(e.target.value)}>
+      <section className="card" style={{ marginTop: 18 }}>
+        <div className="card__body">
+        <div className="grid grid--3">
+          <div className="field">
+            <label>Paper</label>
+            <select className="select" value={paperId} onChange={(e) => setPaperId(e.target.value)}>
               <option value="">Choose a paper…</option>
               {ready.map((p) => (
                 <option key={p.id} value={p.id}>
@@ -295,10 +296,10 @@ export default function AnswersPage() {
                 </option>
               ))}
             </select>
-          </label>
-          <label>
-            <span>Class</span>
-            <select value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
+          </div>
+          <div className="field">
+            <label>Class</label>
+            <select className="select" value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
               <option value="">Choose a class…</option>
               {sections.map((s) => (
                 <option key={s.section_id} value={s.section_id}>
@@ -306,10 +307,11 @@ export default function AnswersPage() {
                 </option>
               ))}
             </select>
-          </label>
-          <label>
-            <span>Student</span>
+          </div>
+          <div className="field">
+            <label>Student</label>
             <select
+              className="select"
               value={studentId}
               onChange={(e) => setStudentId(e.target.value)}
               disabled={!students.length}
@@ -321,44 +323,46 @@ export default function AnswersPage() {
                 </option>
               ))}
             </select>
-          </label>
+          </div>
         </div>
 
         {papers.length > 0 && ready.length === 0 && (
-          <p className="warnish">
+          <p className="small" style={{ color: "var(--brand-gold)", marginTop: 12 }}>
             No paper has been read yet. Scan and confirm one on the Question paper screen
             first. Marks have nothing to attach to until then.
           </p>
         )}
 
         {paperId && sectionId && (
-          <div className="classconfirm">
-            <p className="muted">
+          <div style={{ marginTop: 14, paddingTop: 14, borderTop: "1px solid var(--line)" }}>
+            <p className="small muted">
               Every student in this class whose reading is clean -- read, and nothing left
               to fix -- confirmed in one call. A student still carrying a problem, or who
               hasn&rsquo;t been read yet, is skipped and named.
             </p>
-            <div className="confirmrow">
-              <label>
-                <span className="sr">Your name</span>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ flex: "1 1 180px" }}>
+                <label className="small" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>Your name</label>
                 <input
+                  className="input"
                   value={classBy}
                   onChange={(e) => setClassBy(e.target.value)}
                   placeholder="Your name"
                   autoComplete="name"
                 />
-              </label>
-              <button onClick={confirmClass} disabled={!!busy}>
+              </div>
+              <button className="btn btn--primary" onClick={confirmClass} disabled={!!busy}>
                 Confirm the whole class
               </button>
             </div>
-            {classResult && <p className="ok">{classResult}</p>}
+            {classResult && <p className="small" style={{ color: "var(--brand-green)", marginTop: 8 }}>{classResult}</p>}
           </div>
         )}
+        </div>
       </section>
 
-      {error && <p className="error">{error}</p>}
-      {busy && <p className="muted">{busy}…</p>}
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5, marginTop: 12 }}>{error}</p>}
+      {busy && <p className="muted" style={{ marginTop: 12 }}>{busy}…</p>}
 
       {sheet && (
         <>
@@ -379,8 +383,9 @@ export default function AnswersPage() {
             onDeleted={() => setScript(null)}
             onError={(m) => setError(m)}
           />
-          <section className="panel sticky">
-            <div className="tally">
+          <section className="card" style={{ marginTop: 16, position: "sticky", top: 0, zIndex: 5 }}>
+            <div className="card__body">
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 16 }}>
               <div>
                 <strong>{sheet.student.name}</strong>
                 <span className="muted"> · roll {sheet.student.roll_no}</span>
@@ -395,28 +400,30 @@ export default function AnswersPage() {
                 </span>
               </div>
             </div>
-            <div className="confirmrow">
-              <label>
-                <span className="sr">Your name</span>
+            <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+              <div className="field" style={{ flex: "1 1 180px" }}>
+                <label className="small" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>Your name</label>
                 <input
+                  className="input"
                   value={by}
                   onChange={(e) => setBy(e.target.value)}
                   placeholder="Your name"
                   autoComplete="name"
                 />
-              </label>
-              <button onClick={confirm} disabled={!!busy}>
+              </div>
+              <button className="btn btn--primary" onClick={confirm} disabled={!!busy}>
                 Confirm what is typed below
               </button>
             </div>
-            {saved && <p className="ok">{saved}</p>}
+            {saved && <p className="small" style={{ color: "var(--brand-green)", marginTop: 8 }}>{saved}</p>}
+            </div>
           </section>
 
-          <p className="handnote">
+          <p className="small muted" style={{ maxWidth: "64ch", margin: "18px 0 8px" }}>
             Or enter them by hand. This list is the marks as they stand now; reading a file
             above fills it in for you, and either way nothing counts until it is confirmed.
           </p>
-          <ol className="qlist">
+          <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "grid", gap: 10 }}>
             {sheet.questions.map((q) => (
               <Row
                 key={q.address}
@@ -429,37 +436,7 @@ export default function AnswersPage() {
           </ol>
         </>
       )}
-
-      <style jsx>{`
-        .wrap { max-width: 860px; margin: 0 auto; padding: 20px 16px 64px; }
-        h1 { margin: 0 0 4px; font-size: 26px; }
-        .lede { color: var(--ink-2); margin: 0 0 20px; max-width: 60ch; }
-        .panel { border: 1px solid var(--rule); border-radius: 12px; padding: 14px; margin-bottom: 16px; background: var(--surface); }
-        .sticky { position: sticky; top: 0; z-index: 5; box-shadow: 0 2px 8px rgba(0,0,0,.06); }
-        .picks { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
-        .picks label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--ink-2); }
-        select, input { padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; background: var(--surface); }
-        .tally { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; font-size: 16px; }
-        .classconfirm { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--rule); }
-        .confirmrow { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
-        .confirmrow label { flex: 1 1 180px; display: flex; }
-        .confirmrow input { width: 100%; }
-        button { padding: 10px 16px; border-radius: var(--radius-sm, 8px); border: 0; background: var(--grad-brand, var(--ink)); color: #fff; font-size: 15px; transition: transform .16s var(--ease-spring, ease), box-shadow .2s ease; }
-        button:hover:not([disabled]) { transform: translateY(-1px); box-shadow: var(--shadow-sm); }
-        button[disabled] { opacity: .5; }
-        .qlist { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-        .handnote { color: var(--ink-2); font-size: 13px; max-width: 64ch; margin: 18px 0 8px; }
-        .muted { color: var(--ink-3); }
-        .error { color: var(--mark); }
-        .ok { color: var(--verify); margin: 8px 0 0; }
-        .warnish { color: var(--warn); }
-        .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-        @media (max-width: 560px) {
-          .picks { grid-template-columns: 1fr; }
-          .sticky { position: static; }
-        }
-      `}</style>
-    </main>
+    </div>
   );
 }
 
@@ -475,36 +452,39 @@ function Row({
   onChange: (patch: Partial<Draft>) => void;
 }) {
   const entered = draft.state !== "awarded" || draft.marks.trim() !== "";
+  const borderColor = rejected ? "var(--risk)" : entered ? "var(--brand-ink)" : "var(--brand-gold)";
   return (
-    <li className={`row${entered ? "" : " pending"}${rejected ? " bad" : ""}`}>
-      <div className="head">
-        <span className="no">
+    <li className="card" style={{ borderLeft: `4px solid ${borderColor}`, background: rejected ? "var(--risk-soft)" : undefined }}>
+      <div className="card__body" style={{ padding: 14 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, fontSize: 15 }}>
+        <span className="strong">
           {q.section ? `${q.section} · ` : ""}
           {q.question_no}
           {q.sub_part ? ` (${q.sub_part})` : ""}
           {q.choice_alt ? ` (${q.choice_alt})` : ""}
           {/* A choice is answered instead of its other half, never as well as it. Saying
               so on the row is what stops the pair being read as two questions. */}
-          {q.choice_alt === "b" && <span className="editedby">instead of (a)</span>}
+          {q.choice_alt === "b" && <span className="small muted"> instead of (a)</span>}
         </span>
-        <span className="worth">out of {q.max_marks}</span>
+        <span className="small muted">out of {q.max_marks}</span>
       </div>
 
-      {q.stem_text && <p className="stem">{q.stem_text}</p>}
+      {q.stem_text && <p className="small" style={{ margin: "6px 0" }}>{q.stem_text}</p>}
 
-      <div className="chips">
-        {q.chapter && <span className="chip">{q.chapter}</span>}
-        {q.concept_family && <span className="chip strong">{q.concept_family}</span>}
+      <div className="chipset" style={{ margin: "6px 0" }}>
+        {q.chapter && <span className="tag">{q.chapter}</span>}
+        {q.concept_family && <span className="tag tag--teal">{q.concept_family}</span>}
         {q.source && q.source !== "teacher" && (
-          <span className="chip">{SOURCE_LABEL[q.source] ?? "read automatically"}</span>
+          <span className="tag">{SOURCE_LABEL[q.source] ?? "read automatically"}</span>
         )}
-        {q.source === "teacher" && <span className="chip strong">confirmed</span>}
+        {q.source === "teacher" && <span className="tag tag--teal">confirmed</span>}
       </div>
 
-      <div className="entry">
+      <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
         <label>
-          <span className="sr">Marks for question {q.question_no}</span>
+          <span className="small" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>Marks for question {q.question_no}</span>
           <input
+            className="input"
             type="number"
             inputMode="decimal"
             min={0}
@@ -513,12 +493,13 @@ function Row({
             value={draft.marks}
             disabled={draft.state !== "awarded"}
             placeholder="marks"
+            style={{ width: 110 }}
             onChange={(e) => onChange({ marks: e.target.value })}
           />
         </label>
-        <label>
-          <span className="sr">State for question {q.question_no}</span>
-          <select value={draft.state} onChange={(e) => onChange({ state: e.target.value })}>
+        <label style={{ flex: "1 1 180px" }}>
+          <span className="small" style={{ position: "absolute", width: 1, height: 1, overflow: "hidden", clip: "rect(0,0,0,0)" }}>State for question {q.question_no}</span>
+          <select className="select" style={{ width: "100%" }} value={draft.state} onChange={(e) => onChange({ state: e.target.value })}>
             {STATES.map(([value, label]) => (
               <option key={value} value={value}>
                 {label}
@@ -528,27 +509,8 @@ function Row({
         </label>
       </div>
 
-      {rejected && <p className="rej">Not recorded. {rejected}</p>}
-
-      <style jsx>{`
-        li { border: 1px solid var(--rule); border-left: 4px solid var(--ink); border-radius: 10px; padding: 12px; background: var(--surface); }
-        li.pending { border-left-color: var(--warn); }
-        li.bad { border-left-color: var(--mark); background: var(--mark-soft); }
-        .head { display: flex; justify-content: space-between; gap: 10px; font-size: 15px; }
-        .no { font-weight: 600; }
-        .worth { color: var(--ink-3); font-size: 13px; }
-        .stem { margin: 6px 0; color: var(--ink); font-size: 14px; }
-        .chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; }
-        .chip { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 2px 9px; color: var(--ink-2); }
-        .chip.strong { background: var(--ink); color: var(--surface); }
-        .entry { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
-        .entry label { display: flex; }
-        input { width: 110px; padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; }
-        select { flex: 1 1 180px; padding: 10px; border: 1px solid var(--rule-2); border-radius: var(--radius-sm); font-size: 16px; background: var(--surface); }
-        input[disabled] { background: var(--surface-2); color: var(--ink-3); }
-        .rej { color: var(--mark); font-size: 13px; margin: 8px 0 0; }
-        .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-      `}</style>
+      {rejected && <p className="small" style={{ color: "var(--risk)", margin: "8px 0 0" }}>Not recorded. {rejected}</p>}
+      </div>
     </li>
   );
 }
@@ -630,18 +592,19 @@ function ScriptPanel({
   }
 
   return (
-    <section className="panel scriptpanel">
-      <div className="scriptrow">
+    <section className="card" style={{ marginTop: 16, borderStyle: "dashed" }}>
+      <div className="card__body">
+      <div style={{ display: "flex", gap: 12, justifyContent: "space-between", flexWrap: "wrap", alignItems: "center" }}>
         <div>
           <strong>Answer script</strong>
-          <p className="muted">
+          <p className="small muted" style={{ margin: "4px 0 0", maxWidth: "60ch" }}>
             {script
               ? `${script.page_count} page${script.page_count === 1 ? "" : "s"} on file. ` +
                 "Uploading again replaces them."
               : "Nothing on file for this paper. The marks below stand on their own until a script is stored."}
           </p>
         </div>
-        <div className="scriptbtns">
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <input
             ref={input}
             type="file"
@@ -652,22 +615,22 @@ function ScriptPanel({
           />
           <button
             type="button"
-            className="btn--ghost"
+            className="btn btn--ghost"
             disabled={busy}
             onClick={() => { setShowCamera((v) => !v); setCameraMode("cover"); }}
           >
             {showCamera ? "Close camera" : "Use camera instead"}
           </button>
           {script && (
-            <button type="button" className="danger" onClick={remove} disabled={busy}>
+            <button type="button" className="btn btn--danger" onClick={remove} disabled={busy}>
               Delete
             </button>
           )}
         </div>
       </div>
       {showCamera && (
-        <div className="camerawrap">
-          <p className="muted">
+        <div style={{ marginTop: 12 }}>
+          <p className="small muted">
             {cameraMode === "cover"
               ? "The cover carries the question numbers and marks. One clear frame is enough."
               : "Capture each page in order. Retake replaces a single page and keeps its position."}
@@ -676,30 +639,15 @@ function ScriptPanel({
         </div>
       )}
       {script && (
-        <div className="thumbs">
+        <div className="chipset" style={{ marginTop: 10 }}>
           {script.pages.map((p) => (
-            <span className="thumb" key={p.index}>
+            <span className="tag" key={p.index}>
               Page {p.index + 1}
             </span>
           ))}
         </div>
       )}
-
-      <style jsx>{`
-        .scriptpanel {
-          border: 1px dashed var(--rule-2);
-          border-radius: 12px;
-          padding: 14px;
-          margin-bottom: 16px;
-          background: var(--surface);
-        }
-        .scriptrow { display: flex; gap: 12px; justify-content: space-between; flex-wrap: wrap; align-items: center; }
-        .scriptbtns { display: flex; gap: 8px; align-items: center; }
-        .muted { color: var(--ink-3); margin: 4px 0 0; font-size: 13px; max-width: 60ch; }
-        .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
-        .thumb { font-size: 12px; background: var(--surface-2); border-radius: 999px; padding: 3px 10px; color: var(--ink-2); }
-        .camerawrap { margin-top: 12px; }
-      `}</style>
+      </div>
     </section>
   );
 }

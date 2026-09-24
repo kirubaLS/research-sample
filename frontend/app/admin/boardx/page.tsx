@@ -115,8 +115,8 @@ export default function BoardXPage() {
   // data has been mapped for this subject).
   const blueprintMappingEnabled = findings.some((f) => f.urgencyTier != null);
 
-  if (loadError) return <main className="wrap"><p className="error">{loadError}</p></main>;
-  if (!overview) return <main className="wrap"><p className="muted">Loading…</p></main>;
+  if (loadError) return <main className="content"><div className="evidence evidence--gold"><div>{loadError}</div></div></main>;
+  if (!overview) return <main className="content"><p className="muted">Loading…</p></main>;
 
   const assessment = overview.assessments.find((a) => a.id === assessmentId);
 
@@ -126,19 +126,19 @@ export default function BoardXPage() {
   }
 
   return (
-    <main className="wrap">
+    <main className="content">
       <header className="bx-header">
-        <h1>AVAI BoardX</h1>
+        <h1 className="page-title">AVAI BoardX</h1>
 
-        <div className="bx-filterbar">
-          <label>
-            Assessment
-            <select value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
+        <div className="filterbar" style={{ position: "static" }}>
+          <div className="filter">
+            <label htmlFor="bx-assessment">Assessment</label>
+            <select id="bx-assessment" className="select" value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)}>
               {overview.assessments.map((a) => (
                 <option key={a.id} value={a.id}>{a.title}</option>
               ))}
             </select>
-          </label>
+          </div>
         </div>
 
         {assessment && cohort && (
@@ -157,19 +157,19 @@ export default function BoardXPage() {
         )}
 
         {assessment && showEarlyIntelligence && (
-          <div className="bx-earlyintel">
-            <strong>ⓘ Early Intelligence:</strong> This analysis is based on {assessment.title}.
-            Trend and multi-test insights become available once more assessments are analysed.
+          <div className="evidence" style={{ marginBottom: 6 }}>
+            <div><strong>ⓘ Early Intelligence:</strong> This analysis is based on {assessment.title}.
+            Trend and multi-test insights become available once more assessments are analysed.</div>
           </div>
         )}
       </header>
 
-      <nav className="bx-tabs">
+      <nav className="tabs" style={{ marginBottom: 20 }}>
         {TABS.map((t) => (
           <button
             key={t.key}
             type="button"
-            className={`bx-tab ${tab === t.key ? "active" : ""}`}
+            className={`tab ${tab === t.key ? "tab--active" : ""}`}
             onClick={() => setTab(t.key)}
           >
             {t.label}
@@ -178,7 +178,9 @@ export default function BoardXPage() {
       </nav>
 
       {overview.assessments.length === 0 && (
-        <p className="notice mark">No assessments have been created for this school yet.</p>
+        <div className="evidence evidence--neutral">
+          <div>No assessments have been created for this school yet.</div>
+        </div>
       )}
 
       {assessment && (
@@ -208,33 +210,7 @@ export default function BoardXPage() {
       <FindingDrawer finding={drawerFinding} onClose={() => setDrawerFinding(null)} onViewStudents={() => { setDrawerFinding(null); goToStudents(); }} />
 
       <style jsx>{`
-        .wrap { max-width: 1180px; margin: 0 auto; padding: 22px 0 60px; }
-        .bx-header h1 {
-          font-family: var(--font-display), sans-serif; font-size: 24px; font-weight: 800;
-          color: var(--brand-ink); margin: 0 0 14px;
-        }
-        .bx-filterbar { margin-bottom: 16px; }
-        .bx-filterbar label { display: flex; flex-direction: column; gap: 4px; font-size: 13px; max-width: 360px; }
-        .bx-filterbar select {
-          padding: 8px 10px; font-size: 15px; border-radius: var(--radius-sm, 10px); border: 1px solid var(--rule-2);
-          background: var(--surface); color: var(--ink);
-        }
-        .bx-earlyintel {
-          background: var(--info-soft); border-radius: var(--radius, 12px); padding: 12px 16px;
-          font-size: 13.5px; color: var(--ink-2); margin-bottom: 6px;
-        }
-        .bx-tabs {
-          position: sticky; top: 0; z-index: 5; background: var(--paper); display: flex; gap: 4px;
-          border-bottom: 1px solid var(--rule); padding: 14px 0 0; margin-bottom: 20px; flex-wrap: wrap;
-        }
-        .bx-tab {
-          background: none; border: none; padding: 10px 16px; font-size: 14px; font-weight: 700;
-          color: var(--ink-3); cursor: pointer; border-bottom: 3px solid transparent; font-family: inherit;
-          border-radius: 8px 8px 0 0; transition: color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
-        }
-        .bx-tab:hover { color: var(--brand-ink-2); background: var(--surface-2); }
-        .bx-tab.active { color: var(--brand-ink); border-bottom-color: var(--brand-teal); background: var(--surface-2); }
-        .error { color: var(--risk); }
+        .bx-header { margin-bottom: 4px; }
       `}</style>
     </main>
   );

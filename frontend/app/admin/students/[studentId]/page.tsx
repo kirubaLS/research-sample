@@ -108,7 +108,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
 
   if (!ready) {
     return (
-      <main className="narrow">
+      <main className="content" style={{ maxWidth: 720 }}>
         <p className="muted">Loading…</p>
       </main>
     );
@@ -120,19 +120,19 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
   const roll = report?.student.roll_no ?? who?.roll_no ?? "";
 
   return (
-    <main className="narrow">
-      <div className="hero noprint">
+    <main className="content" style={{ maxWidth: 720 }}>
+      <div className="noprint">
         <p className="eyebrow">
           <Link href="/admin" style={{ color: "inherit" }}>
             ← Dashboard
           </Link>
         </p>
-        <h1>{name}</h1>
-        <p className="lede">{roll ? `Roll ${roll}` : "Student record"}</p>
+        <h1 className="page-title" style={{ marginTop: 6 }}>{name}</h1>
+        <p className="page-sub">{roll ? `Roll ${roll}` : "Student record"}</p>
       </div>
 
-      <div className="section-head">
-        <h2>Test results</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">Test results</h2>
       </div>
       {papers.length === 0 ? (
         <p className="muted">
@@ -142,29 +142,32 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
       ) : (
         <>
           {papers.length > 1 && (
-            <div className="card noprint" style={{ marginBottom: 14 }}>
-              <label htmlFor="paper" className="small">
-                Paper
-              </label>
-              <select
-                id="paper"
-                value={paperId}
-                onChange={(e) => setPaperId(e.target.value)}
-                style={{ marginTop: 6, width: "100%", padding: 10 }}
-              >
-                {papers.map((p) => (
-                  <option key={p.assessment_id} value={p.assessment_id}>
-                    {p.title} · {p.subject_label} · {p.questions_marked} marked
-                  </option>
-                ))}
-              </select>
+            <div className="card noprint field" style={{ marginBottom: 14 }}>
+              <div className="card__body">
+                <label htmlFor="paper" className="small">
+                  Paper
+                </label>
+                <select
+                  id="paper"
+                  className="select"
+                  value={paperId}
+                  onChange={(e) => setPaperId(e.target.value)}
+                  style={{ marginTop: 6, width: "100%" }}
+                >
+                  {papers.map((p) => (
+                    <option key={p.assessment_id} value={p.assessment_id}>
+                      {p.title} · {p.subject_label} · {p.questions_marked} marked
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
           )}
           {diagnosis && who ? (
             <>
               <Diagnosis report={diagnosis} student={who} />
               <div className="noprint" style={{ marginTop: 14 }}>
-                <button className="btn--ghost" onClick={issue} disabled={issuing}>
+                <button className="btn btn--ghost" onClick={issue} disabled={issuing}>
                   {issuing ? "Saving…" : "Save a copy of this report"}
                 </button>
                 {issuedNote && <p className="small muted">{issuedNote}</p>}
@@ -177,7 +180,7 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
                       {issued[0].available}.
                     </p>
                     <button
-                      className="btn--ghost btn--sm"
+                      className="btn btn--ghost btn--sm"
                       onClick={() => downloadPdf(issued[0].report_id)}
                       disabled={downloadingId === issued[0].report_id}
                       style={{ marginTop: 6 }}
@@ -196,27 +199,29 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
 
       {issued.length > 1 && (
         <>
-          <div className="section-head noprint">
-            <p className="eyebrow">Every issued report</p>
-            <h2>Progress over time</h2>
+          <div className="section__head noprint" style={{ marginTop: 24 }}>
+            <div>
+              <p className="eyebrow">Every issued report</p>
+              <h2 className="section-q">Progress over time</h2>
+            </div>
           </div>
-          <ol className="progresslist noprint">
+          <ol className="noprint" style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 4 }}>
             {[...issued]
               .sort((a, b) => (a.issued_at ?? "").localeCompare(b.issued_at ?? ""))
               .map((r) => {
                 const pct = r.available > 0 ? Math.round((r.earned / r.available) * 100) : 0;
                 return (
-                  <li key={r.report_id} className="scalerow progressrow">
-                    <span className="nm">
+                  <li key={r.report_id} className="bar-row" style={{ gridTemplateColumns: "200px 1fr 46px auto" }}>
+                    <span className="bar-row__label">
                       {r.assessment_title ?? "Untitled paper"}
                       <span className="small muted"> · {r.issued_at?.slice(0, 10)}</span>
                     </span>
-                    <span className="scaletrack">
-                      <span className="scalefill lead" style={{ width: `${pct}%` }} />
+                    <span className="bar">
+                      <span className="bar__fill" style={{ width: `${pct}%`, display: "block" }} />
                     </span>
-                    <span className="pct">{pct}%</span>
+                    <span className="bar-row__val">{pct}%</span>
                     <button
-                      className="btn--ghost btn--sm"
+                      className="btn btn--ghost btn--sm"
                       onClick={() => downloadPdf(r.report_id)}
                       disabled={downloadingId === r.report_id}
                     >
@@ -231,20 +236,22 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
 
       {scripts.length > 0 && (
         <>
-          <div className="section-head">
-            <h2>Answer scripts</h2>
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">Answer scripts</h2>
           </div>
           {scripts.map((doc) => (
             <div className="card" key={doc.document_id} style={{ marginBottom: 12 }}>
-              <p className="small" style={{ marginTop: 0 }}>
-                <strong>{doc.assessment_title ?? "Paper"}</strong> ·{" "}
-                {doc.page_count} page{doc.page_count === 1 ? "" : "s"} · stored{" "}
-                {doc.uploaded_at?.slice(0, 10)}
-              </p>
-              <ScriptViewer doc={doc} />
-              <p className="small muted" style={{ marginBottom: 0, marginTop: 10 }}>
-                The script the marks were read from.
-              </p>
+              <div className="card__body">
+                <p className="small" style={{ marginTop: 0 }}>
+                  <strong>{doc.assessment_title ?? "Paper"}</strong> ·{" "}
+                  {doc.page_count} page{doc.page_count === 1 ? "" : "s"} · stored{" "}
+                  {doc.uploaded_at?.slice(0, 10)}
+                </p>
+                <ScriptViewer doc={doc} />
+                <p className="small muted" style={{ marginBottom: 0, marginTop: 10 }}>
+                  The script the marks were read from.
+                </p>
+              </div>
             </div>
           ))}
         </>
@@ -252,8 +259,8 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
 
       {noInterest && (
         <>
-          <div className="section-head">
-            <h2>Interest profile</h2>
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">Interest profile</h2>
           </div>
           <p className="muted">This student has not completed the interest test yet.</p>
         </>
@@ -261,95 +268,104 @@ export default function StudentReport({ params }: { params: Promise<{ studentId:
 
       {report && (
         <>
-      {report.validity !== "valid" && (
-        <div className="notice warn" style={{ marginTop: 14 }}>
-          <strong>This session was flagged as {report.validity}.</strong>{" "}
-          {report.validity_detail?.reasons?.join("; ")}. Treat the result with caution and
-          consider a retest.
-        </div>
-      )}
-
-      {report.recommendation_withheld ? (
-        <div className="notice mark" style={{ marginTop: 16 }}>
-          <strong>No stream is indicated.</strong> {report.withheld_reason}
-        </div>
-      ) : (
-        <div className="card accentbar" style={{ marginTop: 16 }}>
-          <p className="eyebrow">Holland code</p>
-          <h2 className="mono" style={{ fontSize: 34, letterSpacing: "0.12em" }}>
-            {report.holland_code}
-          </h2>
-          <p className="cardnote">
-            {report.holland_code
-              ?.split("")
-              .map((c) => SCALE_NAMES[c])
-              .join(" · ")}
-          </p>
-        </div>
-      )}
-
-      <div className="section-head">
-        <h2>Interest profile</h2>
-      </div>
-      <div className="card">
-        {report.scales.map((s) => (
-          <div className="scalerow" key={s.scale}>
-            <span className="nm">{SCALE_NAMES[s.scale] ?? s.scale}</span>
-            <div className="scaletrack" title={`95% interval ${s.ci[0]} to ${s.ci[1]}`}>
-              <div
-                className={`scalefill ${s.scale === lead ? "lead" : ""}`}
-                style={{ width: `${Math.max(2, s.percentile)}%` }}
-              />
+          {report.validity !== "valid" && (
+            <div className="evidence evidence--gold" style={{ marginTop: 14 }}>
+              <div>
+                <strong>This session was flagged as {report.validity}.</strong>{" "}
+                {report.validity_detail?.reasons?.join("; ")}. Treat the result with caution and
+                consider a retest.
+              </div>
             </div>
-            <span className="pct">{Math.round(s.percentile)}</span>
-          </div>
-        ))}
-        <p className="small muted" style={{ marginTop: 14, marginBottom: 0 }}>
-          Percentile against the cohort, shrunk toward the prior while the cohort is small.
-          Hover a bar for its 95% interval. They are wide on purpose at this sample size.
-        </p>
-      </div>
+          )}
 
-      {!report.recommendation_withheld && streams.length > 0 && (
-        <>
-          <div className="section-head">
-            <h2>Stream fit</h2>
+          {report.recommendation_withheld ? (
+            <div className="evidence evidence--neutral" style={{ marginTop: 16 }}>
+              <div>
+                <strong>No stream is indicated.</strong> {report.withheld_reason}
+              </div>
+            </div>
+          ) : (
+            <div className="card" style={{ marginTop: 16, borderLeft: "3px solid var(--brand-teal)" }}>
+              <div className="card__body">
+                <p className="eyebrow">Holland code</p>
+                <h2 className="mono" style={{ fontSize: 34, letterSpacing: "0.12em" }}>
+                  {report.holland_code}
+                </h2>
+                <p className="muted small">
+                  {report.holland_code
+                    ?.split("")
+                    .map((c) => SCALE_NAMES[c])
+                    .join(" · ")}
+                </p>
+              </div>
+            </div>
+          )}
+
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">Interest profile</h2>
           </div>
           <div className="card">
-            {streams.map(([name, value], i) => (
-              <div className="scalerow" key={name}>
-                <span className="nm">{name}</span>
-                <div className="scaletrack">
-                  <div
-                    className={`scalefill ${i === 0 ? "lead" : ""}`}
-                    style={{ width: `${Math.max(2, value * 100)}%` }}
-                  />
+            <div className="card__body">
+              {report.scales.map((s) => (
+                <div className="bar-row" key={s.scale}>
+                  <span className="bar-row__label">{SCALE_NAMES[s.scale] ?? s.scale}</span>
+                  <div className="bar" title={`95% interval ${s.ci[0]} to ${s.ci[1]}`}>
+                    <div
+                      className="bar__fill"
+                      style={{
+                        width: `${Math.max(2, s.percentile)}%`,
+                        background: s.scale === lead ? "var(--brand-gold)" : undefined,
+                      }}
+                    />
+                  </div>
+                  <span className="bar-row__val">{Math.round(s.percentile)}</span>
                 </div>
-                <span className="pct">{Math.round(value * 100)}</span>
-              </div>
-            ))}
-            <p className="small muted" style={{ marginTop: 14, marginBottom: 0 }}>
-              An indication for a counselling conversation, not a decision. Differentiation{" "}
-              {report.differentiation?.toFixed(2)} · consistency {report.consistency}/3.
-            </p>
+              ))}
+              <p className="small muted" style={{ marginTop: 14, marginBottom: 0 }}>
+                Percentile against the cohort, shrunk toward the prior while the cohort is small.
+                Hover a bar for its 95% interval. They are wide on purpose at this sample size.
+              </p>
+            </div>
           </div>
-        </>
-      )}
+
+          {!report.recommendation_withheld && streams.length > 0 && (
+            <>
+              <div className="section__head" style={{ marginTop: 24 }}>
+                <h2 className="section-q">Stream fit</h2>
+              </div>
+              <div className="card">
+                <div className="card__body">
+                  {streams.map(([name, value], i) => (
+                    <div className="bar-row" key={name}>
+                      <span className="bar-row__label">{name}</span>
+                      <div className="bar">
+                        <div
+                          className="bar__fill"
+                          style={{
+                            width: `${Math.max(2, value * 100)}%`,
+                            background: i === 0 ? "var(--brand-gold)" : undefined,
+                          }}
+                        />
+                      </div>
+                      <span className="bar-row__val">{Math.round(value * 100)}</span>
+                    </div>
+                  ))}
+                  <p className="small muted" style={{ marginTop: 14, marginBottom: 0 }}>
+                    An indication for a counselling conversation, not a decision. Differentiation{" "}
+                    {report.differentiation?.toFixed(2)} · consistency {report.consistency}/3.
+                  </p>
+                </div>
+              </div>
+            </>
+          )}
         </>
       )}
 
       <style jsx>{`
         @media print {
-          .noprint,
-          :global(.siteheader),
-          :global(.sitefooter) {
+          .noprint {
             display: none !important;
           }
-        }
-        .progresslist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
-        .progressrow { grid-template-columns: 200px 1fr 46px auto; }
-        @media (max-width: 620px) {
-          .progressrow { grid-template-columns: 1fr; gap: 4px; }
         }
       `}</style>
     </main>

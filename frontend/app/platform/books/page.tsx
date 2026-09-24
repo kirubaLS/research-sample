@@ -287,23 +287,21 @@ export default function BooksPage() {
   const ready = status?.contents_uploaded ?? false;
 
   return (
-    <main>
-      <div className="hero">
-        <p className="eyebrow">Knowledge base</p>
-        <h1>Load a book</h1>
-        <p className="lede">
+    <main className="content">
+      <p className="eyebrow">Knowledge base</p>
+      <h1 className="page-title" style={{ marginTop: 6 }}>Load a book</h1>
+      <p className="page-sub">
           The chapter tree, the taught content and the exercises come from the NCERT book.
-          Upload the contents page first. Every chapter is checked against it, and one
-          that disagrees is refused rather than loaded. For Hindi, Tamil or any whole
-          folder of PDFs at once, use <Link href="/platform/books/bulk">Load a language</Link>.
-        </p>
-      </div>
+        Upload the contents page first. Every chapter is checked against it, and one
+        that disagrees is refused rather than loaded. For Hindi, Tamil or any whole
+        folder of PDFs at once, use <Link href="/platform/books/bulk">Load a language</Link>.
+      </p>
 
-      <div className="card" style={{ marginTop: 22 }}>
-        <div className="grid two">
+      <div className="card" style={{ marginTop: 22, padding: "18px 20px" }}>
+        <div className="grid grid--2">
           <div className="field">
             <label htmlFor="subject">Subject</label>
-            <select id="subject" value={subject} onChange={(e) => setSubject(e.target.value)}>
+            <select id="subject" className="select" value={subject} onChange={(e) => setSubject(e.target.value)}>
               {subjects.map(({ subject_code: code, label }) => (
                 <option key={code} value={code}>
                   {label}
@@ -313,38 +311,38 @@ export default function BooksPage() {
           </div>
           <div className="field">
             <label htmlFor="edition">Edition</label>
-            <input id="edition" value={edition} onChange={(e) => setEdition(e.target.value)} />
-            <p className="hint">Printed on the prelims page. Recorded so a reprint that moves section numbers is detectable.</p>
+            <input id="edition" className="input" value={edition} onChange={(e) => setEdition(e.target.value)} />
+            <p className="muted small">Printed on the prelims page. Recorded so a reprint that moves section numbers is detectable.</p>
           </div>
         </div>
       </div>
 
       {status && (
-        <div className="grid three" style={{ marginTop: 18 }}>
+        <div className="grid grid--3" style={{ marginTop: 18 }}>
           <div className="stat">
-            <span className="value">
+            <span className="stat__value">
               {status.loaded_chapters}/{status.expected_chapters || "?"}
             </span>
-            <span className="label">chapters loaded</span>
+            <span className="stat__label">chapters loaded</span>
           </div>
           <div className="stat">
-            <span className="value">{status.chunks}</span>
-            <span className="label">chunks</span>
+            <span className="stat__value">{status.chunks}</span>
+            <span className="stat__label">chunks</span>
           </div>
           <div className="stat">
-            <span className="value">{status.embedded}</span>
-            <span className="label">embedded</span>
+            <span className="stat__value">{status.embedded}</span>
+            <span className="stat__label">embedded</span>
           </div>
         </div>
       )}
 
-      {status && <div className="notice" style={{ marginTop: 18 }}>{status.next}</div>}
+      {status && <div className="evidence evidence--neutral" style={{ marginTop: 18 }}><div>{status.next}</div></div>}
 
-      <div className="section-head">
-        <h2>1 &middot; Curriculum</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">1 &middot; Curriculum</h2>
       </div>
-      <div className="card">
-        <p className="cardnote" style={{ marginBottom: 14 }}>
+      <div className="card" style={{ padding: "18px 20px" }}>
+        <p className="muted small" style={{ marginBottom: 14 }}>
           The board units and their weightage, from CBSE&apos;s syllabus rather than from the
           book. A unit may span several chapters (Algebra covers four) or exist where no
           chapter does, so it cannot be derived from the book and has to be in place before
@@ -353,17 +351,17 @@ export default function BooksPage() {
         {curriculumReady ? (
           <p className="small mono">Already set up.</p>
         ) : (
-          <button onClick={setupCurriculum} disabled={busy}>
+          <button className="btn btn--primary" onClick={setupCurriculum} disabled={busy}>
             {busy ? "Working…" : "Set up the curriculum"}
           </button>
         )}
       </div>
 
-      <div className="section-head">
-        <h2>2 &middot; Contents page</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">2 &middot; Contents page</h2>
       </div>
-      <div className="card">
-        <p className="cardnote" style={{ marginBottom: 14 }}>
+      <div className="card" style={{ padding: "18px 20px" }}>
+        <p className="muted small" style={{ marginBottom: 14 }}>
           The prelims file, which NCERT names <span className="mono">jemh1ps.pdf</span> for
           Maths. It lists every section of every chapter, which is what makes an extraction
           checkable rather than merely plausible.
@@ -374,14 +372,14 @@ export default function BooksPage() {
           onChange={sendContents}
           disabled={busy || !curriculumReady}
         />
-        {!curriculumReady && <p className="hint">Set up the curriculum first.</p>}
+        {!curriculumReady && <p className="muted small">Set up the curriculum first.</p>}
       </div>
 
-      <div className="section-head">
-        <h2>3 &middot; Chapters</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">3 &middot; Chapters</h2>
       </div>
-      <div className="card">
-        <p className="cardnote" style={{ marginBottom: 14 }}>
+      <div className="card" style={{ padding: "18px 20px" }}>
+        <p className="muted small" style={{ marginBottom: 14 }}>
           Select them all at once, under NCERT&apos;s own names (
           <span className="mono">jemh101.pdf</span>) or as{" "}
           <span className="mono">NN-slug.pdf</span>, with no renaming needed. The contents
@@ -395,7 +393,7 @@ export default function BooksPage() {
             onChange={(e) => setLocateKnownSections(e.target.checked)}
             disabled={busy}
           />
-          <span className="cardnote">
+          <span className="muted small">
             Locate known sections by string (for a book like Geography, where boldness,
             size and colour can&apos;t reliably tell a real heading apart from everything
             else on the page). Requires this chapter&apos;s expected section list to
@@ -409,36 +407,36 @@ export default function BooksPage() {
           onChange={sendChapters}
           disabled={busy || !ready}
         />
-        {!ready && <p className="hint">Upload the contents page first.</p>}
+        {!ready && <p className="muted small">Upload the contents page first.</p>}
       </div>
 
-      <div className="section-head">
-        <h2>4 &middot; Embed</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">4 &middot; Embed</h2>
       </div>
-      <div className="card">
-        <p className="cardnote" style={{ marginBottom: 14 }}>
+      <div className="card" style={{ padding: "18px 20px" }}>
+        <p className="muted small" style={{ marginBottom: 14 }}>
           Without vectors only an exact match resolves, so <span className="mono">PRACTISED</span>,{" "}
           <span className="mono">ADAPTED</span> and <span className="mono">NOVEL</span> all
           collapse and the competency tier falls back to whatever the paper declares.
         </p>
         {status && !status.embeddings_configured && (
-          <div className="notice warn" style={{ marginBottom: 14 }}>
+          <div className="evidence evidence--gold" style={{ marginBottom: 14 }}>
             The embedding service is not configured for this deployment, so nothing can be
             embedded yet. Add its key and publish again.
           </div>
         )}
-        <button onClick={embed} disabled={busy || !status?.chunks || !status?.embeddings_configured}>
+        <button className="btn btn--primary" onClick={embed} disabled={busy || !status?.chunks || !status?.embeddings_configured}>
           {busy ? "Working…" : `Embed ${status ? status.chunks - status.embedded : 0} chunks`}
         </button>
       </div>
 
-      {status && status.coverage?.length > 0 && (
+      {status && status.coverage && status.coverage.length > 0 && (
         <>
-          <div className="section-head">
-            <h2>Chapter by chapter</h2>
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">Chapter by chapter</h2>
           </div>
-          <div className="card">
-            <p className="cardnote" style={{ marginBottom: 14 }}>
+          <div className="card" style={{ padding: "18px 20px" }}>
+            <p className="muted small" style={{ marginBottom: 14 }}>
               A whole-book total hides the thing that matters. A chapter with no passages
               behind it can never be matched, so every question from it comes back saying
               no chapter matched, however healthy the total looks.
@@ -449,7 +447,7 @@ export default function BooksPage() {
               const without = total - sectioned;
               if (!total || !without) return null;
               return (
-                <div className="notice warn" style={{ marginBottom: 14 }}>
+                <div className="evidence evidence--gold" style={{ marginBottom: 14 }}>
                   {without} of {total} passages carry no section of their chapter. A
                   question matched to one gets a chapter but no topic, and cannot be
                   matched to a sub topic by section either. Books loaded before this was
@@ -460,7 +458,7 @@ export default function BooksPage() {
             })()}
 
             {status.chapters_with_nothing_behind_them.length > 0 && (
-              <div className="notice warn" style={{ marginBottom: 14 }}>
+              <div className="evidence evidence--gold" style={{ marginBottom: 14 }}>
                 {status.chapters_with_nothing_behind_them.length} of{" "}
                 {status.coverage.length} chapters have nothing behind them:{" "}
                 {status.chapters_with_nothing_behind_them.join(", ")}. Upload those
@@ -483,11 +481,11 @@ export default function BooksPage() {
         </>
       )}
 
-      <div className="section-head">
-        <h2>5 &middot; Concept families</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">5 &middot; Concept families</h2>
       </div>
-      <div className="card">
-        <p className="cardnote" style={{ marginBottom: 14 }}>
+      <div className="card" style={{ padding: "18px 20px" }}>
+        <p className="muted small" style={{ marginBottom: 14 }}>
           A family is the learning area a report compares against itself over time. Chapter
           is too coarse to act on and section numbers move when the book is reprinted, so
           neither can carry a trend. Loading a book does not create these: a question can
@@ -498,7 +496,7 @@ export default function BooksPage() {
         </p>
 
         {families === null ? (
-          <button onClick={loadFamilies} disabled={busy || !status?.chunks}>
+          <button className="btn btn--primary" onClick={loadFamilies} disabled={busy || !status?.chunks}>
             {busy ? "Working…" : "Show what this book suggests"}
           </button>
         ) : (
@@ -509,7 +507,7 @@ export default function BooksPage() {
               created. {families.existing} exist for this subject in total.
             </p>
             {families.uncovered_sections.length > 0 && (
-              <div className="notice warn" style={{ marginBottom: 14 }}>
+              <div className="evidence evidence--gold" style={{ marginBottom: 14 }}>
                 <p style={{ marginBottom: 8 }}>
                   {families.uncovered_sections.reduce((n, u) => n + u.sections.length, 0)}{" "}
                   section(s), across {families.uncovered_sections.length} chapter(s), that
@@ -529,7 +527,7 @@ export default function BooksPage() {
               </div>
             )}
             {families.possible_duplicates > 0 && (
-              <div className="notice warn" style={{ marginBottom: 14 }}>
+              <div className="evidence evidence--gold" style={{ marginBottom: 14 }}>
                 {families.possible_duplicates} of these suggestions read as the same idea as
                 another one below (marked &ldquo;possibly the same as&rdquo;) -- creating
                 both splits one topic&rsquo;s questions across two families instead of
@@ -537,7 +535,7 @@ export default function BooksPage() {
               </div>
             )}
             {families.without_a_section > 0 && (
-              <div className="notice warn" style={{ marginBottom: 14 }}>
+              <div className="evidence evidence--gold" style={{ marginBottom: 14 }}>
                 {families.without_a_section} of these name no section of the chapter. They
                 can be created, but a question can only be matched to a family by the
                 section it came from, so a chapter whose families all lack one still has
@@ -576,12 +574,12 @@ export default function BooksPage() {
                 </li>
               ))}
             </ul>
-            <div className="row" style={{ marginTop: 14 }}>
-              <button onClick={saveFamilies} disabled={busy || picked.size === 0}>
+            <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+              <button className="btn btn--primary" onClick={saveFamilies} disabled={busy || picked.size === 0}>
                 {busy ? "Working…" : `Create ${picked.size} famil${picked.size === 1 ? "y" : "ies"}`}
               </button>
               <button
-                className="ghost"
+                className="btn btn--ghost"
                 onClick={() =>
                   setPicked(
                     new Set(
@@ -597,11 +595,11 @@ export default function BooksPage() {
         )}
       </div>
 
-      <div className="section-head">
-        <h2>6 &middot; Clean up duplicate families</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">6 &middot; Clean up duplicate families</h2>
       </div>
-      <div className="card">
-        <p className="cardnote" style={{ marginBottom: 14 }}>
+      <div className="card" style={{ padding: "18px 20px" }}>
+        <p className="muted small" style={{ marginBottom: 14 }}>
           Different runs sometimes name the same topic slightly differently --
           &ldquo;Trigonometry&rdquo;, &ldquo;Trig&rdquo;, &ldquo;Trigo&rdquo; all landing
           as separate families under the same chapter. A report keyed on the wrong one of
@@ -610,7 +608,7 @@ export default function BooksPage() {
         </p>
 
         {audit === null ? (
-          <button onClick={loadAudit} disabled={busy || !status?.chunks}>
+          <button className="btn btn--primary" onClick={loadAudit} disabled={busy || !status?.chunks}>
             {busy ? "Working…" : "Check for duplicate or misfiled families"}
           </button>
         ) : (
@@ -638,8 +636,8 @@ export default function BooksPage() {
                     </li>
                   ))}
                 </ul>
-                <div className="row" style={{ marginTop: 14 }}>
-                  <button onClick={mergeAllDuplicates} disabled={busy}>
+                <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                  <button className="btn btn--primary" onClick={mergeAllDuplicates} disabled={busy}>
                     {busy
                       ? "Working…"
                       : `Merge ${audit.duplicates.length} duplicate(s) into their survivor`}
@@ -649,8 +647,8 @@ export default function BooksPage() {
             )}
 
             {audit.removable > 0 && (
-              <div className="row" style={{ marginTop: 14 }}>
-                <button className="ghost" onClick={removeMisfiled} disabled={busy}>
+              <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+                <button className="btn btn--ghost" onClick={removeMisfiled} disabled={busy}>
                   {busy ? "Working…" : `Remove ${audit.removable} misfiled famil${audit.removable === 1 ? "y" : "ies"} (unused)`}
                 </button>
               </div>
@@ -665,18 +663,30 @@ export default function BooksPage() {
 
       {log.length > 0 && (
         <>
-          <div className="section-head">
-            <h2>Log</h2>
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">Log</h2>
           </div>
-          <div className="card">
+          <div className="card" style={{ padding: "18px 20px" }}>
             {log.map((line, i) => (
-              <p key={i} className="small mono" style={{ color: line.bad ? "var(--mark)" : undefined }}>
+              <p key={i} className="small mono" style={{ color: line.bad ? "var(--risk)" : undefined }}>
                 {line.text}
               </p>
             ))}
           </div>
         </>
       )}
+
+      <style jsx>{`
+        .famlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+        .famlist li {
+          display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+          padding: 8px 0; border-bottom: 1px dashed var(--line);
+        }
+        .famlist li.have { opacity: 0.65; }
+        .famlist label { display: flex; align-items: center; gap: 8px; }
+        .fam-l { font-weight: 600; }
+        .fam-m { color: var(--muted); font-size: 12.5px; }
+      `}</style>
     </main>
   );
 }

@@ -347,9 +347,9 @@ function EditAssignmentsModal({
   return (
     <Overlay onClose={onClose}>
       <h3 style={{ marginTop: 0 }}>Edit assignments for {teacher.label || "teacher"}</h3>
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+      <div className="chipset" style={{ marginBottom: 10 }}>
         {existing.map((a) => (
-          <span key={a.id} className="badge blue" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span key={a.id} className="chip chip--on">
             {assignmentLabel(a, sections)}
             <button
               type="button"
@@ -412,9 +412,9 @@ function AssignmentEditor({
 
   return (
     <>
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", marginBottom: 10 }}>
+      <div className="chipset" style={{ marginBottom: 10 }}>
         {assignments.map((a, i) => (
-          <span key={i} className="badge blue" style={{ display: "inline-flex", alignItems: "center", gap: 6 }}>
+          <span key={i} className="chip chip--on">
             {assignmentLabel(a, sections)}
             <button
               type="button"
@@ -428,33 +428,33 @@ function AssignmentEditor({
         ))}
       </div>
 
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-        <div className="field" style={{ marginBottom: 0 }}>
+      <div className="filterbar" style={{ position: "static" }}>
+        <div className="filter">
           <label>Type</label>
-          <select value={type} onChange={(e) => setType(e.target.value as "class" | "subject")}>
+          <select className="select" value={type} onChange={(e) => setType(e.target.value as "class" | "subject")}>
             <option value="class">Class Teacher</option>
             <option value="subject">Subject Teacher</option>
           </select>
         </div>
-        <div className="field" style={{ marginBottom: 0 }}>
+        <div className="filter">
           <label>Section</label>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
+          <select className="select" value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
             {sections.map((s) => <option key={s.section_id} value={s.section_id}>{s.label}</option>)}
           </select>
         </div>
         {type === "subject" && (
-          <div className="field" style={{ marginBottom: 0 }}>
+          <div className="filter">
             <label>Subject</label>
-            <select value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)}>
+            <select className="select" value={subjectCode} onChange={(e) => setSubjectCode(e.target.value)}>
               {subjects.map((s) => <option key={s.subject_code} value={s.subject_code}>{s.label}</option>)}
             </select>
           </div>
         )}
-        <button type="button" className="btn--ghost" onClick={add}>Add assignment</button>
+        <button type="button" className="btn btn--ghost" onClick={add}>Add assignment</button>
       </div>
 
-      <div className="row" style={{ justifyContent: "flex-end", marginTop: 18 }}>
-        <button type="button" onClick={onDone}>{doneLabel}</button>
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 18 }}>
+        <button type="button" className="btn btn--primary" onClick={onDone}>{doneLabel}</button>
       </div>
     </>
   );
@@ -495,16 +495,17 @@ function RenameModal({
         <label htmlFor="rname">Label (name)</label>
         <input
           id="rname"
+          className="input"
           value={label}
           onChange={(e) => setLabel(e.target.value)}
           placeholder="e.g. Mr. Ravi"
           autoFocus
         />
       </div>
-      {error && <p className="error">{error}</p>}
-      <div className="row" style={{ justifyContent: "flex-end", gap: 8 }}>
-        <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
-        <button type="button" disabled={!label.trim() || saving} onClick={save}>
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p>}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+        <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn--primary" disabled={!label.trim() || saving} onClick={save}>
           {saving ? "Saving…" : "Save"}
         </button>
       </div>
@@ -542,13 +543,13 @@ function ReissueModal({
     return (
       <Overlay onClose={onClose}>
         <h3 style={{ marginTop: 0 }}>New sign-in key generated</h3>
-        <p className="cardnote">
+        <p className="small muted">
           Give this key to {teacher.label || "this teacher"}. Their old key has already
           stopped working. This is shown once and cannot be retrieved again.
         </p>
         <CopySecret value={issued.api_key} />
-        <div className="row" style={{ justifyContent: "flex-end", marginTop: 14 }}>
-          <button type="button" onClick={onClose}>Done</button>
+        <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 14 }}>
+          <button type="button" className="btn btn--primary" onClick={onClose}>Done</button>
         </div>
       </Overlay>
     );
@@ -557,14 +558,14 @@ function ReissueModal({
   return (
     <Overlay onClose={onClose}>
       <h3 style={{ marginTop: 0 }}>Reissue {teacher.label || "this teacher"}&rsquo;s key?</h3>
-      <p className="cardnote">
+      <p className="small muted">
         Their current key stops working the moment a new one is issued -- useful if they
         lost it or never received it. Their assignments are kept exactly as they are.
       </p>
-      {error && <p className="error">{error}</p>}
-      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-        <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
-        <button type="button" disabled={busy} onClick={reissue}>
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p>}
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn--primary" disabled={busy} onClick={reissue}>
           {busy ? "Issuing…" : "Reissue key"}
         </button>
       </div>
@@ -584,16 +585,12 @@ function RevokeConfirmModal({
   return (
     <Overlay onClose={onClose}>
       <h3 style={{ marginTop: 0 }}>Revoke {teacher.label || "this teacher"}&rsquo;s key?</h3>
-      <p className="cardnote">
+      <p className="small muted">
         This cannot be undone. They will no longer be able to sign in with this key.
       </p>
-      <div className="row" style={{ justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
-        <button type="button" className="btn--ghost" onClick={onClose}>Cancel</button>
-        <button
-          type="button"
-          style={{ background: "var(--risk)", borderColor: "var(--risk)" }}
-          onClick={onConfirm}
-        >
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 14 }}>
+        <button type="button" className="btn btn--ghost" onClick={onClose}>Cancel</button>
+        <button type="button" className="btn btn--danger" onClick={onConfirm}>
           Revoke key
         </button>
       </div>

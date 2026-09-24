@@ -278,24 +278,23 @@ export default function BulkBooksPage() {
   );
 
   return (
-    <main>
-      <div className="hero">
-        <p className="eyebrow">Knowledge base</p>
-        <h1>Load a whole language</h1>
-        <p className="lede">
+    <main className="content">
+      <p className="eyebrow">Knowledge base</p>
+      <h1 className="page-title" style={{ marginTop: 6 }}>Load a whole language</h1>
+      <p className="page-sub">
           Drop every PDF of every book at once. Each file finds its book and chapter from its
           name, and the books load side by side: curriculum, contents page, chapters,
-          embedding and concept families, with nothing to click per file. One book at a
-          time is still on the <Link href="/platform/books">Books</Link> page.
-        </p>
-      </div>
+        embedding and concept families, with nothing to click per file. One book at a
+        time is still on the <Link href="/platform/books">Books</Link> page.
+      </p>
 
-      <div className="card" style={{ marginTop: 22 }}>
-        <div className="grid two">
+      <div className="card" style={{ marginTop: 22, padding: "18px 20px" }}>
+        <div className="grid grid--2">
           <div className="field">
             <label htmlFor="language">Language</label>
             <select
               id="language"
+              className="select"
               value={language.key}
               disabled={busy}
               onChange={(e) => setLanguage(LANGUAGES.find((l) => l.key === e.target.value) ?? LANGUAGES[0])}
@@ -304,15 +303,15 @@ export default function BulkBooksPage() {
                 <option key={l.key} value={l.key}>{l.label}</option>
               ))}
             </select>
-            <p className="hint">{language.hint}</p>
+            <p className="muted small">{language.hint}</p>
           </div>
           <div className="field">
             <label htmlFor="edition">Edition</label>
-            <input id="edition" value={edition} disabled={busy} onChange={(e) => setEdition(e.target.value)} />
-            <p className="hint">Printed on the prelims page. Recorded for every book in this drop.</p>
+            <input id="edition" className="input" value={edition} disabled={busy} onChange={(e) => setEdition(e.target.value)} />
+            <p className="muted small">Printed on the prelims page. Recorded for every book in this drop.</p>
           </div>
         </div>
-        <div className="row" style={{ marginTop: 4 }}>
+        <div style={{ display: "flex", gap: 16, marginTop: 4, flexWrap: "wrap" }}>
           <label className="small">
             <input type="checkbox" checked={embedAfter} disabled={busy} onChange={(e) => setEmbedAfter(e.target.checked)} />{" "}
             embed each book when its chapters are in
@@ -324,8 +323,8 @@ export default function BulkBooksPage() {
         </div>
       </div>
 
-      <div className="section-head">
-        <h2>1 &middot; Files</h2>
+      <div className="section__head" style={{ marginTop: 24 }}>
+        <h2 className="section-q">1 &middot; Files</h2>
       </div>
       <div
         className="card"
@@ -334,22 +333,22 @@ export default function BulkBooksPage() {
         onDrop={(e) => { e.preventDefault(); setDragging(false); addFiles(e.dataTransfer.files); }}
         style={{
           borderStyle: "dashed",
-          borderColor: dragging ? "var(--mark)" : undefined,
-          background: dragging ? "var(--mark-soft)" : undefined,
+          borderColor: dragging ? "var(--risk)" : undefined,
+          background: dragging ? "var(--risk-soft)" : undefined,
         }}
       >
-        <p className="cardnote" style={{ marginBottom: 14 }}>
+        <p className="muted small" style={{ marginBottom: 14 }}>
           Drag the PDFs here, pick them, or pick the whole folder. Add more than once: a
           second drop adds to the first. Answers and appendices are recognised and left
           out; the contents page of each book goes first automatically.
         </p>
-        <div className="row">
-          <label className="btn secondary" style={{ cursor: "pointer" }}>
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <label className="btn" style={{ cursor: "pointer" }}>
             Pick files
             <input type="file" accept="application/pdf" multiple hidden disabled={busy}
               onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
           </label>
-          <label className="btn secondary" style={{ cursor: "pointer" }}>
+          <label className="btn" style={{ cursor: "pointer" }}>
             Pick a folder
             <input type="file" hidden disabled={busy}
               // @ts-expect-error non-standard but every desktop browser honours it
@@ -357,7 +356,7 @@ export default function BulkBooksPage() {
               onChange={(e) => { addFiles(e.target.files); e.target.value = ""; }} />
           </label>
           {files.length > 0 && !busy && (
-            <button className="ghost" onClick={() => { setFiles([]); setRuns({}); }}>Clear</button>
+            <button className="btn btn--ghost" onClick={() => { setFiles([]); setRuns({}); }}>Clear</button>
           )}
           <span className="small muted">{files.length ? `${files.length} files` : "nothing yet"}</span>
         </div>
@@ -365,16 +364,16 @@ export default function BulkBooksPage() {
 
       {files.length > 0 && (
         <>
-          <div className="section-head">
-            <h2>2 &middot; Plan</h2>
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">2 &middot; Plan</h2>
           </div>
           {inScope.size === 0 && (
-            <div className="notice warn">
+            <div className="evidence evidence--gold">
               None of these files belongs to a {language.label} book by its name. Check the
               language above, or for Tamil name the files NN-title.pdf.
             </div>
           )}
-          <div className="stack">
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {[...inScope].map(([subject, list]) => {
               const st = statuses[subject];
               const already = loadedChapters(subject);
@@ -383,8 +382,8 @@ export default function BulkBooksPage() {
               const fresh = chapters.filter((f) => f.chapter !== null && !already.has(f.chapter));
               const skipped = list.filter((f) => f.role === "skip");
               return (
-                <div className="card" key={subject}>
-                  <div className="row between">
+                <div className="card" style={{ padding: "16px 18px" }} key={subject}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <div>
                       <h3 style={{ margin: 0 }}>{labelOf(subject)}</h3>
                       <p className="small mono muted" style={{ margin: 0 }}>{subject}</p>
@@ -431,7 +430,7 @@ export default function BulkBooksPage() {
           </div>
 
           {(outOfScope.length > 0 || unrouted.length > 0) && (
-            <div className="notice warn" style={{ marginTop: 14 }}>
+            <div className="evidence evidence--gold" style={{ marginTop: 14 }}>
               Not loaded in this run:{" "}
               {outOfScope.map(([subject, list]) => `${list.length} file${list.length === 1 ? "" : "s"} of ${labelOf(subject)}`).join(", ")}
               {outOfScope.length && unrouted.length ? "; " : ""}
@@ -444,8 +443,8 @@ export default function BulkBooksPage() {
             </div>
           )}
 
-          <div className="row" style={{ marginTop: 18 }}>
-            <button onClick={runAll} disabled={busy || !inScope.size}>
+          <div style={{ display: "flex", gap: 12, alignItems: "center", marginTop: 18, flexWrap: "wrap" }}>
+            <button className="btn btn--primary" onClick={runAll} disabled={busy || !inScope.size}>
               {busy ? "Loading…" : `Load ${inScope.size} book${inScope.size === 1 ? "" : "s"}, ${totalChapters} chapter files`}
             </button>
             <span className="small muted">
@@ -458,30 +457,36 @@ export default function BulkBooksPage() {
 
       {Object.keys(runs).length > 0 && (
         <>
-          <div className="section-head">
-            <h2>3 &middot; Progress</h2>
+          <div className="section__head" style={{ marginTop: 24 }}>
+            <h2 className="section-q">3 &middot; Progress</h2>
           </div>
-          <div className="stack">
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
             {Object.values(runs).map((run) => (
-              <div className="card" key={run.subject}>
-                <div className="row between">
+              <div className="card" style={{ padding: "16px 18px" }} key={run.subject}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <h3 style={{ margin: 0 }}>{run.label}</h3>
                   <span
                     className="small mono"
-                    style={{ color: run.phase === "failed" ? "var(--mark)" : run.phase === "done" ? "var(--verify)" : undefined }}
+                    style={{ color: run.phase === "failed" ? "var(--risk)" : run.phase === "done" ? "var(--brand-green)" : undefined }}
                   >
                     {run.phase === "running" ? run.step : run.phase === "waiting" ? "queued" : run.step}
                   </span>
                 </div>
                 {run.total > 0 && (
-                  <div className={`progress${run.phase === "done" ? " verify" : ""}`} style={{ marginTop: 10 }}>
-                    <div style={{ width: `${Math.round((run.done / run.total) * 100)}%` }} />
+                  <div className="bar" style={{ marginTop: 10 }}>
+                    <div
+                      className="bar__fill"
+                      style={{
+                        width: `${Math.round((run.done / run.total) * 100)}%`,
+                        background: run.phase === "done" ? "var(--brand-green)" : undefined,
+                      }}
+                    />
                   </div>
                 )}
                 {run.lines.length > 0 && (
                   <div style={{ marginTop: 10 }}>
                     {run.lines.map((line, i) => (
-                      <p key={i} className="small mono" style={{ margin: "2px 0", color: line.bad ? "var(--mark)" : undefined }}>
+                      <p key={i} className="small mono" style={{ margin: "2px 0", color: line.bad ? "var(--risk)" : undefined }}>
                         {line.text}
                       </p>
                     ))}
@@ -492,6 +497,17 @@ export default function BulkBooksPage() {
           </div>
         </>
       )}
+
+      <style jsx>{`
+        .famlist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
+        .famlist li {
+          display: flex; justify-content: space-between; align-items: baseline; gap: 12px;
+          padding: 6px 0; border-bottom: 1px dashed var(--line);
+        }
+        .famlist li.have { opacity: 0.65; }
+        .fam-l { font-weight: 600; }
+        .fam-m { color: var(--muted); font-size: 12.5px; }
+      `}</style>
     </main>
   );
 }

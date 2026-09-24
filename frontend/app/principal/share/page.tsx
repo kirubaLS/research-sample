@@ -160,48 +160,49 @@ export default function ShareReportsPage() {
   const unsent = rows?.filter((r) => r.status === "not_issued" || r.status === "issued") ?? [];
 
   return (
-    <main className="wrap">
-      <div className="hero">
+    <div>
+      <div>
         <p className="eyebrow">Share</p>
-        <h1 style={{ margin: 0 }}>Share reports</h1>
-        <p className="lede">
+        <h1 className="page-title">Share reports</h1>
+        <p className="page-sub">
           Issue and share a PIN for a whole class at once. There is no messaging service
           wired up here -- the PIN is shown once, for you to pass on however your school
           reaches parents.
         </p>
       </div>
 
-      <div className="row" style={{ gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
-        <div className="field" style={{ marginBottom: 0, minWidth: 180 }}>
+      <div className="filterbar" style={{ marginTop: 18 }}>
+        <div className="filter" style={{ minWidth: 180 }}>
           <label>Class</label>
-          <select value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
+          <select className="select" value={sectionId} onChange={(e) => setSectionId(e.target.value)}>
             <option value="">Choose a class…</option>
             {sections.map((s) => (
               <option key={s.section_id} value={s.section_id}>{s.label}</option>
             ))}
           </select>
         </div>
-        <div className="field" style={{ marginBottom: 0, minWidth: 200 }}>
+        <div className="filter" style={{ minWidth: 200 }}>
           <label>Test</label>
-          <select value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)} disabled={!sectionId}>
+          <select className="select" value={assessmentId} onChange={(e) => setAssessmentId(e.target.value)} disabled={!sectionId}>
             <option value="">Choose a test…</option>
             {tests.map((t) => (
               <option key={t.assessment_id} value={t.assessment_id}>{t.title}</option>
             ))}
           </select>
         </div>
-        <div className="field" style={{ marginBottom: 0, minWidth: 180 }}>
+        <div className="filter" style={{ minWidth: 180 }}>
           <label>Your name</label>
-          <input value={by} onChange={(e) => setBy(e.target.value)} placeholder="required before sharing" />
+          <input className="input" value={by} onChange={(e) => setBy(e.target.value)} placeholder="required before sharing" />
         </div>
       </div>
 
-      {error && <p className="error">{error}</p>}
+      {error && <p style={{ color: "var(--risk)", fontSize: 13.5 }}>{error}</p>}
 
       {rows && rows.length > 0 && (
-        <div className="row" style={{ marginBottom: 14 }}>
+        <div className="share-actions" style={{ display: "flex", marginBottom: 14 }}>
           <button
             type="button"
+            className="btn btn--primary"
             disabled={!by.trim() || !!busy || unsent.length === 0}
             onClick={() => void shareAllUnsent()}
           >
@@ -211,8 +212,8 @@ export default function ShareReportsPage() {
       )}
 
       {rows && (
-        <div className="tablewrap">
-          <table>
+        <div className="table-wrap">
+          <table className="table">
             <thead>
               <tr>
                 <th>Roll</th>
@@ -230,15 +231,15 @@ export default function ShareReportsPage() {
                   <td>
                     {row.status === "checking" && <span className="muted">Checking…</span>}
                     {row.status === "not_issued" && <span className="muted">Not issued</span>}
-                    {row.status === "issued" && <span className="badge amber">Issued, not shared</span>}
-                    {row.status === "shared" && <span className="badge green">Shared</span>}
-                    {row.error && <p className="small error" style={{ margin: "4px 0 0" }}>{row.error}</p>}
+                    {row.status === "issued" && <span className="attn attn--medium">Issued, not shared</span>}
+                    {row.status === "shared" && <span className="attn attn--low">Shared</span>}
+                    {row.error && <p className="small" style={{ color: "var(--risk)", margin: "4px 0 0" }}>{row.error}</p>}
                   </td>
                   <td className="mono">{row.pin ?? "—"}</td>
                   <td>
                     <button
                       type="button"
-                      className="btn--ghost btn--sm"
+                      className="btn btn--ghost btn--sm"
                       disabled={!by.trim() || row.status === "checking"}
                       onClick={() => void shareOne(row)}
                     >
@@ -255,6 +256,6 @@ export default function ShareReportsPage() {
       {sectionId && assessmentId && rows?.length === 0 && (
         <p className="muted">No students in this class.</p>
       )}
-    </main>
+    </div>
   );
 }
