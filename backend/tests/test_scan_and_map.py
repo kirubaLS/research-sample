@@ -482,6 +482,95 @@ def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
             assert question["blocked_reason"], "a question is mapped or it says why not"
 
 
+def test_a_blocked_question_is_auto_resolved_when_the_book_settles_it(
+    client, school, assessment, book, monkeypatch
+):
+    """The point of auto_resolve: a chapter with two unclaimed families used to block
+    marks entry for the WHOLE paper (see usePaperScan.ts's onMap gate). When the book's
+    own section text lets a grounded read settle which family it is, the question places
+    instead of stalling everyone else's questions behind it -- and is flagged for review,
+    because a machine's first read of the book is not the same thing as a person's."""
+    from sqlalchemy import select
+
+    from app.config import get_settings
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal, TaxonomyNode
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+
+    # Make Statistics genuinely ambiguous: the fixture's own family no longer claims
+    # 13.2, and a second, competing family claims nothing either -- exactly the "N
+    # families exist and none claims this section" case the block message describes.
+    db = SessionLocal()
+    stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+    existing = db.scalar(select(ConceptFamilyProposal).where(
+        ConceptFamilyProposal.code == "X.MATH.CF.MEAN_STEP_DEVIATION"
+    ))
+    existing.from_sections = []
+    second = TaxonomyNode(
+        kind="concept_family", code="X.MATH.CF.MODE_GROUPED",
+        label="Mode of grouped data", parent_id=stats.id,
+        path="X.MATH.CF.MODE_GROUPED", curriculum_version=stats.curriculum_version,
+    )
+    db.add(second)
+    db.flush()
+    db.add(ConceptFamilyProposal(
+        curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+        run_id="fixture-competing", source="llm", model="fixture",
+        code="X.MATH.CF.MODE_GROUPED", label="Mode of grouped data",
+        chapter_id=stats.id, evidence=[], from_sections=[],
+    ))
+    db.commit()
+    db.close()
+
+    # Stand in for the Anthropic call: a real book chunk for 13.2 is already in the
+    # fixture, so this is checking the plumbing (does the chosen code get applied, does
+    # the placement get flagged), not the judge's own reading of textbook prose. The
+    # `anthropic` package itself is not installed in this environment (same reason
+    # test_book_upload.py's LLM-proposer tests are skipped elsewhere), so a fake module is
+    # what `import anthropic` inside auto_resolve.py finds, rather than the real one.
+    import sys
+    import types
+
+    from app.mapping.auto_resolve import _FamilyChoice
+
+    class _FakeMessages:
+        def parse(self, **kwargs):
+            class _Response:
+                parsed_output = _FamilyChoice(
+                    family_code="X.MATH.CF.MEAN_STEP_DEVIATION",
+                    rationale="the passage explains computing the mean by step-deviation",
+                )
+            return _Response()
+
+    class _FakeAnthropic:
+        def __init__(self, api_key):
+            self.messages = _FakeMessages()
+
+    fake_anthropic = types.ModuleType("anthropic")
+    fake_anthropic.Anthropic = _FakeAnthropic
+    monkeypatch.setitem(sys.modules, "anthropic", fake_anthropic)
+
+    _upload(client, school, assessment, _paper_bytes(PAPER))
+    client.post(f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={})
+    r = client.post(f"/assessments/{assessment}/map", headers=_auth(school))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    # Question 2 (Circles) has no concept family at all in this fixture -- a different,
+    # pre-existing block ("no concept family exists"), untouched by this test. Only
+    # question 1's genuinely-ambiguous block is what auto-resolve should have settled.
+    assert body["mapped"] == 1
+    assert body["blocked"] == 1
+
+    read = client.get(f"/assessments/{assessment}/scan", headers=_auth(school)).json()
+    q1 = next(q for q in read["questions"] if q["question_no"] == "1")
+    assert not q1["blocked_reason"]
+    assert q1["mapped_to"]["concept_family"] == "Mean by step-deviation"
+    assert q1["mapped_to"]["needs_review"], "an auto-resolved placement is still a machine's first read"
+    assert "Auto-resolved" in q1["mapped_to"]["review_reason"]
+
+
 def test_mapping_refuses_when_no_book_is_loaded(client, school):
     r = client.post(
         "/assessments", headers=_auth(school),

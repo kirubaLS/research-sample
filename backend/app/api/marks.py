@@ -1433,6 +1433,7 @@ def map_paper_to_book(
     from app.curriculum import group_subjects
     from app.extraction.paper import context_addresses
     from app.ingest.probe import LexicalIndex, SemanticIndex, locate
+    from app.mapping.auto_resolve import resolve_blocked_family
     from app.mapping.family import choose_family
 
     assessment = _get_assessment(db, school, assessment_id)
@@ -1563,6 +1564,22 @@ def map_paper_to_book(
             continue
         choice = choose_family(candidates, sections_of, section, chapter.label)
         family, ambiguous = choice.family, choice.unsettled
+        auto_resolved: str | None = None
+        if family is None and choice.blocked is not None:
+            resolution = resolve_blocked_family(
+                db,
+                api_key=settings.anthropic_api_key,
+                model=settings.model_classifier,
+                effort=settings.model_effort,
+                subject_codes=book_subject_codes,
+                section=section,
+                chapter=chapter,
+                candidates=candidates,
+            )
+            if resolution is not None:
+                family = resolution.family
+                auto_resolved = resolution.rationale
+                sections_of.setdefault(family.code, set()).add(section)
         if family is None:
             row.blocked_reason = choice.blocked
             blocked.append(row.address)
@@ -1587,10 +1604,14 @@ def map_paper_to_book(
             curriculum_section=section, confidence=verdict.score,
             # A question whose family could not be settled is one for a person to look at,
             # which is what this flag is for. It is not a reason to refuse the placement.
-            source="model", needs_review=not verdict.agreed or ambiguous is not None,
+            # An auto-resolved one gets the same flag: the classifier read the book and
+            # made a real choice, not a guess, but it is still a machine's first answer
+            # rather than a person's, on a family this chapter never claimed before.
+            source="model", needs_review=not verdict.agreed or ambiguous is not None or auto_resolved is not None,
             reasoning=(
                 f"{mode} retrieval, margin {verdict.margin:.3f}"
                 + (f". {ambiguous}" if ambiguous else "")
+                + (f". Auto-resolved: {auto_resolved}" if auto_resolved else "")
             ),
             # The chunk references, not the Candidate objects: JSON has to hold what a
             # reviewer reads, and the objects are not serialisable anyway.
