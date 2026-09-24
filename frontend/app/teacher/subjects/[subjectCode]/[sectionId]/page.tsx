@@ -25,6 +25,8 @@ import { ScoreDistribution } from "@/components/academics/ScoreDistribution";
 import { StatTile, StatTileRow } from "@/components/academics/StatTile";
 import { StatusBadge } from "@/components/academics/StatusBadge";
 import { Mascot } from "@/components/Mascot";
+import { MarksGridPanel } from "@/components/teacher/MarksGridPanel";
+import { PaperPanel } from "@/components/teacher/PaperPanel";
 import { ShareWithStudentModal } from "@/components/teacher/ShareWithStudentModal";
 import { api, type AcademicStatus, type ClassStudentRow } from "@/lib/api";
 import { getApiKey, getRole } from "@/lib/session";
@@ -187,33 +189,27 @@ export default function SubjectSectionPage({
       )}
 
       {tab === "paper" && canScanPapers && (
-        <div className="card" style={{ marginTop: 18 }}>
-          <div className="card__body">
-            <p className="muted" style={{ marginTop: 0 }}>
-              Scan, map and classify the {subjectCode} question paper -- the same real
-              scan pipeline as the Papers screen, opened straight to this subject.
-            </p>
-            <Link href={`/teacher/paper?subject=${encodeURIComponent(subjectCode)}`} className="btn btn--primary">
-              Open Question Paper for {subjectCode} <FileText size={14} style={{ marginLeft: 6 }} />
-            </Link>
-          </div>
+        <div style={{ marginTop: 18 }}>
+          <PaperPanel
+            listPapers={(key) => api.teacherPapers(key)}
+            listSubjects={async (key) => {
+              const [{ subjects: allSubjects }, { sections: teacherSections }] = await Promise.all([
+                api.subjects(key),
+                api.teacherSections(key),
+              ]);
+              const held = new Set(teacherSections.flatMap((s) => s.subjects));
+              return allSubjects.filter((s) => held.has(s.subject_code));
+            }}
+            prefillSubject={subjectCode}
+            sectionId={sectionId}
+            sectionLabel={section.label}
+          />
         </div>
       )}
 
       {tab === "marks" && canEnterMarks && (
-        <div className="card" style={{ marginTop: 18 }}>
-          <div className="card__body">
-            <p className="muted" style={{ marginTop: 0 }}>
-              Enter or review marks for {section.label} in {subjectCode} -- the same real
-              marks-entry screen as Enter Marks, opened straight to this subject and section.
-            </p>
-            <Link
-              href={`/teacher/answers?subject=${encodeURIComponent(subjectCode)}&section=${encodeURIComponent(sectionId)}`}
-              className="btn btn--primary"
-            >
-              Open Enter Marks for {subjectCode} <ClipboardList size={14} style={{ marginLeft: 6 }} />
-            </Link>
-          </div>
+        <div style={{ marginTop: 4 }}>
+          <MarksGridPanel role="teacher" subjectCode={subjectCode} fixedSectionId={sectionId} />
         </div>
       )}
 
