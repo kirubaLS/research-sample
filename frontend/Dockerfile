@@ -20,6 +20,12 @@ RUN npm run build
 FROM node:22-slim AS run
 WORKDIR /srv
 ENV NODE_ENV=production
+# Docker sets HOSTNAME to the container's own id, and Next's standalone server.js binds to
+# process.env.HOSTNAME when it's set instead of falling back to its 0.0.0.0 default -- so
+# without this override the server binds to a hostname that resolves to nothing on the
+# loopback interface, and both the healthcheck below and every real request from Caddy
+# fail with connection refused even though the process is up and logs "Ready".
+ENV HOSTNAME=0.0.0.0
 RUN useradd --create-home --uid 10001 yaadhum
 # `output: "standalone"` traces only the server bundle -- it does NOT copy public/ or
 # .next/static on its own (both are documented, easy-to-miss manual steps), so every
