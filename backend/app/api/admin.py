@@ -74,7 +74,7 @@ def whoami(
     # *subject* assignment -- a class-only teacher stays read-only, same rule as
     # teacher_can_enter_marks. Computed once and reused for both flags: they are granted
     # or refused together, since both routes live behind exactly the same subject check.
-    teacher_has_subject = staff.is_teacher and bool(teacher_subject_codes(staff, db))
+    teacher_has_subject = staff.is_teacher and (bool(teacher_subject_codes(staff, db)) or staff.exam_cell)
     out = {
         "school_id": school.id,
         "name": school.name,
@@ -85,6 +85,11 @@ def whoami(
         #: An admin key is not tied to a school, so the dashboard has to offer a choice of
         #: them. A principal's key names one and the question does not arise.
         "scope": "all_schools" if staff.is_admin and staff.home is None else "one_school",
+        #: Set only for a teacher key. The frontend used to infer "exam cell" from
+        #: assignments.length === 0 plus scan/enter rights, a condition that can never
+        #: actually hold -- those rights themselves only ever came from holding a subject
+        #: assignment. This is the real, operator-set fact instead of that inference.
+        "exam_cell": staff.is_teacher and staff.exam_cell,
         "can": {
             "read_results": not staff.is_teacher,
             # Scanning and marks entry are open to any staff. A principal produces marks
@@ -710,8 +715,10 @@ def teacher_papers(
     staff: Staff = Depends(current_staff), db: Session = Depends(get_session)
 ) -> dict:
     """Every paper this teacher key may author -- one whose subject_code is one they
-    hold a subject assignment for, whatever section that assignment names. A class-only
-    teacher (no subject assignment at all) gets an empty list, the same as they get no
+    hold a subject assignment for, whatever section that assignment names, or every
+    paper in the school for the exam cell, which holds that right for every subject
+    without needing an assignment row per one. A class-only, non-exam-cell teacher (no
+    subject assignment at all) gets an empty list, the same as they get no
     paper-authoring route to act on one anyway.
 
     Reuses marks.assessment_summaries so this list can never show a different "stage" for
@@ -720,16 +727,15 @@ def teacher_papers(
     if not staff.is_teacher:
         raise HTTPException(403, "this route is for teacher keys; use GET /assessments")
     assert staff.home is not None
-    subjects = teacher_subject_codes(staff, db)
-    if not subjects:
-        return {"assessments": []}
     from app.api.marks import assessment_summaries
 
-    assessments = list(db.scalars(
-        select(Assessment)
-        .where(Assessment.school_id == staff.home.id, Assessment.subject_code.in_(subjects))
-        .order_by(Assessment.created_at.desc())
-    ))
+    query = select(Assessment).where(Assessment.school_id == staff.home.id)
+    if not staff.exam_cell:
+        subjects = teacher_subject_codes(staff, db)
+        if not subjects:
+            return {"assessments": []}
+        query = query.where(Assessment.subject_code.in_(subjects))
+    assessments = list(db.scalars(query.order_by(Assessment.created_at.desc())))
     return {"assessments": assessment_summaries(db, assessments)}
 
 
@@ -751,9 +757,26 @@ def teacher_sections(
 ) -> dict:
     """Every section this teacher key may open at all, with what it may do there --
     the menu the teacher shell renders instead of guessing from the assignment rows
-    itself."""
+    itself. The exam cell gets every section in the school, marked read/enter-everywhere,
+    without needing an assignment row per section."""
     if not staff.is_teacher:
         raise HTTPException(403, "this route is for teacher keys")
+    assert staff.home is not None
+    if staff.exam_cell:
+        all_sections = list(db.scalars(select(Section).where(Section.school_id == staff.home.id)))
+        all_subject_codes = [c.subject_code for g in subject_groups() for c in g.members]
+        return {
+            "sections": [
+                {
+                    "section_id": s.id,
+                    "can_read_all_subjects": True,
+                    "subjects": all_subject_codes,
+                    "label": f"Class {s.grade}-{s.name}",
+                    "student_path": f"/t/{s.id}",
+                }
+                for s in all_sections
+            ]
+        }
     rows = teacher_assignments(staff, db)
     by_section: dict[str, dict] = {}
     for a in rows:

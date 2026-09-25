@@ -247,13 +247,12 @@ function StaffSignIn() {
     try {
       const me = await api.whoami(key);
       setApiKey(key, me.name);
-      setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments });
+      setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments, exam_cell: me.exam_cell });
       // router.push is a client-side route change -- it never remounts the root
       // AuthProvider, so without this its `user` stays whatever it was before sign-in
       // (usually null) and the destination's RoleGuard bounces straight back to /login.
       refresh();
-      const examsOnly =
-        me.role === "teacher" && (me.assignments?.length ?? 0) === 0 && (me.can.scan_papers || me.can.enter_marks) && !me.can.read_results;
+      const examsOnly = me.role === "teacher" && me.exam_cell === true;
       router.push(
         me.role === "teacher"
           ? homeFor({ role: "teacher", id: key, name: me.name, assignments: me.assignments ?? [], can: me.can, examsOnly })

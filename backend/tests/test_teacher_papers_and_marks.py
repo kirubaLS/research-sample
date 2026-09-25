@@ -485,3 +485,63 @@ def test_settling_a_question_is_still_refused_for_a_different_subject(client, sc
         json={"chapter_code": "X.MATH.SAV", "reviewed_by": "Someone else's teacher"},
     )
     assert r.status_code == 404
+
+
+# --- Exam cell: papers-and-marks rights across every subject, no assignment needed --
+
+
+def _exam_cell_teacher(client, school):
+    """An exam-cell key: role == teacher, exam_cell == True, holding zero
+    TeacherAssignment rows -- built straight through the model layer since exam_cell is
+    only ever set by the operator console (POST /platform/schools/{id}/keys), not by
+    /admin/teachers, which a principal calls for their own school."""
+    import secrets
+
+    from app.db import SessionLocal
+    from app.models import StaffKey
+
+    db = SessionLocal()
+    api_key = secrets.token_urlsafe(24)
+    db.add(StaffKey(
+        school_id=school["school_id"], api_key=api_key, role="teacher",
+        label="Exam cell", exam_cell=True,
+    ))
+    db.commit()
+    db.close()
+    return {"X-API-Key": api_key}
+
+
+def test_exam_cell_key_sees_every_subjects_papers(client, school, mapped_paper):
+    h = _exam_cell_teacher(client, school)
+    r = client.get("/admin/teacher/papers", headers=h)
+    assert r.status_code == 200, r.text
+    ids = {a["id"] for a in r.json()["assessments"]}
+    assert mapped_paper in ids, "the exam cell holds no subject assignment but must still see every paper"
+
+
+def test_exam_cell_key_whoami_reports_exam_cell_and_paper_rights(client, school):
+    h = _exam_cell_teacher(client, school)
+    r = client.get("/admin/me", headers=h)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["exam_cell"] is True
+    assert body["can"]["scan_papers"] is True
+    assert body["can"]["enter_marks"] is True
+    assert body["assignments"] == []
+
+
+def test_exam_cell_key_can_enter_marks_with_no_assignment_at_all(client, school, mapped_paper, student):
+    h = _exam_cell_teacher(client, school)
+    r = client.post(
+        f"/assessments/{mapped_paper}/answers/{student}/confirm", headers=h,
+        json={"answers": [{"address": "A/1//", "marks": 7, "state": "awarded"}], "by": "exam cell"},
+    )
+    assert r.status_code == 200, r.text
+
+
+def test_regular_subject_teacher_is_not_exam_cell(client, school):
+    """A plain subject teacher -- the pre-existing case this flag must not widen -- still
+    reports exam_cell: false, matching the assignment-scoped rights they actually hold."""
+    h = _subject_teacher(client, school, "X.MATH")
+    body = client.get("/admin/me", headers=h).json()
+    assert body["exam_cell"] is False

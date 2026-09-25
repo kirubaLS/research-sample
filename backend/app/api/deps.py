@@ -36,6 +36,9 @@ class Staff:
     role: str
     home: School | None
     staff_key_id: str | None = None
+    #: The exam cell: papers-and-marks rights across every subject, no teaching duty of
+    #: their own. Only ever true for role == "teacher" -- see StaffKey.exam_cell.
+    exam_cell: bool = False
 
     @property
     def is_admin(self) -> bool:
@@ -90,9 +93,12 @@ def teacher_can_read(staff: Staff, db: Session, section_id: str, subject_code: s
 
 
 def teacher_can_enter_marks(staff: Staff, db: Session, section_id: str, subject_code: str) -> bool:
-    """Marks-entry rights: only a subject assignment naming this exact section and
-    subject. A class assignment is read-only outside the class teacher's own subject
+    """Marks-entry rights: a subject assignment naming this exact section and subject, or
+    the exam cell, which holds marks-entry rights everywhere and needs no assignment row
+    for it. A class assignment is read-only outside the class teacher's own subject
     (spec §10.2's default) -- it never reaches this far."""
+    if staff.exam_cell:
+        return True
     return any(
         a.type == "subject" and a.section_id == section_id and a.subject_code == subject_code
         for a in teacher_assignments(staff, db)
@@ -146,7 +152,9 @@ def current_staff(
 
     staff.last_used_at = _datetime.now(UTC)
     db.commit()
-    return Staff(role=staff.role, home=staff.school, staff_key_id=staff.id)
+    return Staff(
+        role=staff.role, home=staff.school, staff_key_id=staff.id, exam_cell=staff.exam_cell
+    )
 
 
 def school_in_scope(staff: Staff, requested: str | None, db: Session) -> School:
@@ -269,7 +277,7 @@ def require_paper_scope(
     assessment = db.get(Assessment, assessment_id)
     if assessment is None or assessment.school_id != staff.home.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-    if assessment.subject_code not in teacher_subject_codes(staff, db):
+    if not staff.exam_cell and assessment.subject_code not in teacher_subject_codes(staff, db):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
     return staff.home
 

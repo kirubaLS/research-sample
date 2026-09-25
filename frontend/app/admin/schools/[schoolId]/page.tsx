@@ -168,11 +168,11 @@ export default function AdminSchoolDetailPage() {
     }
   }
 
-  async function issueKey(role: "principal" | "teacher", label: string) {
+  async function issueKey(role: "principal" | "teacher", label: string, examCell = false) {
     const key = getPlatformKey();
     if (!key || !school) return;
     try {
-      const created = await api.issueStaffKey(key, school.id, role, label);
+      const created = await api.issueStaffKey(key, school.id, role, label, examCell);
       setIssued({ label: `${school.name}, ${role} key`, api_key: created.api_key, notice: created.api_key_notice });
       setKeys(await api.listStaffKeys(key, school.id));
     } catch (err) {
@@ -338,7 +338,7 @@ export default function AdminSchoolDetailPage() {
           <TeachersTab
             teachers={teacherKeys}
             sections={school.sections}
-            onIssue={(label) => issueKey("teacher", label)}
+            onIssue={(label, examCell) => issueKey("teacher", label, examCell)}
             onRevoke={revokeKey}
             onSaveContact={saveKeyContact}
             onSaveAssignments={saveAssignments}
@@ -643,7 +643,7 @@ function TeachersTab({
 }: {
   teachers: StaffKeySummary[];
   sections: PlatformSchool["sections"];
-  onIssue: (label: string) => void;
+  onIssue: (label: string, examCell: boolean) => void;
   onRevoke: (entry: StaffKeySummary) => void;
   onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => void;
   onSaveAssignments: (entry: StaffKeySummary, assignments: TeacherAssignmentInput[]) => void;
@@ -659,16 +659,29 @@ function TeachersTab({
               school&rsquo;s teacher logins straight away.
             </p>
           </div>
-          <button
-            type="button"
-            className="btn btn--sm"
-            onClick={() => {
-              const label = window.prompt("Teacher's name, for this key's label", "");
-              if (label !== null) onIssue(label);
-            }}
-          >
-            <UserPlus size={13} /> Add teacher
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => {
+                const label = window.prompt("Teacher's name, for this key's label", "");
+                if (label !== null) onIssue(label, false);
+              }}
+            >
+              <UserPlus size={13} /> Add teacher
+            </button>
+            <button
+              type="button"
+              className="btn btn--sm"
+              title="Papers-and-marks rights across every subject, no class or subject of their own -- the exam cell"
+              onClick={() => {
+                const label = window.prompt("Exam cell key: whose name is this for?", "");
+                if (label !== null) onIssue(label, true);
+              }}
+            >
+              <UserPlus size={13} /> Add exam-cell key
+            </button>
+          </div>
         </div>
 
         {teachers.length === 0 ? (
@@ -763,6 +776,7 @@ function TeacherRow({
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div>
           <span className="strong">{entry.name || entry.label || "Unnamed teacher"}</span>
+          {entry.exam_cell && <span className="tag" style={{ marginLeft: 8 }}>Exam cell</span>}
           {entry.revoked_at && <span className="tag tag--risk" style={{ marginLeft: 8 }}>Revoked</span>}
           <div className="small muted" style={{ marginTop: 2 }}>
             {[entry.email, entry.phone].filter(Boolean).join(" · ") || "No contact details on file"}

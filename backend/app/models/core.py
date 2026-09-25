@@ -96,6 +96,14 @@ class StaffKey(Base, PkMixin, TimestampMixin):
     #: Lets the ops console show "last active" rather than only "issued on".
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    #: The exam cell: papers-and-marks rights across every subject in the school, and no
+    #: teaching duty of their own. Only meaningful for role == "teacher" -- a principal or
+    #: admin already has scan/enter rights everywhere. Distinct from holding a "subject"
+    #: TeacherAssignment: a subject teacher's rights are scoped to their own subject, and
+    #: this flag is what lets whoami and require_paper_scope tell the two apart instead of
+    #: inferring exam-cell status from an unreachable "holds zero assignments" check.
+    exam_cell: Mapped[bool] = mapped_column(Boolean, default=False)
+
     school: Mapped[School | None] = relationship()
     assignments: Mapped[list[TeacherAssignment]] = relationship(
         back_populates="staff_key", cascade="all, delete-orphan",

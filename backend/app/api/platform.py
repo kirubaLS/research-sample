@@ -67,6 +67,7 @@ def _key_view(k: StaffKey) -> dict:
         "name": k.name,
         "email": k.email,
         "phone": k.phone,
+        "exam_cell": k.exam_cell,
         "school_id": k.school_id,
         "api_key": k.api_key,
         "created_at": k.created_at.isoformat() if k.created_at else None,
@@ -108,6 +109,10 @@ def _log(
 class StaffKeyIn(BaseModel):
     role: str = Field(default="principal")
     label: str = Field(default="", max_length=120)
+    #: Only meaningful when role == "teacher": papers-and-marks rights across every
+    #: subject in the school, no teaching assignment needed. Ignored for any other role,
+    #: which already has that reach.
+    exam_cell: bool = False
 
 
 def _validate_consent(v: str) -> str:
@@ -162,6 +167,7 @@ class StaffKeyPatchIn(BaseModel):
     email: str | None = Field(default=None, max_length=200)
     phone: str | None = Field(default=None, max_length=32)
     label: str | None = Field(default=None, max_length=120)
+    exam_cell: bool | None = Field(default=None)
 
 
 class AssignmentIn(BaseModel):
@@ -514,6 +520,7 @@ def issue_staff_key(school_id: str, body: StaffKeyIn, db: Session = Depends(get_
     key = StaffKey(
         school_id=school.id, api_key=secrets.token_urlsafe(24),
         role=body.role, label=body.label.strip(),
+        exam_cell=body.exam_cell if body.role == "teacher" else False,
     )
     db.add(key)
     _log(db, school.id, "key_issued", f"role={body.role!r} label={body.label!r}")

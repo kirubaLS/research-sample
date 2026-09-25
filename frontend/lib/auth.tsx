@@ -29,8 +29,8 @@ export type CurrentUser =
       name: string;
       assignments: TeacherAssignment[];
       can: StaffRole["can"];
-      /** No class/subject assignment at all, only the exam-cell permissions
-       * (scan_papers/enter_marks) -- the real equivalent of the mock's `examsOnly`. */
+      /** The exam cell: papers-and-marks rights across every subject, no teaching
+       * assignment of their own -- StaffRole.exam_cell, the server's own fact. */
       examsOnly: boolean;
     };
 
@@ -61,7 +61,7 @@ function readUser(): CurrentUser | null {
       name,
       assignments,
       can: role.can,
-      examsOnly: assignments.length === 0 && (role.can.scan_papers || role.can.enter_marks) && !role.can.read_results,
+      examsOnly: role.exam_cell === true,
     };
   }
   // A principal key resolves server-side two different real ways: a per-person key

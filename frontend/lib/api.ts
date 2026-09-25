@@ -962,6 +962,9 @@ export interface StaffKeySummary {
   name: string | null;
   email: string | null;
   phone: string | null;
+  /** Only meaningful for role == "teacher": papers-and-marks rights across every
+   * subject, no teaching assignment needed. */
+  exam_cell: boolean;
   /** The operator is the top of the trust chain, so the listing carries the live key. */
   api_key: string;
   created_at: string | null;
@@ -1473,6 +1476,8 @@ export const api = {
       };
       /** Only present for a teacher key. */
       assignments?: TeacherAssignment[];
+      /** Only present for a teacher key: the exam cell, the server's own fact. */
+      exam_cell?: boolean;
     }>("/admin/me", key),
 
   overview: (key: string) => authed<Overview>("/admin/overview", key),
@@ -1840,10 +1845,10 @@ export const api = {
   listStaffKeys: (key: string, schoolId: string) =>
     operator<StaffKeySummary[]>(`/platform/schools/${schoolId}/keys`, key),
 
-  issueStaffKey: (key: string, schoolId: string, role: string, label: string) =>
+  issueStaffKey: (key: string, schoolId: string, role: string, label: string, examCell = false) =>
     operator<StaffKeySummary & IssuedKey>(`/platform/schools/${schoolId}/keys`, key, {
       method: "POST",
-      body: JSON.stringify({ role, label }),
+      body: JSON.stringify({ role, label, exam_cell: examCell }),
     }),
 
   revokeStaffKey: (key: string, schoolId: string, keyId: string) =>

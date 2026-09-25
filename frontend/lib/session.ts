@@ -45,6 +45,10 @@ export interface StaffRole {
   };
   /** Only present for a teacher key -- which sections/subjects it may touch. */
   assignments?: TeacherAssignment[];
+  /** Set only for a teacher key: the exam cell, papers-and-marks rights across every
+   * subject, no assignments of their own. The server's own fact, not something the
+   * client infers from assignments/can. */
+  exam_cell?: boolean;
 }
 
 /**
