@@ -2,14 +2,12 @@
 
 /**
  * §4 sign-in -- the reference design's own .auth/.authchoice/.stepper shell (gradient
- * icon tiles, box-shadows, stepper progress bar): step 1 picks School Staff vs Student,
- * step 2 shows that choice's real credential form.
+ * icon tiles, box-shadows, stepper progress bar): step 1 picks Principal vs Teacher,
+ * step 2 shows the real sign-in key form (both roles submit the same key; the backend
+ * decides which one it is from GET /admin/me's `role`).
  *
- * Every submit here is a real call: `api.whoami` for staff (a principal, admin and
- * teacher key all use this one form; GET /admin/me's `role` decides which shell to land
- * on) and `api.studentLogin` for students (class code + roll + PIN). No demo accounts,
- * no role pre-split -- the backend has no such choice before authenticating; the key
- * itself determines the role.
+ * No student PIN sign-in here -- a student attending an assessment goes through /attend
+ * (tap a class, no login), and there is no other student-facing login on this screen.
  */
 
 import { useState } from "react";
@@ -27,21 +25,17 @@ import {
   PenLine,
   ShieldAlert,
   ShieldCheck,
-  UserRound,
 } from "lucide-react";
 import { Mascot, Wordmark } from "@/components/Mascot";
 import { EASE_OUT } from "@/components/motion";
 import { homeFor, useAuth } from "@/lib/auth";
 import { api, ApiError, ApiUnreachable } from "@/lib/api";
-import { setApiKey, setRole, setStudentSession } from "@/lib/session";
+import { setApiKey, setRole } from "@/lib/session";
 
 /** "principal" and "teacher" both submit the same single sign-in key (the backend
  * decides the role from the key itself, GET /admin/me), so they share one StaffSignIn
- * form -- this only changes which card and heading led there. "report" is the real,
- * separate roll-number+PIN login for a student viewing a report already shared with
- * them (POST /student/{classCode}/login) -- unrelated to /attend's tap-a-class
- * interest-test flow, which needs no login at all. */
-type Choice = "principal" | "teacher" | "report";
+ * form -- this only changes which card and heading led there. */
+type Choice = "principal" | "teacher";
 
 const CHOICES: Array<{ choice: Choice; title: string; blurb: string; accent: string; icon: typeof GraduationCap }> = [
   {
@@ -66,18 +60,10 @@ function explainStaff(err: unknown): string {
     : "That key was not recognised. Check it and try again.";
 }
 
-const REPORT_CHOICE = {
-  choice: "report" as const,
-  title: "Student sign-in",
-  blurb: "The PIN your teacher gave you when they shared your report.",
-  accent: "var(--brand-blue)",
-  icon: UserRound,
-};
-
 export default function LoginPage() {
   const [choice, setChoice] = useState<Choice | null>(null);
 
-  const chosen = [...CHOICES, REPORT_CHOICE].find((c) => c.choice === choice) ?? null;
+  const chosen = CHOICES.find((c) => c.choice === choice) ?? null;
 
   return (
     <div className="auth">
@@ -209,22 +195,6 @@ export default function LoginPage() {
                   </div>
                   <ArrowRight size={17} style={{ marginLeft: "auto", color: "var(--brand-gold)", flex: "0 0 auto" }} />
                 </Link>
-
-                <button
-                  type="button"
-                  className="authchoice"
-                  style={{ "--accent": REPORT_CHOICE.accent } as React.CSSProperties}
-                  onClick={() => setChoice("report")}
-                >
-                  <span className="authchoice__icon">
-                    <UserRound size={21} />
-                  </span>
-                  <div>
-                    <strong>{REPORT_CHOICE.title}</strong>
-                    <small>{REPORT_CHOICE.blurb}</small>
-                  </div>
-                  <ArrowRight size={17} style={{ marginLeft: "auto", color: "var(--muted)", flex: "0 0 auto" }} />
-                </button>
               </motion.div>
             ) : (
               <motion.div
@@ -251,7 +221,7 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {chosen.choice === "report" ? <StudentSignIn /> : <StaffSignIn />}
+                <StaffSignIn />
               </motion.div>
             )}
           </AnimatePresence>
@@ -370,93 +340,3 @@ function StaffSignIn() {
   );
 }
 
-function StudentSignIn() {
-  const router = useRouter();
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [showPin, setShowPin] = useState(false);
-
-  async function submit(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError(null);
-    const data = new FormData(event.currentTarget);
-    const roll = String(data.get("roll") ?? "").trim();
-    const classCode = String(data.get("classCode") ?? "").trim();
-    const pin = String(data.get("pin") ?? "").trim();
-    if (!roll || !classCode || !pin) {
-      setError("Enter your class code, roll number and PIN.");
-      return;
-    }
-    setBusy(true);
-    try {
-      const result = await api.studentLogin(classCode, roll, pin);
-      setStudentSession(result.session_token, result.student_name);
-      router.push("/student");
-    } catch (err) {
-      setError(
-        err instanceof ApiUnreachable
-          ? "Could not reach the server. Try again in a minute."
-          : "That roll number, class code or PIN was not recognised. Check with your teacher.",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <form className="login__form" onSubmit={submit}>
-      <p className="small muted" style={{ marginTop: 0 }}>
-        Sign in with the PIN your teacher gave you when they shared your report.
-      </p>
-      <div className="field">
-        <label htmlFor="classCode">Class code</label>
-        <input id="classCode" name="classCode" className="input" placeholder="the code your teacher gave you" required />
-      </div>
-      <div className="field">
-        <label htmlFor="roll">Roll number</label>
-        <input id="roll" name="roll" className="input" placeholder="e.g. 7" required />
-      </div>
-      <div className="field">
-        <label htmlFor="pin">PIN</label>
-        <div style={{ position: "relative" }}>
-          <input
-            id="pin"
-            name="pin"
-            className="input"
-            style={{ paddingRight: 40 }}
-            type={showPin ? "text" : "password"}
-            inputMode="numeric"
-            placeholder="••••••"
-            required
-          />
-          <button
-            type="button"
-            className="btn btn--ghost btn--sm"
-            onClick={() => setShowPin((v) => !v)}
-            aria-label={showPin ? "Hide PIN" : "Show PIN"}
-            style={{ position: "absolute", right: 5, top: 5, padding: 6 }}
-          >
-            {showPin ? <EyeOff size={15} /> : <Eye size={15} />}
-          </button>
-        </div>
-      </div>
-
-      <button type="submit" className="btn btn--primary" disabled={busy} style={{ justifyContent: "center", padding: 11 }}>
-        {busy ? "Checking…" : "Continue"} {!busy && <ArrowRight size={15} />}
-      </button>
-
-      {error && (
-        <motion.div
-          className="evidence evidence--gold"
-          role="status"
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.3, ease: EASE_OUT }}
-        >
-          <ShieldAlert size={16} />
-          <div>{error}</div>
-        </motion.div>
-      )}
-    </form>
-  );
-}
