@@ -282,7 +282,20 @@ def compose_boardx_report(
     crosstab = skill_by_tier(rows)
     section2 = {
         "caption": render("S2_ANALYTICS_CAPTION"),
-        "crosstab": [f.as_dict() for f in crosstab],
+        # Each row keyed "skill|tier" by taxonomy code; the readable skill label and the
+        # student-register question type travel with it so no screen shows a code.
+        "crosstab": [
+            {
+                **f.as_dict(),
+                "skill_label": (
+                    nodes_by_code[f.key.split("|")[0]].label
+                    if f.key.split("|")[0] in nodes_by_code else f.key.split("|")[0]
+                ),
+                "tier": f.key.split("|", 1)[1] if "|" in f.key else None,
+                "question_type": TIER_QUESTION_TYPE.get(f.key.split("|", 1)[1]) if "|" in f.key else None,
+            }
+            for f in crosstab
+        ],
     }
 
     # Chapter -> its own skill codes, so section 3's pattern search stays inside one

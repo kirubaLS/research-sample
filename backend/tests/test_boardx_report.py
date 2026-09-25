@@ -676,3 +676,18 @@ def test_board_recurrence_renders_when_the_corpus_has_been_computed(client, scho
     # A real recurrence line for this chapter means the blanket "not counted yet"
     # disclaimer would be false, so it must not appear.
     assert not any(line["id"] == "S6_UNCALIBRATED_BOARD_HISTORY" for line in body["section6"])
+
+
+def test_section2_crosstab_rows_carry_readable_labels_not_just_codes(client, school, boardx_paper):
+    aid, student_id = boardx_paper
+    body = client.get(
+        f"/reports/student/{student_id}/boardx", params={"assessment_id": aid}, headers=_auth(school),
+    ).json()
+    rows = body["section2"]["crosstab"]
+    assert rows, "the fixture paper tests at least one skill x tier cell"
+    for row in rows:
+        skill_code, tier = row["key"].split("|", 1)
+        assert row["tier"] == tier
+        assert row["skill_label"]
+        from app.analysis.boardx_strings import TIER_QUESTION_TYPE
+        assert row["question_type"] == TIER_QUESTION_TYPE.get(tier)

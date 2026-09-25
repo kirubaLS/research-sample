@@ -516,6 +516,7 @@ def _cohort_report_payload(
     subject_bars = [{
         "subject_code": assessment.subject_code,
         "subject_label": _subject_label(assessment.subject_code),
+        "assessment_id": assessment.id,
         "assessment_title": assessment.title,
         "pct": round(sum(student_pct.values()) / students_analysed, 1) if students_analysed else 0,
         # The same four bands as the paper-wide band_counts above, for this subject --
@@ -543,6 +544,7 @@ def _cohort_report_payload(
             subject_bars.append({
                 "subject_code": sibling.subject_code,
                 "subject_label": _subject_label(sibling.subject_code),
+                "assessment_id": sibling.id,
                 "assessment_title": sibling.title,
                 "pct": round(sum(r.earned for r in sibling_rows) / total_max * 100, 1),
                 "band_counts": _band_counts_by_student(sibling_rows),

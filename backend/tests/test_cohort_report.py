@@ -157,6 +157,7 @@ def test_cohort_report_subject_bars_carry_real_band_counts(client, school, cohor
     own = next(b for b in body["subject_bars"] if b["subject_code"] == "X.MATH")
     # the paper's own subject is literally the same students as the paper-wide bands
     assert own["band_counts"] == body["band_counts"]
+    assert own["assessment_id"] == aid
     for bar in body["subject_bars"]:
         assert set(bar["band_counts"]) == {"full_mastery", "band_80_89", "band_60_79", "below_60"}
         assert all(v >= 0 for v in bar["band_counts"].values())
