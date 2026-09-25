@@ -36,7 +36,7 @@ from app.models import (
     School,
     TaxonomyNode,
 )
-from app.models.assessment import TIERS, tier_code
+from app.models.assessment import TIER_ALIASES, TIERS, tier_code
 
 router = APIRouter(prefix="/assessments", tags=["placement"])
 
@@ -647,8 +647,10 @@ def review_queue(
             "marks": float(questions[qid].max_marks),
             "stem": (questions[qid].stem_text or "")[:400],
             "proposed_chapter": nodes[p.chapter_id].label if p.chapter_id in nodes else None,
+            "proposed_chapter_code": nodes[p.chapter_id].code if p.chapter_id in nodes else None,
             "curriculum_section": p.curriculum_section,
             "tier": p.tier,
+            "tier_label": TIER_ALIASES.get(p.tier or ""),
             "confidence": p.confidence,
             "source": p.source,
             "reasoning": p.reasoning,
@@ -657,12 +659,20 @@ def review_queue(
         for qid, p in sorted(latest.items(), key=lambda kv: kv[1].confidence or 0.0)
         if p.needs_review
     ]
+    # Scoped to this paper's own subject group -- the unfiltered set of every chapter in
+    # the whole taxonomy used to be offered here, which meant a Hindi paper's review
+    # screen could "settle" a question onto a Science chapter with nothing to catch it.
+    chapter_ids = _chapters_in_subjects(nodes, group_subjects(a.subject_code))
+    chapters = sorted(
+        ({"code": n.code, "label": n.label} for n in nodes.values() if n.id in chapter_ids),
+        key=lambda c: c["label"],
+    )
     return {
         "assessment_id": a.id,
         "total_placed": len(latest),
         "pending": len(pending),
         "questions": pending,
-        "chapters": sorted(n.label for n in nodes.values() if n.kind == "chapter"),
+        "chapters": chapters,
     }
 
 
@@ -671,10 +681,16 @@ def confirm(
     assessment_id: str,
     question_id: str,
     body: ConfirmIn,
-    school: School = Depends(require_admin),
+    school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
     """A person settles one question. Recorded as a new placement, never an edit.
+
+    Same scope as the rest of paper authoring (scan/edit/confirm/map): a teacher settling
+    a needs-review row on their own paper is not a different privilege than mapping it in
+    the first place, and review_queue (just above) already read at this same scope --
+    this used to be admin-only, silently refusing every teacher with 403 despite the
+    review screen itself being reachable to them.
 
     The machine's attempt stays in the history: how often a teacher overrules it is the
     only honest measure of whether it is good enough to trust on the next paper.
@@ -697,10 +713,17 @@ def confirm(
             422,
             f"{body.tier!r} is not a tier. Use one of: " + "; ".join(TIERS),
         )
+    # A reviewer who names a chapter but no section (the common case: they know which
+    # chapter this belongs in, not which NCERT section number) keeps whatever section was
+    # already on the question, rather than the pairing this uses on the Question itself
+    # (chapter_id and curriculum_section together or neither -- see
+    # ck_question_chapter_pairing) going half-filled and crashing with a bare
+    # IntegrityError, which is what happened here before this line existed.
+    resolved_section = body.curriculum_section or question.curriculum_section
     db.add(QuestionPlacement(
         question_id=question_id,
         chapter_id=chapter.id,
-        curriculum_section=body.curriculum_section,
+        curriculum_section=resolved_section,
         tier=body.tier,
         confidence=1.0,
         source="human",
@@ -709,9 +732,9 @@ def confirm(
         reasoning=f"confirmed by {body.reviewed_by}",
     ))
     # the question itself carries the settled answer, which is what analysis reads
-    question.chapter_id = chapter.id
-    if body.curriculum_section:
-        question.curriculum_section = body.curriculum_section
+    if resolved_section:
+        question.chapter_id = chapter.id
+        question.curriculum_section = resolved_section
     if body.tier:
         # A person's tier outranks the machine's, and both stay: how often a teacher
         # overrules it is the only honest measure of whether it can be trusted.

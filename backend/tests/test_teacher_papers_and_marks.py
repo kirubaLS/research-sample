@@ -422,3 +422,66 @@ def test_teacher_cohort_report_is_refused_for_a_different_subject(client, school
         f"/reports/teacher/cohort/{mapped_paper}?section_id={school['section_id']}", headers=h,
     )
     assert r.status_code == 404
+
+
+def test_teacher_can_settle_a_needs_review_question_on_their_own_paper(client, school, mapped_paper):
+    """POST /assessments/{id}/review/{question_id} used to require an admin/principal
+    key (require_admin), silently refusing every teacher with 403 -- despite GET
+    .../review (the review queue itself) already being teacher-reachable at
+    require_paper_scope, the same scope as the rest of paper authoring. A teacher who can
+    see a needs-review row could never actually settle it."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Question, QuestionPlacement
+
+    db = SessionLocal()
+    qid = db.scalar(select(Question.id).where(Question.assessment_id == mapped_paper))
+    db.add(QuestionPlacement(
+        question_id=qid, confidence=0.4, source="model",
+        needs_review=True, reasoning="two chapters were close",
+    ))
+    db.commit()
+    db.close()
+
+    h = _subject_teacher(client, school, "X.MATH")
+
+    queue = client.get(f"/assessments/{mapped_paper}/review", headers=h)
+    assert queue.status_code == 200, queue.text
+    assert queue.json()["pending"] == 1
+    assert any(c["code"] == "X.MATH.SAV" for c in queue.json()["chapters"])
+
+    r = client.post(
+        f"/assessments/{mapped_paper}/review/{qid}", headers=h,
+        json={
+            "chapter_code": "X.MATH.SAV", "tier": "Applying",
+            "reviewed_by": "Mrs Subject Teacher",
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    after = client.get(f"/assessments/{mapped_paper}/review", headers=h).json()
+    assert after["pending"] == 0, "settling a question must clear it from the queue"
+
+
+def test_settling_a_question_is_still_refused_for_a_different_subject(client, school, mapped_paper):
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import Question, QuestionPlacement
+
+    db = SessionLocal()
+    qid = db.scalar(select(Question.id).where(Question.assessment_id == mapped_paper))
+    db.add(QuestionPlacement(
+        question_id=qid, confidence=0.4, source="model",
+        needs_review=True, reasoning="two chapters were close",
+    ))
+    db.commit()
+    db.close()
+
+    h = _subject_teacher(client, school, "X.SCI")
+    r = client.post(
+        f"/assessments/{mapped_paper}/review/{qid}", headers=h,
+        json={"chapter_code": "X.MATH.SAV", "reviewed_by": "Someone else's teacher"},
+    )
+    assert r.status_code == 404

@@ -9,7 +9,12 @@ import { Scanner } from "@/components/Scanner";
 import { BusyBanner } from "@/components/BusyBanner";
 import { Stat } from "@/components/Stat";
 import { useAuth } from "@/lib/auth";
-import type { StagedQuestion } from "@/lib/api";
+import { getApiKey } from "@/lib/session";
+import type { ReviewChapterOption, ReviewQuestion, StagedQuestion } from "@/lib/api";
+
+/** The three cognitive tiers a classified question is filed under -- the board's own
+ * words, which is what the backend accepts back (see TIER_ALIASES). */
+const TIERS = ["Remembering & Understanding", "Applying", "Analysing, Evaluating & Creating"];
 
 /** One subject's real question-paper pipeline: create/open a paper, scan it (photo or
  * file), confirm the reading, map it against the book and classify every question -- the
@@ -80,6 +85,75 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
       setEditing(null);
     } finally {
       setSavingEdit(false);
+    }
+  }
+
+  // A needs-review row (the family or chapter the machine settled on, including a real
+  // auto-resolved one, is a machine's first answer, never a person's) is editable through
+  // the real POST /assessments/{id}/review/{question_id} route -- the same one
+  // review_queue's own pending list is read from. Fetched lazily, keyed to address, so
+  // opening the edit modal always has the question_id and the real chapter list to pick
+  // from (StagedQuestion itself carries no question_id -- only /review's own rows do).
+  const [reviewByAddress, setReviewByAddress] = useState<Record<string, ReviewQuestion>>({});
+  const [chapterOptions, setChapterOptions] = useState<ReviewChapterOption[]>([]);
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key || !scan.assessmentId || !scan.mapped) return;
+    let cancelled = false;
+    void api.reviewQueue(key, scan.assessmentId).then((q) => {
+      if (cancelled) return;
+      setReviewByAddress(Object.fromEntries(q.questions.map((r) => [r.address, r])));
+      setChapterOptions(q.chapters);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scan.assessmentId, scan.mapped, scan.placed]);
+
+  const [settling, setSettling] = useState<{ address: string; question_id: string } | null>(null);
+  const [settleForm, setSettleForm] = useState({ chapter_code: "", curriculum_section: "", tier: "" });
+  const [savingSettle, setSavingSettle] = useState(false);
+  const [settleError, setSettleError] = useState<string | null>(null);
+
+  function openSettle(q: StagedQuestion) {
+    const pending = reviewByAddress[q.address];
+    if (!pending) return;
+    setSettling({ address: q.address, question_id: pending.question_id });
+    setSettleForm({
+      chapter_code: pending.proposed_chapter_code ?? "",
+      curriculum_section: pending.curriculum_section ?? "",
+      tier: q.mapped_to?.tier_label ?? "",
+    });
+    setSettleError(null);
+  }
+
+  async function saveSettle() {
+    const key = getApiKey();
+    if (!settling || !key || !scan.assessmentId) return;
+    if (!settleForm.chapter_code) {
+      setSettleError("Choose a chapter.");
+      return;
+    }
+    setSavingSettle(true);
+    setSettleError(null);
+    try {
+      await api.settleReview(key, scan.assessmentId, settling.question_id, {
+        chapter_code: settleForm.chapter_code,
+        curriculum_section: settleForm.curriculum_section || null,
+        tier: settleForm.tier || null,
+        reviewed_by: user?.name || "Teacher",
+      });
+      setSettling(null);
+      await scan.refresh(scan.assessmentId);
+      const q = await api.reviewQueue(key, scan.assessmentId);
+      setReviewByAddress(Object.fromEntries(q.questions.map((r) => [r.address, r])));
+      setChapterOptions(q.chapters);
+    } catch (err) {
+      setSettleError(scan.explain(err));
+    } finally {
+      setSavingSettle(false);
     }
   }
 
@@ -300,8 +374,10 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
                         <th>Stem</th>
                         <th className="num">Marks</th>
                         <th>Chapter</th>
+                        <th>Topic</th>
+                        <th>Tier</th>
                         <th>Needs review</th>
-                        {!scan.confirmed && <th></th>}
+                        <th></th>
                       </tr>
                     </thead>
                     <tbody>
@@ -311,6 +387,11 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
                         // mapped (it has moved past staging into a real Question). So the
                         // Edit action only ever appears for a still-staged, unconfirmed row.
                         const canEdit = !scan.confirmed && !q.mapped_to;
+                        // needs_review rows only exist after mapping, which is always
+                        // after confirm -- gating this action on !scan.confirmed (the
+                        // way canEdit is) would mean it could never actually show.
+                        const canSettle = !!q.mapped_to?.needs_review && !!reviewByAddress[q.address];
+                        const autoResolved = q.mapped_to?.review_reason?.includes("Auto-resolved");
                         return (
                           <tr key={q.address}>
                             <td className="strong">
@@ -318,28 +399,37 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
                               {q.question_no}
                               {q.sub_part ?? ""}
                             </td>
-                            <td className="small" style={{ maxWidth: 320 }}>
+                            <td className="small" style={{ maxWidth: 280 }}>
                               {q.stem_text ?? "—"}
                             </td>
                             <td className="num">{q.max_marks ?? "—"}</td>
                             <td>{q.mapped_to?.chapter ?? <span className="tag tag--risk">{q.blocked_reason ?? "Not placed"}</span>}</td>
+                            <td className="small">{q.mapped_to?.topic ?? "—"}</td>
+                            <td className="small">{q.mapped_to?.tier_label ?? "—"}</td>
                             <td>
                               {q.mapped_to?.needs_review ? (
                                 <div style={{ display: "grid", gap: 2 }}>
                                   <span className="tag tag--gold" style={{ width: "fit-content" }}>{q.mapped_to.review_reason ?? "Review"}</span>
-                                  <span className="small muted">A family/mapping problem -- fix the concept-family data, not this row.</span>
+                                  <span className="small muted">
+                                    {autoResolved
+                                      ? "Placed automatically from the book -- worth a glance, not necessarily wrong."
+                                      : "A family/mapping problem -- fix the concept-family data, or settle it here."}
+                                  </span>
                                 </div>
                               ) : "—"}
                             </td>
-                            {!scan.confirmed && (
-                              <td style={{ textAlign: "right" }}>
-                                {canEdit && (
-                                  <button className="btn btn--sm" onClick={() => openEdit(q)}>
-                                    <Pencil size={12} /> Edit
-                                  </button>
-                                )}
-                              </td>
-                            )}
+                            <td style={{ textAlign: "right" }}>
+                              {canEdit && (
+                                <button className="btn btn--sm" onClick={() => openEdit(q)}>
+                                  <Pencil size={12} /> Edit
+                                </button>
+                              )}
+                              {canSettle && (
+                                <button className="btn btn--sm" onClick={() => openSettle(q)}>
+                                  <Pencil size={12} /> Settle
+                                </button>
+                              )}
+                            </td>
                           </tr>
                         );
                       })}
@@ -422,6 +512,83 @@ export function QuestionPaperPanel({ subject, section }: { subject: string; sect
                     {savingEdit ? <Loader2 size={13} className="spin" /> : <CheckCircle2 size={13} />} Save
                   </button>
                 </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {settling && (
+          <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSettling(null)}>
+            <motion.div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <div className="modal__head">
+                <h3>Settle {settling.address}</h3>
+                <button className="iconbtn" onClick={() => setSettling(null)} aria-label="Close">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal__body" style={{ display: "grid", gap: 10 }}>
+                {reviewByAddress[settling.address]?.reasoning && (
+                  <p className="small muted" style={{ margin: 0 }}>
+                    {reviewByAddress[settling.address].reasoning}
+                  </p>
+                )}
+                {settleError && (
+                  <div className="evidence evidence--gold">
+                    <AlertTriangle size={16} />
+                    <div>{settleError}</div>
+                  </div>
+                )}
+                <div className="field">
+                  <label htmlFor="settle-chapter">Chapter</label>
+                  <select
+                    id="settle-chapter"
+                    className="select"
+                    value={settleForm.chapter_code}
+                    onChange={(e) => setSettleForm((f) => ({ ...f, chapter_code: e.target.value }))}
+                  >
+                    <option value="">Choose a chapter…</option>
+                    {chapterOptions.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="settle-section">Section (optional -- e.g. 12.2)</label>
+                  <input
+                    id="settle-section"
+                    className="input"
+                    value={settleForm.curriculum_section}
+                    onChange={(e) => setSettleForm((f) => ({ ...f, curriculum_section: e.target.value }))}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="settle-tier">Tier</label>
+                  <select
+                    id="settle-tier"
+                    className="select"
+                    value={settleForm.tier}
+                    onChange={(e) => setSettleForm((f) => ({ ...f, tier: e.target.value }))}
+                  >
+                    <option value="">Not set</option>
+                    {TIERS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="modal__foot" style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button className="btn btn--sm" onClick={() => setSettling(null)} disabled={savingSettle}>
+                  Cancel
+                </button>
+                <button className="btn btn--primary btn--sm" onClick={() => void saveSettle()} disabled={savingSettle}>
+                  {savingSettle ? <Loader2 size={13} className="spin" /> : <CheckCircle2 size={13} />} Save
+                </button>
               </div>
             </motion.div>
           </motion.div>

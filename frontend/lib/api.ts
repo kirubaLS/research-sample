@@ -1251,6 +1251,38 @@ export interface ScanReview {
   questions: StagedQuestion[];
 }
 
+export interface ReviewChapterOption {
+  code: string;
+  label: string;
+}
+
+export interface ReviewQuestion {
+  question_id: string;
+  address: string;
+  question_no: string;
+  marks: number;
+  stem: string;
+  proposed_chapter: string | null;
+  proposed_chapter_code: string | null;
+  curriculum_section: string | null;
+  /** 'R&U' | 'AP' | 'AEC', or null when nothing settled it. */
+  tier: string | null;
+  tier_label: string | null;
+  confidence: number;
+  source: string;
+  reasoning: string | null;
+  evidence: string[];
+}
+
+export interface ReviewQueue {
+  assessment_id: string;
+  total_placed: number;
+  pending: number;
+  questions: ReviewQuestion[];
+  /** This paper's own subject chapters -- what a settled question can be filed under. */
+  chapters: ReviewChapterOption[];
+}
+
 export interface DocumentSummary {
   document_id: string;
   kind: "question_paper" | "answer_sheet" | "mark_grid";
@@ -1880,6 +1912,26 @@ export const api = {
 
   readScan: (key: string, assessmentId: string) =>
     authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),
+
+  /** The questions a person still has to settle, with what the machine had to go on --
+   *  and the real chapters (code + label) of this paper's own subject, to settle one
+   *  into. */
+  reviewQueue: (key: string, assessmentId: string) =>
+    authed<ReviewQueue>(`/assessments/${assessmentId}/review`, key),
+
+  /** A person settles one question's chapter/section/tier. Recorded as a new placement,
+   *  never an edit -- the machine's attempt stays in the history. */
+  settleReview: (
+    key: string,
+    assessmentId: string,
+    questionId: string,
+    body: { chapter_code: string; curriculum_section?: string | null; tier?: string | null; reviewed_by: string },
+  ) =>
+    authed<{ question_id: string; chapter: string; remaining: number }>(
+      `/assessments/${assessmentId}/review/${questionId}`,
+      key,
+      { method: "POST", body: JSON.stringify(body) },
+    ),
 
   editScanned: (
     key: string,

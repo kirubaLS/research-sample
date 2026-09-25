@@ -626,7 +626,7 @@ export function usePaperScan(opts: {
     // actions
     openPaper, closePaper, onRename, onDelete, onRemoveScan, onFiles, submitScan,
     onEdit, onConfirm, onMap, onClassify, retryPendingNow, discardPending,
-    loadPapers, explain,
+    loadPapers, explain, refresh,
   };
 }
 

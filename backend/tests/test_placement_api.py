@@ -436,7 +436,7 @@ def test_the_queue_holds_only_what_still_needs_a_person(client, school, paper):
     assert pending["reasoning"] == "could be either"
     assert pending["evidence"] == ["Example 3"]
     # a reviewer needs the real alternatives to choose from
-    assert "Surface Areas and Volumes" in body["chapters"]
+    assert "Surface Areas and Volumes" in [c["label"] for c in body["chapters"]]
 
 
 def test_confirming_records_a_new_placement_rather_than_editing_the_old_one(
