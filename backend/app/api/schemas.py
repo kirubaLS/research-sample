@@ -26,6 +26,61 @@ class ProfileIn(BaseModel):
         return v.lower()
 
 
+class OnboardingIn(BaseModel):
+    """Everything the real 6-step /attend/onboarding wizard collects, in one shot.
+
+    Deliberately separate from ProfileIn: that shape still exists for the RIASEC
+    TestSession's own /t/{class_code}/start, untouched. This is the wizard's own request,
+    for the wizard's own storage on StudentProfile -- no TestSession is created here.
+    """
+
+    # step 1: basic info
+    name: str = Field(min_length=1, max_length=200)
+    roll_no: str = Field(min_length=1, max_length=16)
+    age: int | None = Field(default=None, ge=8, le=25)
+    gender: str | None = None
+    dob: str | None = None
+    board: str | None = None
+
+    # step 2: background
+    lives_in: str | None = None
+    decision_helper: str | None = None
+    responsibilities: str | None = None
+
+    # step 3: learning profile
+    subject_enjoy: str | None = None
+    subject_comfortable: str | None = None
+    learning_type: str | None = None
+
+    # step 4: interests
+    interests: list[str] = Field(default_factory=list, max_length=3)
+    work_interest: str | None = None
+    new_learning_style: str | None = None
+
+    # step 5: future plans
+    future_career: str | None = Field(default=None, max_length=400)
+    class11_group: str | None = None
+    group_reason: list[str] = Field(default_factory=list, max_length=2)
+    confidence: int | None = Field(default=None, ge=1, le=5)
+    careers_known: list[str] = Field(default_factory=list)
+    future_concern: list[str] = Field(default_factory=list)
+
+    @field_validator("gender")
+    @classmethod
+    def _gender(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        allowed = {"female", "male", "other", "prefer_not_to_say"}
+        if v.lower() not in allowed:
+            raise ValueError(f"gender must be one of {sorted(allowed)}")
+        return v.lower()
+
+
+class OnboardingOut(BaseModel):
+    student_id: str
+    message: str = "saved"
+
+
 class StudentCreateIn(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     roll_no: str = Field(min_length=1, max_length=16)

@@ -1,15 +1,29 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useReducedMotion, type Variants } from "framer-motion";
-import { ArrowLeft, ArrowRight, CloudCheck, IdCard, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CloudCheck, IdCard, Loader2 } from "lucide-react";
 import { EASE_OUT } from "@/components/motion";
 import { api, ApiError } from "@/lib/api";
-import { patchAttend, useAttend, type AttendProfile } from "@/lib/attendState";
+import { patchAnswers, patchAttend, useAttend } from "@/lib/attendState";
 import { StepDone } from "./done";
-import { isProfileValid, StepBasicInfo, StepLikertScreen } from "./steps";
+import {
+  isBackgroundValid,
+  isBasicInfoValid,
+  isFuturePlansValid,
+  isInterestsValid,
+  isLearningProfileValid,
+  STEP_META,
+  StepBackground,
+  StepBasicInfo,
+  StepFuturePlans,
+  StepInterests,
+  StepLearningProfile,
+} from "./steps";
+
+const VALIDATORS = [isBasicInfoValid, isBackgroundValid, isLearningProfileValid, isInterestsValid, isFuturePlansValid];
 
 /** Direction-aware slide: AnimatePresence passes the *current* direction to
  * the exiting screen, so back really does read as going back. */
@@ -22,14 +36,12 @@ function slideFor(offset: number): Variants {
 }
 
 /**
- * §A2 Onboarding: the real interest test. Step 0 collects the profile POST
- * /t/{classCode}/start needs and starts the session; every screen after
- * that is one of the real SessionPayload.screens (6 Likert items each,
- * saved to the server the moment a screen is completed via
- * POST /t/session/{id}/responses); the last screen calls
- * POST /t/session/{id}/complete. The reference design's five-topic
- * personality/background/future-plans wizard is not reproduced -- see the
- * gap note in the wiring report.
+ * §A2 Onboarding: the real 6-step wizard, backed by POST /t/{classCode}/onboard.
+ * Steps 1..5 collect the answers, step 6 is the confirmation screen after a
+ * single submit -- there is no per-screen server round trip the way the old
+ * 36-item Likert flow had (every screen there posted its own responses); here
+ * autosave means "not lost on reload" (sessionStorage, via lib/attendState.ts),
+ * not "already on the server".
  */
 export default function OnboardingPage() {
   const router = useRouter();
@@ -39,26 +51,13 @@ export default function OnboardingPage() {
   const [ready, setReady] = useState(false);
   const [direction, setDirection] = useState(1);
   const [showErrors, setShowErrors] = useState(false);
-  const [starting, setStarting] = useState(false);
-  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const shownAt = useRef<Record<string, number>>({});
 
   useEffect(() => setReady(true), []);
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [draft.screenIndex]);
-
-  const step = draft.sessionId ? draft.screenIndex : -1;
-  const screens = draft.payload?.screens ?? [];
-  const screen = step >= 0 ? screens[step] : null;
-
-  useEffect(() => {
-    const now = Date.now() / 1000;
-    for (const item of screen ?? []) {
-      if (!(item.item_id in shownAt.current)) shownAt.current[item.item_id] = now;
-    }
-  }, [screen]);
+  }, [draft.step]);
 
   if (!ready) {
     return (
@@ -90,99 +89,102 @@ export default function OnboardingPage() {
     );
   }
 
-  const profile: Partial<AttendProfile> = draft.profile ?? { locale: "en" };
+  const step = draft.step;
+  const done = draft.submitted;
+  const ctx = {
+    schoolName: draft.schoolName ?? "",
+    classLabel: draft.classLabel ?? "",
+    section: draft.classSection ?? "A",
+    board: draft.classBoard ?? "CBSE",
+  };
 
-  async function startSession() {
-    setShowErrors(true);
-    if (!isProfileValid(profile) || !draft.classCode) return;
-    setError(null);
-    setStarting(true);
-    try {
-      const body: Record<string, unknown> = { name: profile.name, roll_no: profile.roll_no, section: profile.section, locale: profile.locale ?? "en" };
-      if (profile.age) body.age = profile.age;
-      if (profile.gender) body.gender = profile.gender;
-      const session = await api.startSession(draft.classCode, body);
-      patchAttend({
-        profile: profile as AttendProfile,
-        sessionId: session.session_id,
-        payload: session,
-        screenIndex: 0,
-      });
-    } catch (err) {
-      setError(
-        err instanceof ApiError && err.status === 404
-          ? "That class link is not recognised. Please pick your class again."
-          : "Could not start the test. Please try again.",
-      );
-    } finally {
-      setStarting(false);
-    }
-  }
-
-  async function nextScreen() {
-    if (!screen || !draft.sessionId) return;
-    const allAnswered = screen.every((i) => draft.answers[i.item_id]);
-    if (!allAnswered) {
+  function next() {
+    const valid = VALIDATORS[step]?.(draft.answers) ?? true;
+    if (!valid) {
       setShowErrors(true);
       return;
     }
-    setSaving(true);
-    setError(null);
-    try {
-      await api.saveResponses(
-        draft.sessionId,
-        screen.map((i) => ({
-          item_id: i.item_id,
-          value: draft.answers[i.item_id].value,
-          shown_at: draft.answers[i.item_id].shownAt,
-          answered_at: draft.answers[i.item_id].answeredAt,
-        })),
-      );
-      setDirection(1);
-      setShowErrors(false);
-      if (draft.screenIndex + 1 < screens.length) {
-        patchAttend({ screenIndex: draft.screenIndex + 1 });
-      } else {
-        await api.complete(draft.sessionId);
-        patchAttend({ submitted: true, screenIndex: screens.length });
-      }
-    } catch {
-      setError("Could not save just now. Please try again, your answers are still here.");
-    } finally {
-      setSaving(false);
+    setShowErrors(false);
+    setDirection(1);
+    if (step < 4) {
+      patchAttend({ step: step + 1 });
+    } else {
+      submit();
     }
   }
 
   function back() {
     setDirection(-1);
     setShowErrors(false);
-    patchAttend({ screenIndex: Math.max(0, draft.screenIndex - 1) });
+    patchAttend({ step: Math.max(0, step - 1) });
   }
 
-  function choose(itemId: string, value: number) {
-    patchAttend({
-      answers: {
-        ...draft.answers,
-        [itemId]: { value, shownAt: shownAt.current[itemId] ?? Date.now() / 1000, answeredAt: Date.now() / 1000 },
-      },
-    });
+  async function submit() {
+    if (!draft.classCode) return;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const res = await api.onboard(draft.classCode, {
+        name: draft.answers.name!,
+        roll_no: draft.answers.roll_no!,
+        age: draft.answers.age,
+        gender: draft.answers.gender,
+        dob: draft.answers.dob,
+        board: ctx.board,
+        lives_in: draft.answers.lives_in,
+        decision_helper: draft.answers.decision_helper,
+        responsibilities: draft.answers.responsibilities,
+        subject_enjoy: draft.answers.subject_enjoy,
+        subject_comfortable: draft.answers.subject_comfortable,
+        learning_type: draft.answers.learning_type,
+        interests: draft.answers.interests ?? [],
+        work_interest: draft.answers.work_interest,
+        new_learning_style: draft.answers.new_learning_style,
+        future_career: draft.answers.future_career,
+        class11_group: draft.answers.class11_group,
+        group_reason: draft.answers.group_reason ?? [],
+        confidence: draft.answers.confidence,
+        careers_known: draft.answers.careers_known ?? [],
+        future_concern: draft.answers.future_concern ?? [],
+      });
+      patchAttend({ studentId: res.student_id, submitted: true, step: 5 });
+    } catch (err) {
+      setError(
+        err instanceof ApiError && err.status === 404
+          ? "That class link is not recognised. Please pick your class again."
+          : err instanceof ApiError && err.status === 422
+            ? "Some answers look invalid. Please check the form and try again."
+            : "Could not save your answers. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
-
-  const done = draft.submitted;
-  const totalLabel = draft.sessionId ? screens.length + 1 : 1;
-  const currentLabel = draft.sessionId ? Math.min(step, screens.length) + 1 : 0;
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       <div className="surface" style={{ padding: "16px 16px 14px" }}>
-        <div className="stepper">
-          <div className="stepper__bar" style={{ "--progress": `${(currentLabel / totalLabel) * 100}%` } as React.CSSProperties} />
-        </div>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginTop: 14 }}>
-          <span className="muted" style={{ fontSize: 12 }}>
-            {done ? "Done" : draft.sessionId ? `Screen ${step + 1} of ${screens.length}` : "Your details"}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, marginBottom: 12 }}>
+          <span style={{ fontSize: 13, fontWeight: 650 }}>
+            {ctx.schoolName}
+            {draft.answers.name ? ` · ${draft.answers.name}` : ""}
+            {ctx.section ? ` · Section ${ctx.section}` : ""}
           </span>
-          <SaveBadge rev={draft.rev} />
+          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+            <SaveBadge rev={draft.rev} />
+            <Link href="/attend" className="btn--link" style={{ fontSize: 12.5 }}>
+              Exit
+            </Link>
+          </div>
+        </div>
+        <div className="stepper">
+          <div className="stepper__bar" style={{ "--progress": `${(Math.min(step, 5) / 5) * 100}%` } as React.CSSProperties} />
+          {STEP_META.map((meta, i) => (
+            <div key={meta.title} className="stepper__step" data-state={i < step || done ? "done" : i === step ? "current" : "upcoming"}>
+              <span className="stepper__dot">{i < step || done ? <Check size={13} /> : i + 1}</span>
+              {meta.title}
+            </div>
+          ))}
         </div>
       </div>
 
@@ -193,20 +195,13 @@ export default function OnboardingPage() {
       )}
 
       <AnimatePresence mode="wait" custom={direction} initial={false}>
-        <motion.div key={done ? "done" : draft.sessionId ? step : "profile"} custom={direction} variants={slide} initial="enter" animate="center" exit="exit" transition={{ duration: 0.34, ease: EASE_OUT }}>
+        <motion.div key={done ? "done" : step} custom={direction} variants={slide} initial="enter" animate="center" exit="exit" transition={{ duration: 0.34, ease: EASE_OUT }}>
           {done && <StepDone draft={draft} />}
-          {!done && !draft.sessionId && (
-            <StepBasicInfo
-              classLabel={draft.classLabel ?? ""}
-              schoolName={draft.schoolName ?? ""}
-              profile={profile}
-              patch={(p) => patchAttend({ profile: { ...profile, ...p } as AttendProfile })}
-              showErrors={showErrors}
-            />
-          )}
-          {!done && draft.sessionId && screen && (
-            <StepLikertScreen screen={screen} index={step} total={screens.length} answers={draft.answers} onChoose={choose} />
-          )}
+          {!done && step === 0 && <StepBasicInfo ctx={ctx} answers={draft.answers} patch={patchAnswers} showErrors={showErrors} />}
+          {!done && step === 1 && <StepBackground answers={draft.answers} patch={patchAnswers} showErrors={showErrors} />}
+          {!done && step === 2 && <StepLearningProfile answers={draft.answers} patch={patchAnswers} showErrors={showErrors} />}
+          {!done && step === 3 && <StepInterests answers={draft.answers} patch={patchAnswers} showErrors={showErrors} />}
+          {!done && step === 4 && <StepFuturePlans answers={draft.answers} patch={patchAnswers} showErrors={showErrors} />}
         </motion.div>
       </AnimatePresence>
 
@@ -226,25 +221,25 @@ export default function OnboardingPage() {
             border: "1px solid var(--line)",
           }}
         >
-          {draft.sessionId ? (
-            <button type="button" className="btn" onClick={back} disabled={step === 0}>
-              <ArrowLeft size={15} /> Back
-            </button>
-          ) : (
-            <button type="button" className="btn" onClick={() => router.push("/attend")}>
-              <ArrowLeft size={15} /> Change class
-            </button>
-          )}
+          <button type="button" className="btn" onClick={step === 0 ? () => router.push("/attend") : back}>
+            <ArrowLeft size={15} /> {step === 0 ? "Change class" : "Back"}
+          </button>
           <motion.button
             type="button"
             className="btn btn--primary"
             style={{ marginLeft: "auto", padding: "10px 18px", fontSize: 14 }}
-            onClick={draft.sessionId ? nextScreen : startSession}
-            disabled={starting || saving}
+            onClick={next}
+            disabled={submitting}
             whileHover={{ y: -2 }}
             whileTap={{ y: 0 }}
           >
-            {starting || saving ? "Please wait…" : draft.sessionId ? (step + 1 < screens.length ? "Continue" : "Finish") : "Start the questionnaire"} <ArrowRight size={15} />
+            {submitting ? (
+              "Saving…"
+            ) : (
+              <>
+                {step < 4 ? "Continue" : "Finish"} <ArrowRight size={15} />
+              </>
+            )}
           </motion.button>
         </div>
       )}

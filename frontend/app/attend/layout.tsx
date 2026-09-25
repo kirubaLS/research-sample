@@ -14,7 +14,7 @@ import { useAttend } from "@/lib/attendState";
  */
 export default function AttendLayout({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
-  const { profile, classLabel, schoolName } = useAttend();
+  const { answers, classLabel, classSection, schoolName } = useAttend();
   const bare = pathname === "/attend";
 
   if (bare) return <>{children}</>;
@@ -51,10 +51,10 @@ export default function AttendLayout({ children }: { children: React.ReactNode }
         </div>
 
         <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-          {profile && (
+          {answers.name && (
             <span className="tag tag--teal" style={{ minWidth: 0 }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {profile.name} · {profile.section} · {profile.roll_no}
+                {answers.name} · {classSection ?? "A"} · {answers.roll_no}
               </span>
             </span>
           )}

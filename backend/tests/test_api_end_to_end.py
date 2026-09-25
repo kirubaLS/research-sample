@@ -396,7 +396,7 @@ def test_class_directory_is_public_and_reveals_nothing_else(client, school):
     row = rows[0]
     assert row["class_code"] and row["label"].startswith("Class ")
     # the directory is a way in, not a leak: no roster, no results, no key
-    assert set(row) == {"class_code", "label", "grade", "school"}
+    assert set(row) == {"class_code", "label", "grade", "section", "school", "board"}
 
 
 def test_the_api_blocks_a_paper_that_reuses_a_variant(client, school):

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import JSON, Boolean, Date, DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, PkMixin, TimestampMixin
@@ -168,6 +168,30 @@ class StudentProfile(Base, PkMixin, TimestampMixin):
     consent_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
     parent_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     parent_whatsapp: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    #: --- /attend/onboarding wizard fields (added for the 6-step onboarding flow; this
+    #: is deliberately separate storage from the 36-item Likert RIASEC TestSession, which
+    #: keeps scoring this profile's data never touches) ---
+    board: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    lives_in: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    decision_helper: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    responsibilities: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    subject_enjoy: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    subject_comfortable: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    learning_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    interests: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    work_interest: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    new_learning_style: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    future_career: Mapped[str | None] = mapped_column(String(400), nullable=True)
+    class11_group: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    group_reason: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    confidence: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    #: Two more Future-Plans sub-questions the reference design adds beyond the first
+    #: pass: which careers/exams the student has heard of, and what might constrain their
+    #: choice. Same shape as interests/group_reason -- JSON lists, capped at the API layer.
+    careers_known: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    future_concern: Mapped[list | None] = mapped_column(JSON, nullable=True)
 
     section: Mapped[Section] = relationship(back_populates="students")
 

@@ -1007,6 +1007,39 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
   box-shadow: 0 4px 12px -5px color-mix(in srgb, var(--accent, var(--brand-teal)) 75%, transparent), inset 0 1px 0 rgba(255,255,255,.7);
 }
 
+/* ---------- onboarding wizard pill choices: icon + label, real 3D hover depth,
+   same rotateX/translateZ/cubic-bezier family as .authchoice above ---------- */
+.pillset { perspective: 1000px; display: flex; flex-wrap: wrap; gap: 10px; }
+.pillchoice {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 10px 16px; border-radius: 999px;
+  border: 1px solid var(--line-strong);
+  background: linear-gradient(180deg, #ffffff, #fbf9f4); color: var(--brand-ink-soft);
+  font-size: 13.5px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  transform-style: preserve-3d; will-change: transform;
+  transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s cubic-bezier(.22,1,.36,1), border-color .22s, background .22s, color .22s;
+}
+.pillchoice:hover:not(:disabled) {
+  transform: translateY(-3px) rotateX(4deg) scale(1.015);
+  box-shadow: 0 16px 28px -16px color-mix(in srgb, var(--accent, var(--brand-teal)) 55%, transparent), var(--shadow-sm);
+  border-color: color-mix(in srgb, var(--accent, var(--brand-teal)) 42%, var(--line-strong));
+}
+.pillchoice:active:not(:disabled) { transform: translateY(-1px) scale(.98); transition-duration: .1s; }
+.pillchoice:disabled { opacity: .4; cursor: not-allowed; }
+.pillchoice__icon { color: color-mix(in srgb, var(--accent, var(--brand-teal)) 65%, var(--muted)); flex: 0 0 auto; transition: transform .28s cubic-bezier(.22,1,.36,1); }
+.pillchoice:hover:not(:disabled) .pillchoice__icon { transform: translateZ(10px) scale(1.08); }
+.pillchoice--on {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent, var(--brand-teal)) 20%, #fff), color-mix(in srgb, var(--accent, var(--brand-teal)) 10%, #fff));
+  border-color: var(--accent, var(--brand-teal));
+  color: color-mix(in srgb, var(--accent, var(--brand-teal)) 78%, var(--brand-ink));
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--accent, var(--brand-teal)) 75%, transparent), inset 0 1px 0 rgba(255,255,255,.7);
+}
+.pillchoice--on .pillchoice__icon { color: var(--accent, var(--brand-teal)); }
+.pillchoice__check { color: var(--accent, var(--brand-teal)); flex: 0 0 auto; }
+@media (prefers-reduced-motion: reduce) {
+  .pillchoice:hover:not(:disabled) { transform: none; }
+}
+
 /* ============================================================
    AVAI STAFF CONSOLE (internal ops), denser, cooler, blue.
    Deliberately a different product surface from the school app.

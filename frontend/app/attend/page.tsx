@@ -11,7 +11,7 @@ import { api, ClassOption } from "@/lib/api";
 import { pickClass, useAttend } from "@/lib/attendState";
 
 const PROMISES: Array<{ icon: typeof Clock3; text: string }> = [
-  { icon: Clock3, text: "About eight minutes" },
+  { icon: Clock3, text: "About five minutes" },
   { icon: ShieldCheck, text: "No right or wrong answers" },
   { icon: Sparkles, text: "Your teacher builds on it" },
 ];
@@ -27,7 +27,7 @@ const PROMISES: Array<{ icon: typeof Clock3; text: string }> = [
  */
 export default function AttendEntryPage() {
   const router = useRouter();
-  const { classCode, classLabel, profile, submitted } = useAttend();
+  const { classCode, classLabel, answers, submitted } = useAttend();
   const [classes, setClasses] = useState<ClassOption[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -44,7 +44,7 @@ export default function AttendEntryPage() {
   }
 
   function choose(option: ClassOption) {
-    pickClass(option.class_code, option.label, option.school);
+    pickClass(option);
     router.push("/attend/onboarding");
   }
 
@@ -74,7 +74,7 @@ export default function AttendEntryPage() {
             Hi! Before your first test, tell us who you are.
           </h1>
           <p style={{ color: "#b9c6ce", fontSize: 15.5, lineHeight: 1.55, maxWidth: 430 }}>
-            36 short questions, about eight minutes. There is nothing to revise, AVAI just needs to know how you learn
+            Six short steps, about five minutes. There is nothing to revise, AVAI just needs to know a bit about you
             before it starts reading your papers.
           </p>
 
@@ -150,7 +150,7 @@ export default function AttendEntryPage() {
                   {submitted ? "Onboarding already done, see your summary" : "Continue where you left off"}
                 </strong>
                 <small className="muted" style={{ display: "block", fontSize: 12 }}>
-                  {classLabel}{profile ? ` · ${profile.name}` : ""}
+                  {classLabel}{answers.name ? ` · ${answers.name}` : ""}
                 </small>
               </span>
               <ArrowRight size={17} style={{ marginLeft: "auto", color: "var(--brand-green)", flex: "0 0 auto" }} />

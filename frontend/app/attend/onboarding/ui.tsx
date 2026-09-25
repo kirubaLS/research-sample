@@ -1,10 +1,12 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Lock, type LucideIcon } from "lucide-react";
+import { Check, Lock, type LucideIcon } from "lucide-react";
 import { EASE_OUT } from "@/components/motion";
+import type { Option } from "../options";
 
-/** One wizard screen: a raised panel with a tinted header strip. */
+/** One wizard screen: a raised panel with a tinted, icon-tile header strip,
+ * "STEP N OF 6" eyebrow -- the shell every one of the 6 steps sits in. */
 export function StepCard({
   icon: Icon,
   eyebrow,
@@ -66,7 +68,7 @@ export function StepCard({
   );
 }
 
-/** Label + helper text above a group of controls. */
+/** Label + optional hint (e.g. "select up to 3") above a group of controls. */
 export function Question({
   label,
   hint,
@@ -114,31 +116,21 @@ export function FieldError({ show, children }: { show: boolean; children: React.
   );
 }
 
-/** Plain option chips, single- or multi-select, no icon (the reference's
- * per-option icon set belonged entirely to its fake option lists). */
+/** Plain chips (no icon), single-select, used for gender/language style rows
+ * where an Option list would be overkill. */
 export function ChipGroup({
   options,
   selected,
   onChange,
   accent = "var(--brand-teal)",
-  multi = false,
   groupLabel,
 }: {
   options: { id: string; label: string }[];
   selected: string[];
   onChange: (next: string[]) => void;
   accent?: string;
-  multi?: boolean;
   groupLabel: string;
 }) {
-  function toggle(id: string) {
-    if (!multi) {
-      onChange([id]);
-      return;
-    }
-    onChange(selected.includes(id) ? selected.filter((s) => s !== id) : [...selected, id]);
-  }
-
   return (
     <div className="chipset" role="group" aria-label={groupLabel}>
       {options.map((o, i) => {
@@ -150,13 +142,76 @@ export function ChipGroup({
             className={`chip${on ? " chip--on" : ""}`}
             style={{ "--accent": accent } as React.CSSProperties}
             aria-pressed={on}
-            onClick={() => toggle(o.id)}
+            onClick={() => onChange([o.id])}
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.32, delay: 0.03 + i * 0.025, ease: EASE_OUT }}
             whileTap={{ scale: 0.96 }}
           >
             {o.label}
+          </motion.button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The wizard's real pill-shaped choice buttons: icon + label, rounded,
+ * bordered, single- or multi-select (with a max), 3D hover depth in the same
+ * rotateX/translateZ/cubic-bezier family as .authchoice (see globals.css). */
+export function PillGroup({
+  options,
+  selected,
+  onChange,
+  accent = "var(--brand-teal)",
+  multi = false,
+  max,
+  groupLabel,
+}: {
+  options: Option[];
+  selected: string[];
+  onChange: (next: string[]) => void;
+  accent?: string;
+  multi?: boolean;
+  max?: number;
+  groupLabel: string;
+}) {
+  function toggle(id: string) {
+    if (!multi) {
+      onChange([id]);
+      return;
+    }
+    if (selected.includes(id)) {
+      onChange(selected.filter((s) => s !== id));
+      return;
+    }
+    if (max && selected.length >= max) return;
+    onChange([...selected, id]);
+  }
+
+  return (
+    <div className="pillset" role="group" aria-label={groupLabel}>
+      {options.map((o, i) => {
+        const on = selected.includes(o.id);
+        const disabled = multi && !!max && !on && selected.length >= max;
+        const Icon = o.icon;
+        return (
+          <motion.button
+            key={o.id}
+            type="button"
+            className={`pillchoice${on ? " pillchoice--on" : ""}`}
+            style={{ "--accent": accent } as React.CSSProperties}
+            aria-pressed={on}
+            disabled={disabled}
+            onClick={() => toggle(o.id)}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.32, delay: 0.02 + i * 0.02, ease: EASE_OUT }}
+            whileTap={{ scale: 0.97 }}
+          >
+            <Icon size={15} className="pillchoice__icon" />
+            <span>{o.label}</span>
+            {on && <Check size={13} className="pillchoice__check" />}
           </motion.button>
         );
       })}

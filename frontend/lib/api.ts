@@ -836,8 +836,42 @@ export type ClassOption = {
   class_code: string;
   label: string;
   grade: number;
+  section: string;
   school: string;
+  board: string;
 };
+
+/** Everything the real 6-step /attend/onboarding wizard submits in one shot to
+ * POST /t/{classCode}/onboard. Separate from the RIASEC start() payload above
+ * -- this never creates a TestSession. */
+export interface OnboardingIn {
+  name: string;
+  roll_no: string;
+  age?: number;
+  gender?: "female" | "male" | "other" | "prefer_not_to_say";
+  dob?: string;
+  board?: string;
+  lives_in?: string;
+  decision_helper?: string;
+  responsibilities?: string;
+  subject_enjoy?: string;
+  subject_comfortable?: string;
+  learning_type?: string;
+  interests?: string[];
+  work_interest?: string;
+  new_learning_style?: string;
+  future_career?: string;
+  class11_group?: string;
+  group_reason?: string[];
+  confidence?: number;
+  careers_known?: string[];
+  future_concern?: string[];
+}
+
+export interface OnboardingOut {
+  student_id: string;
+  message: string;
+}
 
 // --- operator console types -----------------------------------------------------------
 export interface PlatformSection {
@@ -1438,6 +1472,12 @@ export interface ProbeResult {
 
 export const api = {
   classes: () => request<ClassOption[]>("/t/classes"),
+
+  onboard: (classCode: string, body: OnboardingIn) =>
+    request<OnboardingOut>(`/t/${classCode}/onboard`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
 
   startSession: (classCode: string, body: Record<string, unknown>) =>
     request<SessionPayload>(`/t/${classCode}/start`, {

@@ -7,13 +7,20 @@ and it is a dead end: no route here returns a score, a Holland code or a stream.
 from __future__ import annotations
 
 import random
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.schemas import CompletionOut, ProfileIn, ResponseBatchIn, SessionOut
+from app.api.schemas import (
+    CompletionOut,
+    OnboardingIn,
+    OnboardingOut,
+    ProfileIn,
+    ResponseBatchIn,
+    SessionOut,
+)
 from app.config import get_settings
 from app.db import get_session
 from app.models import (
@@ -56,7 +63,7 @@ def classes(db: Session = Depends(get_session)) -> list[dict]:
     what is needed to pick a class: never a roster, a response or a result.
     """
     rows = db.execute(
-        select(Section, School.name)
+        select(Section, School.name, School.board)
         .join(School, School.id == Section.school_id)
         # A school the operator has not made visible must not appear here at all --
         # this is the only public, unauthenticated route in the whole API, and the
@@ -70,10 +77,65 @@ def classes(db: Session = Depends(get_session)) -> list[dict]:
             "class_code": section.id,
             "label": f"Class {section.grade}-{section.name}",
             "grade": section.grade,
+            "section": section.name,
             "school": school_name,
+            "board": board,
         }
-        for section, school_name in rows
+        for section, school_name, board in rows
     ]
+
+
+@router.post("/{class_code}/onboard", response_model=OnboardingOut)
+def onboard(
+    class_code: str,
+    body: OnboardingIn,
+    request: Request,
+    db: Session = Depends(get_session),
+) -> OnboardingOut:
+    """The real 6-step /attend/onboarding wizard, in one submit.
+
+    Creates or updates the StudentProfile row for this roll number with every field the
+    wizard collects. Deliberately does NOT create a TestSession or touch anything in
+    app.psychometrics -- the 36-item Likert RIASEC instrument is no longer wired into
+    onboarding, but its own /t/{class_code}/start route is untouched and still callable
+    on its own if anything else needs it.
+    """
+    _start_limiter.check(client_key(request))
+    school, section = _school_by_code(db, class_code)
+
+    student = db.scalar(
+        select(StudentProfile).where(
+            StudentProfile.section_id == section.id, StudentProfile.roll_no == body.roll_no
+        )
+    )
+    dob: date | None = None
+    if body.dob:
+        try:
+            dob = date.fromisoformat(body.dob)
+        except ValueError:
+            raise HTTPException(422, f"invalid dob: {body.dob!r}") from None
+    fields = dict(
+        name=body.name, age=body.age, gender=body.gender, dob=dob, board=body.board,
+        lives_in=body.lives_in, decision_helper=body.decision_helper,
+        responsibilities=body.responsibilities, subject_enjoy=body.subject_enjoy,
+        subject_comfortable=body.subject_comfortable, learning_type=body.learning_type,
+        interests=body.interests, work_interest=body.work_interest,
+        new_learning_style=body.new_learning_style, future_career=body.future_career,
+        class11_group=body.class11_group, group_reason=body.group_reason,
+        confidence=body.confidence, careers_known=body.careers_known,
+        future_concern=body.future_concern,
+    )
+    if student is None:
+        student = StudentProfile(
+            school_id=school.id, section_id=section.id, roll_no=body.roll_no, **fields
+        )
+        db.add(student)
+    else:
+        for k, v in fields.items():
+            setattr(student, k, v)
+    db.flush()
+    db.commit()
+    return OnboardingOut(student_id=student.id)
 
 
 @router.post("/{class_code}/start", response_model=SessionOut)

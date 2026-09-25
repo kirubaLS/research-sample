@@ -5,17 +5,13 @@ import { FileText, PartyPopper } from "lucide-react";
 import { Mascot } from "@/components/Mascot";
 import { EASE_OUT, Reveal } from "@/components/motion";
 import type { AttendDraft } from "@/lib/attendState";
+import { class11GroupOptions, labelFor } from "../options";
 
-/** Final screen, after POST /t/session/{id}/complete answers. The reference
- * design's summary echoed back a whole fake profile (background, learning
- * style, future plans); the real payload carries only what the student
- * typed on the profile step plus how many of the 36 items were answered, so
- * that is all this screen can honestly show. */
+/** Step 6: the confirmation screen, after POST /t/{classCode}/onboard answers. */
 export function StepDone({ draft }: { draft: AttendDraft }) {
-  const profile = draft.profile;
-  if (!profile) return null;
-  const first = profile.name.split(" ")[0];
-  const answered = Object.keys(draft.answers).length;
+  const a = draft.answers;
+  if (!a.name) return null;
+  const first = a.name.split(" ")[0];
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
@@ -56,9 +52,13 @@ export function StepDone({ draft }: { draft: AttendDraft }) {
           <div>
             {(
               [
-                ["Name", `${profile.name} · Section ${profile.section} · Roll ${profile.roll_no}`],
-                ["Age", profile.age ? String(profile.age) : "-"],
-                ["Questions answered", `${answered} of ${draft.payload?.total_items ?? answered}`],
+                ["Name", `${a.name} · Roll ${a.roll_no}`],
+                ["Age", a.age ? String(a.age) : "-"],
+                ["Where you live", a.lives_in ?? "-"],
+                ["Subject you enjoy", a.subject_enjoy ?? "-"],
+                ["Interests picked", String(a.interests?.length ?? 0)],
+                ["Class 11 group", a.class11_group ? labelFor(class11GroupOptions, a.class11_group) : "-"],
+                ["How sure", a.confidence ? `${a.confidence} of 5` : "-"],
               ] as [string, string][]
             ).map(([label, value], i) => (
               <motion.div
@@ -86,7 +86,7 @@ export function StepDone({ draft }: { draft: AttendDraft }) {
           <span style={{ minWidth: 0 }}>
             <strong style={{ display: "block", fontSize: 13.5, fontWeight: 650 }}>That is everything we need</strong>
             <small className="muted" style={{ display: "block", fontSize: 12, lineHeight: 1.35 }}>
-              You can close this page. Your report goes to your class teacher.
+              You can close this page. Your teacher can see this when they need it.
             </small>
           </span>
         </div>

@@ -1,70 +1,51 @@
 "use client";
 
 import { useEffect, useSyncExternalStore } from "react";
-import type { SessionPayload } from "@/lib/api";
+import type { OnboardingIn } from "@/lib/api";
 
 /**
- * The real interest-test run a student takes before any staff member ever
- * signs in -- POST /t/{classCode}/start, then a batch of PATCH-like saves per
- * screen (POST /t/session/{id}/responses) and a final POST .../complete (see
- * lib/api.ts's classes/startSession/saveResponses/complete). Mirrored to
- * sessionStorage only, matching what the previously-real /t/[classCode]/test
- * flow did (see git history), so a reload mid-test does not lose the session
- * id or the answers already typed -- but nothing here is ever read back by a
- * teacher or principal; the payload itself is real, this file just holds it
- * client-side long enough to submit it.
+ * The real 6-step /attend/onboarding wizard's draft, mirrored to sessionStorage
+ * so a reload mid-wizard does not lose what a student already typed. One submit,
+ * POST /t/{classCode}/onboard (see lib/api.ts's `onboard`), sends every step's
+ * answers to StudentProfile at once -- there is no per-screen save the way the
+ * old 36-item Likert flow had, because there is no per-item payload to save.
  *
- * The reference design's AttendDraft (a five-section personality/background/
- * future-plans profile, ID+password login, DEMO_PASSWORD) has no backend
- * counterpart at all: the real endpoint takes a name/roll_no/age/gender/
- * section/locale profile and returns 36 Likert items, nothing else. That
- * richer shape is not reproduced here rather than faked.
+ * The 36-item RIASEC instrument (TestSession/ItemResponse/scoring) still exists
+ * in the backend, untouched, and is no longer wired into this onboarding flow.
  */
 
-export interface AttendProfile {
-  name: string;
-  roll_no: string;
-  age?: number;
-  gender?: "female" | "male" | "other" | "prefer_not_to_say";
-  section: string;
-  locale: "en" | "ta" | "hi";
-}
-
-export interface AttendAnswer {
-  value: number;
-  shownAt: number;
-  answeredAt: number;
-}
+export type WizardAnswers = Partial<OnboardingIn>;
 
 export interface AttendDraft {
   /** The class link this run belongs to, e.g. a Section id. */
   classCode: string | null;
-  /** What the school (a real one, from GET /t/classes) called this class. */
   classLabel: string | null;
   schoolName: string | null;
-  profile: AttendProfile | null;
-  /** Set once POST /t/{classCode}/start has answered. */
-  sessionId: string | null;
-  payload: SessionPayload | null;
-  /** -1 = instructions, then an index into payload.screens. */
-  screenIndex: number;
-  answers: Record<string, AttendAnswer>;
+  classBoard: string | null;
+  classSection: string | null;
+  classGrade: number | null;
+  /** 0..5: which of the 6 steps is showing. Step 5 is the Done screen. */
+  step: number;
+  answers: WizardAnswers;
+  /** Set once POST /t/{classCode}/onboard has answered. */
+  studentId: string | null;
   submitted: boolean;
   /** Increments on every write, the autosave indicator watches it. */
   rev: number;
 }
 
-const STORAGE_KEY = "avai.attend.v1";
+const STORAGE_KEY = "avai.attend.v2";
 
 const EMPTY: AttendDraft = {
   classCode: null,
   classLabel: null,
   schoolName: null,
-  profile: null,
-  sessionId: null,
-  payload: null,
-  screenIndex: -1,
+  classBoard: null,
+  classSection: null,
+  classGrade: null,
+  step: 0,
   answers: {},
+  studentId: null,
   submitted: false,
   rev: 0,
 };
@@ -112,8 +93,30 @@ export function patchAttend(patch: Partial<AttendDraft>) {
   emit();
 }
 
-export function pickClass(classCode: string, classLabel: string, schoolName: string) {
-  state = { ...EMPTY, classCode, classLabel, schoolName, rev: state.rev + 1 };
+export function patchAnswers(patch: WizardAnswers) {
+  state = { ...state, answers: { ...state.answers, ...patch }, rev: state.rev + 1 };
+  persist();
+  emit();
+}
+
+export function pickClass(option: {
+  class_code: string;
+  label: string;
+  school: string;
+  board?: string;
+  section?: string;
+  grade?: number;
+}) {
+  state = {
+    ...EMPTY,
+    classCode: option.class_code,
+    classLabel: option.label,
+    schoolName: option.school,
+    classBoard: option.board ?? null,
+    classSection: option.section ?? null,
+    classGrade: option.grade ?? null,
+    rev: state.rev + 1,
+  };
   persist();
   emit();
 }
