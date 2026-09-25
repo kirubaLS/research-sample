@@ -213,17 +213,17 @@ table { border-collapse: collapse; width: 100%; }
   border: 1px solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  transition: box-shadow .24s var(--ease-out), transform .24s var(--ease-out), border-color .24s;
+  transition: box-shadow .3s cubic-bezier(.22,1,.36,1), transform .3s cubic-bezier(.22,1,.36,1), border-color .24s;
 }
 /* Hairline highlight along the top edge, the cue that reads as "lit from above". */
 .card::before {
   content: ""; position: absolute; left: 12px; right: 12px; top: 0; height: 1px; pointer-events: none;
   background: linear-gradient(90deg, transparent, rgba(255,255,255,.95), transparent);
 }
-.card--hover { cursor: pointer; }
+.card--hover { cursor: pointer; perspective: 800px; transform-style: preserve-3d; }
 .card--hover:hover {
-  transform: translateY(-2px);
-  box-shadow: var(--shadow-lg);
+  transform: translateY(-3px) rotateX(2deg) scale(1.008);
+  box-shadow: 0 20px 34px -18px color-mix(in srgb, var(--accent, var(--brand-teal)) 50%, transparent), var(--shadow-lg);
   border-color: color-mix(in srgb, var(--accent, var(--brand-teal)) 28%, var(--line));
 }
 .card__body { padding: 20px 22px; }
@@ -918,26 +918,31 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
   .auth__panel { padding: 32px 20px 56px; }
 }
 
+.authchoice-list { perspective: 1200px; display: flex; flex-direction: column; gap: 12px; }
 .authchoice {
   display: flex; align-items: center; gap: 14px; width: 100%; text-align: left;
   padding: 16px 18px; border-radius: var(--radius-lg);
   border: 1px solid var(--line);
   background: linear-gradient(180deg, #ffffff, #fcfaf6);
   box-shadow: var(--shadow-sm); color: inherit; font: inherit;
-  transition: transform .22s var(--ease-out), box-shadow .22s var(--ease-out), border-color .22s, background .22s;
+  transform-style: preserve-3d; will-change: transform;
+  transition: transform .32s cubic-bezier(.22,1,.36,1), box-shadow .32s cubic-bezier(.22,1,.36,1), border-color .22s, background .22s;
 }
 .authchoice:hover {
-  transform: translateY(-2px); box-shadow: var(--shadow-lg);
+  transform: translateY(-4px) rotateX(3deg) scale(1.012);
+  box-shadow: 0 24px 40px -20px color-mix(in srgb, var(--accent, var(--brand-teal)) 55%, transparent), var(--shadow-lg);
   border-color: color-mix(in srgb, var(--accent, var(--brand-teal)) 42%, var(--line));
   background: linear-gradient(180deg, #ffffff, color-mix(in srgb, var(--accent, var(--brand-teal)) 8%, #fff));
 }
-.authchoice:active { transform: translateY(0); }
+.authchoice:active { transform: translateY(-1px) scale(.996); transition-duration: .1s; }
 .authchoice__icon {
   width: 46px; height: 46px; flex: 0 0 46px; border-radius: 14px;
   display: inline-flex; align-items: center; justify-content: center; color: #fff;
   background: linear-gradient(160deg, color-mix(in srgb, var(--accent, var(--brand-teal)) 78%, #fff), var(--accent, var(--brand-teal)));
   box-shadow: 0 8px 18px -8px color-mix(in srgb, var(--accent, var(--brand-teal)) 85%, transparent), inset 0 1px 0 rgba(255,255,255,.4);
+  transition: transform .32s cubic-bezier(.22,1,.36,1);
 }
+.authchoice:hover .authchoice__icon { transform: translateZ(18px) scale(1.06); }
 .authchoice strong { display: block; font-size: 15px; font-weight: 650; }
 .authchoice small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.35; }
 .authchoice > div:not([class]) { min-width: 0; display: flex; flex-direction: column; gap: 2px; }

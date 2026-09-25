@@ -19,6 +19,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
   ArrowRight,
+  Building2,
   Eye,
   EyeOff,
   GraduationCap,
@@ -34,22 +35,28 @@ import { homeFor, useAuth } from "@/lib/auth";
 import { api, ApiError, ApiUnreachable } from "@/lib/api";
 import { setApiKey, setRole, setStudentSession } from "@/lib/session";
 
-type Choice = "staff" | "student";
+/** "principal" and "teacher" both submit the same single sign-in key (the backend
+ * decides the role from the key itself, GET /admin/me), so they share one StaffSignIn
+ * form -- this only changes which card and heading led there. "report" is the real,
+ * separate roll-number+PIN login for a student viewing a report already shared with
+ * them (POST /student/{classCode}/login) -- unrelated to /attend's tap-a-class
+ * interest-test flow, which needs no login at all. */
+type Choice = "principal" | "teacher" | "report";
 
 const CHOICES: Array<{ choice: Choice; title: string; blurb: string; accent: string; icon: typeof GraduationCap }> = [
   {
-    choice: "staff",
-    title: "School Staff sign-in",
-    blurb: "Principals, admins and teachers -- one sign-in key.",
+    choice: "principal",
+    title: "Principal sign-in",
+    blurb: "For the school principal.",
     accent: "var(--brand-teal)",
-    icon: GraduationCap,
+    icon: Building2,
   },
   {
-    choice: "student",
-    title: "Student sign-in",
-    blurb: "The PIN your teacher gave you when they shared your report.",
+    choice: "teacher",
+    title: "Teacher sign-in",
+    blurb: "Your classes and your subjects, with the findings that matter.",
     accent: "var(--brand-blue)",
-    icon: UserRound,
+    icon: GraduationCap,
   },
 ];
 
@@ -59,10 +66,18 @@ function explainStaff(err: unknown): string {
     : "That key was not recognised. Check it and try again.";
 }
 
+const REPORT_CHOICE = {
+  choice: "report" as const,
+  title: "Student sign-in",
+  blurb: "The PIN your teacher gave you when they shared your report.",
+  accent: "var(--brand-blue)",
+  icon: UserRound,
+};
+
 export default function LoginPage() {
   const [choice, setChoice] = useState<Choice | null>(null);
 
-  const chosen = CHOICES.find((c) => c.choice === choice) ?? null;
+  const chosen = [...CHOICES, REPORT_CHOICE].find((c) => c.choice === choice) ?? null;
 
   return (
     <div className="auth">
@@ -124,7 +139,7 @@ export default function LoginPage() {
                   </p>
                 </div>
 
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                <div className="authchoice-list">
                   {CHOICES.map((c, i) => {
                     const Icon = c.icon;
                     return (
@@ -150,6 +165,66 @@ export default function LoginPage() {
                     );
                   })}
                 </div>
+
+                <div style={{ height: 1, background: "var(--line)", margin: "4px 0" }} />
+
+                <Link
+                  href="/attend"
+                  className="surface surface--tinted hoverlift"
+                  style={
+                    {
+                      "--accent": "var(--brand-gold)",
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 13,
+                      padding: "13px 15px",
+                      textDecoration: "none",
+                      color: "inherit",
+                    } as React.CSSProperties
+                  }
+                >
+                  <span
+                    style={{
+                      width: 36,
+                      height: 36,
+                      flex: "0 0 36px",
+                      borderRadius: 11,
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#fff",
+                      background: "linear-gradient(160deg, #eab949, var(--brand-gold))",
+                      boxShadow: "0 8px 16px -8px rgba(224,166,42,.9), inset 0 1px 0 rgba(255,255,255,.4)",
+                    }}
+                  >
+                    <PenLine size={17} />
+                  </span>
+                  <div style={{ minWidth: 0 }}>
+                    <strong style={{ display: "block", fontSize: 13.5, fontWeight: 650 }}>
+                      Attending an AVAI assessment? Start here
+                    </strong>
+                    <small className="muted" style={{ display: "block", fontSize: 12, lineHeight: 1.35 }}>
+                      For students taking the interest test. This is not a staff login.
+                    </small>
+                  </div>
+                  <ArrowRight size={17} style={{ marginLeft: "auto", color: "var(--brand-gold)", flex: "0 0 auto" }} />
+                </Link>
+
+                <button
+                  type="button"
+                  className="authchoice"
+                  style={{ "--accent": REPORT_CHOICE.accent } as React.CSSProperties}
+                  onClick={() => setChoice("report")}
+                >
+                  <span className="authchoice__icon">
+                    <UserRound size={21} />
+                  </span>
+                  <div>
+                    <strong>{REPORT_CHOICE.title}</strong>
+                    <small>{REPORT_CHOICE.blurb}</small>
+                  </div>
+                  <ArrowRight size={17} style={{ marginLeft: "auto", color: "var(--muted)", flex: "0 0 auto" }} />
+                </button>
               </motion.div>
             ) : (
               <motion.div
@@ -176,7 +251,7 @@ export default function LoginPage() {
                   </div>
                 </div>
 
-                {chosen.choice === "staff" ? <StaffSignIn /> : <StudentSignIn />}
+                {chosen.choice === "report" ? <StudentSignIn /> : <StaffSignIn />}
               </motion.div>
             )}
           </AnimatePresence>
@@ -184,44 +259,16 @@ export default function LoginPage() {
           <div style={{ height: 1, background: "var(--line)", margin: "2px 0" }} />
 
           <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.45, delay: 0.2, ease: EASE_OUT }}>
-            <div
-              className="surface surface--tinted hoverlift"
-              style={{
-                "--accent": "var(--brand-gold)",
-                display: "flex",
-                alignItems: "center",
-                gap: 13,
-                padding: "13px 15px",
-              } as React.CSSProperties}
-            >
-              <span
-                style={{
-                  width: 36,
-                  height: 36,
-                  flex: "0 0 36px",
-                  borderRadius: 11,
-                  display: "inline-flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  color: "#fff",
-                  background: "linear-gradient(160deg, #eab949, var(--brand-gold))",
-                  boxShadow: "0 8px 16px -8px rgba(224,166,42,.9), inset 0 1px 0 rgba(255,255,255,.4)",
-                }}
-              >
-                <PenLine size={17} />
-              </span>
-              <div style={{ minWidth: 0 }}>
-                <strong style={{ display: "block", fontSize: 13.5, fontWeight: 650 }}>Trouble signing in?</strong>
-                <small className="muted" style={{ display: "block", fontSize: 12, lineHeight: 1.35 }}>
-                  Ask your school office for your key or PIN.
-                </small>
-              </div>
-            </div>
+            {chosen && (
+              <p className="small muted" style={{ marginBottom: 14 }}>
+                Trouble signing in? Ask your school office for your key or PIN.
+              </p>
+            )}
 
             <Link
               href="/admin"
               className="small muted"
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, marginTop: 14, textDecoration: "none" }}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, textDecoration: "none" }}
             >
               <ShieldCheck size={13} /> AVAI staff console
             </Link>
