@@ -6,7 +6,7 @@ import { motion } from "framer-motion";
 import { Mascot, Wordmark } from "@/components/Mascot";
 import { EASE_OUT } from "@/components/motion";
 import { homeFor, useAuth } from "@/lib/auth";
-import { school } from "@/lib/avai-mock-data";
+import { getSchoolName } from "@/lib/session";
 
 /** "/" is a router, not a screen, but it is the first paint, so it carries
  *  the brand while auth resolves from storage. */
@@ -65,9 +65,9 @@ export default function Index() {
         />
       </div>
 
-      <div style={{ color: "#8b99a3", fontSize: 12.5 }}>
-        {school.name} · {school.board}
-      </div>
+      {getSchoolName() && (
+        <div style={{ color: "#8b99a3", fontSize: 12.5 }}>{getSchoolName()}</div>
+      )}
     </div>
   );
 }
