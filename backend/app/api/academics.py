@@ -346,6 +346,27 @@ def _class_students(
             {"chapter": labels.get(code, code), "rate": rate} if code else None
         )
 
+    # "vs last": only meaningful against one named test. The earlier paper is the
+    # immediately preceding same-subject test (tests_with_movement's own rule), and a
+    # student with no marks on either side gets None -- never a zero-point "change".
+    previous = _previous_test(db, school, assessment_id, student_ids) if assessment_id else None
+    prev_pct: dict[str, float] = {}
+    if previous is not None:
+        acc: dict[str, list[float]] = {}
+        for t in resolved_rows(db, school, student_ids=student_ids, assessment_id=previous.id):
+            if t.row.counts:
+                pair = acc.setdefault(t.row.student_id, [0.0, 0.0])
+                pair[0] += t.row.earned
+                pair[1] += t.row.max_marks
+        prev_pct = {sid: round(e / a * 100, 1) for sid, (e, a) in acc.items() if a > 0}
+    for row in rows_out:
+        before = prev_pct.get(row["student_id"])
+        row["previous_score_pct"] = before
+        row["delta_pct"] = (
+            round(row["avg_score_pct"] - before, 1)
+            if before is not None and row["avg_score_pct"] is not None else None
+        )
+
     if status:
         rows_out = [r for r in rows_out if r["status"] == status]
     # "Top N scorers" is applied last and server-side, on exactly the same rows the
@@ -358,6 +379,37 @@ def _class_students(
             key=lambda r: -r["avg_score_pct"],
         )[:top]
     return rows_out
+
+
+def _previous_test(
+    db: Session, school: School, assessment_id: str, student_ids: list[str],
+) -> Assessment | None:
+    """The same-subject test entered immediately before ``assessment_id`` that any of
+    ``student_ids`` actually has marks on -- the "last test" a vs-last column compares
+    against. Ordered by Assessment.created_at, the same real ordering
+    tests_with_movement uses; None when there is no such earlier paper."""
+    current = db.get(Assessment, assessment_id)
+    if current is None or current.school_id != school.id or current.created_at is None:
+        return None
+    earlier = db.scalars(
+        select(Assessment)
+        .where(
+            Assessment.school_id == school.id,
+            Assessment.subject_code == current.subject_code,
+            Assessment.id != current.id,
+            Assessment.created_at < current.created_at,
+        )
+        .order_by(Assessment.created_at.desc())
+    )
+    for candidate in earlier:
+        has_marks = db.scalar(
+            select(MarkEvent.id).where(
+                MarkEvent.assessment_id == candidate.id, MarkEvent.student_id.in_(student_ids),
+            ).limit(1)
+        )
+        if has_marks is not None:
+            return candidate
+    return None
 
 
 def _section_filters(db: Session, school: School, section_id: str) -> dict:
@@ -396,8 +448,16 @@ def class_students(
         raise HTTPException(422, f"status must be one of {', '.join(STATUS_LABELS)}")
     if top is not None and top < 1:
         raise HTTPException(422, "top must be a positive number")
+    previous = (
+        _previous_test(
+            db, school, assessment_id,
+            list(db.scalars(select(StudentProfile.id).where(StudentProfile.section_id == section.id))),
+        )
+        if assessment_id else None
+    )
     return {
         "section": {"id": section.id, "label": f"Class {section.grade}-{section.name}"},
+        "previous_test": {"assessment_id": previous.id, "title": previous.title} if previous else None,
         "filters": _section_filters(db, school, section_id),
         "students": _class_students(
             db, school, section, subject_code=subject_code, assessment_id=assessment_id,
@@ -495,6 +555,20 @@ def _student_overview(
     total_available = sum(t.row.max_marks for entries in by_subject.values() for t in entries if t.row.counts)
     all_assessment_ids = {t.assessment_id for entries in by_subject.values() for t in entries}
 
+    # "Against the class": the same all-subject rollup, over every student in this
+    # student's own section -- read from the same subjects this view is allowed to show,
+    # so a subject-scoped teacher's comparison never folds in another subject's marks.
+    classmates = list(db.scalars(select(StudentProfile.id).where(StudentProfile.section_id == student.section_id)))
+    class_earned = class_available = 0.0
+    for t in resolved_rows(db, school, student_ids=classmates):
+        if allowed_subjects is not None and t.subject_code not in allowed_subjects:
+            continue
+        if t.row.counts:
+            class_earned += t.row.earned
+            class_available += t.row.max_marks
+    class_avg = round(class_earned / class_available * 100, 1) if class_available else None
+    own_avg = round(total_earned / total_available * 100, 1) if total_available else None
+
     wanted_subjects = (
         {s: e for s, e in by_subject.items() if s == subject_code} if subject_code else by_subject
     )
@@ -536,9 +610,11 @@ def _student_overview(
             "section_label": f"Class {section.grade}-{section.name}" if section else None,
         },
         "overall": {
-            "avg_score_pct": round(total_earned / total_available * 100, 1) if total_available else None,
+            "avg_score_pct": own_avg,
             "status": _status_for(total_earned, total_available),
             "tests_taken": len(all_assessment_ids),
+            "class_avg_score_pct": class_avg,
+            "vs_class_pct": round(own_avg - class_avg, 1) if own_avg is not None and class_avg is not None else None,
         },
         "subjects": subject_rows,
     }

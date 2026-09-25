@@ -147,3 +147,32 @@ def test_cohort_report_refuses_an_assessment_with_no_marks(client, school):
     ).json()["assessment_id"]
     r = client.get(f"/reports/cohort/{aid}", headers=_auth(school))
     assert r.status_code == 404
+
+
+def test_cohort_report_subject_bars_carry_real_band_counts(client, school, cohort_paper):
+    aid, _ = cohort_paper
+    body = client.get(
+        f"/reports/cohort/{aid}", params={"section_id": school["section_id"]}, headers=_auth(school),
+    ).json()
+    own = next(b for b in body["subject_bars"] if b["subject_code"] == "X.MATH")
+    # the paper's own subject is literally the same students as the paper-wide bands
+    assert own["band_counts"] == body["band_counts"]
+    for bar in body["subject_bars"]:
+        assert set(bar["band_counts"]) == {"full_mastery", "band_80_89", "band_60_79", "below_60"}
+        assert all(v >= 0 for v in bar["band_counts"].values())
+
+
+def test_band_counts_by_student_groups_each_students_own_total():
+    from app.analysis.diagnostics import MarkRow
+    from app.api.reports import _band_counts_by_student
+
+    def row(sid, earned, mx=10):
+        return MarkRow(student_id=sid, address=f"A/{earned}//", earned=earned, max_marks=mx, state="awarded")
+
+    counts = _band_counts_by_student([
+        row("a", 10), row("a", 9),   # 95%
+        row("b", 8.5),               # 85%
+        row("c", 6),                 # 60%
+        row("d", 1), row("d", 2),    # 15%
+    ])
+    assert counts == {"full_mastery": 1, "band_80_89": 1, "band_60_79": 1, "below_60": 1}

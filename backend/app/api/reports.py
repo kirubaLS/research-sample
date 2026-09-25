@@ -309,6 +309,38 @@ def _topic_axis(rows: list[MarkRow]) -> tuple[str, list]:
     return "chapter", by_chapter(rows)
 
 
+def _empty_bands() -> dict[str, int]:
+    return {"full_mastery": 0, "band_80_89": 0, "band_60_79": 0, "below_60": 0}
+
+
+def _band_of(pct: float) -> str:
+    """The cohort report's four score bands -- one definition, used for the paper-wide
+    band_counts and every subject's own band_counts alike."""
+    if pct >= 90:
+        return "full_mastery"
+    if pct >= 80:
+        return "band_80_89"
+    if pct >= 60:
+        return "band_60_79"
+    return "below_60"
+
+
+def _band_counts_by_student(rows: list[MarkRow]) -> dict[str, int]:
+    """How many students land in each band on one paper's counted rows."""
+    earned: dict[str, float] = {}
+    available: dict[str, float] = {}
+    for r in rows:
+        if not r.counts:
+            continue
+        earned[r.student_id] = earned.get(r.student_id, 0.0) + r.earned
+        available[r.student_id] = available.get(r.student_id, 0.0) + r.max_marks
+    out = _empty_bands()
+    for sid, mx in available.items():
+        if mx > 0:
+            out[_band_of(earned[sid] / mx * 100)] += 1
+    return out
+
+
 @router.get("/cohort/{assessment_id}")
 def cohort_report(
     assessment_id: str,
@@ -399,7 +431,7 @@ def _cohort_report_payload(
         )
     }
 
-    band_counts = {"full_mastery": 0, "band_80_89": 0, "band_60_79": 0, "below_60": 0}
+    band_counts = _empty_bands()
     section_totals: dict[str, list[float]] = {}
     student_pct: dict[str, float] = {}
     for sid, srows in by_student.items():
@@ -409,14 +441,7 @@ def _cohort_report_payload(
             continue
         pct = sum(r.earned for r in counted) / total_max * 100
         student_pct[sid] = pct
-        if pct >= 90:
-            band_counts["full_mastery"] += 1
-        elif pct >= 80:
-            band_counts["band_80_89"] += 1
-        elif pct >= 60:
-            band_counts["band_60_79"] += 1
-        else:
-            band_counts["below_60"] += 1
+        band_counts[_band_of(pct)] += 1
         sec_id = section_of.get(sid)
         if sec_id:
             section_totals.setdefault(sec_id, []).append(pct)
@@ -493,6 +518,9 @@ def _cohort_report_payload(
         "subject_label": _subject_label(assessment.subject_code),
         "assessment_title": assessment.title,
         "pct": round(sum(student_pct.values()) / students_analysed, 1) if students_analysed else 0,
+        # The same four bands as the paper-wide band_counts above, for this subject --
+        # here literally the same students, so these always equal band_counts.
+        "band_counts": dict(band_counts),
     }]
     if section_totals:
         cohort_ids = set(db.scalars(
@@ -517,6 +545,7 @@ def _cohort_report_payload(
                 "subject_label": _subject_label(sibling.subject_code),
                 "assessment_title": sibling.title,
                 "pct": round(sum(r.earned for r in sibling_rows) / total_max * 100, 1),
+                "band_counts": _band_counts_by_student(sibling_rows),
             })
             seen_subjects.add(sibling.subject_code)
     subject_bars.sort(key=lambda d: d["subject_code"])

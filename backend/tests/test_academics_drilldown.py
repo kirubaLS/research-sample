@@ -309,3 +309,88 @@ def test_a_teacher_key_is_refused_every_generic_academics_route(client, school, 
         f"/admin/academics/students/{drilldown_paper['strong_id']}", headers=teacher_headers
     ).status_code == 403
     assert client.get("/admin/academics/tests", headers=teacher_headers).status_code == 403
+
+
+def _paper_with_marks(client, school, title, marks_by_student):
+    """One single-question X.MATH paper, marked for each (student_id, marks out of 10)."""
+    h = _auth(school)
+    aid = client.post(
+        "/assessments", headers=h, json={"subject_code": "X.MATH", "title": title, "total_marks": 10},
+    ).json()["assessment_id"]
+    tag = uuid.uuid4().hex[:8]
+    out = client.post(
+        f"/assessments/{aid}/questions", headers=h, json={"questions": [
+            {"section": "A", "question_no": "1", "max_marks": 10, "board_unit": "X.MATH.U.MENSURATION",
+             "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"vl-{tag}",
+             "chapter": "X.MATH.SAV", "curriculum_section": "13.1"},
+        ]},
+    )
+    assert out.status_code == 200, out.text
+    for sid, mark in marks_by_student.items():
+        client.patch(
+            f"/assessments/{aid}/answers/{sid}/reading/A/1//",
+            headers=h, json={"marks": mark, "state": "awarded", "by": "test"},
+        )
+        client.post(f"/assessments/{aid}/answers/{sid}/reading/confirm", headers=h, json={"by": "test"})
+    return aid
+
+
+def test_class_students_carries_a_real_vs_last_delta_against_the_previous_test(client, school):
+    tag = uuid.uuid4().hex[:8]
+    from app.db import SessionLocal
+    from app.models import StudentProfile
+
+    db = SessionLocal()
+    climber = StudentProfile(school_id=school["school_id"], section_id=school["section_id"], name=f"Climber {tag}", roll_no=f"{tag}-c")
+    slipper = StudentProfile(school_id=school["school_id"], section_id=school["section_id"], name=f"Slipper {tag}", roll_no=f"{tag}-s")
+    newcomer = StudentProfile(school_id=school["school_id"], section_id=school["section_id"], name=f"New {tag}", roll_no=f"{tag}-n")
+    db.add_all([climber, slipper, newcomer])
+    db.commit()
+    c, s, n = climber.id, slipper.id, newcomer.id
+    db.close()
+
+    first = _paper_with_marks(client, school, f"VL First {tag}", {c: 5, s: 9})
+    second = _paper_with_marks(client, school, f"VL Second {tag}", {c: 8, s: 6, n: 7})
+
+    r = client.get(
+        f"/admin/academics/{school['section_id']}/students",
+        params={"assessment_id": second}, headers=_auth(school),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["previous_test"]["assessment_id"] == first
+    by_id = {row["student_id"]: row for row in body["students"]}
+    assert by_id[c]["previous_score_pct"] == 50.0
+    assert by_id[c]["delta_pct"] == 30.0
+    assert by_id[s]["delta_pct"] == -30.0
+    # sat only the newer paper: nothing real to compare against
+    assert by_id[n]["previous_score_pct"] is None
+    assert by_id[n]["delta_pct"] is None
+
+
+def test_class_students_without_a_test_has_no_vs_last(client, school, drilldown_paper):
+    body = client.get(f"/admin/academics/{school['section_id']}/students", headers=_auth(school)).json()
+    assert body["previous_test"] is None
+    assert all(row["delta_pct"] is None for row in body["students"])
+
+
+def test_student_overview_compares_against_the_class_average(client, school, drilldown_paper):
+    body = client.get(f"/admin/academics/students/{drilldown_paper['strong_id']}", headers=_auth(school)).json()
+    overall = body["overall"]
+    assert overall["class_avg_score_pct"] is not None
+
+    # recompute the class average independently from the class roster endpoint's own rows
+    from sqlalchemy import select
+
+    from app.api.academics import resolved_rows
+    from app.db import SessionLocal
+    from app.models import School, StudentProfile
+
+    db = SessionLocal()
+    school_row = db.get(School, school["school_id"])
+    ids = list(db.scalars(select(StudentProfile.id).where(StudentProfile.section_id == school["section_id"])))
+    rows = [t.row for t in resolved_rows(db, school_row, student_ids=ids) if t.row.counts]
+    db.close()
+    expected = round(sum(r.earned for r in rows) / sum(r.max_marks for r in rows) * 100, 1)
+    assert overall["class_avg_score_pct"] == expected
+    assert overall["vs_class_pct"] == round(overall["avg_score_pct"] - expected, 1)
