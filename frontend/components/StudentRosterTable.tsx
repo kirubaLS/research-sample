@@ -26,11 +26,12 @@ export function DeltaCell({ delta, suffix = "pt" }: { delta: number | null; suff
   );
 }
 
-type QuickFilter = "all" | "top10" | "attention" | "critical";
+type QuickFilter = "all" | "top10" | "climbing" | "attention" | "critical";
 
 const quickFilterLabel: Record<QuickFilter, string> = {
   all: "All Students",
   top10: "Top 10",
+  climbing: "Climbing",
   attention: "Need Attention",
   critical: "Critical",
 };
@@ -63,16 +64,22 @@ export function StudentRosterTable({
   const [quickFilter, setQuickFilter] = useState<QuickFilter>("all");
   const [query, setQuery] = useState("");
 
+  // The vs-last column only means something when the rows were fetched for one test
+  // that has an earlier same-subject test behind it -- otherwise every delta is null.
+  const hasVsLast = rows.some((r) => r.previous_score_pct !== null);
+
   const filtered = useMemo(() => {
     let list = rows;
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((r) => r.name.toLowerCase().split(/\s+/).some((w) => w.startsWith(q)) || r.name.toLowerCase().startsWith(q));
     if (quickFilter === "attention") list = list.filter((r) => r.status !== "on_track");
     if (quickFilter === "critical") list = list.filter((r) => r.status === "requires_review");
+    if (quickFilter === "climbing") list = list.filter((r) => r.delta_pct !== null && r.delta_pct > 0);
 
     const score = (r: ClassStudentRow) => r.avg_score_pct ?? -1;
     list = [...list].sort((a, b) => {
       if (quickFilter === "top10") return score(b) - score(a);
+      if (quickFilter === "climbing") return (b.delta_pct ?? 0) - (a.delta_pct ?? 0);
       if (quickFilter === "attention" || quickFilter === "critical") return score(a) - score(b);
       return a.roll_no.localeCompare(b.roll_no, undefined, { numeric: true });
     });
@@ -109,7 +116,7 @@ export function StudentRosterTable({
         </div>
 
         <div className="tabs" role="tablist" style={{ marginTop: 14 }}>
-          {(["all", "top10", "attention", "critical"] as QuickFilter[]).map((k) => (
+          {(["all", "top10", ...(hasVsLast ? (["climbing"] as QuickFilter[]) : []), "attention", "critical"] as QuickFilter[]).map((k) => (
             <button key={k} role="tab" aria-selected={quickFilter === k} className={`tab ${quickFilter === k ? "tab--active" : ""}`} onClick={() => setQuickFilter(k)}>
               {quickFilterLabel[k]}
             </button>
@@ -130,6 +137,7 @@ export function StudentRosterTable({
                   <th>Roll</th>
                   <th>Student</th>
                   <th className="num">Score</th>
+                  {hasVsLast && <th className="num">vs last</th>}
                   <th className="num">Tests taken</th>
                   <th>Top improvement area</th>
                   <th>Status</th>
@@ -139,7 +147,7 @@ export function StudentRosterTable({
               <tbody>
                 {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={7}>
+                    <td colSpan={hasVsLast ? 8 : 7}>
                       <EvidenceState kind="early" compact>
                         No students match this filter.
                       </EvidenceState>
@@ -151,6 +159,11 @@ export function StudentRosterTable({
                     <td className="muted">{s.roll_no}</td>
                     <td className="strong">{s.name}</td>
                     <td className="num">{s.avg_score_pct === null ? "-" : `${Math.round(s.avg_score_pct)}%`}</td>
+                    {hasVsLast && (
+                      <td className="num" title={s.previous_score_pct !== null ? `Previous test: ${Math.round(s.previous_score_pct)}%` : "Did not sit the previous test"}>
+                        <DeltaCell delta={s.delta_pct === null ? null : Math.round(s.delta_pct)} />
+                      </td>
+                    )}
                     <td className="num">{s.tests_taken}</td>
                     <td>{s.top_improvement_area ? s.top_improvement_area.chapter : "-"}</td>
                     <td>

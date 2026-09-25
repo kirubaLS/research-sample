@@ -173,10 +173,16 @@ export interface ClassStudentRow {
   avg_score_pct: number | null;
   tests_taken: number;
   top_improvement_area: { chapter: string; rate: number } | null;
+  /** Score on the immediately preceding same-subject test, when the view is narrowed to
+   *  one test and this student sat the earlier one too; otherwise null. */
+  previous_score_pct: number | null;
+  /** avg_score_pct minus previous_score_pct -- null when either side is missing. */
+  delta_pct: number | null;
 }
 
 export interface ClassStudentsView {
   section: { id: string; label: string };
+  previous_test: { assessment_id: string; title: string } | null;
   filters: {
     subjects: { subject_code: string; label: string }[];
     tests: { assessment_id: string; title: string }[];
@@ -198,7 +204,12 @@ export interface StudentSubjectRow {
 
 export interface StudentAcademicsOverview {
   student: { id: string; name: string; roll_no: string; section_id: string; section_label: string | null };
-  overall: { avg_score_pct: number | null; status: AcademicStatus; tests_taken: number };
+  overall: {
+    avg_score_pct: number | null; status: AcademicStatus; tests_taken: number;
+    /** Every classmate's marks in the same section, rolled up the same way. */
+    class_avg_score_pct: number | null;
+    vs_class_pct: number | null;
+  };
   subjects: StudentSubjectRow[];
 }
 
@@ -256,6 +267,20 @@ export interface BoardXCard {
   action: { remediation_ref: string; text: string } | null;
 }
 
+/** One skill x tier cell of section 2, keyed "skill|tier" by taxonomy code. */
+export interface BoardXCrosstabRow {
+  key: string;
+  earned: number;
+  available: number;
+  questions: number;
+  rate: number | null;
+  sufficient: boolean;
+  message: string;
+  skill_label: string;
+  tier: string | null;
+  question_type: string | null;
+}
+
 export interface BoardXReport {
   assessment_id: string;
   assessment_title: string;
@@ -267,7 +292,7 @@ export interface BoardXReport {
   // section1's last entry carries only `lines` (the board-impact disclaimer), so a
   // chapter row is any entry that actually has a `domain`.
   section1: (BoardXChapterRow | { lines: BoardXLine[] })[];
-  section2: { caption: BoardXLine; crosstab: Record<string, unknown>[] };
+  section2: { caption: BoardXLine; crosstab: BoardXCrosstabRow[] };
   section3: BoardXLine[];
   section4: BoardXCard[];
   section5: { actions: { remediation_ref: string; text: string; line: BoardXLine }[] };
@@ -650,7 +675,10 @@ export interface CohortReport {
   section_bars: { section_id: string; label: string; pct: number; students: number }[];
   /** Each subject's own most recent graded assessment for the same section(s) -- see
    *  subject_bars_note; there is no shared "test occasion" across subjects in this schema. */
-  subject_bars: { subject_code: string; subject_label: string; assessment_title: string; pct: number }[];
+  subject_bars: {
+    subject_code: string; subject_label: string; assessment_id: string; assessment_title: string; pct: number;
+    band_counts: { full_mastery: number; band_80_89: number; band_60_79: number; below_60: number };
+  }[];
   subject_bars_note: string;
   top_losses: {
     concept_family: string;

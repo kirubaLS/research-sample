@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { BookX, CalendarDays, ChevronRight, Sparkles, TrendingDown, Trophy, Users } from "lucide-react";
+import { BookX, CalendarDays, ChevronRight, Sparkles, TrendingDown, TrendingUp, Trophy } from "lucide-react";
 import {
   api,
   type AcademicsOverview,
@@ -20,9 +20,16 @@ import { BandDistribution } from "@/components/overview/BandDistribution";
 import { SubjectPerformance } from "@/components/overview/SubjectPerformance";
 import { StudentDrawer, StudentRow, type DrillDown, type DrillStudent } from "@/components/overview/StudentDrawer";
 import { AnomalyGrid } from "@/components/overview/AnomalyGrid";
+import { MarksDonuts } from "@/components/overview/MarksDonuts";
 import { StudentRosterTable } from "@/components/StudentRosterTable";
 
-type IntelPanel = "toppers" | "weakestClass" | "weakestSubject" | null;
+type IntelPanel = "toppers" | "climbers" | "weakestClass" | "weakestSubject" | null;
+
+interface Climber {
+  student: DrillStudent;
+  delta: number;
+  now: number | null;
+}
 
 function toDrill(rows: ClassStudentRow[], sectionId: string, sectionLabel: string): DrillStudent[] {
   return rows.map((r) => ({ student_id: r.student_id, name: r.name, roll_no: r.roll_no, section_id: sectionId, section_label: sectionLabel }));
@@ -47,6 +54,10 @@ export function ClassOverview({ section }: { section?: string }) {
   const [drill, setDrill] = useState<DrillDown | null>(null);
   const [intelPanel, setIntelPanel] = useState<IntelPanel>(null);
   const [toppers, setToppers] = useState<DrillStudent[]>([]);
+  /** Students whose score on the selected test rose against their own previous
+   * same-subject test -- GET /admin/academics/{id}/students' real delta_pct, per section. */
+  const [climbers, setClimbers] = useState<Climber[] | null>(null);
+  const [previousTitle, setPreviousTitle] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -58,7 +69,8 @@ export function ClassOverview({ section }: { section?: string }) {
         if (cancelled) return;
         setOverview(ov);
         setTests(t.tests);
-        if (t.tests.length) setTestKey((prev) => prev || t.tests[t.tests.length - 1].assessment_id);
+        // GET /admin/academics/tests is newest first; open on the latest test.
+        if (t.tests.length) setTestKey((prev) => prev || t.tests[0].assessment_id);
       } catch {
         if (!cancelled) setError("Could not load the class overview.");
       } finally {
@@ -123,7 +135,12 @@ export function ClassOverview({ section }: { section?: string }) {
   }, [cohort]);
 
   const subjectRows = useMemo(
-    () => (cohort?.subject_bars ?? []).map((s) => ({ subject: s.subject_label, avgPct: s.pct, counts: [] as number[] })),
+    () =>
+      (cohort?.subject_bars ?? []).map((s) => ({
+        subject: s.subject_label,
+        avgPct: s.pct,
+        counts: [s.band_counts.full_mastery, s.band_counts.band_80_89, s.band_counts.band_60_79, s.band_counts.below_60],
+      })),
     [cohort],
   );
 
@@ -135,15 +152,15 @@ export function ClassOverview({ section }: { section?: string }) {
     [0, 59.999],
   ];
 
-  async function studentsFor(filters: { status?: ClassStudentRow["status"]; subjectCode?: string }): Promise<{ rows: ClassStudentRow[]; sectionId: string; sectionLabel: string }[]> {
+  async function studentsFor(filters: { status?: ClassStudentRow["status"]; subjectCode?: string; assessmentId?: string }): Promise<{ rows: ClassStudentRow[]; sectionId: string; sectionLabel: string; previousTitle: string | null }[]> {
     const targets = isAll ? classes : thisClass ? [thisClass] : [];
     const results = await Promise.all(
       targets.map(async (c) => {
         try {
           const view = await api.classStudents(key, c.section_id, { assessmentId: testKey, ...filters });
-          return { rows: view.students, sectionId: c.section_id, sectionLabel: c.label };
+          return { rows: view.students, sectionId: c.section_id, sectionLabel: c.label, previousTitle: view.previous_test?.title ?? null };
         } catch {
-          return { rows: [] as ClassStudentRow[], sectionId: c.section_id, sectionLabel: c.label };
+          return { rows: [] as ClassStudentRow[], sectionId: c.section_id, sectionLabel: c.label, previousTitle: null };
         }
       }),
     );
@@ -188,7 +205,9 @@ export function ClassOverview({ section }: { section?: string }) {
     const subjectBar = cohort?.subject_bars.find((s) => s.subject_label === subjectLabel);
     if (!subjectBar) return;
     const [min, max] = BAND_RANGES[index] ?? [0, 100];
-    const groups = await studentsFor({ subjectCode: subjectBar.subject_code });
+    // Each subject's band counts come from that subject's own paper (subject_bars'
+    // assessment_id), so the drill-down reads the same paper -- not the selected test.
+    const groups = await studentsFor({ subjectCode: subjectBar.subject_code, assessmentId: subjectBar.assessment_id });
     const inBand = groups.flatMap((g) => g.rows.filter((r) => r.avg_score_pct !== null && r.avg_score_pct >= min && r.avg_score_pct <= max).map((r) => ({ r, sectionId: g.sectionId, sectionLabel: g.sectionLabel })));
     setDrill({
       title: `${subjectLabel}, ${["90-100", "80-89", "60-79", "Below 60"][index] ?? ""}`,
@@ -208,6 +227,33 @@ export function ClassOverview({ section }: { section?: string }) {
     setToppers(merged.slice(0, 10).map(({ r, sectionId, sectionLabel }) => ({ student_id: r.student_id, name: r.name, roll_no: r.roll_no, section_id: sectionId, section_label: sectionLabel })));
     setIntelPanel("toppers");
   }
+
+  useEffect(() => {
+    if (!testKey || !classes.length) return;
+    let cancelled = false;
+    setClimbers(null);
+    (async () => {
+      const groups = await studentsFor({});
+      if (cancelled) return;
+      const list: Climber[] = groups
+        .flatMap((g) =>
+          g.rows
+            .filter((r) => r.delta_pct !== null && r.delta_pct > 0)
+            .map((r) => ({
+              student: { student_id: r.student_id, name: r.name, roll_no: r.roll_no, section_id: g.sectionId, section_label: g.sectionLabel },
+              delta: r.delta_pct as number,
+              now: r.avg_score_pct,
+            })),
+        )
+        .sort((a, b) => b.delta - a.delta);
+      setClimbers(list);
+      setPreviousTitle(groups.find((g) => g.previousTitle)?.previousTitle ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testKey, classes, section]);
 
   const weakestSection = isAll ? [...classes].sort((a, b) => (a.avg_score_pct ?? 0) - (b.avg_score_pct ?? 0))[0] : undefined;
   const rankedSections = isAll ? [...classes].sort((a, b) => (b.avg_score_pct ?? 0) - (a.avg_score_pct ?? 0)) : [];
@@ -264,13 +310,26 @@ export function ClassOverview({ section }: { section?: string }) {
         </Reveal>
       )}
 
+      {testKey && classes.length > 0 && (
+        <Reveal delay={0.13} style={{ marginTop: 20 }}>
+          <MarksDonuts
+            assessmentId={testKey}
+            testTitle={test?.title ?? "the selected assessment"}
+            wholeLabel={overview?.school.name ?? "the class"}
+            sections={classes.map((c) => ({ section_id: c.section_id, label: c.label }))}
+            defaultSectionId={isAll ? undefined : section}
+            onSelectWhole={isAll ? openTotalBand : undefined}
+          />
+        </Reveal>
+      )}
+
       {cohort && (
         <Reveal delay={0.16} style={{ marginTop: 20 }}>
           <SubjectPerformance
             title="Subject-wise performance"
-            subtitle={`Average score by subject for ${test?.title ?? "the selected assessment"}.`}
-            bandLabels={[]}
-            bandColors={[]}
+            subtitle={`Each subject's latest paper for ${isAll ? "these sections" : label}: its average, and how many students land in each band.`}
+            bandLabels={["90-100", "80-89", "60-79", "Below 60"]}
+            bandColors={TOTAL_BAND_COLORS}
             rows={subjectRows}
             onOpen={openSubjectBand}
           />
@@ -303,17 +362,27 @@ export function ClassOverview({ section }: { section?: string }) {
               <ChevronRight size={15} className="intel-band__arrow" />
             </button>
 
-            <button className="intel-band__seg" style={{ "--accent": "var(--brand-blue)" } as React.CSSProperties} disabled>
+            <button
+              className="intel-band__seg"
+              style={{ "--accent": "var(--brand-blue)" } as React.CSSProperties}
+              onClick={() => setIntelPanel("climbers")}
+              disabled={!climbers || climbers.length === 0}
+            >
               <span className="intel-band__icon">
-                <Users size={15} />
+                <TrendingUp size={15} />
               </span>
-              <div className="stat__label">Test-over-test change</div>
+              <div className="stat__label">Late bloomers</div>
               <div className="strong" style={{ fontSize: 16, marginTop: 6 }}>
-                {test?.delta_pct !== null && test?.delta_pct !== undefined ? `${test.delta_pct > 0 ? "+" : ""}${test.delta_pct}pt` : "-"}
+                {climbers === null ? "…" : previousTitle === null ? "No earlier test" : `${climbers.length} climbing`}
               </div>
               <div className="small muted" style={{ marginTop: 2 }}>
-                Avg score vs the preceding test of the same subject
+                {climbers && climbers.length > 0
+                  ? `Led by ${climbers[0].student.name}, +${climbers[0].delta}pt since the previous test`
+                  : previousTitle === null
+                    ? "Needs a previous test of the same subject to compare"
+                    : "Nobody rose since the previous test"}
               </div>
+              {climbers && climbers.length > 0 && <ChevronRight size={15} className="intel-band__arrow" />}
             </button>
 
             <button className="intel-band__seg" style={{ "--accent": "var(--risk)" } as React.CSSProperties} onClick={() => setIntelPanel("weakestClass")}>
@@ -381,6 +450,7 @@ export function ClassOverview({ section }: { section?: string }) {
               <div className="drawer__head">
                 <h3 style={{ fontSize: 18 }}>
                   {intelPanel === "toppers" && "Toppers"}
+                  {intelPanel === "climbers" && "Late bloomers"}
                   {intelPanel === "weakestClass" && "Sections, weakest first"}
                   {intelPanel === "weakestSubject" && "Subjects, weakest first"}
                 </h3>
@@ -395,6 +465,18 @@ export function ClassOverview({ section }: { section?: string }) {
                     <div style={{ display: "grid", gap: 8 }}>
                       {toppers.map((s, i) => (
                         <StudentRow key={s.student_id} student={s} showSection meta={`#${i + 1}`} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {intelPanel === "climbers" && climbers && (
+                  <div className="drawer__section" style={{ marginTop: 0 }}>
+                    <h4>
+                      Score rose on {test?.title ?? "this test"} vs {previousTitle ?? "the previous test"}
+                    </h4>
+                    <div style={{ display: "grid", gap: 8 }}>
+                      {climbers.map((c) => (
+                        <StudentRow key={c.student.student_id} student={c.student} showSection={isAll} meta={`+${c.delta}pt${c.now !== null ? ` · now ${Math.round(c.now)}%` : ""}`} />
                       ))}
                     </div>
                   </div>

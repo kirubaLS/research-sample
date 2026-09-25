@@ -3,20 +3,21 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Download } from "lucide-react";
-import { api, type StudentAcademicsOverview, type StudentSubjectBreakdown } from "@/lib/api";
+import { api, type BoardXReport, type StudentAcademicsOverview, type StudentSubjectBreakdown } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 import { usePageHeader } from "@/lib/pageHeader";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
 import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
+import { StudentOnePager } from "@/components/StudentOnePager";
+import { DeltaCell } from "@/components/StudentRosterTable";
 
 /** Principal → Classes → section → student. Real data end to end: GET
  * /admin/academics/students/{id} for the overall/subject summary, and GET
  * /admin/academics/students/{id}/subjects/{code} for the chapter-wise breakdown
- * of the subject currently selected. The full narrative BoardX one-pager (the
- * reference's fake `report`) has no line-for-line real equivalent here -- the
- * real one-page report exists only as a PDF (GET /reports/student/{id}/boardx.pdf),
- * so it is offered as a download instead of re-rendered inline. */
+ * of the subject currently selected. The numbered BoardX one-pager is rendered
+ * inline from GET /reports/student/{id}/boardx (the same composed report the PDF
+ * download prints) for the selected subject's latest test. */
 export default function PrincipalStudentPage() {
   const { section, studentId } = useParams<{ section: string; studentId: string }>();
   const key = getApiKey() ?? "";
@@ -26,6 +27,8 @@ export default function PrincipalStudentPage() {
   const [breakdown, setBreakdown] = useState<StudentSubjectBreakdown | null>(null);
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
+  const [boardx, setBoardx] = useState<BoardXReport | null>(null);
+  const [boardxState, setBoardxState] = useState<"idle" | "loading" | "missing">("idle");
 
   usePageHeader({ title: overview?.student.name ?? studentId, backHref: `/principal/classes/${section}` });
 
@@ -66,6 +69,27 @@ export default function PrincipalStudentPage() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [studentId, subjectCode]);
+
+  useEffect(() => {
+    const latest = breakdown?.tests[breakdown.tests.length - 1];
+    if (!latest) return;
+    let cancelled = false;
+    setBoardx(null);
+    setBoardxState("loading");
+    api.studentBoardX(key, studentId, latest.assessment_id).then(
+      (r) => {
+        if (!cancelled) {
+          setBoardx(r);
+          setBoardxState("idle");
+        }
+      },
+      () => !cancelled && setBoardxState("missing"),
+    );
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [breakdown]);
 
   async function downloadBoardX() {
     const latestTest = breakdown?.tests[breakdown.tests.length - 1];
@@ -116,7 +140,7 @@ export default function PrincipalStudentPage() {
         </div>
       </div>
 
-      <div className="grid grid--3" style={{ marginTop: 16 }}>
+      <div className="grid grid--4" style={{ marginTop: 16 }}>
         <div className="stat">
           <div className="stat__label">Overall</div>
           <div className="stat__value stat__value--sm">{overall.avg_score_pct === null ? "-" : `${Math.round(overall.avg_score_pct)}%`}</div>
@@ -128,6 +152,15 @@ export default function PrincipalStudentPage() {
         <div className="stat">
           <div className="stat__label">Subjects with marks</div>
           <div className="stat__value stat__value--sm">{subjects.length}</div>
+        </div>
+        <div className="stat">
+          <div className="stat__label">Against the class</div>
+          <div className="stat__value stat__value--sm">
+            {overall.vs_class_pct === null ? "-" : <DeltaCell delta={overall.vs_class_pct} />}
+          </div>
+          <div className="small muted" style={{ marginTop: 2 }}>
+            {overall.class_avg_score_pct === null ? "No class average yet" : `Class average ${Math.round(overall.class_avg_score_pct)}%`}
+          </div>
         </div>
       </div>
 
@@ -199,6 +232,21 @@ export default function PrincipalStudentPage() {
               </tbody>
             </table>
           </div>
+        </section>
+      )}
+      {breakdown && (
+        <section className="section">
+          <h2 className="section-q">{breakdown.subject.label} one-page report</h2>
+          <p className="section__lead">
+            {boardx ? `Based on ${boardx.assessment_title}. The same report the Download button saves as a PDF.` : ""}
+          </p>
+          {boardxState === "loading" && <p className="muted">Loading report…</p>}
+          {boardxState === "missing" && (
+            <EvidenceState kind="early" compact>
+              No one-page report for this subject&apos;s latest test yet.
+            </EvidenceState>
+          )}
+          {boardx && <StudentOnePager report={boardx} />}
         </section>
       )}
     </>
