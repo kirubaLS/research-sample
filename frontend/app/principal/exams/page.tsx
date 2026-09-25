@@ -81,7 +81,7 @@ export default function ExamsPage() {
           {loading && <p className="small muted">Loading…</p>}
           {!loading &&
             ordered.map((t) => (
-              <div className="card" key={t.assessment_id}>
+              <div className="card card--hover" key={t.assessment_id}>
                 <div className="card__head">
                   <div>
                     <div className="strong" style={{ fontSize: 15 }}>

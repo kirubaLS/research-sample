@@ -178,6 +178,8 @@ export interface ClassStudentRow {
   previous_score_pct: number | null;
   /** avg_score_pct minus previous_score_pct -- null when either side is missing. */
   delta_pct: number | null;
+  parent_name: string | null;
+  parent_whatsapp: string | null;
 }
 
 export interface ClassStudentsView {

@@ -787,7 +787,8 @@ table { border-collapse: collapse; width: 100%; }
   background: linear-gradient(180deg, #ffffff, #fcfaf6);
   border: 1px solid var(--line); border-radius: var(--radius-lg);
   box-shadow: var(--shadow-sm);
-  transition: transform .24s var(--ease-out), box-shadow .24s var(--ease-out), border-color .24s;
+  transform-style: preserve-3d;
+  transition: transform .3s cubic-bezier(.22,1,.36,1), box-shadow .3s cubic-bezier(.22,1,.36,1), border-color .24s;
 }
 .kpi::after {
   content: ""; position: absolute; right: -44px; top: -56px; width: 160px; height: 160px; border-radius: 50%;
@@ -795,11 +796,14 @@ table { border-collapse: collapse; width: 100%; }
   background: radial-gradient(circle, color-mix(in srgb, var(--accent, var(--brand-teal)) 17%, transparent), transparent 70%);
 }
 .kpi:hover {
-  transform: translateY(-2px); box-shadow: var(--shadow-lg);
+  transform: translateY(-3px) rotateX(2.5deg) scale(1.008);
+  box-shadow: 0 18px 30px -16px color-mix(in srgb, var(--accent, var(--brand-teal)) 45%, transparent), var(--shadow-lg);
   border-color: color-mix(in srgb, var(--accent, var(--brand-teal)) 30%, var(--line));
 }
+.kpi:hover .kpi__icon { transform: translateZ(14px) scale(1.05); }
 .kpi__icon {
   position: relative; z-index: 1;
+  transition: transform .3s cubic-bezier(.22,1,.36,1);
   width: 48px; height: 48px; flex: 0 0 48px; border-radius: 12px;
   display: inline-flex; align-items: center; justify-content: center;
   color: var(--accent, var(--brand-teal));

@@ -23,6 +23,17 @@ import { api, type ClassStudentRow, type IssuedReportRow, type SectionSummary } 
 import { getApiKey } from "@/lib/session";
 import { usePageHeader } from "@/lib/pageHeader";
 
+/** Masks a stored WhatsApp number down to what a screen actually needs to show: the
+ * country code and last few digits, e.g. "+919123456864" -> "+91 91XXX XX864". Purely a
+ * display transform -- the full number this school entered is unchanged in storage. */
+function maskPhone(raw: string): string {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length < 6) return raw;
+  const cc = digits.length > 10 ? digits.slice(0, digits.length - 10) : "91";
+  const local = digits.slice(-10);
+  return `+${cc} ${local.slice(0, 2)}XXX XX${local.slice(-3)}`;
+}
+
 type RowStatus = "checking" | "not_issued" | "issued" | "shared";
 type View = "all" | "unshared" | "shared";
 
@@ -295,6 +306,9 @@ export default function ShareReportsPage() {
                     <Link href={`/principal/classes/${sectionId}/${row.student.student_id}`} className="strong">
                       {row.student.name}
                     </Link>
+                    <span className="small muted">
+                      {row.student.parent_whatsapp ? `Parent ${maskPhone(row.student.parent_whatsapp)}` : "No parent contact on file"}
+                    </span>
                     <span className="small muted">
                       {row.status === "checking" && "Checking…"}
                       {row.status === "not_issued" && "Not issued"}

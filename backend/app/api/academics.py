@@ -334,6 +334,8 @@ def _class_students(
             "status": this_status,
             "avg_score_pct": round(earned / available * 100, 1) if available else None,
             "tests_taken": len({t.assessment_id for t in entries}),
+            "parent_name": student.parent_name,
+            "parent_whatsapp": student.parent_whatsapp,
             "_worst_chapter_code": worst.key if worst else None,
             "_worst_chapter_rate": round(worst.rate * 100, 1) if worst and worst.rate is not None else None,
         })
