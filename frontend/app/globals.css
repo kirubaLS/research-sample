@@ -581,7 +581,7 @@ table { border-collapse: collapse; width: 100%; }
 
 /* ---------- forms ---------- */
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field label { font-size: 12.5px; font-weight: 600; color: var(--brand-ink-soft); }
+.field label, .field__label { font-size: 12.5px; font-weight: 600; color: var(--brand-ink-soft); }
 .input {
   padding: 9px 12px; font-size: 14px; border: 1px solid var(--line-strong); border-radius: var(--radius-sm);
   background: var(--surface); color: var(--text); width: 100%;

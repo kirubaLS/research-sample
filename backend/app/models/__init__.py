@@ -17,6 +17,7 @@ from app.models.base import Base, new_id, utcnow
 from app.models.core import (
     STAFF_ROLES,
     TEACHER_ASSIGNMENT_TYPES,
+    AuditLog,
     School,
     Section,
     StaffKey,
@@ -80,7 +81,7 @@ __all__ = [
     "QuestionTier",
     "DataQualityFlag", "AnalysisRun", "TIERS", "CBSE_TIER_TARGET", "PAPER_KINDS",
     "MarkEvent", "MARK_STATES", "SOURCE_PRECEDENCE",
-    "STAFF_ROLES", "StaffKey", "TEACHER_ASSIGNMENT_TYPES", "TeacherAssignment",
+    "STAFF_ROLES", "StaffKey", "TEACHER_ASSIGNMENT_TYPES", "TeacherAssignment", "AuditLog",
     "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport", "ProposedMark",
     "GRID_ROW_STATUSES", "GridSheetRow", "GridSheetJob", "GRID_JOB_KINDS", "PaperScanJob",
     "PlacementJob",

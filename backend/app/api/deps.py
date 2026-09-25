@@ -142,6 +142,10 @@ def current_staff(
     # would tell whoever kept it that it was once real.
     if staff is None or staff.revoked_at is not None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    from datetime import UTC, datetime as _datetime
+
+    staff.last_used_at = _datetime.now(UTC)
+    db.commit()
     return Staff(role=staff.role, home=staff.school, staff_key_id=staff.id)
 
 

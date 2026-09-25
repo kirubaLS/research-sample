@@ -29,6 +29,15 @@ class School(Base, PkMixin, TimestampMixin):
     #: instead -- see that migration's own docstring for why.
     hidden_from_directory: Mapped[bool] = mapped_column(Boolean, default=True)
 
+    #: Operator-facing "school details" fields. None of these are used anywhere in the
+    #: student/teacher-facing flows -- they exist purely so the ops console has somewhere
+    #: to record a school's official code, city, postal address and the academic year the
+    #: pilot is running against.
+    code: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    academic_year: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
     sections: Mapped[list[Section]] = relationship(back_populates="school")
 
 
@@ -76,6 +85,16 @@ class StaffKey(Base, PkMixin, TimestampMixin):
     role: Mapped[str] = mapped_column(String(16), default="principal")
     label: Mapped[str] = mapped_column(String(120), default="")
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    #: Contact details for the person holding this key -- shown on the ops console's
+    #: Principal/Teacher tabs. Optional: a key minted before these existed, or one issued
+    #: without contact details on hand, simply carries nulls until someone edits it in.
+    name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    email: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: Set on every successful X-API-Key authentication (see app.api.deps.current_staff).
+    #: Lets the ops console show "last active" rather than only "issued on".
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     school: Mapped[School | None] = relationship()
     assignments: Mapped[list[TeacherAssignment]] = relationship(
@@ -139,6 +158,8 @@ class StudentProfile(Base, PkMixin, TimestampMixin):
     gender: Mapped[str | None] = mapped_column(String(16), nullable=True)
     dob: Mapped[str | None] = mapped_column(Date, nullable=True)
     consent_ref: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    parent_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    parent_whatsapp: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
     section: Mapped[Section] = relationship(back_populates="students")
 
@@ -167,3 +188,21 @@ class StudentSession(Base, PkMixin, TimestampMixin):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     student: Mapped[StudentProfile] = relationship()
+
+
+class AuditLog(Base, PkMixin, TimestampMixin):
+    """A record of who-did-what on the ops console, per school.
+
+    Written only by app.api.platform, one row per state-changing call: a school created
+    or edited, a key issued/revoked/rotated or edited, students added, or a teacher's
+    assignments changed. Never edited or deleted afterwards -- the whole point is an
+    honest trail, so a route that writes one must never also let it be rewritten.
+    """
+
+    __tablename__ = "audit_log"
+
+    school_id: Mapped[str | None] = mapped_column(ForeignKey("school.id"), index=True, nullable=True)
+    actor_role: Mapped[str] = mapped_column(String(32), default="platform_admin")
+    actor_label: Mapped[str] = mapped_column(String(200), default="")
+    action: Mapped[str] = mapped_column(String(64))
+    detail: Mapped[str | None] = mapped_column(String(2000), nullable=True)

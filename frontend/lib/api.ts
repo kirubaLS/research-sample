@@ -854,9 +854,72 @@ export interface PlatformSchool {
   board: string;
   state: string | null;
   training_consent: string;
+  code: string | null;
+  city: string | null;
+  address: string | null;
+  academic_year: string | null;
   students: number;
   sections: PlatformSection[];
   hidden_from_directory: boolean;
+  created_at: string | null;
+}
+
+export interface SchoolPatch {
+  name?: string;
+  board?: string;
+  state?: string;
+  training_consent?: string;
+  code?: string;
+  city?: string;
+  address?: string;
+  academic_year?: string;
+}
+
+export interface TeacherAssignmentRow {
+  id: string;
+  staff_key_id: string;
+  type: "class" | "subject";
+  section_id: string;
+  subject_code: string | null;
+}
+
+export interface TeacherAssignmentInput {
+  type: "class" | "subject";
+  section_id: string;
+  subject_code?: string | null;
+}
+
+export interface PlatformStudentRow {
+  id: string;
+  name: string;
+  roll_no: string;
+  section_id: string;
+  section_label: string | null;
+  age: number | null;
+  gender: string | null;
+  dob: string | null;
+  parent_name: string | null;
+  parent_whatsapp: string | null;
+}
+
+export interface StudentBulkInput {
+  name: string;
+  roll_no: string;
+  section_id: string;
+  age?: number | null;
+  gender?: string | null;
+  dob?: string | null;
+  parent_name?: string | null;
+  parent_whatsapp?: string | null;
+}
+
+export interface AuditLogRow {
+  id: string;
+  action: string;
+  detail: string | null;
+  actor_role: string;
+  actor_label: string;
+  created_at: string | null;
 }
 
 /** Only ever returned by create and rotate -- listing carries no key. */
@@ -894,12 +957,16 @@ export interface StaffKeySummary {
   id: string;
   /** null for an admin key: it belongs to no school, which is what lets it span them. */
   school_id: string | null;
-  role: "principal" | "admin";
+  role: "principal" | "admin" | "teacher";
   label: string;
+  name: string | null;
+  email: string | null;
+  phone: string | null;
   /** The operator is the top of the trust chain, so the listing carries the live key. */
   api_key: string;
   created_at: string | null;
   revoked_at: string | null;
+  last_used_at: string | null;
 }
 
 export interface FamilyProposal {
@@ -1790,6 +1857,59 @@ export const api = {
       key,
       { method: "POST" },
     ),
+
+  /** One school's full detail view -- School details / Overview tabs. */
+  getSchool: (key: string, schoolId: string) =>
+    operator<PlatformSchool>(`/platform/schools/${schoolId}`, key),
+
+  /** The School details tab's save action. Only the fields present are changed. */
+  patchSchool: (key: string, schoolId: string, patch: SchoolPatch) =>
+    operator<PlatformSchool>(`/platform/schools/${schoolId}`, key, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  /** Contact-detail edit for a principal or teacher key -- Principal/Teachers tabs. */
+  patchStaffKey: (
+    key: string,
+    schoolId: string,
+    keyId: string,
+    patch: { name?: string; email?: string; phone?: string; label?: string },
+  ) =>
+    operator<StaffKeySummary>(`/platform/schools/${schoolId}/keys/${keyId}`, key, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
+
+  /** A teacher key's class/subject assignments. */
+  listAssignments: (key: string, schoolId: string, keyId: string) =>
+    operator<TeacherAssignmentRow[]>(
+      `/platform/schools/${schoolId}/keys/${keyId}/assignments`, key,
+    ),
+
+  /** Replaces a teacher key's full assignment set with exactly the list given. */
+  setAssignments: (
+    key: string, schoolId: string, keyId: string, assignments: TeacherAssignmentInput[],
+  ) =>
+    operator<TeacherAssignmentRow[]>(
+      `/platform/schools/${schoolId}/keys/${keyId}/assignments`, key,
+      { method: "PATCH", body: JSON.stringify({ assignments }) },
+    ),
+
+  /** The full student roster across every section -- the Students tab. */
+  listPlatformStudents: (key: string, schoolId: string) =>
+    operator<PlatformStudentRow[]>(`/platform/schools/${schoolId}/students`, key),
+
+  /** Add several students at once. */
+  bulkAddStudents: (key: string, schoolId: string, students: StudentBulkInput[]) =>
+    operator<PlatformStudentRow[]>(`/platform/schools/${schoolId}/students/bulk`, key, {
+      method: "POST",
+      body: JSON.stringify({ students }),
+    }),
+
+  /** Recent actions taken on this school through the ops console -- the Activity tab. */
+  listActivity: (key: string, schoolId: string) =>
+    operator<AuditLogRow[]>(`/platform/schools/${schoolId}/activity`, key),
 
   // --- knowledge base ---
   /** The subjects this deployment carries -- platform-scoped, so a bare operator key

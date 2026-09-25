@@ -15,7 +15,7 @@ Two rules the routes here are built around:
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field, field_validator
@@ -25,7 +25,16 @@ from sqlalchemy.orm import Session
 from app.api.deps import require_platform_admin
 from app.config import get_settings
 from app.db import get_session
-from app.models import STAFF_ROLES, School, Section, StaffKey, StudentProfile
+from app.models import (
+    STAFF_ROLES,
+    TEACHER_ASSIGNMENT_TYPES,
+    AuditLog,
+    School,
+    Section,
+    StaffKey,
+    StudentProfile,
+    TeacherAssignment,
+)
 from app.ratelimit import FixedWindowLimiter, client_key
 
 router = APIRouter(
@@ -55,16 +64,57 @@ def _key_view(k: StaffKey) -> dict:
         "id": k.id,
         "role": k.role,
         "label": k.label,
+        "name": k.name,
+        "email": k.email,
+        "phone": k.phone,
         "school_id": k.school_id,
         "api_key": k.api_key,
         "created_at": k.created_at.isoformat() if k.created_at else None,
         "revoked_at": k.revoked_at.isoformat() if k.revoked_at else None,
+        "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
     }
+
+
+def _assignment_view(a: TeacherAssignment) -> dict:
+    return {
+        "id": a.id,
+        "staff_key_id": a.staff_key_id,
+        "type": a.type,
+        "section_id": a.section_id,
+        "subject_code": a.subject_code,
+    }
+
+
+def _log(
+    db: Session,
+    school_id: str | None,
+    action: str,
+    detail: str = "",
+    actor_label: str = "",
+) -> None:
+    """Append one audit trail row. Never raises -- a logging failure must not block the
+    action it is trying to record."""
+    db.add(
+        AuditLog(
+            school_id=school_id,
+            actor_role="platform_admin",
+            actor_label=actor_label,
+            action=action,
+            detail=detail,
+        )
+    )
 
 
 class StaffKeyIn(BaseModel):
     role: str = Field(default="principal")
     label: str = Field(default="", max_length=120)
+
+
+def _validate_consent(v: str) -> str:
+    allowed = {"operational_only", "improve_models", "research"}
+    if v not in allowed:
+        raise ValueError(f"training_consent must be one of {sorted(allowed)}")
+    return v
 
 
 class SchoolIn(BaseModel):
@@ -82,10 +132,70 @@ class SchoolIn(BaseModel):
     @field_validator("training_consent")
     @classmethod
     def _consent(cls, v: str) -> str:
-        allowed = {"operational_only", "improve_models", "research"}
-        if v not in allowed:
-            raise ValueError(f"training_consent must be one of {sorted(allowed)}")
+        return _validate_consent(v)
+
+
+class SchoolPatchIn(BaseModel):
+    """Every field the "School details" tab can edit. Every field is optional -- a PATCH
+    only touches what it sends."""
+
+    name: str | None = Field(default=None, min_length=2, max_length=200)
+    board: str | None = Field(default=None, max_length=32)
+    state: str | None = Field(default=None, max_length=64)
+    training_consent: str | None = None
+    code: str | None = Field(default=None, max_length=32)
+    city: str | None = Field(default=None, max_length=120)
+    address: str | None = Field(default=None, max_length=500)
+    academic_year: str | None = Field(default=None, max_length=16)
+
+    @field_validator("training_consent")
+    @classmethod
+    def _consent(cls, v: str | None) -> str | None:
+        return v if v is None else _validate_consent(v)
+
+
+class StaffKeyPatchIn(BaseModel):
+    """Contact-detail edits for a principal or teacher key -- the credential itself
+    (role, api_key) is never changed here; that is what issue/revoke/rotate are for."""
+
+    name: str | None = Field(default=None, max_length=200)
+    email: str | None = Field(default=None, max_length=200)
+    phone: str | None = Field(default=None, max_length=32)
+    label: str | None = Field(default=None, max_length=120)
+
+
+class AssignmentIn(BaseModel):
+    type: str
+    section_id: str
+    subject_code: str | None = None
+
+    @field_validator("type")
+    @classmethod
+    def _type(cls, v: str) -> str:
+        if v not in TEACHER_ASSIGNMENT_TYPES:
+            raise ValueError(f"type must be one of {TEACHER_ASSIGNMENT_TYPES}")
         return v
+
+
+class AssignmentsPatchIn(BaseModel):
+    """Replaces the full set of assignments for a teacher key with exactly this list."""
+
+    assignments: list[AssignmentIn]
+
+
+class StudentIn(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+    roll_no: str = Field(min_length=1, max_length=16)
+    section_id: str
+    age: int | None = None
+    gender: str | None = Field(default=None, max_length=16)
+    dob: str | None = None
+    parent_name: str | None = Field(default=None, max_length=200)
+    parent_whatsapp: str | None = Field(default=None, max_length=32)
+
+
+class StudentsBulkIn(BaseModel):
+    students: list[StudentIn]
 
 
 def _section_view(section: Section) -> dict:
@@ -112,9 +222,14 @@ def _school_view(db: Session, school: School) -> dict:
         "board": school.board,
         "state": school.state,
         "training_consent": school.training_consent,
+        "code": school.code,
+        "city": school.city,
+        "address": school.address,
+        "academic_year": school.academic_year,
         "students": students or 0,
         "sections": [_section_view(s) for s in sections],
         "hidden_from_directory": school.hidden_from_directory,
+        "created_at": school.created_at.isoformat() if school.created_at else None,
     }
 
 
@@ -129,6 +244,36 @@ def whoami(request: Request) -> dict:
 def list_schools(db: Session = Depends(get_session)) -> list[dict]:
     schools = db.scalars(select(School).order_by(School.name)).all()
     return [_school_view(db, s) for s in schools]
+
+
+@router.get("/schools/{school_id}")
+def get_school(school_id: str, db: Session = Depends(get_session)) -> dict:
+    """One school's full detail view -- the ops console's school detail screen loads
+    this once and derives every tab (besides keys/students/activity, each of which has
+    its own, separately-scoped route) from it."""
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+    return _school_view(db, school)
+
+
+@router.patch("/schools/{school_id}")
+def patch_school(school_id: str, body: SchoolPatchIn, db: Session = Depends(get_session)) -> dict:
+    """The "School details" tab's save action. Only fields present in the request body
+    are touched; everything else is left exactly as it was."""
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        if field == "name" and value is not None:
+            value = value.strip()
+        setattr(school, field, value)
+    if changes:
+        _log(db, school.id, "school_edited", f"fields={sorted(changes)}")
+    db.commit()
+    db.refresh(school)
+    return _school_view(db, school)
 
 
 @router.get("/overview")
@@ -234,6 +379,7 @@ def create_school(body: SchoolIn, db: Session = Depends(get_session)) -> dict:
             continue
         seen.add((spec.grade, spec.name))
         db.add(Section(school_id=school.id, grade=spec.grade, name=spec.name))
+    _log(db, school.id, "school_created", f"name={school.name!r}")
     db.commit()
     db.refresh(school)
 
@@ -370,6 +516,7 @@ def issue_staff_key(school_id: str, body: StaffKeyIn, db: Session = Depends(get_
         role=body.role, label=body.label.strip(),
     )
     db.add(key)
+    _log(db, school.id, "key_issued", f"role={body.role!r} label={body.label!r}")
     db.commit()
     db.refresh(key)
     view = _key_view(key)
@@ -381,6 +528,25 @@ def issue_staff_key(school_id: str, body: StaffKeyIn, db: Session = Depends(get_
     return view
 
 
+@router.patch("/schools/{school_id}/keys/{key_id}")
+def patch_staff_key(
+    school_id: str, key_id: str, body: StaffKeyPatchIn, db: Session = Depends(get_session)
+) -> dict:
+    """Edit a principal or teacher key's contact details (and/or its label). The
+    credential itself never changes here -- issue/revoke/rotate cover that."""
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such key")
+    changes = body.model_dump(exclude_unset=True)
+    for field, value in changes.items():
+        setattr(key, field, value)
+    if changes:
+        _log(db, school_id, "key_edited", f"key_id={key_id} fields={sorted(changes)}")
+    db.commit()
+    db.refresh(key)
+    return _key_view(key)
+
+
 @router.post("/schools/{school_id}/keys/{key_id}/revoke")
 def revoke_staff_key(school_id: str, key_id: str, db: Session = Depends(get_session)) -> dict:
     """Stop a key working. The row stays: who held access, and until when, is the first
@@ -390,8 +556,186 @@ def revoke_staff_key(school_id: str, key_id: str, db: Session = Depends(get_sess
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such key")
     if key.revoked_at is None:
         key.revoked_at = datetime.now(UTC)
+        _log(db, school_id, "key_revoked", f"key_id={key_id} role={key.role!r}")
         db.commit()
     return _key_view(key)
+
+
+@router.get("/schools/{school_id}/keys/{key_id}/assignments")
+def list_assignments(school_id: str, key_id: str, db: Session = Depends(get_session)) -> list[dict]:
+    """A teacher key's class/subject assignments -- what the Teachers tab edits."""
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such key")
+    rows = db.scalars(
+        select(TeacherAssignment)
+        .where(TeacherAssignment.staff_key_id == key_id)
+        .order_by(TeacherAssignment.created_at)
+    ).all()
+    return [_assignment_view(a) for a in rows]
+
+
+@router.patch("/schools/{school_id}/keys/{key_id}/assignments")
+def patch_assignments(
+    school_id: str, key_id: str, body: AssignmentsPatchIn, db: Session = Depends(get_session)
+) -> list[dict]:
+    """Replace a teacher key's full set of assignments with exactly the list given.
+
+    Whole-set replace, not incremental add/remove: the Teachers tab always shows and
+    submits the complete list, so there is no ambiguity about what "the current
+    assignments" means after a save.
+    """
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such key")
+
+    section_ids = {a.section_id for a in body.assignments}
+    if section_ids:
+        found = set(
+            db.scalars(
+                select(Section.id).where(
+                    Section.id.in_(section_ids), Section.school_id == school_id
+                )
+            )
+        )
+        missing = section_ids - found
+        if missing:
+            raise HTTPException(422, f"no such section in this school: {sorted(missing)}")
+
+    db.execute(
+        TeacherAssignment.__table__.delete().where(TeacherAssignment.staff_key_id == key_id)
+    )
+    for a in body.assignments:
+        db.add(
+            TeacherAssignment(
+                staff_key_id=key_id, type=a.type, section_id=a.section_id,
+                subject_code=a.subject_code,
+            )
+        )
+    _log(
+        db, school_id, "teacher_assignments_edited",
+        f"key_id={key_id} count={len(body.assignments)}",
+    )
+    db.commit()
+    rows = db.scalars(
+        select(TeacherAssignment)
+        .where(TeacherAssignment.staff_key_id == key_id)
+        .order_by(TeacherAssignment.created_at)
+    ).all()
+    return [_assignment_view(a) for a in rows]
+
+
+@router.get("/schools/{school_id}/students")
+def list_students(school_id: str, db: Session = Depends(get_session)) -> list[dict]:
+    """The full roster for the Students tab, across every section."""
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+    sections = {
+        s.id: s
+        for s in db.scalars(select(Section).where(Section.school_id == school_id))
+    }
+    students = db.scalars(
+        select(StudentProfile)
+        .where(StudentProfile.school_id == school_id)
+        .order_by(StudentProfile.section_id, StudentProfile.roll_no)
+    ).all()
+    rows = []
+    for st in students:
+        section = sections.get(st.section_id)
+        rows.append({
+            "id": st.id,
+            "name": st.name,
+            "roll_no": st.roll_no,
+            "section_id": st.section_id,
+            "section_label": f"Class {section.grade}-{section.name}" if section else None,
+            "age": st.age,
+            "gender": st.gender,
+            "dob": st.dob.isoformat() if st.dob else None,
+            "parent_name": st.parent_name,
+            "parent_whatsapp": st.parent_whatsapp,
+        })
+    return rows
+
+
+@router.post("/schools/{school_id}/students/bulk", status_code=status.HTTP_201_CREATED)
+def bulk_add_students(
+    school_id: str, body: StudentsBulkIn, db: Session = Depends(get_session)
+) -> list[dict]:
+    """Add several students at once -- the Students tab's "Add students" action."""
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+    if not body.students:
+        raise HTTPException(422, "no students given")
+
+    section_ids = {s.section_id for s in body.students}
+    found = set(
+        db.scalars(
+            select(Section.id).where(Section.id.in_(section_ids), Section.school_id == school_id)
+        )
+    )
+    missing = section_ids - found
+    if missing:
+        raise HTTPException(422, f"no such section in this school: {sorted(missing)}")
+
+    created: list[StudentProfile] = []
+    for s in body.students:
+        dob = None
+        if s.dob:
+            try:
+                dob = date.fromisoformat(s.dob)
+            except ValueError:
+                raise HTTPException(422, f"invalid dob: {s.dob!r}")
+        student = StudentProfile(
+            school_id=school_id, section_id=s.section_id, name=s.name.strip(),
+            roll_no=s.roll_no.strip(), age=s.age, gender=s.gender, dob=dob,
+            parent_name=s.parent_name, parent_whatsapp=s.parent_whatsapp,
+        )
+        db.add(student)
+        created.append(student)
+    _log(db, school_id, "students_added", f"count={len(created)}")
+    db.commit()
+    for st in created:
+        db.refresh(st)
+    return [
+        {
+            "id": st.id, "name": st.name, "roll_no": st.roll_no, "section_id": st.section_id,
+            "age": st.age, "gender": st.gender,
+            "dob": st.dob.isoformat() if st.dob else None,
+            "parent_name": st.parent_name, "parent_whatsapp": st.parent_whatsapp,
+        }
+        for st in created
+    ]
+
+
+@router.get("/schools/{school_id}/activity")
+def list_activity(
+    school_id: str, limit: int = 100, db: Session = Depends(get_session)
+) -> list[dict]:
+    """The Activity tab: most recent actions taken on this school through the ops
+    console, newest first."""
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+    limit = max(1, min(limit, 100))
+    rows = db.scalars(
+        select(AuditLog)
+        .where(AuditLog.school_id == school_id)
+        .order_by(AuditLog.created_at.desc())
+        .limit(limit)
+    ).all()
+    return [
+        {
+            "id": a.id,
+            "action": a.action,
+            "detail": a.detail,
+            "actor_role": a.actor_role,
+            "actor_label": a.actor_label,
+            "created_at": a.created_at.isoformat() if a.created_at else None,
+        }
+        for a in rows
+    ]
 
 
 @router.post("/schools/{school_id}/rotate-key")
@@ -405,6 +749,7 @@ def rotate_key(school_id: str, db: Session = Depends(get_session)) -> dict:
     if school is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
     school.api_key = secrets.token_urlsafe(24)
+    _log(db, school.id, "key_rotated", "school admin key rotated")
     db.commit()
     return {
         "school_id": school.id,
