@@ -1,0 +1,145 @@
+{
+ "description": "Questions found in the CBSE 2026 board papers (sets 32/1/1 to 32/5/3) that cannot be answered from the textbook text.",
+ "labels": {
+  "beyond_text": "The question comes from a textbook topic, but its answer goes beyond what the book says. Map it to the nearest topic and flag it.",
+  "not_in_books": "No textbook topic covers the question. Do not force a topic; report it as outside the textbook."
+ },
+ "questions": [
+  {
+   "question": "Suggest ways to promote women’s entrepreneurship / inspire women to learn skills for entrepreneurship",
+   "refs": [
+    "32/1/2 Q25",
+    "32/4/1 Q24"
+   ],
+   "subject": "politics",
+   "label": "beyond_text",
+   "nearest": {
+    "unit": "X.POL.GENDERRELIGIONCASTE.1.1",
+    "catalog": "X.POL.CF.PUBLIC_PRIVATE_DIVISION",
+    "title": "Public/private division"
+   },
+   "note": "Application question from the Gender and politics topic; the book discusses women’s work and participation but not these specific measures."
+  },
+  {
+   "question": "Suggest ways to support women in education in rural areas",
+   "refs": [
+    "32/1/3 Q25"
+   ],
+   "subject": "politics",
+   "label": "beyond_text",
+   "nearest": {
+    "unit": "X.POL.GENDERRELIGIONCASTE.1.1",
+    "catalog": "X.POL.CF.PUBLIC_PRIVATE_DIVISION",
+    "title": "Public/private division"
+   },
+   "note": "Application question from the Gender and politics topic; the book discusses women’s work and participation but not these specific measures."
+  },
+  {
+   "question": "Suggest measures to ensure equal opportunities for women in all professions",
+   "refs": [
+    "32/4/2 Q24"
+   ],
+   "subject": "politics",
+   "label": "beyond_text",
+   "nearest": {
+    "unit": "X.POL.GENDERRELIGIONCASTE.1.1",
+    "catalog": "X.POL.CF.PUBLIC_PRIVATE_DIVISION",
+    "title": "Public/private division"
+   },
+   "note": "Application question from the Gender and politics topic; the book discusses women’s work and participation but not these specific measures."
+  },
+  {
+   "question": "Suggest measures to involve women in educational development",
+   "refs": [
+    "32/4/3 Q24"
+   ],
+   "subject": "politics",
+   "label": "beyond_text",
+   "nearest": {
+    "unit": "X.POL.GENDERRELIGIONCASTE.1.1",
+    "catalog": "X.POL.CF.PUBLIC_PRIVATE_DIVISION",
+    "title": "Public/private division"
+   },
+   "note": "Application question from the Gender and politics topic; the book discusses women’s work and participation but not these specific measures."
+  },
+  {
+   "question": "Suggest ways to improve women’s participation in sports leadership roles",
+   "refs": [
+    "32/5/1 Q24"
+   ],
+   "subject": "politics",
+   "label": "beyond_text",
+   "nearest": {
+    "unit": "X.POL.GENDERRELIGIONCASTE.1.1",
+    "catalog": "X.POL.CF.PUBLIC_PRIVATE_DIVISION",
+    "title": "Public/private division"
+   },
+   "note": "Application question from the Gender and politics topic; the book discusses women’s work and participation but not these specific measures."
+  },
+  {
+   "question": "Suggest measures to empower women in the field of technology",
+   "refs": [
+    "32/5/2 Q24"
+   ],
+   "subject": "politics",
+   "label": "beyond_text",
+   "nearest": {
+    "unit": "X.POL.GENDERRELIGIONCASTE.1.1",
+    "catalog": "X.POL.CF.PUBLIC_PRIVATE_DIVISION",
+    "title": "Public/private division"
+   },
+   "note": "Application question from the Gender and politics topic; the book discusses women’s work and participation but not these specific measures."
+  },
+  {
+   "question": "Suggest ways to promote women in various professional fields",
+   "refs": [
+    "32/5/3 Q24"
+   ],
+   "subject": "politics",
+   "label": "beyond_text",
+   "nearest": {
+    "unit": "X.POL.GENDERRELIGIONCASTE.1.1",
+    "catalog": "X.POL.CF.PUBLIC_PRIVATE_DIVISION",
+    "title": "Public/private division"
+   },
+   "note": "Application question from the Gender and politics topic; the book discusses women’s work and participation but not these specific measures."
+  },
+  {
+   "subject": "politics",
+   "label": "beyond_text",
+   "question": "Identify the building (photo of the new Parliament building of India)",
+   "refs": [
+    "32/3/1 Q20",
+    "32/3/2 Q22",
+    "32/3/3 Q21"
+   ],
+   "nearest": {
+    "unit": "X.POL.POWERSHARING.4",
+    "catalog": "X.POL.CF.FORMS_POWER_SHARING",
+    "title": "Forms of power-sharing"
+   },
+   "note": "General-knowledge picture question; the book has no picture of this building. Nearest topic is the legislature as an organ of government."
+  },
+  {
+   "subject": "geography",
+   "label": "not_in_books",
+   "question": "Case study “FLOODS: basic safety precautions” and its three sub-questions",
+   "refs": [
+    "32/1/1 Q18",
+    "32/1/1 Q18.1",
+    "32/1/1 Q18.2",
+    "32/1/1 Q18.3",
+    "32/1/2 Q18",
+    "32/1/2 Q18.1",
+    "32/1/2 Q18.2",
+    "32/1/2 Q18.3",
+    "32/1/3 Q18",
+    "32/1/3 Q18.1",
+    "32/1/3 Q18.2",
+    "32/1/3 Q18.3"
+   ],
+   "nearest": null,
+   "note": "Disaster-management content; no NCERT Class X Social Science textbook covers flood safety. Map only if CBSE disaster-management material is added as a source."
+  }
+ ]
+}

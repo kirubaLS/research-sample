@@ -1,0 +1,973 @@
+{
+ "assessment": "Cycle Test I (X.SST, CBSE 2026-27)",
+ "questions": [
+  {
+   "question": "A1",
+   "marks": 1,
+   "summary": "Chronology: Marco Polo, Gutenberg Bible, Bengal Gazette, Vernacular Press Act",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.2",
+     "catalog": "X.HIST.CF.PRINT_COMES_TO_EUROPE",
+     "title": "Print Comes to Europe",
+     "role": "primary",
+     "evidence": "in 1295, marco polo",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.HIST.PRINTCULTURE.2.1",
+     "catalog": "X.HIST.CF.GUTENBERG_PRINTING_PRESS",
+     "title": "Gutenberg and the Printing Press",
+     "role": "secondary",
+     "evidence": "the first book he printed was the bible",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.HIST.PRINTCULTURE.6.2",
+     "catalog": "X.HIST.CF.PRINT_COMES_TO_INDIA",
+     "title": "Print Comes to India",
+     "role": "secondary",
+     "evidence": "james augustus hickey",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.HIST.PRINTCULTURE.9",
+     "catalog": "X.HIST.CF.PRINT_CENSORSHIP",
+     "title": "Print and Censorship",
+     "role": "secondary",
+     "evidence": "vernacular press act",
+     "evidence_verified": true
+    }
+   ],
+   "note": "Spans four sections."
+  },
+  {
+   "question": "A2",
+   "marks": 1,
+   "summary": "Match books with authors",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.8.2",
+     "catalog": "X.HIST.CF.PRINT_POOR_PEOPLE",
+     "title": "Print and the Poor People",
+     "role": "primary",
+     "evidence": "gulamgiri",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.HIST.PRINTCULTURE.8.1",
+     "catalog": "X.HIST.CF.WOMEN_PRINT",
+     "title": "Women and Print",
+     "role": "secondary",
+     "evidence": "amar jiban",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A3",
+   "marks": 1,
+   "summary": "Statements about print in China",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.1",
+     "catalog": "X.HIST.CF.FIRST_PRINTED_BOOKS",
+     "title": "The First Printed Books",
+     "role": "primary",
+     "evidence": "imperial state in china",
+     "evidence_verified": true
+    }
+   ],
+   "note": "Statement text was not in the sheet; mapped from the topic."
+  },
+  {
+   "question": "A4",
+   "marks": 1,
+   "summary": "Penny chapbooks sold by chapmen",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.4",
+     "catalog": "X.HIST.CF.READING_MANIA",
+     "title": "The Reading Mania",
+     "role": "primary",
+     "evidence": "penny chapbooks",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A5",
+   "marks": 1,
+   "summary": "A/R: Index of Prohibited Books",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.3.3",
+     "catalog": "X.HIST.CF.PRINT_DISSENT",
+     "title": "Print and Dissent",
+     "role": "primary",
+     "evidence": "index of prohibited books",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A6",
+   "marks": 1,
+   "summary": "Vernacular Press Act 1878",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.9",
+     "catalog": "X.HIST.CF.PRINT_CENSORSHIP",
+     "title": "Print and Censorship",
+     "role": "primary",
+     "evidence": "in 1878, the vernacular press act",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A7a",
+   "marks": 2,
+   "summary": "How Gutenberg's press changed book production",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.2.1",
+     "catalog": "X.HIST.CF.GUTENBERG_PRINTING_PRESS",
+     "title": "Gutenberg and the Printing Press",
+     "role": "primary",
+     "evidence": "by 1448, gutenberg perfected the system",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A7b",
+   "marks": 2,
+   "summary": "Why luxury editions stayed handwritten",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.2",
+     "catalog": "X.HIST.CF.PRINT_COMES_TO_EUROPE",
+     "title": "Print Comes to Europe",
+     "role": "primary",
+     "evidence": "luxury editions were still handwritten",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A8",
+   "marks": 3,
+   "summary": "Print and women in 19th-century India",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.8.1",
+     "catalog": "X.HIST.CF.WOMEN_PRINT",
+     "title": "Women and Print",
+     "role": "primary",
+     "evidence": "lives and feelings of women",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A9a",
+   "marks": 5,
+   "summary": "Print culture and the French Revolution",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.4.2",
+     "catalog": "X.HIST.CF.PRINT_CULTURE_FRENCH_REVOLUTION",
+     "title": "Print Culture and the French Revolution",
+     "role": "primary",
+     "evidence": "print culture created the conditions",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A9b",
+   "marks": 5,
+   "summary": "Print and nationalism in India",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.9",
+     "catalog": "X.HIST.CF.PRINT_CENSORSHIP",
+     "title": "Print and Censorship",
+     "role": "primary",
+     "evidence": "nationalist newspapers grew in numbers",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A10.1",
+   "marks": 1,
+   "summary": "Phule's book on caste",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.8.2",
+     "catalog": "X.HIST.CF.PRINT_POOR_PEOPLE",
+     "title": "Print and the Poor People",
+     "role": "primary",
+     "evidence": "gulamgiri",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A10.2",
+   "marks": 1,
+   "summary": "Public libraries widened access",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.8.2",
+     "catalog": "X.HIST.CF.PRINT_POOR_PEOPLE",
+     "title": "Print and the Poor People",
+     "role": "primary",
+     "evidence": "public libraries were set up",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "A10.3",
+   "marks": 2,
+   "summary": "Print as protest for the poor and oppressed",
+   "units": [
+    {
+     "unit": "X.HIST.PRINTCULTURE.8.2",
+     "catalog": "X.HIST.CF.PRINT_POOR_PEOPLE",
+     "title": "Print and the Poor People",
+     "role": "primary",
+     "evidence": "issues of caste discrimination",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B11",
+   "marks": 1,
+   "summary": "Match mining areas with states",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.2.2.1",
+     "catalog": "X.GEO.CF.IRON_ORE",
+     "title": "Iron Ore",
+     "role": "primary",
+     "evidence": "badampahar",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.GEO.MINERALSENERGY.2.4",
+     "catalog": "X.GEO.CF.NON_METALLIC_MINERALS",
+     "title": "Non-Metallic Minerals",
+     "role": "secondary",
+     "evidence": "koderma",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B12",
+   "marks": 1,
+   "summary": "Lignite at Neyveli",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.1.1",
+     "catalog": "X.GEO.CF.COAL",
+     "title": "Coal",
+     "role": "primary",
+     "evidence": "neyveli",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B13",
+   "marks": 1,
+   "summary": "A/R: industries located near coalfields",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.1.1",
+     "catalog": "X.GEO.CF.COAL",
+     "title": "Coal",
+     "role": "primary",
+     "evidence": "bulky material",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B14",
+   "marks": 1,
+   "summary": "Ladakh hot springs",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.2.6",
+     "catalog": "X.GEO.CF.GEO_THERMAL_ENERGY",
+     "title": "Geo Thermal Energy",
+     "role": "primary",
+     "evidence": "puga valley",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B15",
+   "marks": 1,
+   "summary": "Non-conventional energy statements",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.2",
+     "catalog": "X.GEO.CF.NON_CONVENTIONAL_SOURCES_ENERGY",
+     "title": "Non-Conventional Sources of Energy",
+     "role": "primary",
+     "evidence": null,
+     "evidence_verified": null
+    },
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.2.3",
+     "catalog": "X.GEO.CF.WIND_POWER",
+     "title": "Wind Power",
+     "role": "secondary",
+     "evidence": "nagarcoil",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.2.5",
+     "catalog": "X.GEO.CF.TIDAL_ENERGY",
+     "title": "Tidal Energy",
+     "role": "secondary",
+     "evidence": "gulf of khambhat",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.2.1",
+     "catalog": "X.GEO.CF.NUCLEAR_OR_ATOMIC_ENERGY",
+     "title": "Nuclear or Atomic Energy",
+     "role": "secondary",
+     "evidence": "monazite sands",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.2.2",
+     "catalog": "X.GEO.CF.SOLAR_ENERGY",
+     "title": "Solar Energy",
+     "role": "secondary",
+     "evidence": "photovoltaic",
+     "evidence_verified": true
+    }
+   ],
+   "note": "Spans four sub-sections; umbrella heading as primary."
+  },
+  {
+   "question": "B16",
+   "marks": 2,
+   "summary": "Ferrous vs non-ferrous minerals",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.2.2",
+     "catalog": "X.GEO.CF.FERROUS_MINERALS",
+     "title": "Ferrous Minerals",
+     "role": "primary",
+     "evidence": "ferrous minerals account for",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.GEO.MINERALSENERGY.2.3",
+     "catalog": "X.GEO.CF.NON_FERROUS_MINERALS",
+     "title": "Non-Ferrous Minerals",
+     "role": "secondary",
+     "evidence": null,
+     "evidence_verified": null
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B17",
+   "marks": 3,
+   "summary": "Energy saved is energy produced",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.3",
+     "catalog": "X.GEO.CF.CONSERVATION_ENERGY_RESOURCES",
+     "title": "Conservation of Energy Resources",
+     "role": "primary",
+     "evidence": "energy saved is energy produced",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B18a",
+   "marks": 5,
+   "summary": "Coal as most abundant fossil fuel",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.1.1",
+     "catalog": "X.GEO.CF.COAL",
+     "title": "Coal",
+     "role": "primary",
+     "evidence": "most abundantly available fossil fuel",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B18b",
+   "marks": 5,
+   "summary": "Aluminium industry in Odisha",
+   "units": [
+    {
+     "unit": "X.GEO.MANUFACTURING.3.2",
+     "catalog": "X.GEO.CF.ALUMINIUM_SMELTING",
+     "title": "Aluminium Smelting",
+     "role": "primary",
+     "evidence": "aluminium smelting",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "B19.1",
+   "marks": 1,
+   "summary": "Map: iron ore mine in Chhattisgarh",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.2.2.1",
+     "catalog": "X.GEO.CF.IRON_ORE",
+     "title": "Iron Ore",
+     "role": "primary",
+     "evidence": "bailadila",
+     "evidence_verified": true
+    }
+   ],
+   "note": "Map item."
+  },
+  {
+   "question": "B19.2",
+   "marks": 1,
+   "summary": "Map: coal mine in West Bengal",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.1.1",
+     "catalog": "X.GEO.CF.COAL",
+     "title": "Coal",
+     "role": "primary",
+     "evidence": "raniganj",
+     "evidence_verified": true
+    }
+   ],
+   "note": "Map item."
+  },
+  {
+   "question": "B19.3",
+   "marks": 1,
+   "summary": "Map: coal mine in Odisha",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.1.1",
+     "catalog": "X.GEO.CF.COAL",
+     "title": "Coal",
+     "role": "primary",
+     "evidence": null,
+     "evidence_verified": null
+    }
+   ],
+   "note": "Map item (Talcher): on the map only, linked via the catalog map list."
+  },
+  {
+   "question": "B19.4",
+   "marks": 1,
+   "summary": "Map: oil field in Assam",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.1.2",
+     "catalog": "X.GEO.CF.PETROLEUM",
+     "title": "Petroleum",
+     "role": "primary",
+     "evidence": "digboi",
+     "evidence_verified": true
+    }
+   ],
+   "note": "Map item."
+  },
+  {
+   "question": "B19.5",
+   "marks": 1,
+   "summary": "Map: oil field in Gujarat",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.1.2",
+     "catalog": "X.GEO.CF.PETROLEUM",
+     "title": "Petroleum",
+     "role": "primary",
+     "evidence": "ankeleshwar",
+     "evidence_verified": true
+    }
+   ],
+   "note": "Map item."
+  },
+  {
+   "question": "B19.6",
+   "marks": 1,
+   "summary": "Map: thermal power plant in Assam",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.1.4",
+     "catalog": "X.GEO.CF.ELECTRICITY",
+     "title": "Electricity",
+     "role": "primary",
+     "evidence": null,
+     "evidence_verified": null
+    }
+   ],
+   "note": "Map item (Namrup): on the map only, linked via the catalog map list."
+  },
+  {
+   "question": "B19.7",
+   "marks": 1,
+   "summary": "Map: nuclear power plant in Tamil Nadu",
+   "units": [
+    {
+     "unit": "X.GEO.MINERALSENERGY.4.2.1",
+     "catalog": "X.GEO.CF.NUCLEAR_OR_ATOMIC_ENERGY",
+     "title": "Nuclear or Atomic Energy",
+     "role": "primary",
+     "evidence": null,
+     "evidence_verified": null
+    }
+   ],
+   "note": "Map item (Kalpakkam): on the map only, linked via the catalog map list."
+  },
+  {
+   "question": "C20",
+   "marks": 1,
+   "summary": "Who made candidate affidavits mandatory",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.6",
+     "catalog": "X.POL.CF.HOW_CAN_PARTIES_BE_REFORMED",
+     "title": "How can parties be reformed?",
+     "role": "primary",
+     "evidence": "affidavit",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C21",
+   "marks": 1,
+   "summary": "Recognition as a national or state party",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.3",
+     "catalog": "X.POL.CF.NATIONAL_PARTIES",
+     "title": "National parties",
+     "role": "primary",
+     "evidence": "recognised as a national party",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C22",
+   "marks": 1,
+   "summary": "Match the four challenges to parties",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.5",
+     "catalog": "X.POL.CF.CHALLENGES_POLITICAL_PARTIES",
+     "title": "Challenges to political parties",
+     "role": "primary",
+     "evidence": "lack of internal democracy",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C23",
+   "marks": 1,
+   "summary": "A/R: anti-defection law",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.6",
+     "catalog": "X.POL.CF.HOW_CAN_PARTIES_BE_REFORMED",
+     "title": "How can parties be reformed?",
+     "role": "primary",
+     "evidence": "changing parties",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C24",
+   "marks": 1,
+   "summary": "Panchayat elections on a non-party basis",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.1.3",
+     "catalog": "X.POL.CF.NECESSITY",
+     "title": "Necessity",
+     "role": "primary",
+     "evidence": "non-party based elections to the panchayat",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C25",
+   "marks": 1,
+   "summary": "Which is not a party function",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.1.2",
+     "catalog": "X.POL.CF.FUNCTIONS",
+     "title": "Functions",
+     "role": "primary",
+     "evidence": "shape public opinion",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C26a",
+   "marks": 2,
+   "summary": "Reduce money and muscle power",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.6",
+     "catalog": "X.POL.CF.HOW_CAN_PARTIES_BE_REFORMED",
+     "title": "How can parties be reformed?",
+     "role": "primary",
+     "evidence": "state funding of elections",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C26b",
+   "marks": 2,
+   "summary": "Make parties more internally democratic",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.6",
+     "catalog": "X.POL.CF.HOW_CAN_PARTIES_BE_REFORMED",
+     "title": "How can parties be reformed?",
+     "role": "primary",
+     "evidence": "internal affairs of political parties",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C27",
+   "marks": 3,
+   "summary": "Three functions of political parties",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.1.2",
+     "catalog": "X.POL.CF.FUNCTIONS",
+     "title": "Functions",
+     "role": "primary",
+     "evidence": "form and run governments",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C28a",
+   "marks": 5,
+   "summary": "Parties are necessary for democracy",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.1.3",
+     "catalog": "X.POL.CF.NECESSITY",
+     "title": "Necessity",
+     "role": "primary",
+     "evidence": "we need political parties because they perform all these functions",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C28b",
+   "marks": 5,
+   "summary": "Challenges faced by parties today",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.5",
+     "catalog": "X.POL.CF.CHALLENGES_POLITICAL_PARTIES",
+     "title": "Challenges to political parties",
+     "role": "primary",
+     "evidence": "dynastic succession",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C29.1",
+   "marks": 1,
+   "summary": "What is defection",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.6",
+     "catalog": "X.POL.CF.HOW_CAN_PARTIES_BE_REFORMED",
+     "title": "How can parties be reformed?",
+     "role": "primary",
+     "evidence": "changing party allegiance",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C29.2",
+   "marks": 1,
+   "summary": "One Election Commission order",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.6",
+     "catalog": "X.POL.CF.HOW_CAN_PARTIES_BE_REFORMED",
+     "title": "How can parties be reformed?",
+     "role": "primary",
+     "evidence": "affidavit",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "C29.3",
+   "marks": 2,
+   "summary": "Laws alone cannot reform parties",
+   "units": [
+    {
+     "unit": "X.POL.PARTIES.6",
+     "catalog": "X.POL.CF.HOW_CAN_PARTIES_BE_REFORMED",
+     "title": "How can parties be reformed?",
+     "role": "primary",
+     "evidence": "over-regulation of political parties",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D30",
+   "marks": 1,
+   "summary": "Why trade was restricted after Independence",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.5.2",
+     "catalog": "X.ECO.CF.LIBERALISATION_FOREIGN_TRADE_FOREIGN_INVESTMENT_POLICY",
+     "title": "Liberalisation of foreign trade and foreign investment policy",
+     "role": "primary",
+     "evidence": "protect the producers within the country",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D31",
+   "marks": 1,
+   "summary": "Meaning of liberalisation",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.5.2",
+     "catalog": "X.ECO.CF.LIBERALISATION_FOREIGN_TRADE_FOREIGN_INVESTMENT_POLICY",
+     "title": "Liberalisation of foreign trade and foreign investment policy",
+     "role": "primary",
+     "evidence": "known as liberalisation",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D32",
+   "marks": 1,
+   "summary": "A/R: movement of people between countries",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.4",
+     "catalog": "X.ECO.CF.WHAT_IS_GLOBALISATION",
+     "title": "WHAT IS GLOBALISATION?",
+     "role": "primary",
+     "evidence": "movement of people between countries",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D33",
+   "marks": 2,
+   "summary": "Effects of cutting import tax on buyers and producers",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.5.2",
+     "catalog": "X.ECO.CF.LIBERALISATION_FOREIGN_TRADE_FOREIGN_INVESTMENT_POLICY",
+     "title": "Liberalisation of foreign trade and foreign investment policy",
+     "role": "primary",
+     "evidence": "tax on imports",
+     "evidence_verified": true
+    },
+    {
+     "unit": "X.ECO.GLOBALISATION.3",
+     "catalog": "X.ECO.CF.FOREIGN_TRADE_INTEGRATION_MARKETS",
+     "title": "FOREIGN TRADE AND INTEGRATION OF MARKETS",
+     "role": "secondary",
+     "evidence": "integration of markets in different countries",
+     "evidence_verified": true
+    }
+   ],
+   "note": "Mixed question; confirm in review."
+  },
+  {
+   "question": "D34",
+   "marks": 3,
+   "summary": "Foreign trade integrates markets",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.3",
+     "catalog": "X.ECO.CF.FOREIGN_TRADE_INTEGRATION_MARKETS",
+     "title": "FOREIGN TRADE AND INTEGRATION OF MARKETS",
+     "role": "primary",
+     "evidence": "integration of markets in different countries",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D35",
+   "marks": 3,
+   "summary": "Technology stimulated globalisation",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.5.1",
+     "catalog": "X.ECO.CF.TECHNOLOGY",
+     "title": "Technology",
+     "role": "primary",
+     "evidence": "rapid improvement in technology",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D36a",
+   "marks": 5,
+   "summary": "Globalisation as rapid integration",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.4",
+     "catalog": "X.ECO.CF.WHAT_IS_GLOBALISATION",
+     "title": "WHAT IS GLOBALISATION?",
+     "role": "primary",
+     "evidence": "rapid integration or interconnection",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D36b",
+   "marks": 5,
+   "summary": "Liberalisation made globalisation possible",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.5.2",
+     "catalog": "X.ECO.CF.LIBERALISATION_FOREIGN_TRADE_FOREIGN_INVESTMENT_POLICY",
+     "title": "Liberalisation of foreign trade and foreign investment policy",
+     "role": "primary",
+     "evidence": "known as liberalisation",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D37.1",
+   "marks": 1,
+   "summary": "What is a trade barrier",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.5.2",
+     "catalog": "X.ECO.CF.LIBERALISATION_FOREIGN_TRADE_FOREIGN_INVESTMENT_POLICY",
+     "title": "Liberalisation of foreign trade and foreign investment policy",
+     "role": "primary",
+     "evidence": "tax on imports",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D37.2",
+   "marks": 1,
+   "summary": "One reason for barriers after Independence",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.5.2",
+     "catalog": "X.ECO.CF.LIBERALISATION_FOREIGN_TRADE_FOREIGN_INVESTMENT_POLICY",
+     "title": "Liberalisation of foreign trade and foreign investment policy",
+     "role": "primary",
+     "evidence": "protect the producers within the country",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  },
+  {
+   "question": "D37.3",
+   "marks": 2,
+   "summary": "Effect of removing barriers after 1991",
+   "units": [
+    {
+     "unit": "X.ECO.GLOBALISATION.5.2",
+     "catalog": "X.ECO.CF.LIBERALISATION_FOREIGN_TRADE_FOREIGN_INVESTMENT_POLICY",
+     "title": "Liberalisation of foreign trade and foreign investment policy",
+     "role": "primary",
+     "evidence": "1991",
+     "evidence_verified": true
+    }
+   ],
+   "note": null
+  }
+ ]
+}
