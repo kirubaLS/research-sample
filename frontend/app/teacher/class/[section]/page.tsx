@@ -5,20 +5,14 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ArrowRight, ShieldCheck, TrendingDown, TrendingUp, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
-import { api, AcademicTestRow, ClassStudentRow, CohortReport } from "@/lib/api";
+import { api, AcademicStatus, AcademicTestRow, ClassStudentRow, CohortReport } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 import { usePageHeader } from "@/lib/pageHeader";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
 import { LoadingScreen } from "@/components/Shell";
 import { DeltaCell } from "@/components/StudentRosterTable";
-
-const STATUS_LABEL: Record<string, string> = {
-  on_track: "On Track",
-  needs_attention: "Needs Attention",
-  requires_review: "Requires Review",
-  not_assessed: "Not assessed",
-};
+import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
 
 /** §6.2 Class view, a class teacher's own section, scoped to only the
  * subject(s) she actually teaches there -- real marks, one call per subject
@@ -119,7 +113,7 @@ export default function ClassView() {
     const scores = mySubjects.map((s) => rowFor(studentId, s)?.avg_score_pct).filter((v): v is number => v != null);
     return scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) : null;
   };
-  const attentionOf = (studentId: string): string => {
+  const attentionOf = (studentId: string): AcademicStatus => {
     const statuses = mySubjects.map((s) => rowFor(studentId, s)?.status).filter((v): v is NonNullable<typeof v> => !!v);
     if (statuses.some((s) => s === "requires_review")) return "requires_review";
     if (statuses.some((s) => s === "needs_attention")) return "needs_attention";
@@ -245,9 +239,9 @@ export default function ClassView() {
                           </td>
                         );
                       })}
-                      <td>{blocker ? `${blocker.chapter} (${Math.round(blocker.rate * 100)}%)` : "—"}</td>
+                      <td>{blocker ? `${blocker.chapter} (${Math.round(blocker.rate)}%)` : "—"}</td>
                       <td>
-                        <AttentionPill level={STATUS_LABEL[attentionOf(s.id)]} />
+                        <AttentionPill level={STATUS_PILL_KEY[attentionOf(s.id)]} label={STATUS_LABEL[attentionOf(s.id)]} />
                       </td>
                       <td style={{ textAlign: "right" }}>
                         <Link href={`/teacher/student/${s.id}`} className="btn btn--sm">

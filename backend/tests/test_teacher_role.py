@@ -31,6 +31,7 @@ def test_admin_me_returns_a_teacher_shape(client, school):
             "section_id": school["section_id"],
             "section_label": me["assignments"][0]["section_label"],
             "subject_code": None,
+            "subject_label": None,
         }
     ]
     assert me["assignments"][0]["section_label"].startswith("Class ")

@@ -29,6 +29,7 @@ export interface TeacherAssignment {
   section_id: string;
   section_label: string | null;
   subject_code: string | null;
+  subject_label: string | null;
 }
 
 /** What a signed-in staff key may do. Mirrors /admin/me; the server is the authority. */

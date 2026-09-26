@@ -7,6 +7,7 @@ import type { ClassStudentRow } from "@/lib/api";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
 import { DeltaCell } from "@/components/StudentRosterTable";
+import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
 
 type QuickFilter = "all" | "top" | "climbing" | "critical";
 
@@ -15,13 +16,6 @@ const FILTER_LABEL: Record<QuickFilter, string> = {
   top: "Top Performers",
   climbing: "Late Bloomers",
   critical: "Critical",
-};
-
-const STATUS_LABEL: Record<string, string> = {
-  on_track: "On Track",
-  needs_attention: "Needs Attention",
-  requires_review: "Requires Review",
-  not_assessed: "Not assessed",
 };
 
 /** A subject teacher's own roster table, backed by the real, subject-scoped student rows
@@ -89,9 +83,9 @@ export function SubjectRoster({ subject, section, students }: { subject: string;
                     <DeltaCell delta={s.delta_pct === null ? null : Math.round(s.delta_pct)} />
                   </td>
                 )}
-                <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${Math.round(s.top_improvement_area.rate * 100)}%)` : "—"}</td>
+                <td>{s.top_improvement_area ? `${s.top_improvement_area.chapter} (${Math.round(s.top_improvement_area.rate)}%)` : "—"}</td>
                 <td>
-                  <AttentionPill level={STATUS_LABEL[s.status] ?? s.status} />
+                  <AttentionPill level={STATUS_PILL_KEY[s.status]} label={STATUS_LABEL[s.status]} />
                 </td>
                 <td style={{ textAlign: "right" }}>
                   <Link href={`/teacher/student/${s.student_id}`} className="btn btn--sm">

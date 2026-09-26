@@ -176,6 +176,7 @@ export interface ClassStudentRow {
   status: AcademicStatus;
   avg_score_pct: number | null;
   tests_taken: number;
+  /** rate is already a 0-100 percentage (rounded server-side) -- never multiply by 100 again. */
   top_improvement_area: { chapter: string; rate: number } | null;
   /** Score on the immediately preceding same-subject test, when the view is narrowed to
    *  one test and this student sat the earlier one too; otherwise null. */

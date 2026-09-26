@@ -26,7 +26,7 @@ export default function TeacherLayout({ children }: { children: React.ReactNode 
             if (a.type === "subject" && a.subject_code) {
               nav.push({
                 href: `/teacher/subject/${encodeURIComponent(a.subject_code)}/${a.section_id}`,
-                label: `${a.subject_code} · ${a.section_label ?? a.section_id}`,
+                label: `${a.subject_label ?? a.subject_code} · ${a.section_label ?? a.section_id}`,
                 icon: BookOpen,
                 group: "My subjects",
               });

@@ -36,13 +36,17 @@ export default function SubjectView() {
   const [tests, setTests] = useState<AcademicTestRow[]>([]);
   const [cohort, setCohort] = useState<CohortReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The route param is the section's real id (a UUID), never fit to show a person --
+  // GET .../teacher/academics/{section}/students already returns this section's real
+  // label (e.g. "X-A") alongside its roster, so that's what every display below uses.
+  const [sectionLabel, setSectionLabel] = useState(section);
 
   const allowed = user?.role === "teacher" && user.assignments.some((a) => a.type === "subject" && a.subject_code === subject && a.section_id === section);
 
   // AcademicTestRow.label is this subject's real display name (e.g. "Mathematics"),
   // already returned by GET .../teacher/academics/tests -- never the raw subject_code.
   const subjectLabel = tests.find((t) => t.subject_code === subject)?.label ?? subject;
-  usePageHeader({ title: `${subjectLabel} · ${section}`, backHref: "/teacher/home" });
+  usePageHeader({ title: `${subjectLabel} · ${sectionLabel}`, backHref: "/teacher/home" });
 
   useEffect(() => {
     const key = getApiKey();
@@ -71,7 +75,10 @@ export default function SubjectView() {
     // on the tests call.
     api
       .teacherAcademicsStudents(key, section, { subjectCode: subject, assessmentId: latestTest?.assessment_id })
-      .then((r) => setStudents(r.students))
+      .then((r) => {
+        setStudents(r.students);
+        setSectionLabel(r.section.label);
+      })
       .catch(() => setError("Could not load this class's marks."));
   }, [section, subject, allowed, latestTest?.assessment_id]);
 
@@ -86,7 +93,7 @@ export default function SubjectView() {
       });
   }, [latestTest?.assessment_id, section, allowed]);
 
-  if (!allowed) return <EvidenceState kind="cause">You are not assigned to {subjectLabel} for {section}.</EvidenceState>;
+  if (!allowed) return <EvidenceState kind="cause">You are not assigned to {subjectLabel} for {sectionLabel}.</EvidenceState>;
   if (error) return <EvidenceState kind="early">{error}</EvidenceState>;
   if (!students) return <LoadingScreen label="Loading this subject…" />;
 
@@ -121,7 +128,7 @@ export default function SubjectView() {
               <div className="kpi__text">
                 <span className="kpi__label">Students</span>
                 <span className="kpi__value" style={{ fontSize: 20 }}>{students.length}</span>
-                <span className="kpi__sub">In {section}</span>
+                <span className="kpi__sub">In {sectionLabel}</span>
               </div>
             </div>
             <div className="kpi" style={{ "--accent": "var(--brand-teal)" } as CSSProperties}>
@@ -186,10 +193,10 @@ export default function SubjectView() {
           <section className="section">
             <div className="section__head">
               <h2 className="section-q">
-                {section} students in {subjectLabel}
+                {sectionLabel} students in {subjectLabel}
               </h2>
             </div>
-            <SubjectRoster subject={subjectLabel} section={section} students={students} />
+            <SubjectRoster subject={subjectLabel} section={sectionLabel} students={students} />
           </section>
         </>
       ) : tab === "paper" ? (

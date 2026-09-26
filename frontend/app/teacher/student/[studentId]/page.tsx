@@ -10,13 +10,7 @@ import { useAuth } from "@/lib/auth";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
 import { LoadingScreen } from "@/components/Shell";
-
-const STATUS_LABEL: Record<string, string> = {
-  on_track: "On Track",
-  needs_attention: "Needs Attention",
-  requires_review: "Requires Review",
-  not_assessed: "Not assessed",
-};
+import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
 
 /**
  * §6.4 Teacher-facing student report -- real cross-subject overview
@@ -103,7 +97,7 @@ export default function StudentReportPage() {
         <p className="page-sub" style={{ marginTop: 0 }}>
           {overview.student.section_label ?? overview.student.section_id} · Roll no. {overview.student.roll_no}
         </p>
-        <AttentionPill level={STATUS_LABEL[overview.overall.status] ?? overview.overall.status} />
+        <AttentionPill level={STATUS_PILL_KEY[overview.overall.status]} label={STATUS_LABEL[overview.overall.status]} />
       </div>
 
       <div style={{ display: "grid", gap: 16, marginTop: 22 }}>

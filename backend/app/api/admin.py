@@ -28,6 +28,7 @@ from app.api.deps import (
     teacher_can_read,
     teacher_subject_codes,
 )
+from app.api.academics import _subject_label
 from app.api.schemas import StudentCreateIn, StudentUpdateIn
 from app.curriculum import subject_groups
 from app.db import get_session
@@ -123,6 +124,7 @@ def whoami(
                     if a.section_id in sections else None
                 ),
                 "subject_code": a.subject_code,
+                "subject_label": _subject_label(a.subject_code) if a.subject_code else None,
             }
             for a in rows
         ]
