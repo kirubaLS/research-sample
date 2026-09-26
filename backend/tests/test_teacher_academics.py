@@ -317,6 +317,68 @@ def test_teacher_boardx_refuses_a_student_outside_scope(client, school, teacher_
     assert r.status_code == 404
 
 
+# ------------------------------------------------------------------------------------
+# Read-only per-question marks grid (Part 4): real awarded marks, real chapter/
+# concept_family names for a color legend, and a real total -- never fabricated.
+# ------------------------------------------------------------------------------------
+
+def test_marks_grid_has_real_per_question_marks_and_chapter_groups(client, school, teacher_scope_paper):
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(
+        f"/admin/teacher/academics/{school['section_id']}/tests/{teacher_scope_paper['math_aid']}/marks-grid",
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["assessment"]["subject_code"] == "X.MATH"
+    assert len(body["questions"]) == 1
+    assert body["questions"][0]["group"]  # a real taxonomy label, never blank
+    assert body["total_marks"] == 10
+
+    rows = {row["roll_no"]: row for row in body["students"]}
+    strong_roll = next(s for s in client.get(
+        f"/admin/teacher/academics/{school['section_id']}/students", headers=h,
+    ).json()["students"] if s["student_id"] == teacher_scope_paper["strong_id"])["roll_no"]
+    weak_roll = next(s for s in client.get(
+        f"/admin/teacher/academics/{school['section_id']}/students", headers=h,
+    ).json()["students"] if s["student_id"] == teacher_scope_paper["weak_id"])["roll_no"]
+    assert rows[strong_roll]["total"] == 9
+    assert rows[weak_roll]["total"] == 2
+    # fully_marked is a real, section-wide signal -- not asserted True here, since
+    # `school`'s section is a session-scoped fixture shared by every test file and may
+    # carry other tests' own students with no mark on this specific paper.
+
+
+def test_marks_grid_not_fully_marked_when_a_student_has_no_resolved_mark(client, school, teacher_scope_paper):
+    from app.db import SessionLocal
+    from app.models import StudentProfile
+
+    db = SessionLocal()
+    unmarked = StudentProfile(
+        school_id=school["school_id"], section_id=school["section_id"], name="Unmarked", roll_no="zz-unmarked",
+    )
+    db.add(unmarked)
+    db.commit()
+    db.close()
+
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(
+        f"/admin/teacher/academics/{school['section_id']}/tests/{teacher_scope_paper['math_aid']}/marks-grid",
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["fully_marked"] is False
+
+
+def test_marks_grid_refuses_a_subject_teacher_reading_the_other_subjects_paper(client, school, teacher_scope_paper):
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.get(
+        f"/admin/teacher/academics/{school['section_id']}/tests/{teacher_scope_paper['sci_aid']}/marks-grid",
+        headers=h,
+    )
+    assert r.status_code == 404
+
+
 def test_reports_boardx_still_refuses_a_teacher_key(client, school, teacher_scope_paper):
     """The school-wide GET /reports/student/{id}/boardx stays teacher-refused, per its
     own docstring -- the teacher-scoped sibling above is the intended replacement, not

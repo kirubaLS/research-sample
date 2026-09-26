@@ -10,6 +10,7 @@ import { usePageHeader } from "@/lib/pageHeader";
 import { EvidenceState } from "@/components/EvidenceState";
 import { LoadingScreen } from "@/components/Shell";
 import { MarksEntryGrid } from "@/components/MarksEntryGrid";
+import { ConfirmedMarksGrid } from "@/components/ConfirmedMarksGrid";
 import { QuestionPaperPanel } from "@/components/QuestionPaperPanel";
 import { SubjectRoster } from "@/components/SubjectRoster";
 import { DeltaCell } from "@/components/StudentRosterTable";
@@ -25,6 +26,12 @@ export default function SubjectView() {
   usePageHeader({ title: `${subject} · ${section}`, backHref: "/teacher/home" });
   const [tab, setTab] = useState<"insights" | "paper" | "marks">("insights");
   const { user } = useAuth();
+  const [marksTestId, setMarksTestId] = useState("");
+  // Once GET .../marks-grid says a picked test is not fully marked yet, remember that
+  // (per test id) so this tab falls back to the live upload flow for it rather than
+  // re-checking on every render -- and so a different test picked afterwards still
+  // gets its own fresh check.
+  const [notReadyIds, setNotReadyIds] = useState<Set<string>>(new Set());
 
   const [students, setStudents] = useState<ClassStudentRow[] | null>(null);
   const [tests, setTests] = useState<AcademicTestRow[]>([]);
@@ -45,6 +52,11 @@ export default function SubjectView() {
   }, [section, subject, allowed]);
 
   const latestTest = tests[tests.length - 1];
+
+  useEffect(() => {
+    if (!marksTestId && latestTest) setMarksTestId(latestTest.assessment_id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [latestTest?.assessment_id]);
 
   useEffect(() => {
     const key = getApiKey();
@@ -182,7 +194,33 @@ export default function SubjectView() {
         </div>
       ) : (
         <div style={{ marginTop: 18 }}>
-          <MarksEntryGrid subject={subject} section={section} />
+          {tests.length > 0 && (
+            <div className="field" style={{ maxWidth: 320 }}>
+              <label htmlFor="marks-test-picker">Assessment</label>
+              <select
+                id="marks-test-picker"
+                className="select"
+                value={marksTestId}
+                onChange={(e) => setMarksTestId(e.target.value)}
+              >
+                {tests.map((t) => (
+                  <option key={t.assessment_id} value={t.assessment_id}>
+                    {t.title}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {marksTestId && !notReadyIds.has(marksTestId) ? (
+            <ConfirmedMarksGrid
+              key={marksTestId}
+              section={section}
+              assessmentId={marksTestId}
+              onNotReady={() => setNotReadyIds((prev) => new Set(prev).add(marksTestId))}
+            />
+          ) : (
+            <MarksEntryGrid subject={subject} section={section} />
+          )}
         </div>
       )}
     </>

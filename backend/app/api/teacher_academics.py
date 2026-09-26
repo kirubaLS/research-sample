@@ -287,6 +287,119 @@ def teacher_test_summary(
     }
 
 
+@router.get("/{section_id}/tests/{assessment_id}/marks-grid")
+def teacher_marks_grid(
+    section_id: str, assessment_id: str,
+    staff: Staff = Depends(current_staff), db: Session = Depends(get_session),
+) -> dict:
+    """The already-graded, read-only per-question marks grid for one section on one
+    paper: every student's real awarded mark on every real question address, plus each
+    question's real chapter/concept_family name (for a UI's color-grouped legend) --
+    never a fabricated grouping or total. Refused with 404 the same way every other
+    teacher-scoped route in this file is, unless this key holds a class assignment on
+    ``section_id`` or a subject assignment naming this paper's own subject.
+
+    ``fully_marked`` is True only when every student in the section has an awarded (or
+    absent/not_offered) mark event resolved for every question on this paper -- the
+    signal a caller uses to decide whether to show this read-only grid at all, or fall
+    back to the live entry flow for a paper nobody has finished marking yet.
+    """
+    _require_teacher(staff)
+    assert staff.home is not None
+    school = staff.home
+
+    from app.models import Assessment
+
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None or assessment.school_id != school.id:
+        raise HTTPException(404, "no such test")
+    if not teacher_can_read(staff, db, section_id, assessment.subject_code):
+        raise HTTPException(404, "not found")
+
+    students = list(
+        db.scalars(
+            select(StudentProfile)
+            .where(StudentProfile.section_id == section_id)
+            .order_by(StudentProfile.roll_no)
+        )
+    )
+    if not students:
+        raise HTTPException(404, "no such test")
+    student_ids = [s.id for s in students]
+
+    from app.models import Question, TaxonomyNode
+
+    questions = list(
+        db.scalars(
+            select(Question)
+            .where(Question.assessment_id == assessment_id)
+            .order_by(Question.question_no, Question.sub_part)
+        )
+    )
+    if not questions:
+        raise HTTPException(404, "no such test")
+
+    node_ids = {q.concept_family_id for q in questions} | {q.chapter_id for q in questions if q.chapter_id}
+    nodes = {
+        n.id: n for n in db.scalars(select(TaxonomyNode).where(TaxonomyNode.id.in_(node_ids)))
+    } if node_ids else {}
+
+    def _label(addr_question: Question) -> str:
+        n = nodes.get(addr_question.chapter_id) if addr_question.chapter_id else None
+        if n is not None:
+            return n.label
+        # No chapter (a skill-anchored question, by design -- see Question.chapter_id's
+        # own docstring): the concept_family is the axis that survives it, so the
+        # legend groups by that real, stored name instead of inventing one.
+        fam = nodes.get(addr_question.concept_family_id)
+        return fam.label if fam is not None else addr_question.concept_family_id
+
+    tagged = resolved_rows(db, school, student_ids=student_ids, assessment_id=assessment_id)
+    by_key: dict[tuple[str, str], TaggedRow] = {(t.row.student_id, t.row.address): t for t in tagged}
+
+    question_cols = [
+        {
+            "address": q.address,
+            "label": f"Q{q.question_no}{q.sub_part or ''}",
+            "max_marks": float(q.max_marks),
+            "group": _label(q),
+        }
+        for q in questions
+    ]
+    total_marks = sum(c["max_marks"] for c in question_cols)
+
+    rows = []
+    fully_marked = True
+    for student in students:
+        marks: dict[str, float | None] = {}
+        total = 0.0
+        for q in questions:
+            tr = by_key.get((student.id, q.address))
+            if tr is None:
+                marks[q.address] = None
+                fully_marked = False
+            else:
+                marks[q.address] = tr.row.earned if tr.row.counts else None
+                if tr.row.counts:
+                    total += tr.row.earned
+        rows.append({
+            "student_id": student.id, "roll_no": student.roll_no, "name": student.name,
+            "marks": marks, "total": round(total, 2),
+        })
+
+    return {
+        "assessment": {
+            "id": assessment.id, "title": assessment.title,
+            "subject_code": assessment.subject_code, "subject_label": _subject_label(assessment.subject_code),
+        },
+        "section_id": section_id,
+        "questions": question_cols,
+        "total_marks": total_marks,
+        "students": rows,
+        "fully_marked": fully_marked,
+    }
+
+
 def _get_scoped_student(db: Session, staff: Staff, student_id: str) -> StudentProfile:
     student = db.get(StudentProfile, student_id)
     if student is None or staff.home is None or student.school_id != staff.home.id:

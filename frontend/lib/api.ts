@@ -370,6 +370,34 @@ export interface AcademicTestRow {
   delta_pct: number | null;
 }
 
+/** GET /admin/teacher/academics/{section}/tests/{id}/marks-grid */
+export interface MarksGridQuestion {
+  address: string;
+  label: string;
+  max_marks: number;
+  /** The question's real chapter (or, for a skill-anchored question with no chapter,
+   *  its concept_family) label -- what a legend groups by. Never a fabricated name. */
+  group: string;
+}
+
+export interface MarksGridRow {
+  student_id: string;
+  roll_no: string;
+  name: string;
+  /** address -> awarded mark, or null when nothing is resolved for that question yet. */
+  marks: Record<string, number | null>;
+  total: number;
+}
+
+export interface MarksGridReport {
+  assessment: { id: string; title: string; subject_code: string; subject_label: string };
+  section_id: string;
+  questions: MarksGridQuestion[];
+  total_marks: number;
+  students: MarksGridRow[];
+  fully_marked: boolean;
+}
+
 /** GET /admin/academics/tests/{id} -- one test's own student-by-student summary. */
 export interface TestStudentRow {
   student_id: string;
@@ -1856,6 +1884,13 @@ export const api = {
 
   teacherAcademicsTestSummaryCsv: (key: string, assessmentId: string) =>
     authedBlob(`/admin/teacher/academics/tests/${assessmentId}.csv`, key),
+
+  /** The already-graded, read-only per-question marks grid for one section on one
+   *  paper -- real awarded marks, real chapter/concept_family names for a legend,
+   *  and a real total. `fully_marked` says whether every student has every question
+   *  resolved, the signal a caller uses to decide whether to show this grid at all. */
+  teacherMarksGrid: (key: string, sectionId: string, assessmentId: string) =>
+    authed<MarksGridReport>(`/admin/teacher/academics/${sectionId}/tests/${assessmentId}/marks-grid`, key),
 
   // --- teacher-scoped student detail + BoardX drill-down: the same cross-subject
   // overview, chapter/tier breakdown and BoardX one-pager a principal gets, narrowed

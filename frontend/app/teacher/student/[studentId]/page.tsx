@@ -1,11 +1,12 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { Check, Send, Share2 } from "lucide-react";
 import { api, IssuedReportRow, StudentAcademicsOverview, StudentSubjectBreakdown } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 import { usePageHeader } from "@/lib/pageHeader";
+import { useAuth } from "@/lib/auth";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
 import { LoadingScreen } from "@/components/Shell";
@@ -31,7 +32,11 @@ export default function StudentReportPage() {
   const [issued, setIssued] = useState<IssuedReportRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [by, setBy] = useState("");
+  // Real, not a step a teacher should have to type through every time -- attributed to
+  // whoever is actually signed in, the same fix already made on the principal Share
+  // reports page.
+  const { user } = useAuth();
+  const by = user && "name" in user && user.name ? user.name : "";
 
   usePageHeader({ title: overview?.student.name ?? studentId, backHref: "/teacher/home" });
 
@@ -101,11 +106,6 @@ export default function StudentReportPage() {
         <AttentionPill level={STATUS_LABEL[overview.overall.status] ?? overview.overall.status} />
       </div>
 
-      <div className="field" style={{ maxWidth: 260, marginTop: 12 }}>
-        <label htmlFor="by">Your name (recorded against issue/share)</label>
-        <input id="by" className="input" value={by} onChange={(e) => setBy(e.target.value)} />
-      </div>
-
       <div style={{ display: "grid", gap: 16, marginTop: 22 }}>
         {overview.subjects.map((s) => {
           const breakdown = breakdowns[s.subject_code];
@@ -113,7 +113,7 @@ export default function StudentReportPage() {
           const latestTest = breakdown?.tests[breakdown.tests.length - 1];
           const existingReport = latestTest ? reportsForSubject.find((r) => r.assessment_id === latestTest.assessment_id) : undefined;
           return (
-            <div className="card" key={s.subject_code}>
+            <div className="card card--hover" style={{ "--accent": "var(--brand-blue)" } as CSSProperties} key={s.subject_code}>
               <div className="card__head">
                 <div>
                   <div className="eyebrow">{latestTest?.title ?? "No test yet"}</div>
