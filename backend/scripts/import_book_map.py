@@ -53,12 +53,13 @@ from app.db import SessionLocal
 from app.ingest.book import normalise, stem_hash
 from app.models import BookChunk, ConceptFamilyProposal, Question, TaxonomyAlias, TaxonomyNode
 
-REFERENCE_DIR = Path(__file__).resolve().parent.parent / "reference" / "book_map"
+REFERENCE_DIR = Path(__file__).resolve().parent.parent / "reference"
 SUBJECT_FILES = {
-    "X.HIST": "history/history_units.json",
-    "X.GEO": "geography/geography_units.json",
-    "X.POL": "politics/politics_units.json",
-    "X.ECO": "economics/economics_units.json",
+    "X.HIST": "book_map/history/history_units.json",
+    "X.GEO": "book_map/geography/geography_units.json",
+    "X.POL": "book_map/politics/politics_units.json",
+    "X.ECO": "book_map/economics/economics_units.json",
+    "X.SCI": "book_map_science/science_units.json",
 }
 RUN_ID = "book_map_import_v1"
 

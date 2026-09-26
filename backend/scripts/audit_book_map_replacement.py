@@ -27,7 +27,7 @@ from sqlalchemy import func, select
 from app.db import SessionLocal
 from app.models import BookChunk, ConceptFamilyProposal, Question, TaxonomyNode
 
-SUBJECT_CODES = ["X.HIST", "X.GEO", "X.POL", "X.ECO"]
+SUBJECT_CODES = ["X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI"]
 
 
 def main() -> None:
