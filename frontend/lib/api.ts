@@ -158,6 +158,10 @@ export interface TeacherAcademicClassRow {
   student_count: number;
   status_counts: ClassAcademicSummary["status_counts"];
   avg_score_pct: number | null;
+  /** Average marks earned / average marks possible per student, behind avg_score_pct
+   *  -- both null together when nobody has a resolved mark yet. */
+  avg_marks_earned: number | null;
+  avg_marks_available: number | null;
   test_count: number;
 }
 
@@ -1823,22 +1827,23 @@ export const api = {
   teacherAcademicsOverview: (key: string) =>
     authed<{ classes: TeacherAcademicClassRow[] }>("/admin/teacher/academics", key),
 
-  teacherAcademicsStudents: (key: string, sectionId: string, filters?: { subjectCode?: string; status?: AcademicStatus }) =>
+  teacherAcademicsStudents: (key: string, sectionId: string, filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus }) =>
     authed<{
       section: { id: string; label: string };
       subject_code: string | null;
+      previous_test: { assessment_id: string; title: string } | null;
       students: ClassStudentRow[];
     }>(
       `/admin/teacher/academics/${sectionId}/students${qs({
-        subject_code: filters?.subjectCode, status: filters?.status,
+        subject_code: filters?.subjectCode, assessment_id: filters?.assessmentId, status: filters?.status,
       })}`,
       key,
     ),
 
-  teacherAcademicsStudentsCsv: (key: string, sectionId: string, filters?: { subjectCode?: string; status?: AcademicStatus }) =>
+  teacherAcademicsStudentsCsv: (key: string, sectionId: string, filters?: { subjectCode?: string; assessmentId?: string; status?: AcademicStatus }) =>
     authedBlob(
       `/admin/teacher/academics/${sectionId}/students.csv${qs({
-        subject_code: filters?.subjectCode, status: filters?.status,
+        subject_code: filters?.subjectCode, assessment_id: filters?.assessmentId, status: filters?.status,
       })}`,
       key,
     ),

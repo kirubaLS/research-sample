@@ -1,7 +1,8 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
+import { ShieldCheck, Target, Users } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import { api, AcademicTestRow, ClassStudentRow, CohortReport } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
@@ -11,6 +12,7 @@ import { LoadingScreen } from "@/components/Shell";
 import { MarksEntryGrid } from "@/components/MarksEntryGrid";
 import { QuestionPaperPanel } from "@/components/QuestionPaperPanel";
 import { SubjectRoster } from "@/components/SubjectRoster";
+import { DeltaCell } from "@/components/StudentRosterTable";
 
 /** §6.3 Subject view, one subject, one section, with real Question Paper and Enter Marks
  * tabs. Insights come from GET /admin/teacher/academics/{section}/students (subject_code
@@ -35,10 +37,6 @@ export default function SubjectView() {
     const key = getApiKey();
     if (!key || !allowed) return;
     api
-      .teacherAcademicsStudents(key, section, { subjectCode: subject })
-      .then((r) => setStudents(r.students))
-      .catch(() => setError("Could not load this class's marks."));
-    api
       .teacherAcademicsTests(key)
       .then((r) => setTests(r.tests.filter((t) => t.subject_code === subject)))
       .catch(() => {
@@ -47,6 +45,19 @@ export default function SubjectView() {
   }, [section, subject, allowed]);
 
   const latestTest = tests[tests.length - 1];
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key || !allowed) return;
+    // Narrowed to the latest test once it is known, so the roster's "vs last" column and
+    // delta_pct come from the same real comparison the cohort findings below use --
+    // still fetched (without a test) before that resolves, so the roster isn't blocked
+    // on the tests call.
+    api
+      .teacherAcademicsStudents(key, section, { subjectCode: subject, assessmentId: latestTest?.assessment_id })
+      .then((r) => setStudents(r.students))
+      .catch(() => setError("Could not load this class's marks."));
+  }, [section, subject, allowed, latestTest?.assessment_id]);
 
   useEffect(() => {
     const key = getApiKey();
@@ -89,18 +100,33 @@ export default function SubjectView() {
       {tab === "insights" ? (
         <>
           <div className="grid grid--3" style={{ marginTop: 18 }}>
-            <div className="stat">
-              <div className="stat__label">Students</div>
-              <div className="stat__value">{students.length}</div>
+            <div className="kpi" style={{ "--accent": "var(--brand-blue)" } as CSSProperties}>
+              <span className="kpi__icon"><Users size={22} /></span>
+              <div className="kpi__text">
+                <span className="kpi__label">Students</span>
+                <span className="kpi__value" style={{ fontSize: 20 }}>{students.length}</span>
+                <span className="kpi__sub">In {section}</span>
+              </div>
             </div>
-            <div className="stat">
-              <div className="stat__label">Avg attainment</div>
-              <div className="stat__value">{avg != null ? `${avg}%` : "—"}</div>
+            <div className="kpi" style={{ "--accent": "var(--brand-teal)" } as CSSProperties}>
+              <span className="kpi__icon"><ShieldCheck size={22} /></span>
+              <div className="kpi__text">
+                <span className="kpi__label">Avg attainment</span>
+                <span className="kpi__value" style={{ fontSize: 20 }}>
+                  {avg != null ? `${avg}%` : "—"}
+                  {latestTest?.delta_pct !== undefined && latestTest?.delta_pct !== null && <DeltaCell delta={Math.round(latestTest.delta_pct)} />}
+                </span>
+                <span className="kpi__sub">{latestTest ? `As of ${latestTest.title}` : "No graded test yet"}</span>
+              </div>
             </div>
-            <div className="stat">
-              <div className="stat__label">On track</div>
-              <div className="stat__value">
-                {atExpected} <span className="small muted" style={{ fontWeight: 400 }}>of {students.length}</span>
+            <div className="kpi" style={{ "--accent": "var(--brand-gold)" } as CSSProperties}>
+              <span className="kpi__icon"><Target size={22} /></span>
+              <div className="kpi__text">
+                <span className="kpi__label">At expected level</span>
+                <span className="kpi__value" style={{ fontSize: 20 }}>
+                  {atExpected} <span className="small muted" style={{ fontWeight: 400 }}>of {students.length}</span>
+                </span>
+                <span className="kpi__sub">On Track status</span>
               </div>
             </div>
           </div>

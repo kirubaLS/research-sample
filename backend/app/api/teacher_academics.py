@@ -119,6 +119,12 @@ def teacher_academics_overview(
             "student_count": len(students),
             "status_counts": counts,
             "avg_score_pct": round(earned_sum / available_sum * 100, 1) if available_sum else None,
+            # Real average marks earned / average marks possible, per student, behind
+            # that percentage -- for an "avg 14 / 17" style display. Derived from the
+            # same earned/available sums avg_score_pct is computed from, never a guess;
+            # None (not a fabricated 0) when nobody in this class has a resolved mark.
+            "avg_marks_earned": round(earned_sum / len(students), 1) if available_sum and students else None,
+            "avg_marks_available": round(available_sum / len(students), 1) if available_sum and students else None,
             "test_count": len(assessment_ids),
         })
     out.sort(key=lambda e: (e["label"], e["subject_label"]))
@@ -127,26 +133,29 @@ def teacher_academics_overview(
 
 @router.get("/{section_id}/students.csv")
 def teacher_class_students_csv(
-    section_id: str, subject_code: str | None = None, status: str | None = None,
+    section_id: str, subject_code: str | None = None, assessment_id: str | None = None, status: str | None = None,
     staff: Staff = Depends(current_staff), db: Session = Depends(get_session),
 ) -> Response:
     """Same rows as the bare route below, as a CSV -- registered first so FastAPI
     matches the ``.csv`` suffix before the bare ``{section_id}`` path param would
     swallow it (the convention every ``.xlsx``/``.pdf`` sibling in academics.py follows)."""
-    body = teacher_class_students(section_id, subject_code, status, staff, db)
+    body = teacher_class_students(section_id, subject_code, assessment_id, status, staff, db)
     header, rows = _class_students_rows(body["students"])
     return _csv_response(header, rows, f"{body['section']['label']}-students.csv")
 
 
 @router.get("/{section_id}/students")
 def teacher_class_students(
-    section_id: str, subject_code: str | None = None, status: str | None = None,
+    section_id: str, subject_code: str | None = None, assessment_id: str | None = None, status: str | None = None,
     staff: Staff = Depends(current_staff), db: Session = Depends(get_session),
 ) -> dict:
     """The same per-student status/avg-score list a principal's class page shows,
     refused with 404 unless this teacher key holds a class or subject assignment on
     this exact section -- and, for a subject assignment, always run as that one
-    subject regardless of what the query string asks for."""
+    subject regardless of what the query string asks for. ``assessment_id``, like the
+    principal's own route, narrows to one test and unlocks each row's real
+    previous_score_pct/delta_pct against the immediately preceding same-subject test --
+    left out (both null) when no test is named."""
     _require_teacher(staff)
     assert staff.home is not None
     scope = _teacher_scope(staff, db)
@@ -154,15 +163,20 @@ def teacher_class_students(
     if status is not None and status not in STATUS_LABELS:
         raise HTTPException(422, f"status must be one of {', '.join(STATUS_LABELS)}")
 
-    from app.api.academics import _class_students, _get_section
+    from app.api.academics import _class_students, _get_section, _previous_test
 
     section = _get_section(db, staff.home, section_id)
+    student_ids = list(
+        db.scalars(select(StudentProfile.id).where(StudentProfile.section_id == section_id))
+    )
+    previous = _previous_test(db, staff.home, assessment_id, student_ids) if assessment_id else None
     students = _class_students(
-        db, staff.home, section, subject_code=effective_subject, assessment_id=None, status=status,
+        db, staff.home, section, subject_code=effective_subject, assessment_id=assessment_id, status=status,
     )
     return {
         "section": {"id": section.id, "label": f"Class {section.grade}-{section.name}"},
         "subject_code": effective_subject,
+        "previous_test": {"assessment_id": previous.id, "title": previous.title} if previous else None,
         "students": students,
     }
 

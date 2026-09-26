@@ -40,12 +40,22 @@ export default function TeacherHome() {
   }
   const subjects = [...new Set(subjectAssignments.map((a) => a.subject_code).filter((s): s is string => !!s))];
 
+  // The most recently marked test across every class/subject this teacher holds --
+  // real, from the same rows the cards below already have (a class/subject with no
+  // marks yet contributes nothing here, never a guessed name).
+  const mostRecentlyMarked = [...(rows ?? [])]
+    .filter((r) => r.test_count > 0)
+    .sort((a, b) => b.test_count - a.test_count)[0];
+
   if (rows === null && !error) return <LoadingScreen label="Loading your subjects…" />;
 
   return (
     <>
       <p className="page-sub" style={{ marginTop: 0 }}>
-        Welcome, {user.name || "Teacher"}. Here is what real marks say about your subjects.
+        Welcome, {user.name || "Teacher"}.{" "}
+        {mostRecentlyMarked
+          ? "The latest marked test has been analysed. Here is what it says about your subjects."
+          : "Here is what real marks say about your subjects."}
       </p>
       {error && <EvidenceState kind="early">{error}</EvidenceState>}
 
@@ -62,7 +72,7 @@ export default function TeacherHome() {
             {subjects.map((subject) => {
               const classRows = bySubject.get(subject) ?? [];
               return (
-                <div className="card" key={subject}>
+                <div className="card card--hover" key={subject}>
                   <div className="card__body">
                     <h3 style={{ fontSize: 18 }}>{classRows[0]?.subject_label ?? subject}</h3>
                     <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
@@ -72,7 +82,11 @@ export default function TeacherHome() {
                           <div>
                             <div className="strong">{row.label}</div>
                             <div className="small muted">
-                              {row.avg_score_pct != null ? `avg ${row.avg_score_pct}%` : "no marks yet"} ·{" "}
+                              {row.avg_marks_earned != null && row.avg_marks_available != null
+                                ? `avg ${row.avg_marks_earned} / ${row.avg_marks_available}`
+                                : "no marks yet"}
+                              {" · "}
+                              {row.avg_score_pct != null ? `${row.avg_score_pct}% overall` : "-"} ·{" "}
                               {row.status_counts.on_track} on track / {row.student_count} students · {row.test_count} test{row.test_count === 1 ? "" : "s"}
                             </div>
                           </div>
