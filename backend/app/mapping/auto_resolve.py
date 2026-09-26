@@ -140,14 +140,23 @@ def _prompt(chapter_label: str, stem_text: str, passages: str,
     ])
 
 
-def _apply_correction(
+def record_family_section(
     db: Session, *, winner: TaxonomyNode, chapter: TaxonomyNode, section: str,
     subject_codes: list[str], proposals: list[ConceptFamilyProposal], model: str,
     source: str, rationale: str,
 ) -> None:
-    """Record the correction the same way a person's PATCH would (see
-    edit_family_sections): every proposal row sharing this code, not just one run's, or an
-    older run's row hands the same section right back as still uncovered."""
+    """Record that ``winner`` covers ``section``, the same way a person's PATCH to
+    edit_family_sections would: every proposal row sharing this code, not just one run's,
+    or an older run's row hands the same section right back as still uncovered.
+
+    This is the one place either kind of correction -- an automated resolution here in
+    auto_resolve, or a human settling a review-queue row in app.api.placement's confirm()
+    -- writes back into the knowledge base itself. Without it, every occurrence of the
+    same section-blind chapter is rediscovered from scratch on the next paper, corrected
+    once, and forgotten; with it, the SAME correction is what choose_family reads on every
+    later paper, so a chapter stops being permanently blocked the first time anyone (human
+    or model) settles one of its questions.
+    """
     matching = [p for p in proposals if p.code == winner.code]
     sections = sorted(set(clean_sections(matching[0].from_sections) if matching else []) | {section})
     if matching:
@@ -158,7 +167,7 @@ def _apply_correction(
             curriculum_version=winner.curriculum_version, subject_code=subject_codes[0],
             run_id=uuid.uuid4().hex, source=source, model=model,
             code=winner.code, label=winner.label, chapter_id=chapter.id,
-            rationale=f"auto-resolved from {source}: {rationale}",
+            rationale=rationale,
             evidence=sections, from_sections=sections,
             applied_at=datetime.now(UTC).isoformat(),
         ))
@@ -269,10 +278,11 @@ def _resolve_blocked_family(
         recorded_section = book_section or section
         rationale = f'{choice.rationale} (quoted: "{choice.quote}")'
         if recorded_section:
-            _apply_correction(
+            record_family_section(
                 db, winner=winner, chapter=chapter, section=recorded_section,
                 subject_codes=subject_codes, proposals=proposals, model=model,
-                source=f"auto_resolve_{grounded_in}", rationale=rationale,
+                source=f"auto_resolve_{grounded_in}",
+                rationale=f"auto-resolved from {grounded_in}: {rationale}",
             )
         return Resolution(
             family=winner, rationale=rationale, grounded_in=grounded_in,

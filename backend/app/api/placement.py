@@ -20,7 +20,7 @@ from app.api.books import clean_sections
 from app.api.deps import require_admin, require_paper_scope, require_reader, require_scanner
 from app.classify.pipeline import place_paper
 from app.curriculum import group_subjects
-from app.mapping.auto_resolve import resolve_blocked_family
+from app.mapping.auto_resolve import record_family_section, resolve_blocked_family
 from app.mapping.family import Choice, choose_family
 from app.config import get_settings
 from app.db import get_session
@@ -53,6 +53,12 @@ class ScopeIn(BaseModel):
 class ConfirmIn(BaseModel):
     chapter_code: str
     curriculum_section: str | None = None
+    #: which concept family (topic within the chapter) this question actually belongs
+    #: to -- see review_queue's own `candidate_families` for what a chapter offers.
+    #: Optional because plenty of reviews are only ever about the chapter or the tier;
+    #: required to actually fix a question `choose_family` left blocked or misfiled,
+    #: which chapter_code alone cannot touch (see confirm()'s own docstring).
+    family_code: str | None = None
     tier: str | None = None
     reviewed_by: str = Field(max_length=64)
 
@@ -642,6 +648,18 @@ def review_queue(
     ):
         latest[placement.question_id] = placement
 
+    # Every concept family (topic within a chapter) grouped by its chapter, so a review
+    # row can offer the same candidates choose_family() itself picks between -- without
+    # this a reviewer confirming the CHAPTER had no way to also fix the FAMILY, which is
+    # exactly the failure mode a chapter with several families and no usable section
+    # collapses into (see app.mapping.family.choose_family's own docstring).
+    families_by_chapter: dict[str, list[dict]] = {}
+    for n in nodes.values():
+        if n.kind == "concept_family" and n.parent_id:
+            families_by_chapter.setdefault(n.parent_id, []).append({"code": n.code, "label": n.label})
+    for fams in families_by_chapter.values():
+        fams.sort(key=lambda f: f["label"])
+
     pending = [
         {
             "question_id": qid,
@@ -651,6 +669,15 @@ def review_queue(
             "stem": (questions[qid].stem_text or "")[:400],
             "proposed_chapter": nodes[p.chapter_id].label if p.chapter_id in nodes else None,
             "proposed_chapter_code": nodes[p.chapter_id].code if p.chapter_id in nodes else None,
+            "proposed_family": (
+                nodes[questions[qid].concept_family_id].label
+                if questions[qid].concept_family_id in nodes else None
+            ),
+            "proposed_family_code": (
+                nodes[questions[qid].concept_family_id].code
+                if questions[qid].concept_family_id in nodes else None
+            ),
+            "candidate_families": families_by_chapter.get(p.chapter_id, []) if p.chapter_id else [],
             "curriculum_section": p.curriculum_section,
             "tier": p.tier,
             "tier_label": TIER_ALIASES.get(p.tier or ""),
@@ -711,6 +738,26 @@ def confirm(
     if chapter is None:
         raise HTTPException(422, f"no chapter with code {body.chapter_code!r}")
 
+    # Settling the CHAPTER used to be the only thing this endpoint could fix. That left
+    # exactly the failure mode choose_family()'s own docstring describes -- a chapter with
+    # several concept families and no section to disambiguate them -- with no human lever
+    # at all: a reviewer could confirm the chapter (already right, in that case) and the
+    # question's family stayed whatever it was blocked on, forever. family_code closes
+    # that gap: it must be one of the chapter's own families, same guardrail choose_family
+    # itself applies, never a family from some other chapter.
+    family = None
+    if body.family_code is not None:
+        family = db.scalar(
+            select(TaxonomyNode).where(
+                TaxonomyNode.kind == "concept_family", TaxonomyNode.code == body.family_code
+            )
+        )
+        if family is None or family.parent_id != chapter.id:
+            raise HTTPException(
+                422,
+                f"{body.family_code!r} is not a concept family of {chapter.label!r}",
+            )
+
     if body.tier and tier_code(body.tier) is None:
         raise HTTPException(
             422,
@@ -732,12 +779,36 @@ def confirm(
         source="human",
         needs_review=False,
         reviewed_by=body.reviewed_by,
-        reasoning=f"confirmed by {body.reviewed_by}",
+        reasoning=(
+            f"confirmed by {body.reviewed_by}"
+            + (f"; family settled to {family.label}" if family is not None else "")
+        ),
     ))
     # the question itself carries the settled answer, which is what analysis reads
     if resolved_section:
         question.chapter_id = chapter.id
         question.curriculum_section = resolved_section
+    if family is not None:
+        question.concept_family_id = family.id
+        if resolved_section:
+            # Feed the correction back into the knowledge base itself, exactly as an
+            # automated resolution already does (see record_family_section's own
+            # docstring) -- a human settling this once is what stops the SAME chapter
+            # blocking every future paper's worth of this same section, rather than only
+            # fixing the one question in front of them.
+            subject_codes = group_subjects(a.subject_code)
+            proposals = list(db.scalars(
+                select(ConceptFamilyProposal).where(
+                    ConceptFamilyProposal.subject_code.in_(subject_codes),
+                    ConceptFamilyProposal.code == family.code,
+                )
+            ))
+            record_family_section(
+                db, winner=family, chapter=chapter, section=resolved_section,
+                subject_codes=subject_codes, proposals=proposals,
+                model="human", source="human_review",
+                rationale=f"settled by {body.reviewed_by} during paper review",
+            )
     if body.tier:
         # A person's tier outranks the machine's, and both stay: how often a teacher
         # overrules it is the only honest measure of whether it can be trusted.

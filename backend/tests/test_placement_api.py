@@ -524,3 +524,143 @@ def test_a_question_from_another_paper_cannot_be_confirmed_here(client, school, 
         json={"chapter_code": "X.MATH.SAV", "reviewed_by": "someone"},
     )
     assert r.status_code == 404
+
+
+@pytest.fixture
+def sav_families(school):
+    """Two fixture-only concept families under the real X.MATH.SAV chapter, neither
+    covering any section yet -- the exact shape choose_family() cannot disambiguate
+    without a human, and the shape review_queue/confirm now have to offer a lever for."""
+    import uuid
+
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal, TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.SAV"))
+        made = []
+        for code, label in [
+            ("TEST.CONFIRMFAMILY.CF.A", "Surface area of a combination of solids"),
+            ("TEST.CONFIRMFAMILY.CF.B", "Conversion of one solid into another"),
+        ]:
+            node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+            if node is None:
+                node = TaxonomyNode(
+                    kind="concept_family", code=code, label=label, parent_id=chapter.id,
+                    path=code, curriculum_version=chapter.curriculum_version,
+                )
+                db.add(node)
+                db.flush()
+            if db.scalar(select(ConceptFamilyProposal).where(
+                ConceptFamilyProposal.code == code, ConceptFamilyProposal.subject_code == "X.MATH",
+            )) is None:
+                db.add(ConceptFamilyProposal(
+                    curriculum_version=chapter.curriculum_version, subject_code="X.MATH",
+                    run_id=uuid.uuid4().hex, source="llm", model="fixture",
+                    code=code, label=label, chapter_id=chapter.id,
+                    evidence=[], from_sections=[],
+                ))
+            made.append(node)
+        db.commit()
+        ids = [n.id for n in made]
+    finally:
+        db.close()
+    return ids
+
+
+def test_confirming_a_family_settles_the_question_and_teaches_the_knowledge_base(
+    client, school, paper, sav_families,
+):
+    """The gap the mapping audit surfaced: a chapter with several concept families and no
+    usable section leaves choose_family() permanently blocked, and the old confirm() could
+    only fix the CHAPTER, never the FAMILY -- so a human reviewing a blocked-family
+    question had no way to actually settle it. family_code closes that, and the correction
+    must also update ConceptFamilyProposal.from_sections (record_family_section), so the
+    SAME section is resolved automatically on every later paper -- a human fixing this
+    once, not a person doing it forever."""
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal, Question, TaxonomyNode
+
+    family_a_id, family_b_id = sav_families
+
+    db = SessionLocal()
+    try:
+        question = db.scalars(select(Question).where(Question.assessment_id == paper)).first()
+        qid = question.id
+        family_b = db.get(TaxonomyNode, family_b_id)
+        family_b_code = family_b.code
+    finally:
+        db.close()
+
+    r = client.post(
+        f"/assessments/{paper}/review/{qid}", headers=_auth(school),
+        json={
+            "chapter_code": "X.MATH.SAV", "curriculum_section": "13.5",
+            "family_code": family_b_code, "reviewed_by": "kingshuk",
+        },
+    )
+    assert r.status_code == 200
+
+    db = SessionLocal()
+    try:
+        settled = db.get(Question, qid)
+        assert settled.concept_family_id == family_b_id, (
+            "confirming a family must actually settle it on the question -- this is what "
+            "every report reads"
+        )
+        assert settled.concept_family_id != family_a_id
+
+        proposal = db.scalar(select(ConceptFamilyProposal).where(
+            ConceptFamilyProposal.code == family_b_code, ConceptFamilyProposal.subject_code == "X.MATH",
+        ))
+        assert "13.5" in (proposal.from_sections or []), (
+            "the correction must feed back into the knowledge base itself, so the next "
+            "paper's question in this same section resolves automatically instead of "
+            "blocking again"
+        )
+    finally:
+        db.close()
+
+
+def test_confirming_a_family_from_a_different_chapter_is_refused(client, school, paper, sav_families):
+    from app.db import SessionLocal
+    from app.models import Question
+
+    db = SessionLocal()
+    try:
+        qid = db.scalars(select(Question).where(Question.assessment_id == paper)).first().id
+    finally:
+        db.close()
+
+    r = client.post(
+        f"/assessments/{paper}/review/{qid}", headers=_auth(school),
+        # X.MATH.REAL is a real chapter, but not the one being confirmed to -- a family of
+        # the WRONG chapter must never be accepted, silently or otherwise.
+        json={"chapter_code": "X.MATH.SAV", "family_code": "X.MATH.REAL", "reviewed_by": "someone"},
+    )
+    assert r.status_code == 422
+
+
+def test_review_queue_offers_the_chapters_own_candidate_families(client, school, paper, sav_families):
+    from app.db import SessionLocal
+    from app.models import Question, QuestionPlacement, TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.SAV"))
+        question = db.scalars(select(Question).where(Question.assessment_id == paper)).first()
+        db.add(QuestionPlacement(
+            question_id=question.id, chapter_id=chapter.id, confidence=0.3,
+            source="model", needs_review=True, reasoning="blocked",
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    r = client.get(f"/assessments/{paper}/review", headers=_auth(school))
+    assert r.status_code == 200
+    row = r.json()["questions"][0]
+    codes = {f["code"] for f in row["candidate_families"]}
+    assert "TEST.CONFIRMFAMILY.CF.A" in codes
+    assert "TEST.CONFIRMFAMILY.CF.B" in codes
