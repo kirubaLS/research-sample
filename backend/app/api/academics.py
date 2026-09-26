@@ -837,6 +837,48 @@ def tests_with_movement(db: Session, tagged: list[TaggedRow]) -> list[dict]:
     return out
 
 
+def section_subject_averages(db: Session, tagged: list[TaggedRow]) -> list[dict]:
+    """Every (section, subject) pair ``tagged`` has counted marks for, with that pair's
+    average score -- the same earned/available rollup every screen in this module uses,
+    grouped by the student's own section. One row per pair, ordered by class then subject;
+    a pair with no countable marks is absent rather than shown as a false zero."""
+    student_ids = {t.row.student_id for t in tagged}
+    if not student_ids:
+        return []
+    section_of = dict(db.execute(
+        select(StudentProfile.id, StudentProfile.section_id).where(StudentProfile.id.in_(student_ids))
+    ).all())
+    sections = {
+        s.id: s for s in db.scalars(select(Section).where(Section.id.in_(set(section_of.values()))))
+    }
+    acc: dict[tuple[str, str], dict] = {}
+    for t in tagged:
+        section = sections.get(section_of.get(t.row.student_id))
+        if section is None or not t.row.counts:
+            continue
+        entry = acc.setdefault((section.id, t.subject_code), {
+            "earned": 0.0, "available": 0.0, "assessment_ids": set(), "section": section,
+        })
+        entry["earned"] += float(t.row.earned)
+        entry["available"] += float(t.row.max_marks)
+        entry["assessment_ids"].add(t.assessment_id)
+    out = []
+    for (section_id, code), e in acc.items():
+        if not e["available"]:
+            continue
+        s = e["section"]
+        out.append({
+            "section_id": section_id, "section_label": f"{s.grade}-{s.name}",
+            "grade": s.grade, "section_name": s.name,
+            "subject_code": code, "subject_label": _subject_label(code),
+            "avg_score_pct": round(e["earned"] / e["available"] * 100, 1),
+            "earned": e["earned"], "available": e["available"],
+            "assessment_ids": sorted(e["assessment_ids"]),
+        })
+    out.sort(key=lambda r: (r["grade"], r["section_name"], r["subject_label"]))
+    return out
+
+
 @router.get("/tests")
 def academics_tests(
     school: School = Depends(require_reader), db: Session = Depends(get_session)

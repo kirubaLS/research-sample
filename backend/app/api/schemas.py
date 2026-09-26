@@ -158,6 +158,8 @@ class AssessmentIn(BaseModel):
     #: caller that already speaks this route can say what it is sending.
     paper_kind: str = Field(default="school", pattern="^(school|board|sample)$")
     exam_year: int | None = Field(default=None, ge=2000, le=2100)
+    #: the scheduled exam day this paper belongs to (POST /admin/exams), if any
+    exam_id: str | None = None
 
 
 class QuestionIn(BaseModel):

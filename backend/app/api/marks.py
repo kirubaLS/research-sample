@@ -114,11 +114,17 @@ def create_assessment(
             f"a {body.paper_kind} paper needs exam_year: the frequency layer groups by "
             f"the year the board set it, and a board paper of no year counts for nothing.",
         )
+    if body.exam_id is not None:
+        from app.models import Exam
+
+        exam = db.get(Exam, body.exam_id)
+        if exam is None or exam.school_id != school.id:
+            raise HTTPException(404, "no such exam")
     a = Assessment(
         school_id=school.id, subject_code=body.subject_code, title=body.title,
         paper_code=body.paper_code, total_marks=body.total_marks,
         curriculum_version=body.curriculum_version, declared=body.declared,
-        paper_kind=body.paper_kind, exam_year=body.exam_year,
+        paper_kind=body.paper_kind, exam_year=body.exam_year, exam_id=body.exam_id,
     )
     db.add(a)
     db.flush()

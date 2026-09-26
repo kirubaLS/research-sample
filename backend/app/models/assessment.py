@@ -7,10 +7,13 @@ across the eight real CBSE 2026 papers we measured.
 
 from __future__ import annotations
 
+from datetime import date
+
 from sqlalchemy import (
     JSON,
     Boolean,
     CheckConstraint,
+    Date,
     Float,
     ForeignKey,
     Integer,
@@ -76,6 +79,22 @@ JUDGMENT_FIELDS = ("skill_required", "complexity", "dependency_level")
 PAPER_KINDS = ("school", "board", "sample")
 
 
+class Exam(Base, PkMixin, TimestampMixin):
+    """One exam day as a school names and schedules it -- "Unit Test 2", "Quarterly Exam".
+
+    Each subject's paper stays its own Assessment; an Exam only groups them under one
+    shared name and date. It can exist before any paper does: a principal schedules the
+    Quarterly Exam for a real date, and the papers are attached as they are entered.
+    Nothing here is inferred -- the name and date are exactly what a person typed.
+    """
+
+    __tablename__ = "exam"
+
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    scheduled_date: Mapped[date] = mapped_column(Date, index=True)
+
+
 class Assessment(Base, PkMixin, TimestampMixin):
     __tablename__ = "assessment"
 
@@ -122,6 +141,10 @@ class Assessment(Base, PkMixin, TimestampMixin):
     scan_confirmed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     scan_confirmed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     qmatrix_version: Mapped[int] = mapped_column(Integer, default=0)
+    #: The exam day this paper belongs to, when it belongs to one. Null is the ordinary
+    #: case for every paper entered before exams existed, and stays valid: a standalone
+    #: paper is still a real paper, just not grouped with other subjects'.
+    exam_id: Mapped[str | None] = mapped_column(ForeignKey("exam.id"), nullable=True, index=True)
 
 
 class LogicalPage(Base, PkMixin):
