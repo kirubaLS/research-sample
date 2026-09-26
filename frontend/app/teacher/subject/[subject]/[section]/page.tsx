@@ -23,7 +23,6 @@ export default function SubjectView() {
   const params = useParams<{ subject: string; section: string }>();
   const subject = decodeURIComponent(params.subject);
   const section = params.section;
-  usePageHeader({ title: `${subject} · ${section}`, backHref: "/teacher/home" });
   const [tab, setTab] = useState<"insights" | "paper" | "marks">("insights");
   const { user } = useAuth();
   const [marksTestId, setMarksTestId] = useState("");
@@ -39,6 +38,11 @@ export default function SubjectView() {
   const [error, setError] = useState<string | null>(null);
 
   const allowed = user?.role === "teacher" && user.assignments.some((a) => a.type === "subject" && a.subject_code === subject && a.section_id === section);
+
+  // AcademicTestRow.label is this subject's real display name (e.g. "Mathematics"),
+  // already returned by GET .../teacher/academics/tests -- never the raw subject_code.
+  const subjectLabel = tests.find((t) => t.subject_code === subject)?.label ?? subject;
+  usePageHeader({ title: `${subjectLabel} · ${section}`, backHref: "/teacher/home" });
 
   useEffect(() => {
     const key = getApiKey();
@@ -82,7 +86,7 @@ export default function SubjectView() {
       });
   }, [latestTest?.assessment_id, section, allowed]);
 
-  if (!allowed) return <EvidenceState kind="cause">You are not assigned to {subject} for {section}.</EvidenceState>;
+  if (!allowed) return <EvidenceState kind="cause">You are not assigned to {subjectLabel} for {section}.</EvidenceState>;
   if (error) return <EvidenceState kind="early">{error}</EvidenceState>;
   if (!students) return <LoadingScreen label="Loading this subject…" />;
 
@@ -145,7 +149,7 @@ export default function SubjectView() {
 
           <section className="section">
             <div className="section__head">
-              <h2 className="section-q">Findings in {subject}</h2>
+              <h2 className="section-q">Findings in {subjectLabel}</h2>
             </div>
             {cohort && cohort.top_losses.length ? (
               <div className="grid grid--2">
@@ -153,7 +157,7 @@ export default function SubjectView() {
                   <div className="finding finding--compact" key={f.concept_family}>
                     <header className="finding__head">
                       <div>
-                        <div className="finding__subject">{subject}</div>
+                        <div className="finding__subject">{subjectLabel}</div>
                         <h3 className="finding__title">{f.label}</h3>
                       </div>
                     </header>
@@ -175,17 +179,17 @@ export default function SubjectView() {
                 ))}
               </div>
             ) : (
-              <EvidenceState kind="early">No findings in {subject} rise above the evidence threshold from a single test.</EvidenceState>
+              <EvidenceState kind="early">No findings in {subjectLabel} rise above the evidence threshold from a single test.</EvidenceState>
             )}
           </section>
 
           <section className="section">
             <div className="section__head">
               <h2 className="section-q">
-                {section} students in {subject}
+                {section} students in {subjectLabel}
               </h2>
             </div>
-            <SubjectRoster subject={subject} section={section} students={students} />
+            <SubjectRoster subject={subjectLabel} section={section} students={students} />
           </section>
         </>
       ) : tab === "paper" ? (

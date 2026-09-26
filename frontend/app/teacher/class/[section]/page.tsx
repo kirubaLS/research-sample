@@ -74,6 +74,10 @@ export default function ClassView() {
   const primarySubject = mySubjects[0];
   const latestTest = [...tests].filter((t) => t.subject_code === primarySubject).pop();
 
+  // AcademicTestRow.label is this subject's real display name (e.g. "Mathematics"),
+  // already returned by GET .../teacher/academics/tests -- never the raw subject_code.
+  const subjectLabel = (code: string): string => tests.find((t) => t.subject_code === code)?.label ?? code;
+
   useEffect(() => {
     const key = getApiKey();
     if (!key || !allowed || !latestTest) return;
@@ -158,7 +162,7 @@ export default function ClassView() {
       sub: `In ${sectionLabel}`,
     },
     {
-      label: mySubjects.length > 1 ? "Your subjects, attainment" : `${mySubjects[0]} attainment`,
+      label: mySubjects.length > 1 ? "Your subjects, attainment" : `${subjectLabel(mySubjects[0])} attainment`,
       icon: <ShieldCheck size={22} />,
       accent: "var(--brand-teal)",
       value: (
@@ -170,7 +174,7 @@ export default function ClassView() {
       sub: latestTest ? `As of ${latestTest.title}` : "No graded test yet",
     },
     {
-      label: `Top gap in ${primarySubject ?? "your subject"}`,
+      label: `Top gap in ${primarySubject ? subjectLabel(primarySubject) : "your subject"}`,
       icon: <TrendingDown size={22} />,
       accent: "#c2410c",
       value: topGap ? topGap.label : "—",
@@ -182,7 +186,7 @@ export default function ClassView() {
     <>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <p className="page-sub" style={{ margin: 0 }}>
-          Class view · your subject{mySubjects.length > 1 ? "s" : ""}: {mySubjects.join(", ")}
+          Class view · your subject{mySubjects.length > 1 ? "s" : ""}: {mySubjects.map(subjectLabel).join(", ")}
         </p>
         <span className="chip chip--on" style={{ "--accent": riskBadge.tone } as CSSProperties}>
           {riskBadge.label}
@@ -206,7 +210,7 @@ export default function ClassView() {
         <div className="section__head">
           <h2 className="section-q">Students in {sectionLabel}</h2>
           <span className="small muted">
-            All {roster.length} students · {mySubjects.join(", ")} only
+            All {roster.length} students · {mySubjects.map(subjectLabel).join(", ")} only
           </span>
         </div>
         <div className="card">
@@ -218,7 +222,7 @@ export default function ClassView() {
                   <th>Student</th>
                   {mySubjects.map((s) => (
                     <th key={s} className="num">
-                      {s}
+                      {subjectLabel(s)}
                     </th>
                   ))}
                   <th>Top improvement area</th>
@@ -263,7 +267,7 @@ export default function ClassView() {
         <section className="section">
           <div className="section__head">
             <h2 className="section-q">
-              Since {previousTitle} <span className="small muted" style={{ fontWeight: 400 }}>({primarySubject})</span>
+              Since {previousTitle} <span className="small muted" style={{ fontWeight: 400 }}>({primarySubject ? subjectLabel(primarySubject) : ""})</span>
             </h2>
           </div>
           <div className="grid grid--4" style={{ gap: 12 }}>
