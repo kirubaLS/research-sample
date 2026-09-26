@@ -60,7 +60,7 @@ function ConductedCard({ exam }: { exam: ConductedExam }) {
         <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
           {open ? <ChevronDown size={18} style={{ marginTop: 2 }} /> : <ChevronRight size={18} style={{ marginTop: 2 }} />}
           <div>
-            <div className="strong" style={{ fontSize: 15 }}>{exam.name}</div>
+            <div className="strong" style={{ fontSize: 15, fontWeight: 650 }}>{exam.name}</div>
             <div className="small muted" style={{ marginTop: 2 }}>
               {exam.date ?? "-"} · {exam.subjects.join(", ")} · {exam.students_marked} students marked
               {exam.kind === "paper" && " · single paper"}
@@ -278,7 +278,7 @@ export default function ExamsPage() {
                 <div className="card card--hover" key={u.id}>
                   <div className="card__head" style={{ paddingBottom: 18, alignItems: "center" }}>
                     <div>
-                      <div className="strong" style={{ fontSize: 15 }}>{u.name}</div>
+                      <div className="strong" style={{ fontSize: 15, fontWeight: 650 }}>{u.name}</div>
                       <div className="small muted" style={{ marginTop: 2 }}>
                         {u.scheduled_date} · {daysAwayLabel(days)}
                         {u.paper_count > 0 && ` · ${u.paper_count} paper${u.paper_count === 1 ? "" : "s"} attached`}
