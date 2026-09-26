@@ -302,6 +302,56 @@ export interface BoardXReport {
 }
 
 /** GET /admin/academics/tests -- every paper with at least one resolved mark. */
+/** One scheduled exam day, as a principal or admin entered it (POST /admin/exams). */
+export interface ExamSummary {
+  id: string;
+  name: string;
+  /** ISO date (YYYY-MM-DD), exactly as entered. */
+  scheduled_date: string;
+  paper_count: number;
+}
+
+export interface ScheduledExam extends ExamSummary {
+  status: string;
+}
+
+/** One section's average in one subject, over the real resolved marks of an exam. */
+export interface ExamGridCell {
+  section_id: string;
+  section_label: string;
+  grade: number;
+  section_name: string;
+  subject_code: string;
+  subject_label: string;
+  avg_score_pct: number;
+  assessment_ids: string[];
+}
+
+export interface ConductedExam {
+  /** "exam" for a grouped exam day; "paper" for a paper never attached to one. */
+  kind: "exam" | "paper";
+  id: string;
+  name: string;
+  /** The exam's scheduled date, or the paper's entry date for a standalone paper. */
+  date: string | null;
+  scheduled_date: string | null;
+  paper_count: number;
+  grid: ExamGridCell[];
+  school_avg_pct: number | null;
+  students_marked: number;
+  subjects: string[];
+  previous: { id: string; name: string } | null;
+  delta_pct: number | null;
+}
+
+export interface ExamsOverview {
+  today: string;
+  upcoming: ScheduledExam[];
+  awaiting_marks: ScheduledExam[];
+  conducted: ConductedExam[];
+  weakest_subject: { subject_code: string; label: string; avg_score_pct: number } | null;
+}
+
 export interface AcademicTestRow {
   assessment_id: string;
   title: string;
@@ -1632,6 +1682,19 @@ export const api = {
 
   /** Every paper with at least one resolved mark -- the Test tab's own list. */
   academicsTests: (key: string) => authed<{ tests: AcademicTestRow[] }>("/admin/academics/tests", key),
+
+  /** Upcoming, awaiting-marks and conducted exam days. */
+  exams: (key: string) => authed<ExamsOverview>("/admin/exams", key),
+
+  /** Schedule an exam day for a real date; papers are attached to it later. */
+  createExam: (key: string, body: { name: string; scheduled_date: string }) =>
+    authed<ExamSummary>("/admin/exams", key, { method: "POST", body: JSON.stringify(body) }),
+
+  attachExamPaper: (key: string, examId: string, assessmentId: string) =>
+    authed<ExamSummary>(`/admin/exams/${examId}/papers`, key, {
+      method: "POST",
+      body: JSON.stringify({ assessment_id: assessmentId }),
+    }),
 
   academicsTestsXlsx: (key: string) => authedBlob("/admin/academics/tests.xlsx", key),
 
