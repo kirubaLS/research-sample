@@ -51,7 +51,7 @@ from sqlalchemy import func, select
 
 from app.db import SessionLocal
 from app.ingest.book import normalise, stem_hash
-from app.models import BookChunk, ConceptFamilyProposal, Question, TaxonomyNode
+from app.models import BookChunk, ConceptFamilyProposal, Question, TaxonomyAlias, TaxonomyNode
 
 REFERENCE_DIR = Path(__file__).resolve().parent.parent / "reference" / "book_map"
 SUBJECT_FILES = {
@@ -185,6 +185,11 @@ def _apply_subject(db, subject_code: str, plan: dict) -> None:
     db.query(BookChunk).filter(BookChunk.subject_code == subject_code).delete()
     db.query(ConceptFamilyProposal).filter(ConceptFamilyProposal.subject_code == subject_code).delete()
     for family, _ in plan["stale_deletable"]:
+        # A node with zero real questions can still have alternate-spelling rows
+        # pointing at it (TaxonomyAlias -- "SA&V", "Ch 13" and the like); those serve no
+        # purpose once the node itself is gone, so they go first, or the delete below
+        # fails on taxonomy_alias's own foreign key.
+        db.query(TaxonomyAlias).filter(TaxonomyAlias.node_id == family.id).delete()
         db.delete(family)
 
     # 2. One concept_family node per catalog code, updated in place if it already exists.
