@@ -22,6 +22,7 @@ import { CheckCircle2, Clock, KeyRound, Search, Send, X } from "lucide-react";
 import { api, type ClassStudentRow, type IssuedReportRow, type SectionSummary } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 import { usePageHeader } from "@/lib/pageHeader";
+import { useAuth } from "@/lib/auth";
 
 /** Masks a stored WhatsApp number down to what a screen actually needs to show: the
  * country code and last few digits, e.g. "+919123456864" -> "+91 91XXX XX864". Purely a
@@ -48,13 +49,14 @@ interface Row {
 export default function ShareReportsPage() {
   usePageHeader({ title: "Share reports", subtitle: "Issue and share test reports with parents" });
   const key = getApiKey() ?? "";
+  const { user } = useAuth();
+  const by = user && "name" in user && user.name ? user.name : "";
 
   const [sections, setSections] = useState<SectionSummary[]>([]);
   const [sectionId, setSectionId] = useState("");
   const [tests, setTests] = useState<{ assessment_id: string; title: string }[]>([]);
   const [assessmentId, setAssessmentId] = useState("");
   const [rows, setRows] = useState<Row[] | null>(null);
-  const [by, setBy] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [view, setView] = useState<View>("all");
@@ -207,10 +209,6 @@ export default function ShareReportsPage() {
               </option>
             ))}
           </select>
-        </div>
-        <div className="filter">
-          <label htmlFor="share-by">Your name</label>
-          <input id="share-by" className="input" value={by} onChange={(e) => setBy(e.target.value)} placeholder="required before sharing" />
         </div>
       </div>
 
