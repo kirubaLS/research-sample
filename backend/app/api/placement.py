@@ -337,6 +337,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                         stem_text=question.stem_text,
                         chapter=chapter,
                         candidates=families.get(chapter.id, []),
+                        jina_api_key=settings.jina_api_key,
+                        embedding_model=settings.embedding_model,
+                        embedding_dimensions=settings.embedding_dimensions,
                     )
                     if resolution is not None:
                         choice = Choice(resolution.family)

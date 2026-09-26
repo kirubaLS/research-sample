@@ -1582,6 +1582,9 @@ def map_paper_to_book(
                 stem_text=row.stem_text,
                 chapter=chapter,
                 candidates=candidates,
+                jina_api_key=settings.jina_api_key,
+                embedding_model=settings.embedding_model,
+                embedding_dimensions=settings.embedding_dimensions,
             )
             if resolution is not None:
                 family = resolution.family

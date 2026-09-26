@@ -616,6 +616,149 @@ def test_auto_resolve_searches_the_chapter_when_the_exact_section_has_no_chunk(m
     db.close()
 
 
+def test_auto_resolve_stage2_adds_semantic_retrieval_alongside_lexical(monkeypatch):
+    """Stage 2 used to be lexical-only, which is exactly the wrong tool for a chapter
+    whose sibling families all reuse the same vocabulary throughout (a civics chapter's
+    sections all say "party", "election", "democracy") -- TF-IDF has nothing left to
+    discriminate on, and can miss the one passage that actually settles a question while
+    never even considering it a candidate. This fixture chunk shares zero words with the
+    stem, so LexicalIndex alone never surfaces it at all (score > 0 requires overlap);
+    only semantic retrieval (a fixed fake embedding, no real network call) finds it. The
+    passages actually assembled for the judge are what this test inspects -- confirming
+    the fix reaches the judge's evidence, not asserting anything about model judgement
+    itself."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal, init_db
+    from app.mapping.auto_resolve import _FamilyChoice, resolve_blocked_family
+    from app.models import BookChunk, ConceptFamilyProposal, TaxonomyNode
+
+    init_db()
+    db = SessionLocal()
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "TEST.AUTORESOLVE2.CH"))
+    if chapter is None:
+        chapter = TaxonomyNode(
+            kind="chapter", code="TEST.AUTORESOLVE2.CH", label="Fixture-only semantic chapter",
+            path="TEST.AUTORESOLVE2.CH", curriculum_version="TEST-FIXTURE",
+        )
+        db.add(chapter)
+        db.flush()
+    candidates = []
+    for code, label in [
+        ("TEST.AUTORESOLVE2.CF.A", "Family sharing the stem's own words"),
+        ("TEST.AUTORESOLVE2.CF.B", "Family the stem is actually about"),
+    ]:
+        node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        if node is None:
+            node = TaxonomyNode(
+                kind="concept_family", code=code, label=label, parent_id=chapter.id,
+                path=code, curriculum_version="TEST-FIXTURE",
+            )
+            db.add(node)
+            db.flush()
+            db.add(ConceptFamilyProposal(
+                curriculum_version="TEST-FIXTURE", subject_code="TEST.AUTORESOLVE2",
+                run_id="fixture-stage2-semantic", source="llm", model="fixture",
+                code=code, label=label, chapter_id=chapter.id,
+                evidence=[], from_sections=[],
+            ))
+        candidates.append(node)
+
+    # chunk_wrong shares "reform measures party funding" with the stem below and would be
+    # the only thing LexicalIndex ever returns; chunk_right shares no word with the stem
+    # at all and is discoverable only by its (fixed, fake) embedding. Several unrelated
+    # filler chunks too, so TF-IDF's idf does not go to zero for a term that would
+    # otherwise be unique across a too-small corpus (see the stage-1 fixture's own note).
+    chunk_wrong_text = "Reform measures for party funding are debated every election cycle."
+    chunk_right_text = "Judges struck down laws letting candidates hide their donors."
+    fixture_chunks = [
+        ("TEST.AUTORESOLVE2.CHUNK.WRONG", chunk_wrong_text, [0.0, 1.0]),
+        ("TEST.AUTORESOLVE2.CHUNK.RIGHT", chunk_right_text, [1.0, 0.0]),
+        ("TEST.AUTORESOLVE2.CHUNK.F1", "The state assembly passed the annual budget bill.", None),
+        ("TEST.AUTORESOLVE2.CHUNK.F2", "Local municipal wards elect their own councillors.", None),
+        ("TEST.AUTORESOLVE2.CHUNK.F3", "The judiciary reviews laws referred by the president.", None),
+    ]
+    for code, text, embedding in fixture_chunks:
+        if db.scalar(select(BookChunk).where(BookChunk.stem_hash == code)) is not None:
+            continue
+        db.add(BookChunk(
+            curriculum_version="TEST-FIXTURE", subject_code="TEST.AUTORESOLVE2",
+            node_id=chapter.id, bucket="T", reference=code, text=text,
+            section_number=None, normalised=text.lower(), stem_hash=code,
+            embedding=embedding,
+        ))
+    db.commit()
+    db.close()
+
+    stem_text = "What reform measures were proposed for party funding after the election?"
+
+    def install_fake_judge(passages_seen: list[str]):
+        import sys
+        import types
+
+        class _FakeMessages:
+            def parse(self, **kwargs):
+                passages_seen.append(kwargs["messages"][0]["content"])
+                # Honestly say "none" -- this test is about what evidence reached the
+                # judge, not about grading the judge's own choice.
+                class _Response:
+                    parsed_output = _FamilyChoice(
+                        family_code="none", rationale="stub", quote="",
+                    )
+                return _Response()
+
+        class _FakeAnthropic:
+            def __init__(self, api_key):
+                self.messages = _FakeMessages()
+
+        mod = types.ModuleType("anthropic")
+        mod.Anthropic = _FakeAnthropic
+        monkeypatch.setitem(sys.modules, "anthropic", mod)
+
+    class _FakeEmbedder:
+        def __init__(self, api_key, *, model=None, dimensions=None):
+            pass
+
+        def embed_texts(self, texts, *, is_query=False):
+            # The query lands exactly on chunk_right's fixed embedding, and nowhere near
+            # chunk_wrong's -- cosine picks chunk_right first, every time.
+            return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr("app.ingest.jina.JinaEmbedder", _FakeEmbedder)
+
+    # Without a Jina key, stage 2 is lexical-only: only chunk_wrong (word overlap) is
+    # ever assembled into the judge's passages -- chunk_right is invisible to it.
+    db = SessionLocal()
+    seen_without_semantic: list[str] = []
+    install_fake_judge(seen_without_semantic)
+    resolve_blocked_family(
+        db, api_key="test-key", model="claude-fake", effort=None,
+        subject_codes=["TEST.AUTORESOLVE2"], section="99.9", stem_text=stem_text,
+        chapter=chapter, candidates=candidates,
+    )
+    assert chunk_wrong_text in seen_without_semantic[0]
+    assert chunk_right_text not in seen_without_semantic[0], (
+        "lexical-only stage 2 should never surface a passage sharing no words with the stem"
+    )
+    db.close()
+
+    # With a Jina key configured, semantic retrieval runs alongside lexical and the
+    # union reaches the judge -- chunk_right is now there too.
+    db = SessionLocal()
+    seen_with_semantic: list[str] = []
+    install_fake_judge(seen_with_semantic)
+    resolve_blocked_family(
+        db, api_key="test-key", model="claude-fake", effort=None,
+        subject_codes=["TEST.AUTORESOLVE2"], section="99.9", stem_text=stem_text,
+        chapter=chapter, candidates=candidates,
+        jina_api_key="test-jina-key", embedding_model="fake-model", embedding_dimensions=2,
+    )
+    assert chunk_right_text in seen_with_semantic[0], (
+        "semantic retrieval should surface the passage lexical search alone missed entirely"
+    )
+    db.close()
+
+
 def test_mapping_refuses_when_no_book_is_loaded(client, school):
     r = client.post(
         "/assessments", headers=_auth(school),

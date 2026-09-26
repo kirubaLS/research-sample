@@ -14,10 +14,21 @@ text rather than the model's memory of what a textbook probably says:
 2. Failing that (no chunk carries that exact section number -- a numbering mismatch
    between what the paper's own retrieval named and how the book's chunks were split, or
    an ingestion gap), search the WHOLE chapter's ingested book chunks for the passages
-   that actually match this question (the same lexical retriever `locate()` uses
-   elsewhere in this pipeline, restricted to this one chapter) and ground the choice in
-   whichever real passages come back. The book has already been read into the database in
-   full -- this stage uses that, rather than falling back to the bare question text alone.
+   that actually match this question (lexical retrieval, plus semantic retrieval too when
+   embeddings are configured -- the same two retrievers `locate()` fuses elsewhere in this
+   pipeline, restricted to this one chapter) and ground the choice in whichever real
+   passages come back. The book has already been read into the database in full -- this
+   stage uses that, rather than falling back to the bare question text alone.
+
+   Lexical alone is exactly the wrong tool for a chapter whose sibling topics share the
+   same vocabulary throughout (a civics chapter's families all reuse words like "party",
+   "election", "democracy" in every section) -- TF-IDF has nothing left to discriminate on
+   once the topic words are common to the whole chapter, and can miss the one passage that
+   actually settles it while surfacing several that merely mention the same nouns.
+   Semantic retrieval reads meaning rather than word overlap, so the two are additive
+   here exactly as they are in the main pass: this stage asks both (when a semantic index
+   can be built at all) and offers the judge the union of what either one found, not
+   whichever the lexical index alone turned up.
 
 Either way, the model is handed real, quotable text and is required to quote it: the
 quote is checked as a real substring of the passages it was shown before the answer is
@@ -182,8 +193,16 @@ def resolve_blocked_family(
     stem_text: str | None,
     chapter: TaxonomyNode,
     candidates: list[TaxonomyNode],
+    jina_api_key: str | None = None,
+    embedding_model: str | None = None,
+    embedding_dimensions: int | None = None,
 ) -> Resolution | None:
     """Try to settle a chapter+section `choose_family` could not, against the real book.
+
+    ``jina_api_key``/``embedding_model``/``embedding_dimensions`` are the same settings
+    the main placement pass already uses to add semantic retrieval alongside lexical --
+    passed through here so stage 2 (see module docstring) is not stuck with lexical alone
+    on exactly the chapters where it is weakest.
 
     Returns None -- leave it blocked -- whenever neither stage can be run at all (no
     classifier key, no question text, or no book chunks ingested anywhere in this
@@ -199,6 +218,8 @@ def resolve_blocked_family(
         return _resolve_blocked_family(
             db, api_key=api_key, model=model, effort=effort, subject_codes=subject_codes,
             section=section, stem_text=stem_text, chapter=chapter, candidates=candidates,
+            jina_api_key=jina_api_key, embedding_model=embedding_model,
+            embedding_dimensions=embedding_dimensions,
         )
     except Exception:  # noqa: BLE001 -- see docstring: this must never escape
         logger.exception(
@@ -219,6 +240,9 @@ def _resolve_blocked_family(
     stem_text: str | None,
     chapter: TaxonomyNode,
     candidates: list[TaxonomyNode],
+    jina_api_key: str | None = None,
+    embedding_model: str | None = None,
+    embedding_dimensions: int | None = None,
 ) -> Resolution | None:
     if not api_key or not stem_text or not stem_text.strip():
         return None
@@ -295,6 +319,28 @@ def _resolve_blocked_family(
     if not chapter_chunks:
         return None
     found = LexicalIndex(chapter_chunks).search(stem_text, k=3)
+
+    # Semantic retrieval, additive to lexical rather than a replacement for it: a chapter
+    # whose families all draw on the same handful of words (a civics chapter's sections
+    # each say "party", "election", "democracy" throughout) gives TF-IDF nothing to
+    # discriminate on, and lexical search alone can miss the one passage that actually
+    # settles the question while surfacing several that merely share its nouns. Only
+    # attempted when embeddings are actually configured and this chapter's chunks
+    # actually carry them -- SemanticIndex itself reports 0 usable chunks otherwise, and
+    # that is silently fine, not an error.
+    if jina_api_key and any(getattr(c, "embedding", None) for c in chapter_chunks):
+        from app.ingest.jina import JinaEmbedder
+        from app.ingest.probe import SemanticIndex
+
+        semantic = SemanticIndex(chapter_chunks, JinaEmbedder(
+            jina_api_key, model=embedding_model, dimensions=embedding_dimensions,
+        ))
+        seen = {c.chunk_id for c in found}
+        for candidate in semantic.search(stem_text, k=3):
+            if candidate.chunk_id not in seen:
+                seen.add(candidate.chunk_id)
+                found.append(candidate)
+
     if not found:
         return None
     passages = "\n\n".join(f"[{c.reference or c.section or '?'}] {c.text}" for c in found if c.text)
