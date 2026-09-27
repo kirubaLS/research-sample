@@ -60,6 +60,21 @@ def test_section_prior_disambiguates():
     assert addr is not None and addr.section == "B" and reason == "section_prior"
 
 
+def test_a_bare_question_number_resolves_exactly_even_when_its_sub_parts_also_exist():
+    """Bug 1 investigation: a Q-matrix where question 10 has its own address plus 10(i)
+    and 10(ii) (a parent that legitimately carries its own marks alongside separately
+    marked sub-parts). A grid cell labelled bare '10' must resolve to the bare address as
+    an exact match, not fall through to the 'ambiguous' branch and lose the mark -- the
+    bare-labelled candidate is the unique member of the group with sub_part=None and
+    choice_alt=None, so the 'exact' filter (matching on both fields) finds exactly one
+    match regardless of how many sibling sub-part addresses share the question number.
+    """
+    r = AddressResolver(["A/10//", "A/10/i/", "A/10/ii/"])
+    addr, reason = r.resolve("10")
+    assert reason == "exact"
+    assert addr is not None and addr.key == "A/10//"
+
+
 def test_monotonicity_break_is_reported():
     seq = [Address("A", "1"), Address("A", "2"), Address("A", "9"), Address("A", "3")]
     assert check_monotonic(seq) == [3]

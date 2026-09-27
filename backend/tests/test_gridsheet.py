@@ -189,6 +189,119 @@ def test_a_half_mark_written_as_a_fraction_is_read_not_rejected(
         settings.anthropic_api_key = before
 
 
+def test_a_blank_or_dashed_cell_resolves_to_absent_not_a_stuck_review(
+    client, school, paper, roster, monkeypatch
+):
+    """Bug 2: a real school marks "not attempted" with a blank cell or a dash, the common
+    real convention. Today's code gave every one of these a permanent, unresolved
+    'left blank on the sheet' / "'' is not a number" problem, so the row could never be
+    confirmed -- even though marksheet.py's spreadsheet path already treats the exact
+    same tokens as a real, resolved "absent" result. A blank or dashed cell must resolve
+    the same way here: state 'absent', no problem, flowing straight through to
+    confirmation and the report like any other resolved mark.
+    """
+    from app.extraction.gridsheet import GridCell, GridReading, GridRow
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    reading = GridReading(rows=[
+        GridRow(roll_no="1", name_as_written="Aarthi Selvaraj", cells=[
+            GridCell("A/1", ""), GridCell("B/2", "--"),
+        ]),
+        GridRow(roll_no="2", name_as_written="Abinaya Murugan", cells=[
+            GridCell("A/1", "—"), GridCell("B/2", "N/A"),
+        ]),
+    ])
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return reading
+
+    monkeypatch.setattr("app.extraction.gridsheet.AnthropicGridReader", StubReader)
+    try:
+        out = _upload(client, school, paper, school["section_id"])
+        job_id = out.json()["job_id"]
+        job = client.get(f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school))
+        body = job.json()
+        # Resolved, clean rows -- not stuck as an unresolvable OCR problem.
+        assert body["clean"] == 2
+
+        review = client.get(
+            f"/assessments/{paper}/gridsheet/{body['document_id']}", headers=_auth(school)
+        ).json()
+        for roll in ("1", "2"):
+            row = next(r for r in review["rows"] if r["roll_no"] == roll)
+            assert row["status"] == "clean"
+            assert row["can_confirm"] is True
+            marks = {m["address"]: m for m in row["marks"]}
+            for address in ("A/1//", "B/2//"):
+                assert marks[address]["state"] == "absent"
+                assert marks[address]["marks"] is None
+                assert marks[address]["problem"] is None
+
+        # can_confirm is exactly what gates a row's marks entering confirmation and the
+        # final report (see test_confirm_moves_only_the_clean_rows) -- this row now
+        # qualifies where before it never could, without needing a second, separate
+        # confirm here that would leave persistent MarkEvents behind for this
+        # session-scoped roster and pollute a later test's own count of them.
+        assert body["clean"] == 2
+    finally:
+        settings.anthropic_api_key = before
+
+
+def test_a_sheets_own_total_column_is_captured_not_silently_dropped(
+    client, school, paper, roster, monkeypatch
+):
+    """Bug 3: the vision prompt already asks for a sheet's own TOTAL column, but
+    match_address can never resolve 'TOTAL' against the paper's real Q-matrix, and
+    _write_proposed_marks's `if question is None: continue` silently dropped the cell.
+    It must be captured as the row's own sheet_total instead, never as a question mark.
+    """
+    from app.extraction.gridsheet import GridCell, GridReading, GridRow
+
+    settings = get_settings()
+    before = settings.anthropic_api_key
+    settings.anthropic_api_key = "test-key"
+
+    reading = GridReading(rows=[
+        GridRow(roll_no="1", name_as_written="Aarthi Selvaraj", cells=[
+            GridCell("A/1", "2"), GridCell("B/2", "3"), GridCell("TOTAL", "5"),
+        ]),
+    ])
+
+    class StubReader:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def read(self, pages):
+            return reading
+
+    monkeypatch.setattr("app.extraction.gridsheet.AnthropicGridReader", StubReader)
+    try:
+        out = _upload(client, school, paper, school["section_id"])
+        job_id = out.json()["job_id"]
+        job = client.get(f"/assessments/{paper}/gridsheet/jobs/{job_id}", headers=_auth(school))
+        body = job.json()
+        assert body["clean"] == 1
+
+        review = client.get(
+            f"/assessments/{paper}/gridsheet/{body['document_id']}", headers=_auth(school)
+        ).json()
+        row = next(r for r in review["rows"] if r["roll_no"] == "1")
+        # Never a fake, unmatched question mark.
+        assert {m["address"] for m in row["marks"]} == {"A/1//", "B/2//"}
+        # Captured as its own real value instead of vanishing.
+        assert row["sheet_total"] == 5.0
+        assert row["can_confirm"] is True
+    finally:
+        settings.anthropic_api_key = before
+
+
 def test_a_roll_not_on_the_roster_is_flagged_not_invented(client, school, paper, roster, stub_grid):
     out = _upload(client, school, paper, school["section_id"])
     document_id = out.json()["document_id"]

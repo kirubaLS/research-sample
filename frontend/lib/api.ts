@@ -537,6 +537,10 @@ export interface GridSheetRowView {
   note: string | null;
   student: { id: string; name: string } | null;
   marks: GridRowMark[];
+  /** What the sheet itself claims this row's grand total is, read off its own printed
+   * TOTAL column -- null when the sheet prints no such column. Purely informational: it
+   * is never a mark against any question, so it never affects can_confirm. */
+  sheet_total: number | null;
   can_confirm: boolean;
 }
 

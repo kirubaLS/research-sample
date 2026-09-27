@@ -224,6 +224,9 @@ export function MarksEntryGrid({
                       {addresses.map((addr) => (
                         <th key={addr} className="num">{addr}</th>
                       ))}
+                      <th className="num" title="What the sheet itself prints as this row's total, for cross-checking against the sum of the marks read">
+                        Sheet total
+                      </th>
                     </tr>
                   </thead>
                   <tbody>
@@ -270,6 +273,15 @@ export function MarksEntryGrid({
                             </td>
                           );
                         })}
+                        {/* Read-only cross-check: what the sheet's own TOTAL column
+                            claims, never a mark against any question -- see
+                            gridsheets.py's _extract_sheet_total. Sits last so the
+                            existing .marks-grid td:last-child / th:last-child sticky
+                            rule (app/globals.css) already keeps it frozen on scroll,
+                            same as ConfirmedMarksGrid's own last column. */}
+                        <td className="num muted" title="As printed on the sheet">
+                          {row.sheet_total ?? "—"}
+                        </td>
                       </tr>
                     ))}
                   </tbody>

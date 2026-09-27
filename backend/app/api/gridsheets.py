@@ -157,6 +157,57 @@ def _parse_photo_cell_mark(raw: str) -> float | None:
     return None
 
 
+#: reuses app.extraction.marksheet's own token list -- the spreadsheet path already
+#: treats these exact tokens as "not attempted", and inventing a second, parallel list
+#: here for the photo path would let the two conventions drift apart.
+from app.extraction.marksheet import ABSENT_TOKENS
+
+
+def _is_not_attempted(raw: str) -> bool:
+    """A blank cell, or one holding nothing but a dash/'not attempted' token.
+
+    A blank cell and a dash both mean the same real thing on a class mark-entry sheet:
+    the student did not attempt this question. Treating either as an unparsed number
+    ("'' is not a number") left it stuck in the review queue forever, needing a person
+    to resolve an OCR error that was never there -- the sheet was clear about what it
+    meant. Unicode dash variants ('–' en dash, '—' em dash) are folded to the
+    plain hyphen first, same as app.extraction.address.normalise does for an address.
+    """
+    text = raw.strip()
+    if not text:
+        return True
+    folded = text.replace("–", "-").replace("—", "-").lower().strip(".")
+    return folded in ABSENT_TOKENS
+
+
+#: a label naming the sheet's own printed grand total, not a question -- 'TOTAL',
+#: 'Total Marks', 'GRAND TOTAL' -- case-insensitively. Deliberately not 'A+B' or a
+#: section subtotal: those still name real, addressable questions this paper's Q-matrix
+#: has to place, whereas nothing on the Q-matrix is ever named 'total'.
+_TOTAL_LABEL = re.compile(r"total", re.IGNORECASE)
+
+
+def _extract_sheet_total(cells: list[GridCell]) -> tuple[list[GridCell], float | None]:
+    """Split the sheet's own printed TOTAL cell out of a row's cells, if it has one.
+
+    The vision prompt (SYSTEM, above) already asks for this cell alongside every real
+    question cell, but nothing kept what it read: 'TOTAL' can never resolve against the
+    paper's real Q-matrix, so match_address always failed it and _write_proposed_marks's
+    ``if question is None: continue`` silently dropped it. It is not a mark against any
+    question -- it is the sheet's own claim about the row's grand total, kept separately
+    (GridSheetRow.sheet_total) so a teacher can cross-check it against the sum of what
+    was actually read, rather than lost with no trace.
+    """
+    kept: list[GridCell] = []
+    total: float | None = None
+    for cell in cells:
+        if total is None and _TOTAL_LABEL.search(cell.question_label):
+            total = _parse_photo_cell_mark(cell.raw_value)
+            continue
+        kept.append(cell)
+    return kept, total
+
+
 def _address_sort_key(address: str) -> tuple[str, int, int, str]:
     """A canonical 'SECTION/NO/SUB/ALT' address, ordered the way the paper itself prints
     the questions -- not the order the vision model happened to read the cells in, which
@@ -217,16 +268,17 @@ def _write_proposed_marks(
             state = cell["state"]
             marks = cell.get("marks")
             problem = cell.get("problem")
-        else:
-            state = "awarded"
+        elif _is_not_attempted(raw):
+            # A real, resolved result -- the student did not attempt this question --
+            # not an OCR error needing a person's review. Same meaning as marksheet.py's
+            # ABSENT_TOKENS on the spreadsheet path, applied here to the photo path too.
+            state = "absent"
             marks = None
             problem = None
-            if not raw:
-                problem = "left blank on the sheet"
-            else:
-                marks = _parse_photo_cell_mark(raw)
-                if marks is None:
-                    problem = f"{raw!r} is not a number"
+        else:
+            state = "awarded"
+            marks = _parse_photo_cell_mark(raw)
+            problem = None if marks is not None else f"{raw!r} is not a number"
         if problem is None and state == "awarded" and marks is not None:
             if marks > float(question.max_marks):
                 problem = (
@@ -435,6 +487,7 @@ def _run_gridsheet_job(job_id: str) -> None:
             else:
                 row_status = "name_mismatch"
 
+            question_cells, sheet_total = _extract_sheet_total(parsed.cells)
             grid_row = GridSheetRow(
                 school_id=school.id, assessment_id=assessment.id, section_id=section_id,
                 document_id=document.id, roll_no=parsed.roll_no,
@@ -442,8 +495,9 @@ def _run_gridsheet_job(job_id: str) -> None:
                 student_id=student.id if student else None, status=row_status,
                 cells=[
                     {"question_label": c.question_label, "raw_value": c.raw_value}
-                    for c in parsed.cells
+                    for c in question_cells
                 ],
+                sheet_total=sheet_total,
             )
             _suggest_for(grid_row, roster)
             db.add(grid_row)
@@ -660,6 +714,11 @@ def review_gridsheet(
                 "id": suggested.id, "name": suggested.name, "roll_no": suggested.roll_no,
             } if suggested else None,
             "marks": marks,
+            #: what the sheet itself claims the row's grand total is, read straight off
+            #: its own TOTAL column -- None when the sheet prints no such column. Purely
+            #: informational, for a teacher to cross-check against the sum of "marks"
+            #: above; never a mark against any question and never blocks can_confirm.
+            "sheet_total": row.sheet_total,
             "can_confirm": row.status == "clean" and not blocked and bool(marks),
         })
 

@@ -22,6 +22,7 @@ from datetime import datetime
 from sqlalchemy import (
     JSON,
     DateTime,
+    Float,
     ForeignKey,
     Integer,
     LargeBinary,
@@ -220,6 +221,11 @@ class GridSheetRow(Base, PkMixin, TimestampMixin):
     suggested_student_id: Mapped[str | None] = mapped_column(
         ForeignKey("student_profile.id", ondelete="SET NULL"), nullable=True
     )
+    #: the sheet's own printed TOTAL for this row, when it has one -- not a mark against
+    #: any question (no address on the paper's own Q-matrix names it), so it is never a
+    #: ProposedMark/MarkEvent, just a real value kept alongside the row for a teacher to
+    #: cross-check against the sum of what was actually read off the questions.
+    sheet_total: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     document: Mapped[ScanDocument] = relationship(back_populates="grid_rows")
 

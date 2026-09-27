@@ -430,6 +430,50 @@ def test_a_question_cannot_carry_marks_and_have_sub_parts_that_do(tmp_path):
     assert any("carry marks of their own and also have sub-parts" in p for p in out.problems)
 
 
+def test_a_parent_question_with_its_own_mark_and_marked_sub_parts_is_flagged_not_silently_dropped(
+    tmp_path,
+):
+    """Bug 1 investigation: a paper printing a real mark on the bare question number
+    (10) AND separate marks on 10(i)/10(ii) -- not the "compound sum label on a stem"
+    shape _distribute_sum_marks already handles, a genuinely distinct own-mark. Today's
+    behaviour is deliberate, not a silent loss: this shape is structurally
+    indistinguishable from the real, already-tested misread in
+    test_a_question_cannot_carry_marks_and_have_sub_parts_that_do (a real Social Science
+    paper's Q37 stem mis-read with max_marks equal to the sum of its own sub-parts) --
+    both look identical to the parser, and CBSE papers never legitimately print marks on
+    both a bare question and its separately marked sub-parts. So the question is folded
+    into being the sub-parts' shared stem (is_context=True, excluded from total_marks)
+    exactly as with any other stem, but -- unlike a truly silent drop -- _check reports
+    the contradiction loudly in out.problems, exactly where _finish_paper_scan surfaces
+    it to a person reviewing the upload (see the "problems" key in its response body).
+    Nothing here silently discards a real mark without telling anyone.
+    """
+    path = _pdf(tmp_path, [[
+        (60, 100, "SECTION E"),
+        (60, 130, "10. Read the case and answer what follows."),
+        (MARK_X, 130, "2"),
+        (60, 160, "(i) Find the length of the cylindrical portion."),
+        (MARK_X, 160, "1"),
+        (60, 190, "(ii) Find the curved surface area of the cylinder."),
+        (MARK_X, 190, "1"),
+    ]])
+
+    out = extract_paper(path)
+    by_address = {q.address: q for q in out.questions}
+
+    # The contradiction is surfaced, not swallowed.
+    assert any(
+        "carry marks of their own and also have sub-parts" in p for p in out.problems
+    )
+    parent = by_address["E/10//"]
+    assert parent.is_context
+    # total_marks only ever counts the sub-parts' 1 + 1 -- the parent's printed "2" is
+    # excluded exactly like any other stem's marks, and the problems list is how a
+    # person finds out that happened, rather than the total silently coming up short
+    # with no explanation.
+    assert out.total_marks == 2.0
+
+
 def test_a_running_header_is_not_read_as_the_other_half_of_a_choice(tmp_path):
     """When OR falls at a page break, the footer and the next page's header come between
     it and the alternative. Question 27's alternative was recorded as the school's name."""
