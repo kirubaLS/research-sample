@@ -14,10 +14,14 @@ type SortField = "name" | "students" | "papers" | "answer_scripts";
 /**
  * AVAI's real book of business: every school GET /platform/schools returns,
  * joined with GET /platform/overview's per-school counts. The reference
- * design's "status" pill, "onboarding %" and "teachers invited/activated"
- * columns all read fields our backend does not have (PlatformSchool carries
- * no status/checklist/teacher-activation state) -- dropped rather than
- * fabricated; see the gap note in the wiring report.
+ * design's "status" pill and "onboarding %" are kept, but derived only from
+ * real counts already in GET /platform/overview (principal_keys, students) --
+ * no extra per-school fetch, and no fabricated enum. A school counts as
+ * "Active" once it has a principal key AND at least one student; otherwise
+ * it is "Onboarding". There is still no real "teacher invited/activated" or
+ * "Trial"/"At risk" concept anywhere in the backend (no subscription/billing/
+ * health-check data at all), so those columns/states stay dropped rather
+ * than fabricated; see the gap note in the wiring report.
  */
 export default function AdminSchoolsPage() {
   const router = useRouter();
@@ -55,6 +59,17 @@ export default function AdminSchoolsPage() {
   }, [overview]);
 
   const boards = useMemo(() => Array.from(new Set((schools ?? []).map((s) => s.board))).sort(), [schools]);
+
+  /** Two real, honestly-derived states -- see the file docstring. Steps are
+   * exactly the two real signals we have per school with no extra fetch:
+   * a principal key issued, and at least one student on roll. */
+  function onboardingState(s: PlatformSchool): { label: string; tone: string; steps: number } {
+    const ov = overviewById.get(s.id);
+    const hasPrincipal = (ov?.principal_keys ?? 0) > 0;
+    const hasStudents = s.students > 0;
+    const steps = Number(hasPrincipal) + Number(hasStudents);
+    return steps === 2 ? { label: "Active", tone: "tag--green", steps } : { label: "Onboarding", tone: "tag--gold", steps };
+  }
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -188,6 +203,7 @@ export default function AdminSchoolsPage() {
                   <tr>
                     <SortHeader label="School" field="name" sort={sort} dir={dir} onSort={onSort} />
                     <th scope="col">Board / State</th>
+                    <th scope="col">Status</th>
                     <SortHeader label="Students" field="students" sort={sort} dir={dir} onSort={onSort} align="right" />
                     <SortHeader label="Papers" field="papers" sort={sort} dir={dir} onSort={onSort} align="right" />
                     <SortHeader label="Answer scripts" field="answer_scripts" sort={sort} dir={dir} onSort={onSort} align="right" />
@@ -198,6 +214,7 @@ export default function AdminSchoolsPage() {
                 <tbody>
                   {rows.map((s) => {
                     const ov = overviewById.get(s.id);
+                    const state = onboardingState(s);
                     return (
                       <tr key={s.id} onClick={() => router.push(`/admin/schools/${s.id}`)}>
                         <td style={{ minWidth: 200 }}>
@@ -207,6 +224,23 @@ export default function AdminSchoolsPage() {
                         </td>
                         <td style={{ whiteSpace: "nowrap" }}>
                           <span className="tag">{s.board}</span> {s.state ?? ""}
+                        </td>
+                        <td style={{ minWidth: 140 }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                            <span className={`tag ${state.tone}`}>{state.label}</span>
+                            <span
+                              title={`${state.steps}/2 onboarding steps: principal key, students on roll`}
+                              style={{ width: 44, height: 5, borderRadius: 999, background: "var(--line)", overflow: "hidden", flex: "0 0 auto" }}
+                            >
+                              <span
+                                style={{
+                                  display: "block", height: "100%", width: `${(state.steps / 2) * 100}%`,
+                                  background: state.steps === 2 ? "var(--brand-green)" : "var(--brand-gold)",
+                                  borderRadius: 999,
+                                }}
+                              />
+                            </span>
+                          </div>
                         </td>
                         <td className="num">{s.students}</td>
                         <td className="num">{ov?.papers ?? "—"}</td>
