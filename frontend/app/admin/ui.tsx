@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Check, Copy } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Check, Copy, Loader2 } from "lucide-react";
 import { EASE_OUT } from "@/components/motion";
 
 /**
@@ -51,6 +51,92 @@ export function Toast({ message }: { message: string | null }) {
         </motion.div>
       )}
     </AnimatePresence>
+  );
+}
+
+// ------------------------------------------------------------
+// A real save state machine: idle -> saving -> saved -> idle.
+// "saved" is only ever entered once the awaited call has actually
+// resolved true -- never claimed on click.
+// ------------------------------------------------------------
+
+export type SaveState = "idle" | "saving" | "saved";
+
+export function useSaveState() {
+  const [state, setState] = useState<SaveState>("idle");
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const run = useCallback(async (fn: () => Promise<boolean>) => {
+    if (timer.current) clearTimeout(timer.current);
+    setState("saving");
+    const ok = await fn();
+    setState(ok ? "saved" : "idle");
+    if (ok) timer.current = setTimeout(() => setState("idle"), 2000);
+  }, []);
+
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  return { state, run };
+}
+
+export function SaveButton({
+  state,
+  onClick,
+  children = "Save changes",
+  className = "btn btn--sm",
+  savingLabel = "Saving…",
+  savedLabel = "Saved",
+  disabled = false,
+}: {
+  state: SaveState;
+  onClick: () => void;
+  children?: React.ReactNode;
+  className?: string;
+  savingLabel?: string;
+  savedLabel?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button type="button" className={className} disabled={disabled || state === "saving"} onClick={onClick}>
+      <AnimatePresence mode="wait" initial={false}>
+        {state === "saving" ? (
+          <motion.span
+            key="saving"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16 }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <Loader2 size={13} className="spin" /> {savingLabel}
+          </motion.span>
+        ) : state === "saved" ? (
+          <motion.span
+            key="saved"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16 }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            <Check size={13} /> {savedLabel}
+          </motion.span>
+        ) : (
+          <motion.span
+            key="idle"
+            initial={{ opacity: 0, y: 4 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={{ duration: 0.16 }}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6 }}
+          >
+            {children}
+          </motion.span>
+        )}
+      </AnimatePresence>
+    </button>
   );
 }
 

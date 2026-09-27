@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   ArrowLeft,
   CheckCircle2,
@@ -20,7 +21,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { CountUp, Stagger, StaggerItem } from "@/components/motion";
+import { CountUp, EASE_OUT, Stagger, StaggerItem } from "@/components/motion";
 import {
   api,
   ApiError,
@@ -35,7 +36,7 @@ import {
   TeacherAssignmentRow,
 } from "@/lib/api";
 import { getPlatformKey } from "@/lib/session";
-import { CopySecret, OpsEmpty, Toast, useToast } from "../../ui";
+import { CopySecret, OpsEmpty, SaveButton, Toast, useSaveState, useToast } from "../../ui";
 
 type Tab = "overview" | "details" | "principal" | "teachers" | "students" | "activity";
 const TABS: { key: Tab; label: string }[] = [
@@ -73,6 +74,20 @@ export default function AdminSchoolDetailPage() {
   const [checklist, setChecklist] = useState<OnboardingChecklist | null>(null);
   const [issued, setIssued] = useState<{ label: string; api_key: string; notice: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Ids of rows (teachers, staff keys) that just had a real write succeed --
+  // rendered with a brief flash, never before the call actually returns.
+  const [flashIds, setFlashIds] = useState<Set<string>>(new Set());
+
+  const flash = useCallback((id: string) => {
+    setFlashIds((prev) => new Set(prev).add(id));
+    setTimeout(() => {
+      setFlashIds((prev) => {
+        const next = new Set(prev);
+        next.delete(id);
+        return next;
+      });
+    }, 1700);
+  }, []);
 
   const load = useCallback(async () => {
     const key = getPlatformKey();
@@ -165,16 +180,18 @@ export default function AdminSchoolDetailPage() {
 
   async function saveSchoolDetails(patch: {
     name: string; board: string; state: string; code: string; city: string; address: string; academic_year: string;
-  }) {
+  }): Promise<boolean> {
     const key = getPlatformKey();
-    if (!key || !school) return;
+    if (!key || !school) return false;
     try {
       const updated = await api.patchSchool(key, school.id, patch);
       setSchool(updated);
       show("School details saved.");
       await load();
+      return true;
     } catch (err) {
       setError(describe(err, "Could not save school details."));
+      return false;
     }
   }
 
@@ -185,6 +202,7 @@ export default function AdminSchoolDetailPage() {
       const created = await api.issueStaffKey(key, school.id, role, label, examCell);
       setIssued({ label: `${school.name}, ${role} key`, api_key: created.api_key, notice: created.api_key_notice });
       setKeys(await api.listStaffKeys(key, school.id));
+      flash(created.id);
     } catch (err) {
       setError(describe(err, "Could not issue the key."));
     }
@@ -223,26 +241,32 @@ export default function AdminSchoolDetailPage() {
     }
   }
 
-  async function saveKeyContact(entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) {
+  async function saveKeyContact(entry: StaffKeySummary, patch: { name: string; email: string; phone: string }): Promise<boolean> {
     const key = getPlatformKey();
-    if (!key || !school) return;
+    if (!key || !school) return false;
     try {
       await api.patchStaffKey(key, school.id, entry.id, patch);
       setKeys(await api.listStaffKeys(key, school.id));
       show("Contact details saved.");
+      flash(entry.id);
+      return true;
     } catch (err) {
       setError(describe(err, "Could not save contact details."));
+      return false;
     }
   }
 
-  async function saveAssignments(entry: StaffKeySummary, assignments: TeacherAssignmentInput[]) {
+  async function saveAssignments(entry: StaffKeySummary, assignments: TeacherAssignmentInput[]): Promise<boolean> {
     const key = getPlatformKey();
-    if (!key || !school) return;
+    if (!key || !school) return false;
     try {
       await api.setAssignments(key, school.id, entry.id, assignments);
       show("Access updated.");
+      flash(entry.id);
+      return true;
     } catch (err) {
       setError(describe(err, "Could not update access."));
+      return false;
     }
   }
 
@@ -346,47 +370,59 @@ export default function AdminSchoolDetailPage() {
       )}
 
       <div style={{ marginTop: 16 }}>
-        {tab === "overview" && (
-          <OverviewTab
-            school={school}
-            overviewRow={overviewRow}
-            activeTeachers={activeTeachers}
-            checklist={checklist}
-            lastActivity={activity[0]}
-            onAddSection={addSection}
-            onToggleDirectory={toggleDirectoryVisibility}
-            onRotate={rotate}
-          />
-        )}
-        {tab === "details" && <SchoolDetailsTab school={school} onSave={saveSchoolDetails} />}
-        {tab === "principal" && (
-          <PrincipalTab
-            principal={principal}
-            schoolCode={school.code}
-            schoolName={school.name}
-            onIssue={(label) => issueKey("principal", label)}
-            onRevoke={revokeKey}
-            onSaveContact={saveKeyContact}
-            onChangeKey={changeStaffKey}
-          />
-        )}
-        {tab === "teachers" && (
-          <TeachersTab
-            teachers={teacherKeys}
-            sections={school.sections}
-            schoolCode={school.code}
-            onIssue={(label, examCell) => issueKey("teacher", label, examCell)}
-            onRevoke={revokeKey}
-            onSaveContact={saveKeyContact}
-            onSaveAssignments={saveAssignments}
-            onChangeKey={changeStaffKey}
-          />
-        )}
-        {tab === "students" && (
-          <StudentsTab school={school} students={students} onBulkAdd={bulkAddStudents} />
-        )}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.22, ease: EASE_OUT }}
+          >
+            {tab === "overview" && (
+              <OverviewTab
+                school={school}
+                overviewRow={overviewRow}
+                activeTeachers={activeTeachers}
+                checklist={checklist}
+                lastActivity={activity[0]}
+                onAddSection={addSection}
+                onToggleDirectory={toggleDirectoryVisibility}
+                onRotate={rotate}
+              />
+            )}
+            {tab === "details" && <SchoolDetailsTab school={school} onSave={saveSchoolDetails} />}
+            {tab === "principal" && (
+              <PrincipalTab
+                principal={principal}
+                schoolCode={school.code}
+                schoolName={school.name}
+                flashIds={flashIds}
+                onIssue={(label) => issueKey("principal", label)}
+                onRevoke={revokeKey}
+                onSaveContact={saveKeyContact}
+                onChangeKey={changeStaffKey}
+              />
+            )}
+            {tab === "teachers" && (
+              <TeachersTab
+                teachers={teacherKeys}
+                sections={school.sections}
+                schoolCode={school.code}
+                flashIds={flashIds}
+                onIssue={(label, examCell) => issueKey("teacher", label, examCell)}
+                onRevoke={revokeKey}
+                onSaveContact={saveKeyContact}
+                onSaveAssignments={saveAssignments}
+                onChangeKey={changeStaffKey}
+              />
+            )}
+            {tab === "students" && (
+              <StudentsTab school={school} students={students} onBulkAdd={bulkAddStudents} />
+            )}
 
-        {tab === "activity" && <ActivityTab rows={activity} />}
+            {tab === "activity" && <ActivityTab rows={activity} />}
+          </motion.div>
+        </AnimatePresence>
       </div>
 
       <Toast message={message} />
@@ -555,8 +591,9 @@ function SchoolDetailsTab({
   onSave,
 }: {
   school: PlatformSchool;
-  onSave: (patch: { name: string; board: string; state: string; code: string; city: string; address: string; academic_year: string }) => void;
+  onSave: (patch: { name: string; board: string; state: string; code: string; city: string; address: string; academic_year: string }) => Promise<boolean>;
 }) {
+  const { state: saveState, run } = useSaveState();
   const [name, setName] = useState(school.name);
   const [board, setBoard] = useState(school.board);
   const [state, setState] = useState(school.state ?? "");
@@ -613,12 +650,12 @@ function SchoolDetailsTab({
         </p>
       </div>
       <div className="card__foot" style={{ justifyContent: "flex-end" }}>
-        <button
-          className="btn btn--sm"
-          onClick={() => onSave({ name, board, state, code, city, address, academic_year: academicYear })}
+        <SaveButton
+          state={saveState}
+          onClick={() => run(() => onSave({ name, board, state, code, city, address, academic_year: academicYear }))}
         >
           Save changes
-        </button>
+        </SaveButton>
       </div>
     </section>
   );
@@ -675,6 +712,7 @@ function PrincipalTab({
   principal,
   schoolCode,
   schoolName,
+  flashIds,
   onIssue,
   onRevoke,
   onSaveContact,
@@ -683,11 +721,13 @@ function PrincipalTab({
   principal: StaffKeySummary | undefined;
   schoolCode: string | null;
   schoolName: string;
+  flashIds: Set<string>;
   onIssue: (label: string) => void;
   onRevoke: (entry: StaffKeySummary) => void;
-  onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => void;
+  onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => Promise<boolean>;
   onChangeKey: (entry: StaffKeySummary) => void;
 }) {
+  const { state: saveState, run } = useSaveState();
   const [name, setName] = useState(principal?.name ?? "");
   const [email, setEmail] = useState(principal?.email ?? "");
   const [phone, setPhone] = useState(principal?.phone ?? "");
@@ -719,9 +759,10 @@ function PrincipalTab({
     );
   }
 
+  const flashed = flashIds.has(principal.id);
   return (
     <div className="grid grid--2" style={{ gap: 16, alignItems: "start" }}>
-      <section className="card">
+      <section className={`card ${flashed ? "row-flash" : ""}`}>
         <div className="card__body">
           <h2 style={{ fontSize: 15 }}>Principal&rsquo;s details</h2>
           <div style={{ marginTop: 12 }}>
@@ -729,9 +770,9 @@ function PrincipalTab({
           </div>
         </div>
         <div className="card__foot" style={{ justifyContent: "flex-end" }}>
-          <button className="btn btn--sm" onClick={() => onSaveContact(principal, { name, email, phone })}>
+          <SaveButton state={saveState} onClick={() => run(() => onSaveContact(principal, { name, email, phone }))}>
             Save principal
-          </button>
+          </SaveButton>
         </div>
       </section>
       <section className="card">
@@ -783,6 +824,7 @@ function TeachersTab({
   teachers,
   sections,
   schoolCode,
+  flashIds,
   onIssue,
   onRevoke,
   onSaveContact,
@@ -792,10 +834,11 @@ function TeachersTab({
   teachers: StaffKeySummary[];
   sections: PlatformSchool["sections"];
   schoolCode: string | null;
+  flashIds: Set<string>;
   onIssue: (label: string, examCell: boolean) => void;
   onRevoke: (entry: StaffKeySummary) => void;
-  onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => void;
-  onSaveAssignments: (entry: StaffKeySummary, assignments: TeacherAssignmentInput[]) => void;
+  onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => Promise<boolean>;
+  onSaveAssignments: (entry: StaffKeySummary, assignments: TeacherAssignmentInput[]) => Promise<boolean>;
   onChangeKey: (entry: StaffKeySummary) => void;
 }) {
   const [search, setSearch] = useState("");
@@ -860,6 +903,7 @@ function TeachersTab({
                 entry={t}
                 sections={sections}
                 schoolCode={schoolCode}
+                flashed={flashIds.has(t.id)}
                 onRevoke={onRevoke}
                 onSaveContact={onSaveContact}
                 onSaveAssignments={onSaveAssignments}
@@ -877,6 +921,7 @@ function TeacherRow({
   entry,
   sections,
   schoolCode,
+  flashed,
   onRevoke,
   onSaveContact,
   onSaveAssignments,
@@ -885,9 +930,10 @@ function TeacherRow({
   entry: StaffKeySummary;
   sections: PlatformSchool["sections"];
   schoolCode: string | null;
+  flashed: boolean;
   onRevoke: (entry: StaffKeySummary) => void;
-  onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => void;
-  onSaveAssignments: (entry: StaffKeySummary, assignments: TeacherAssignmentInput[]) => void;
+  onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => Promise<boolean>;
+  onSaveAssignments: (entry: StaffKeySummary, assignments: TeacherAssignmentInput[]) => Promise<boolean>;
   onChangeKey: (entry: StaffKeySummary) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -896,6 +942,8 @@ function TeacherRow({
   const [phone, setPhone] = useState(entry.phone ?? "");
   const [assignments, setAssignments] = useState<TeacherAssignmentRow[]>([]);
   const [loadedAssignments, setLoadedAssignments] = useState(false);
+  const { state: contactSaveState, run: runContactSave } = useSaveState();
+  const { state: assignSaveState, run: runAssignSave } = useSaveState();
 
   const loadAssignments = useCallback(async () => {
     const key = getPlatformKey();
@@ -976,7 +1024,10 @@ function TeacherRow({
         : { label: "Key not used yet", className: "tag tag--gold" };
 
   return (
-    <div className="ops-list__row card--hover" style={{ flexDirection: "column", alignItems: "stretch", gap: 10, opacity: entry.revoked_at ? 0.55 : 1 }}>
+    <div
+      className={`ops-list__row card--hover ${flashed ? "row-flash" : ""}`}
+      style={{ flexDirection: "column", alignItems: "stretch", gap: 10, opacity: entry.revoked_at ? 0.55 : 1 }}
+    >
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div>
           <span className="strong">{entry.name || entry.label || "Unnamed teacher"}</span>
@@ -1009,12 +1060,24 @@ function TeacherRow({
 
       {!entry.revoked_at && <CopySecret value={entry.api_key} />}
 
-      {expanded && (
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            initial={{ opacity: 0, height: 0 }}
+            animate={{ opacity: 1, height: "auto" }}
+            exit={{ opacity: 0, height: 0 }}
+            transition={{ duration: 0.24, ease: EASE_OUT }}
+            style={{ overflow: "hidden" }}
+          >
         <div className="surface" style={{ padding: 14, display: "grid", gap: 14 }}>
           <ContactFields name={name} email={email} phone={phone} setName={setName} setEmail={setEmail} setPhone={setPhone} />
-          <button className="btn btn--ghost btn--sm" style={{ justifySelf: "start" }} onClick={() => onSaveContact(entry, { name, email, phone })}>
+          <SaveButton
+            state={contactSaveState}
+            className="btn btn--ghost btn--sm"
+            onClick={() => runContactSave(() => onSaveContact(entry, { name, email, phone }))}
+          >
             Save contact details
-          </button>
+          </SaveButton>
 
           <div>
             <p className="field__label">Class teacher for</p>
@@ -1060,20 +1123,24 @@ function TeacherRow({
             )}
           </div>
 
-          <button
+          <SaveButton
+            state={assignSaveState}
             className="btn btn--sm"
-            style={{ justifySelf: "start" }}
             onClick={() =>
-              onSaveAssignments(
-                entry,
-                assignments.map((a) => ({ type: a.type, section_id: a.section_id, subject_code: a.subject_code })),
+              runAssignSave(() =>
+                onSaveAssignments(
+                  entry,
+                  assignments.map((a) => ({ type: a.type, section_id: a.section_id, subject_code: a.subject_code })),
+                ),
               )
             }
           >
             Save access
-          </button>
+          </SaveButton>
         </div>
-      )}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1091,6 +1158,7 @@ function StudentsTab({
   const [draft, setDraft] = useState<StudentBulkInput[]>([]);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(true);
+  const [justAdded, setJustAdded] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     if (!activeSection && school.sections[0]) setActiveSection(school.sections[0].id);
@@ -1129,6 +1197,9 @@ function StudentsTab({
     if (ok) {
       setDraft([]);
       setSaved(true);
+      const keys = new Set(rows.map((r) => `${r.section_id}::${r.roll_no.trim()}`));
+      setJustAdded(keys);
+      setTimeout(() => setJustAdded(new Set()), 1700);
     }
   }
 
@@ -1167,7 +1238,7 @@ function StudentsTab({
               </thead>
               <tbody>
                 {filtered.map((s) => (
-                  <tr key={s.id}>
+                  <tr key={s.id} className={justAdded.has(`${s.section_id}::${s.roll_no}`) ? "row-flash" : ""}>
                     <td className="mono">{s.roll_no}</td>
                     <td>{s.name}</td>
                     <td>{s.parent_name || "—"}</td>
@@ -1211,9 +1282,13 @@ function StudentsTab({
           <button className="btn btn--ghost btn--sm" disabled={draft.length === 0 || saving} onClick={discard}>
             Discard
           </button>
-          <button className="btn btn--sm" disabled={draft.length === 0 || saving} onClick={submit}>
+          <SaveButton
+            state={saving ? "saving" : "idle"}
+            disabled={draft.length === 0 || saving}
+            onClick={submit}
+          >
             Save students
-          </button>
+          </SaveButton>
         </div>
       </div>
     </section>
