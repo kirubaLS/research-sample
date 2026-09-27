@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
   ArrowLeft,
+  CheckCircle2,
+  Circle,
   Eye,
   EyeOff,
   FileCheck2,
@@ -12,6 +14,7 @@ import {
   ListChecks,
   Plus,
   RefreshCw,
+  Send,
   ShieldCheck,
   Trash2,
   UserPlus,
@@ -22,6 +25,7 @@ import {
   api,
   ApiError,
   AuditLogRow,
+  OnboardingChecklist,
   PlatformOverview,
   PlatformSchool,
   PlatformStudentRow,
@@ -66,6 +70,7 @@ export default function AdminSchoolDetailPage() {
   const [keys, setKeys] = useState<StaffKeySummary[]>([]);
   const [students, setStudents] = useState<PlatformStudentRow[]>([]);
   const [activity, setActivity] = useState<AuditLogRow[]>([]);
+  const [checklist, setChecklist] = useState<OnboardingChecklist | null>(null);
   const [issued, setIssued] = useState<{ label: string; api_key: string; notice: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -98,6 +103,11 @@ export default function AdminSchoolDetailPage() {
       setActivity(await api.listActivity(key, params.schoolId));
     } catch {
       /* activity tab shows its own load error state */
+    }
+    try {
+      setChecklist(await api.onboardingChecklist(key, params.schoolId));
+    } catch {
+      /* overview KPIs/checklist just fall back to what overviewRow already covers */
     }
   }, [params.schoolId]);
 
@@ -193,6 +203,26 @@ export default function AdminSchoolDetailPage() {
     }
   }
 
+  async function changeStaffKey(entry: StaffKeySummary) {
+    const key = getPlatformKey();
+    if (!key || !school) return;
+    const ok = window.confirm(
+      `Issue a new key for ${entry.name || entry.label || "this person"}? Their current key stops working immediately.`,
+    );
+    if (!ok) return;
+    try {
+      const result = await api.rotateStaffKey(key, school.id, entry.id);
+      setIssued({
+        label: `${entry.name || entry.label || entry.role}'s key`,
+        api_key: result.api_key,
+        notice: result.api_key_notice,
+      });
+      setKeys(await api.listStaffKeys(key, school.id));
+    } catch (err) {
+      setError(describe(err, "Could not change this key."));
+    }
+  }
+
   async function saveKeyContact(entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) {
     const key = getPlatformKey();
     if (!key || !school) return;
@@ -216,15 +246,17 @@ export default function AdminSchoolDetailPage() {
     }
   }
 
-  async function bulkAddStudents(rows: StudentBulkInput[]) {
+  async function bulkAddStudents(rows: StudentBulkInput[]): Promise<boolean> {
     const key = getPlatformKey();
-    if (!key || !school) return;
+    if (!key || !school) return false;
     try {
       await api.bulkAddStudents(key, school.id, rows);
       show(`${rows.length} student${rows.length === 1 ? "" : "s"} added.`);
       await load();
+      return true;
     } catch (err) {
       setError(describe(err, "Could not add students."));
+      return false;
     }
   }
 
@@ -319,6 +351,8 @@ export default function AdminSchoolDetailPage() {
             school={school}
             overviewRow={overviewRow}
             activeTeachers={activeTeachers}
+            checklist={checklist}
+            lastActivity={activity[0]}
             onAddSection={addSection}
             onToggleDirectory={toggleDirectoryVisibility}
             onRotate={rotate}
@@ -328,25 +362,30 @@ export default function AdminSchoolDetailPage() {
         {tab === "principal" && (
           <PrincipalTab
             principal={principal}
+            schoolCode={school.code}
             schoolName={school.name}
             onIssue={(label) => issueKey("principal", label)}
             onRevoke={revokeKey}
             onSaveContact={saveKeyContact}
+            onChangeKey={changeStaffKey}
           />
         )}
         {tab === "teachers" && (
           <TeachersTab
             teachers={teacherKeys}
             sections={school.sections}
+            schoolCode={school.code}
             onIssue={(label, examCell) => issueKey("teacher", label, examCell)}
             onRevoke={revokeKey}
             onSaveContact={saveKeyContact}
             onSaveAssignments={saveAssignments}
+            onChangeKey={changeStaffKey}
           />
         )}
         {tab === "students" && (
           <StudentsTab school={school} students={students} onBulkAdd={bulkAddStudents} />
         )}
+
         {tab === "activity" && <ActivityTab rows={activity} />}
       </div>
 
@@ -359,6 +398,8 @@ function OverviewTab({
   school,
   overviewRow,
   activeTeachers,
+  checklist,
+  lastActivity,
   onAddSection,
   onToggleDirectory,
   onRotate,
@@ -366,15 +407,49 @@ function OverviewTab({
   school: PlatformSchool;
   overviewRow: PlatformOverview["schools"][number] | null;
   activeTeachers: number;
+  checklist: OnboardingChecklist | null;
+  lastActivity: AuditLogRow | undefined;
   onAddSection: () => void;
   onToggleDirectory: () => void;
   onRotate: () => void;
 }) {
+  const enrolled = checklist?.students_enrolled ?? school.students;
+  const onboarded = checklist?.students_onboarded_count ?? 0;
+  const teachersWithAccess = checklist?.teachers_with_access ?? activeTeachers;
+  const teachersActivated = checklist?.teachers_activated ?? 0;
+  const papersUploaded = checklist?.papers_uploaded_count ?? overviewRow?.papers ?? 0;
+  const assessmentsCount = checklist?.assessments_count ?? 0;
+
   const kpis = [
-    { label: "Students", value: school.students, sub: `across ${school.sections.length} class${school.sections.length === 1 ? "" : "es"}`, accent: "var(--brand-blue)", icon: Users },
-    { label: "Teachers", value: activeTeachers, sub: "with active access", accent: "var(--brand-gold)", icon: KeyRound },
-    { label: "Papers loaded", value: overviewRow?.papers ?? 0, sub: "question papers", accent: "var(--brand-teal)", icon: FileCheck2 },
-    { label: "Reports issued", value: overviewRow?.reports_issued ?? 0, sub: "to students", accent: "var(--brand-green)", icon: ShieldCheck },
+    {
+      label: "Students onboarded",
+      value: onboarded,
+      sub: `of ${enrolled} enrolled`,
+      accent: "var(--brand-blue)",
+      icon: Users,
+    },
+    {
+      label: "Teachers activated",
+      value: teachersActivated,
+      sub: `of ${teachersWithAccess} with access`,
+      accent: "var(--brand-gold)",
+      icon: KeyRound,
+    },
+    {
+      label: "Onboarding",
+      value: checklist?.percent ?? 0,
+      suffix: "%",
+      sub: checklist ? `${checklist.done_count} of ${checklist.total_steps} steps done` : "loading…",
+      accent: "var(--brand-teal)",
+      icon: ListChecks,
+    },
+    {
+      label: "Tests conducted",
+      value: assessmentsCount,
+      sub: `${papersUploaded} of ${assessmentsCount} papers uploaded`,
+      accent: "var(--brand-green)",
+      icon: FileCheck2,
+    },
   ];
   return (
     <>
@@ -391,6 +466,7 @@ function OverviewTab({
                   <div className="kpi__label">{k.label}</div>
                   <div className="kpi__value">
                     <CountUp value={k.value} delay={0.1 + i * 0.05} />
+                    {k.suffix}
                   </div>
                   <div className="kpi__sub">{k.sub}</div>
                 </div>
@@ -399,6 +475,40 @@ function OverviewTab({
           );
         })}
       </Stagger>
+
+      <section className="card card--hover" style={{ marginTop: 16 }}>
+        <div className="card__body">
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+            <h2 style={{ fontSize: 15 }}>Onboarding checklist</h2>
+            {lastActivity?.created_at && (
+              <span className="small muted">
+                Last activity {new Date(lastActivity.created_at).toLocaleString()}
+              </span>
+            )}
+          </div>
+          {!checklist ? (
+            <p className="small muted" style={{ marginTop: 10 }}>Loading…</p>
+          ) : (
+            <div style={{ display: "grid", gap: 8, marginTop: 12 }}>
+              {checklist.steps.map((s) => (
+                <div key={s.key} className="ops-list__row">
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {s.done ? (
+                      <CheckCircle2 size={16} color="var(--brand-teal)" />
+                    ) : (
+                      <Circle size={16} className="muted" />
+                    )}
+                    <span className={s.done ? "strong" : ""}>{s.label}</span>
+                  </div>
+                  <div className="small muted">
+                    {s.done && s.at ? new Date(s.at).toLocaleDateString() : "Not started"}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
 
       <section className="card" style={{ marginTop: 16 }}>
         <div className="card__body">
@@ -538,18 +648,45 @@ function ContactFields({
   );
 }
 
+function ResendLink({ entry, schoolCode }: { entry: StaffKeySummary; schoolCode: string | null }) {
+  if (entry.revoked_at) return null;
+  const text = `Hi ${entry.name || entry.label || "there"}, here's your Yaadhum login -- school code ${schoolCode ?? "—"}, key: ${entry.api_key}`;
+  const mailHref = entry.email
+    ? `mailto:${encodeURIComponent(entry.email)}?subject=${encodeURIComponent("Your Yaadhum login")}&body=${encodeURIComponent(text)}`
+    : null;
+  const waHref = entry.phone
+    ? `https://wa.me/${entry.phone.replace(/[^\d]/g, "")}?text=${encodeURIComponent(text)}`
+    : null;
+  if (!mailHref && !waHref) return null;
+  return (
+    <a
+      className="btn btn--ghost btn--sm"
+      href={waHref ?? mailHref ?? "#"}
+      target="_blank"
+      rel="noreferrer"
+      title="Opens a prefilled message with their real key -- you send it yourself"
+    >
+      <Send size={13} /> Resend
+    </a>
+  );
+}
+
 function PrincipalTab({
   principal,
+  schoolCode,
   schoolName,
   onIssue,
   onRevoke,
   onSaveContact,
+  onChangeKey,
 }: {
   principal: StaffKeySummary | undefined;
+  schoolCode: string | null;
   schoolName: string;
   onIssue: (label: string) => void;
   onRevoke: (entry: StaffKeySummary) => void;
   onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => void;
+  onChangeKey: (entry: StaffKeySummary) => void;
 }) {
   const [name, setName] = useState(principal?.name ?? "");
   const [email, setEmail] = useState(principal?.email ?? "");
@@ -601,6 +738,9 @@ function PrincipalTab({
         <div className="card__body">
           <h2 style={{ fontSize: 15 }}>Principal login</h2>
           <p className="small muted" style={{ marginTop: 4 }}>Sees every section and subject for this school.</p>
+          <p className="small" style={{ marginTop: 8 }}>
+            School code: <span className="tag mono">{schoolCode || "—"}</span>
+          </p>
           {principal.revoked_at ? (
             <p className="small muted" style={{ marginTop: 10 }}>Revoked. Issue a new key below.</p>
           ) : (
@@ -613,9 +753,15 @@ function PrincipalTab({
           )}
         </div>
         <div className="card__foot" style={{ justifyContent: "flex-end", gap: 8 }}>
+          <ResendLink entry={principal} schoolCode={schoolCode} />
           {!principal.revoked_at && (
             <button className="btn btn--ghost btn--sm" onClick={() => onRevoke(principal)}>
               Revoke
+            </button>
+          )}
+          {!principal.revoked_at && (
+            <button className="btn btn--ghost btn--sm" onClick={() => onChangeKey(principal)}>
+              <RefreshCw size={13} /> Change key
             </button>
           )}
           <button
@@ -625,7 +771,7 @@ function PrincipalTab({
               if (label !== null) onIssue(label);
             }}
           >
-            <RefreshCw size={13} /> Change key
+            Issue new key
           </button>
         </div>
       </section>
@@ -636,18 +782,28 @@ function PrincipalTab({
 function TeachersTab({
   teachers,
   sections,
+  schoolCode,
   onIssue,
   onRevoke,
   onSaveContact,
   onSaveAssignments,
+  onChangeKey,
 }: {
   teachers: StaffKeySummary[];
   sections: PlatformSchool["sections"];
+  schoolCode: string | null;
   onIssue: (label: string, examCell: boolean) => void;
   onRevoke: (entry: StaffKeySummary) => void;
   onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => void;
   onSaveAssignments: (entry: StaffKeySummary, assignments: TeacherAssignmentInput[]) => void;
+  onChangeKey: (entry: StaffKeySummary) => void;
 }) {
+  const [search, setSearch] = useState("");
+  const filtered = teachers.filter((t) => {
+    if (!search.trim()) return true;
+    const q = search.trim().toLowerCase();
+    return [t.name, t.label, t.email, t.phone].filter(Boolean).some((v) => v!.toLowerCase().includes(q));
+  });
   return (
     <section className="card">
       <div className="card__body">
@@ -684,18 +840,30 @@ function TeachersTab({
           </div>
         </div>
 
+        <input
+          className="input"
+          style={{ marginTop: 12, maxWidth: 320 }}
+          placeholder="Search teachers…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+
         {teachers.length === 0 ? (
           <OpsEmpty>No teacher keys issued yet.</OpsEmpty>
+        ) : filtered.length === 0 ? (
+          <OpsEmpty>No teacher matches &ldquo;{search}&rdquo;.</OpsEmpty>
         ) : (
           <div style={{ display: "grid", gap: 12, marginTop: 14 }}>
-            {teachers.map((t) => (
+            {filtered.map((t) => (
               <TeacherRow
                 key={t.id}
                 entry={t}
                 sections={sections}
+                schoolCode={schoolCode}
                 onRevoke={onRevoke}
                 onSaveContact={onSaveContact}
                 onSaveAssignments={onSaveAssignments}
+                onChangeKey={onChangeKey}
               />
             ))}
           </div>
@@ -708,15 +876,19 @@ function TeachersTab({
 function TeacherRow({
   entry,
   sections,
+  schoolCode,
   onRevoke,
   onSaveContact,
   onSaveAssignments,
+  onChangeKey,
 }: {
   entry: StaffKeySummary;
   sections: PlatformSchool["sections"];
+  schoolCode: string | null;
   onRevoke: (entry: StaffKeySummary) => void;
   onSaveContact: (entry: StaffKeySummary, patch: { name: string; email: string; phone: string }) => void;
   onSaveAssignments: (entry: StaffKeySummary, assignments: TeacherAssignmentInput[]) => void;
+  onChangeKey: (entry: StaffKeySummary) => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [name, setName] = useState(entry.name ?? "");
@@ -725,20 +897,26 @@ function TeacherRow({
   const [assignments, setAssignments] = useState<TeacherAssignmentRow[]>([]);
   const [loadedAssignments, setLoadedAssignments] = useState(false);
 
-  async function toggle() {
-    const next = !expanded;
-    setExpanded(next);
-    if (next && !loadedAssignments) {
-      const key = getPlatformKey();
-      if (!key) return;
-      try {
-        const rows = await api.listAssignments(key, entry.school_id!, entry.id);
-        setAssignments(rows);
-        setLoadedAssignments(true);
-      } catch {
-        /* the row just stays without an assignment list */
-      }
+  const loadAssignments = useCallback(async () => {
+    const key = getPlatformKey();
+    if (!key || !entry.school_id) return;
+    try {
+      const rows = await api.listAssignments(key, entry.school_id, entry.id);
+      setAssignments(rows);
+      setLoadedAssignments(true);
+    } catch {
+      /* the row just stays without an assignment list */
     }
+  }, [entry.id, entry.school_id]);
+
+  // Loaded eagerly (not only on expand) so the summary line below is always real,
+  // not only visible once someone opens "Edit access".
+  useEffect(() => {
+    void loadAssignments();
+  }, [loadAssignments]);
+
+  function toggle() {
+    setExpanded((e) => !e);
   }
 
   function toggleSectionClass(sectionId: string) {
@@ -771,21 +949,56 @@ function TeacherRow({
   const classAssignments = assignments.filter((a) => a.type === "class");
   const subjectAssignments = assignments.filter((a) => a.type === "subject");
 
+  // "Mathematics (10A) · Social Science (10A, 10B)" -- one entry per subject code,
+  // every section it covers grouped into that one entry, in the order first seen.
+  const sectionLabel = (id: string) => sections.find((s) => s.id === id)?.label ?? id;
+  const bySubject = new Map<string, string[]>();
+  for (const a of subjectAssignments) {
+    if (!a.subject_code) continue;
+    const list = bySubject.get(a.subject_code) ?? [];
+    list.push(sectionLabel(a.section_id));
+    bySubject.set(a.subject_code, list);
+  }
+  const subjectSummary = Array.from(bySubject.entries())
+    .map(([code, secs]) => `${code} (${secs.join(", ")})`)
+    .join(" · ");
+  const classSummary = classAssignments.length > 0
+    ? `Class teacher ${classAssignments.map((a) => sectionLabel(a.section_id)).join(", ")}`
+    : "";
+  const summaryLine = [classSummary, subjectSummary].filter(Boolean).join(" · ");
+
+  const statusTag = entry.revoked_at
+    ? null
+    : entry.exam_cell
+      ? { label: "Exam cell", className: "tag" }
+      : entry.last_used_at
+        ? { label: "Active", className: "tag tag--teal" }
+        : { label: "Key not used yet", className: "tag tag--gold" };
+
   return (
-    <div className="ops-list__row" style={{ flexDirection: "column", alignItems: "stretch", gap: 10, opacity: entry.revoked_at ? 0.55 : 1 }}>
+    <div className="ops-list__row card--hover" style={{ flexDirection: "column", alignItems: "stretch", gap: 10, opacity: entry.revoked_at ? 0.55 : 1 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
         <div>
           <span className="strong">{entry.name || entry.label || "Unnamed teacher"}</span>
-          {entry.exam_cell && <span className="tag" style={{ marginLeft: 8 }}>Exam cell</span>}
+          {statusTag && <span className={statusTag.className} style={{ marginLeft: 8 }}>{statusTag.label}</span>}
           {entry.revoked_at && <span className="tag tag--risk" style={{ marginLeft: 8 }}>Revoked</span>}
           <div className="small muted" style={{ marginTop: 2 }}>
-            {[entry.email, entry.phone].filter(Boolean).join(" · ") || "No contact details on file"}
+            {[entry.phone, entry.email].filter(Boolean).join(" · ") || "No contact details on file"}
           </div>
+          {loadedAssignments && summaryLine && (
+            <div className="small muted" style={{ marginTop: 2 }}>{summaryLine}</div>
+          )}
         </div>
         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <button className="btn btn--ghost btn--sm" onClick={toggle}>
             <ListChecks size={13} /> {expanded ? "Hide access" : "Edit access"}
           </button>
+          {!entry.revoked_at && (
+            <button className="btn btn--ghost btn--sm" onClick={() => onChangeKey(entry)}>
+              <RefreshCw size={13} /> Change key
+            </button>
+          )}
+          <ResendLink entry={entry} schoolCode={schoolCode} />
           {!entry.revoked_at && (
             <button className="btn btn--ghost btn--sm" onClick={() => onRevoke(entry)}>
               Turn off
@@ -872,41 +1085,60 @@ function StudentsTab({
 }: {
   school: PlatformSchool;
   students: PlatformStudentRow[];
-  onBulkAdd: (rows: StudentBulkInput[]) => void;
+  onBulkAdd: (rows: StudentBulkInput[]) => Promise<boolean>;
 }) {
   const [activeSection, setActiveSection] = useState(school.sections[0]?.id ?? "");
   const [draft, setDraft] = useState<StudentBulkInput[]>([]);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(true);
 
   useEffect(() => {
     if (!activeSection && school.sections[0]) setActiveSection(school.sections[0].id);
   }, [school.sections, activeSection]);
 
   const filtered = students.filter((s) => s.section_id === activeSection);
+  const withWhatsapp = students.filter((s) => s.parent_whatsapp).length;
 
   function addRow() {
     setDraft((d) => [...d, { name: "", roll_no: "", section_id: activeSection }]);
+    setSaved(false);
   }
 
   function updateRow(i: number, patch: Partial<StudentBulkInput>) {
     setDraft((d) => d.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+    setSaved(false);
   }
 
   function removeRow(i: number) {
     setDraft((d) => d.filter((_, idx) => idx !== i));
   }
 
-  function submit() {
+  function discard() {
+    setDraft([]);
+    setSaved(true);
+  }
+
+  async function submit() {
     const rows = draft.filter((r) => r.name.trim() && r.roll_no.trim());
     if (rows.length === 0) return;
-    onBulkAdd(rows);
-    setDraft([]);
+    setSaving(true);
+    // "All changes saved" is only ever shown once this call has actually returned 200 --
+    // never claimed instantly on click.
+    const ok = await onBulkAdd(rows);
+    setSaving(false);
+    if (ok) {
+      setDraft([]);
+      setSaved(true);
+    }
   }
 
   return (
     <section className="card">
       <div className="card__body">
         <h2 style={{ fontSize: 15 }}>Students and parent WhatsApp numbers</h2>
-        <p className="small muted" style={{ marginTop: 4 }}>{students.length} on roll.</p>
+        <p className="small muted" style={{ marginTop: 4 }}>
+          {students.length} on roll · {withWhatsapp} WhatsApp number{withWhatsapp === 1 ? "" : "s"} on file
+        </p>
 
         <div className="tabs" style={{ marginTop: 12 }}>
           {school.sections.map((s) => (
@@ -971,10 +1203,18 @@ function StudentsTab({
           )}
         </div>
       </div>
-      <div className="card__foot" style={{ justifyContent: "flex-end" }}>
-        <button className="btn btn--sm" disabled={draft.length === 0} onClick={submit}>
-          Save students
-        </button>
+      <div className="card__foot" style={{ justifyContent: "space-between", alignItems: "center" }}>
+        <span className="small muted">
+          {saved ? "All changes saved" : saving ? "Saving…" : "Unsaved changes"}
+        </span>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button className="btn btn--ghost btn--sm" disabled={draft.length === 0 || saving} onClick={discard}>
+            Discard
+          </button>
+          <button className="btn btn--sm" disabled={draft.length === 0 || saving} onClick={submit}>
+            Save students
+          </button>
+        </div>
       </div>
     </section>
   );

@@ -1119,6 +1119,26 @@ export interface StaffKeySummary {
   last_used_at: string | null;
 }
 
+export interface OnboardingChecklistStep {
+  key: string;
+  label: string;
+  done: boolean;
+  at: string | null;
+}
+
+export interface OnboardingChecklist {
+  steps: OnboardingChecklistStep[];
+  done_count: number;
+  total_steps: number;
+  percent: number;
+  students_enrolled: number;
+  students_onboarded_count: number;
+  teachers_with_access: number;
+  teachers_activated: number;
+  assessments_count: number;
+  papers_uploaded_count: number;
+}
+
 export interface FamilyProposal {
   code: string;
   label: string;
@@ -2089,6 +2109,19 @@ export const api = {
   /** Recent actions taken on this school through the ops console -- the Activity tab. */
   listActivity: (key: string, schoolId: string) =>
     operator<AuditLogRow[]>(`/platform/schools/${schoolId}/activity`, key),
+
+  /** Issue a new credential for one principal/teacher key. Mirrors rotateKey (the
+   * school-level rotate) but scoped to a single staff key -- everything else about the
+   * row (label, contact details, assignments) is untouched. */
+  rotateStaffKey: (key: string, schoolId: string, keyId: string) =>
+    operator<StaffKeySummary & IssuedKey>(
+      `/platform/schools/${schoolId}/keys/${keyId}/rotate`, key, { method: "POST" },
+    ),
+
+  /** Overview tab's onboarding checklist -- computed retrospectively from real
+   * timestamped rows (school/key/student/assessment/report), never fabricated. */
+  onboardingChecklist: (key: string, schoolId: string) =>
+    operator<OnboardingChecklist>(`/platform/schools/${schoolId}/onboarding-checklist`, key),
 
   // --- knowledge base ---
   /** The subjects this deployment carries -- platform-scoped, so a bare operator key

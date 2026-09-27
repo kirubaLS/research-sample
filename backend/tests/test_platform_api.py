@@ -127,6 +127,118 @@ def test_rotating_replaces_the_key_immediately(client):
     assert section_id in codes
 
 
+def test_rotating_a_single_staff_key_replaces_it_without_touching_others(client):
+    school = client.post(
+        "/platform/schools", headers=hdr(),
+        json={"name": "Staff Key Rotation School", "sections": [{"grade": 10, "name": "A"}]},
+    ).json()
+    principal = client.post(
+        f"/platform/schools/{school['id']}/keys",
+        headers=hdr(), json={"role": "principal", "label": "Mrs. Iyer"},
+    ).json()
+    teacher = client.post(
+        f"/platform/schools/{school['id']}/keys",
+        headers=hdr(), json={"role": "teacher", "label": "Mr. Rao"},
+    ).json()
+    old_principal_key = principal["api_key"]
+    old_teacher_key = teacher["api_key"]
+
+    rotated = client.post(
+        f"/platform/schools/{school['id']}/keys/{principal['id']}/rotate", headers=hdr()
+    )
+    assert rotated.status_code == 200
+    body = rotated.json()
+    assert body["id"] == principal["id"]
+    assert body["api_key"] != old_principal_key
+    assert body["api_key_notice"]
+
+    # old principal key is dead, new one works
+    assert client.get("/admin/me", headers={"X-API-Key": old_principal_key}).status_code == 404
+    assert client.get("/admin/me", headers={"X-API-Key": body["api_key"]}).status_code == 200
+    # the teacher key is untouched
+    rows = client.get(f"/platform/schools/{school['id']}/keys", headers=hdr()).json()
+    teacher_row = next(r for r in rows if r["id"] == teacher["id"])
+    assert teacher_row["api_key"] == old_teacher_key
+
+
+def test_rotating_a_revoked_staff_key_is_rejected(client):
+    school = client.post(
+        "/platform/schools", headers=hdr(),
+        json={"name": "Revoked Rotation School", "sections": [{"grade": 10, "name": "A"}]},
+    ).json()
+    teacher = client.post(
+        f"/platform/schools/{school['id']}/keys",
+        headers=hdr(), json={"role": "teacher", "label": "Mr. Rao"},
+    ).json()
+    client.post(f"/platform/schools/{school['id']}/keys/{teacher['id']}/revoke", headers=hdr())
+    r = client.post(f"/platform/schools/{school['id']}/keys/{teacher['id']}/rotate", headers=hdr())
+    assert r.status_code == 409
+
+
+def test_rotating_a_staff_key_from_another_school_is_rejected(client):
+    school_a = client.post(
+        "/platform/schools", headers=hdr(),
+        json={"name": "Rotate Cross A", "sections": [{"grade": 10, "name": "A"}]},
+    ).json()
+    school_b = client.post(
+        "/platform/schools", headers=hdr(),
+        json={"name": "Rotate Cross B", "sections": [{"grade": 10, "name": "A"}]},
+    ).json()
+    key_a = client.post(
+        f"/platform/schools/{school_a['id']}/keys",
+        headers=hdr(), json={"role": "principal", "label": "A's principal"},
+    ).json()
+    r = client.post(f"/platform/schools/{school_b['id']}/keys/{key_a['id']}/rotate", headers=hdr())
+    assert r.status_code == 404
+
+
+def test_onboarding_checklist_reflects_only_real_signals(client):
+    school = client.post(
+        "/platform/schools", headers=hdr(),
+        json={"name": "Checklist School", "sections": [{"grade": 10, "name": "A"}]},
+    ).json()
+    section_id = school["sections"][0]["id"]
+
+    checklist = client.get(
+        f"/platform/schools/{school['id']}/onboarding-checklist", headers=hdr()
+    ).json()
+    steps = {s["key"]: s for s in checklist["steps"]}
+    assert steps["school_created"]["done"] is True
+    assert steps["school_created"]["at"] is not None
+    # nothing else has happened yet
+    assert steps["principal_invited"]["done"] is False
+    assert steps["principal_invited"]["at"] is None
+    assert steps["students_onboarded"]["done"] is False
+    assert checklist["done_count"] == 1
+    assert checklist["total_steps"] == 8
+
+    # add a student via the roster (bulk-add), NOT the onboarding wizard
+    client.post(
+        f"/platform/schools/{school['id']}/students/bulk",
+        headers=hdr(), json={"students": [{"name": "Asha", "roll_no": "1", "section_id": section_id}]},
+    )
+    checklist2 = client.get(
+        f"/platform/schools/{school['id']}/onboarding-checklist", headers=hdr()
+    ).json()
+    steps2 = {s["key"]: s for s in checklist2["steps"]}
+    # a roster add is not "onboarded" -- no real wizard fields were ever set
+    assert steps2["students_onboarded"]["done"] is False
+    assert checklist2["students_enrolled"] == 1
+    assert checklist2["students_onboarded_count"] == 0
+
+    # issue a principal key -- that step should now be real and dated
+    client.post(
+        f"/platform/schools/{school['id']}/keys",
+        headers=hdr(), json={"role": "principal", "label": "Mrs. Iyer"},
+    )
+    checklist3 = client.get(
+        f"/platform/schools/{school['id']}/onboarding-checklist", headers=hdr()
+    ).json()
+    steps3 = {s["key"]: s for s in checklist3["steps"]}
+    assert steps3["principal_invited"]["done"] is True
+    assert steps3["principal_invited"]["at"] is not None
+
+
 def test_a_school_key_cannot_reach_the_operator_surface(client, school):
     """The whole point of a second credential."""
     for headers in (

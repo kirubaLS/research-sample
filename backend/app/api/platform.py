@@ -35,6 +35,8 @@ from app.models import (
     StudentProfile,
     TeacherAssignment,
 )
+from app.models.assessment import Assessment, Question
+from app.models.documents import StudentReport
 from app.ratelimit import FixedWindowLimiter, client_key
 
 router = APIRouter(
@@ -765,4 +767,137 @@ def rotate_key(school_id: str, db: Session = Depends(get_session)) -> dict:
         "api_key_notice": (
             "Shown once. Anyone holding the previous key is now signed out."
         ),
+    }
+
+
+@router.post("/schools/{school_id}/keys/{key_id}/rotate")
+def rotate_staff_key(school_id: str, key_id: str, db: Session = Depends(get_session)) -> dict:
+    """Issue a new credential for one principal or teacher key. Mirrors rotate_key
+    above, but for a single staff key rather than the school's own admin key -- the
+    previous api_key stops working immediately, the row (label, contact details,
+    assignments) is untouched."""
+    key = db.get(StaffKey, key_id)
+    if key is None or key.school_id != school_id:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such key")
+    if key.revoked_at is not None:
+        raise HTTPException(status.HTTP_409_CONFLICT, "this key is revoked; issue a new one instead")
+    key.api_key = secrets.token_urlsafe(24)
+    _log(db, school_id, "key_rotated", f"key_id={key_id} role={key.role!r}")
+    db.commit()
+    db.refresh(key)
+    return {
+        **_key_view(key),
+        "api_key_notice": "Shown once. Anyone holding the previous key is now signed out.",
+    }
+
+
+@router.get("/schools/{school_id}/onboarding-checklist")
+def onboarding_checklist(school_id: str, db: Session = Depends(get_session)) -> dict:
+    """The Overview tab's 8-step checklist, computed retrospectively from timestamps
+    already on real rows -- no new writes, no invented dates. Any step whose real
+    signal does not exist yet in the data comes back with done=False and at=None,
+    never a fabricated date.
+
+    Steps and their real signal:
+    1. school_created       -- School.created_at
+    2. principal_invited    -- earliest StaffKey(role='principal').created_at
+    3. teachers_invited     -- earliest StaffKey(role='teacher').created_at
+    4. teacher_keys_generated -- count of StaffKey(role='teacher') rows (>=1)
+    5. students_onboarded   -- earliest StudentProfile.created_at with a real
+                               onboarding-wizard field set (future_career is only ever
+                               written by POST /attend/{class_code}/onboard, never by
+                               the operator's bulk-add roster route, so it is a clean
+                               signal that a *student themselves* completed the wizard,
+                               distinct from being added to the roster)
+    6. first_paper_mapped   -- earliest Assessment with >=1 Question row whose
+                               chapter_id is set (a real curriculum placement, not just
+                               an ingested paper)
+    7. first_assessment_analysed -- earliest Assessment.qmatrix_frozen_at (a paper's
+                               Q-matrix is only frozen once its analysis is complete)
+    8. reports_shared       -- earliest StudentReport.shared_at for this school
+    """
+    school = db.get(School, school_id)
+    if school is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
+
+    def iso(dt: datetime | None) -> str | None:
+        return dt.isoformat() if dt else None
+
+    principal_invited_at = db.scalar(
+        select(func.min(StaffKey.created_at)).where(
+            StaffKey.school_id == school_id, StaffKey.role == "principal"
+        )
+    )
+    teachers_invited_at = db.scalar(
+        select(func.min(StaffKey.created_at)).where(
+            StaffKey.school_id == school_id, StaffKey.role == "teacher"
+        )
+    )
+    teacher_key_count = db.scalar(
+        select(func.count(StaffKey.id)).where(
+            StaffKey.school_id == school_id, StaffKey.role == "teacher"
+        )
+    ) or 0
+    students_onboarded_at = db.scalar(
+        select(func.min(StudentProfile.created_at)).where(
+            StudentProfile.school_id == school_id,
+            StudentProfile.future_career.is_not(None),
+        )
+    )
+    first_paper_mapped_at = db.scalar(
+        select(func.min(Assessment.created_at))
+        .join(Question, Question.assessment_id == Assessment.id)
+        .where(Assessment.school_id == school_id, Question.chapter_id.is_not(None))
+    )
+    frozen_at_values = db.scalars(
+        select(Assessment.qmatrix_frozen_at).where(
+            Assessment.school_id == school_id, Assessment.qmatrix_frozen_at.is_not(None)
+        )
+    ).all()
+    first_assessment_analysed_at = min(frozen_at_values) if frozen_at_values else None
+    reports_shared_at = db.scalar(
+        select(func.min(StudentReport.shared_at)).where(
+            StudentReport.school_id == school_id, StudentReport.shared_at.is_not(None)
+        )
+    )
+
+    steps = [
+        {"key": "school_created", "label": "School created", "done": True, "at": iso(school.created_at)},
+        {"key": "principal_invited", "label": "Principal invited", "done": principal_invited_at is not None, "at": iso(principal_invited_at)},
+        {"key": "teachers_invited", "label": "Teachers invited", "done": teachers_invited_at is not None, "at": iso(teachers_invited_at)},
+        {"key": "teacher_keys_generated", "label": "Teacher keys generated", "done": teacher_key_count > 0, "at": iso(teachers_invited_at) if teacher_key_count > 0 else None},
+        {"key": "students_onboarded", "label": "Students onboarded", "done": students_onboarded_at is not None, "at": iso(students_onboarded_at)},
+        {"key": "first_paper_mapped", "label": "First paper mapped", "done": first_paper_mapped_at is not None, "at": iso(first_paper_mapped_at)},
+        {"key": "first_assessment_analysed", "label": "First assessment analysed", "done": first_assessment_analysed_at is not None, "at": first_assessment_analysed_at},
+        {"key": "reports_shared", "label": "Reports shared", "done": reports_shared_at is not None, "at": iso(reports_shared_at)},
+    ]
+    done_count = sum(1 for s in steps if s["done"])
+    return {
+        "steps": steps,
+        "done_count": done_count,
+        "total_steps": len(steps),
+        "percent": round(100 * done_count / len(steps)),
+        "students_enrolled": db.scalar(
+            select(func.count(StudentProfile.id)).where(StudentProfile.school_id == school_id)
+        ) or 0,
+        "students_onboarded_count": db.scalar(
+            select(func.count(StudentProfile.id)).where(
+                StudentProfile.school_id == school_id, StudentProfile.future_career.is_not(None)
+            )
+        ) or 0,
+        "teachers_with_access": teacher_key_count,
+        "teachers_activated": db.scalar(
+            select(func.count(StaffKey.id)).where(
+                StaffKey.school_id == school_id, StaffKey.role == "teacher",
+                StaffKey.last_used_at.is_not(None),
+            )
+        ) or 0,
+        "assessments_count": db.scalar(
+            select(func.count(Assessment.id)).where(Assessment.school_id == school_id)
+        ) or 0,
+        "papers_uploaded_count": db.scalar(
+            select(func.count(func.distinct(Assessment.id))).where(
+                Assessment.school_id == school_id, Assessment.pdf_page_count.is_not(None)
+            )
+        ) or 0,
     }
