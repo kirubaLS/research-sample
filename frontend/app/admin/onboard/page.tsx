@@ -2,14 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { Check, KeyRound, Plus, Trash2, UserPlus, X } from "lucide-react";
+import { ArrowLeft, Check, CheckCircle2, Pencil, Plus, Search, Trash2, UserPlus, X } from "lucide-react";
 import { Reveal } from "@/components/motion";
 import {
   api,
   ApiError,
   PlatformSchool,
-  StaffKeySummary,
   StudentBulkInput,
   Subject,
   TeacherAssignmentInput,
@@ -30,60 +28,84 @@ const INDIAN_STATES = [
   "Odisha", "Punjab", "Rajasthan", "Tamil Nadu", "Telangana", "Uttar Pradesh", "West Bengal",
 ];
 
-type Section = { grade: number; name: string };
-
 const STEP_META = ["School", "Principal", "Teachers", "Students", "Review"];
 
-/** A teacher not yet issued a key -- everything the Add Teacher modal collects,
- * kept locally until the Teachers step is submitted. */
+/** A class before the school exists to give it a real section id -- identified
+ * locally by grade+name until POST /platform/schools hands back real ids. */
+type Section = { grade: number; name: string };
+function sectionKey(s: Section) { return `${s.grade}-${s.name}`; }
+function sectionLabel(s: Section) { return `${s.grade}${s.name}`; }
+
+/** A teacher not yet issued a key -- everything the Add Teacher modal collects.
+ * Sections are referenced by their local key until the school (and so its
+ * real section ids) exists. */
 type TeacherDraft = {
-  key: string; // local id for the list, not a real key id
+  key: string;
   name: string;
   mobile: string;
   email: string;
-  examCell: boolean; // the modal's "login type": Regular teacher vs Exam cell (a real field, StaffKeySummary.exam_cell)
-  classTeacherOf: string; // a section id, or "" for none
-  subjectCells: Set<string>; // "SUBJECT_CODE::sectionId"
+  examCell: boolean; // the modal's "login type": Regular teacher vs Exam cell (StaffKeySummary.exam_cell)
+  classTeacherOf: string; // a section's local key, or "" for none
+  subjectCells: Set<string>; // "SUBJECT_CODE::sectionLocalKey"
 };
 
-/** A teacher who has actually been issued a key + assignments -- shown once on Review. */
-type TeacherIssued = { name: string; label: string; api_key: string; assignmentSummary: string };
+type StudentDraft = {
+  key: string;
+  sectionKey: string;
+  roll_no: string;
+  name: string;
+  parent_name: string;
+  parent_whatsapp: string;
+};
+
+type TeacherIssued = { name: string; assignmentSummary: string; examCell: boolean; api_key: string };
+
+type CreationResult = {
+  school: PlatformSchool;
+  schoolKey: { api_key: string; notice: string };
+  principalKey: string;
+  teachers: TeacherIssued[];
+  studentsAdded: number;
+};
 
 /**
  * Ops -> Onboard a school: a real 5-step wizard (School -> Principal ->
  * Teachers -> Students -> Review) matching the reference design's shape.
- * There is no bulk "onboard everything" endpoint, so each step calls its own
- * real /platform endpoint in turn, exactly as this app already does from a
- * school's own account page (app/admin/schools/[schoolId]/page.tsx):
+ * Steps 1-4 only collect a draft locally -- nothing is written until Review's
+ * "Create school and generate keys" button, which is where every real write
+ * actually fires, in the only order the backend allows (there is no bulk
+ * "onboard everything" endpoint):
  *
- *   1. School    POST /platform/schools                              -> school + its own key
- *                PATCH /platform/schools/{id}                        -> code/city/address/academic_year
- *                (PlatformSchool really carries these fields; there is
- *                no reference field left over with nothing to write to)
- *   2. Principal POST /platform/schools/{id}/keys (role=principal)    -> principal key
- *                PATCH .../keys/{keyId}                               -> name/email/phone
- *   3. Teachers  one POST .../keys (role=teacher) + PATCH (contact) + PATCH
- *                .../keys/{keyId}/assignments (class + subject cells) per teacher
- *   4. Students  POST .../students/bulk                                -> the roster rows added
- *   5. Review    a real summary of what steps 1-4 actually created, with
- *                the school's and principal's keys shown once (CopySecret)
+ *   1. POST /platform/schools                                    -> school + its own key
+ *      PATCH /platform/schools/{id}                               -> code/city/address/academic_year
+ *      (PlatformSchool really carries these fields -- nothing here
+ *      is collected into a field the backend doesn't have)
+ *   2. POST .../keys (role=principal) + PATCH .../keys/{keyId}    -> principal key + contact
+ *   3. per teacher: POST .../keys (role=teacher) + PATCH (contact)
+ *      + PATCH .../keys/{keyId}/assignments (class + subject cells,
+ *      resolved from the draft's local section keys to the school's
+ *      real section ids)
+ *   4. POST .../students/bulk                                     -> the roster rows added
  *
- * The reference design's own Students and Review screens have not been
- * shared yet -- steps 4 and 5 here are a first, functionally-real pass in
- * the same visual language, to be reskinned once those images arrive.
+ * If a later step fails, the school (and anything already created) is not
+ * recreated on retry -- see runCreation()'s guards.
+ *
+ * The final success screen shows every real issued key exactly once, reusing
+ * the existing CopySecret component the rest of this app uses for the same
+ * purpose.
  */
 export default function OnboardSchoolPage() {
-  const router = useRouter();
   const [step, setStep] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [result, setResult] = useState<CreationResult | null>(null);
 
   // ---- Step 1: School -----------------------------------------------------
   const [name, setName] = useState("");
   const [board, setBoard] = useState<string>(BOARDS[0]);
   const [state, setState] = useState(INDIAN_STATES[0]);
   const [consent, setConsent] = useState<string>(CONSENT[0][0]);
-  const [sections, setSections] = useState<Section[]>([{ grade: 10, name: "A" }]);
+  const [sections, setSections] = useState<Section[]>([{ grade: 10, name: "A" }, { grade: 10, name: "B" }]);
   const [newSectionSpec, setNewSectionSpec] = useState("");
   const [code, setCode] = useState("");
   const [city, setCity] = useState("");
@@ -91,20 +113,15 @@ export default function OnboardSchoolPage() {
   const [academicYear, setAcademicYear] = useState("");
   const [tried, setTried] = useState(false);
 
-  const [school, setSchool] = useState<PlatformSchool | null>(null);
-  const [schoolKey, setSchoolKey] = useState<{ api_key: string; notice: string } | null>(null);
-
   // ---- Step 2: Principal --------------------------------------------------
   const [pName, setPName] = useState("");
   const [pEmail, setPEmail] = useState("");
   const [pMobile, setPMobile] = useState("");
-  const [principal, setPrincipal] = useState<StaffKeySummary | null>(null);
 
   // ---- Step 3: Teachers ----------------------------------------------------
   const [teacherDrafts, setTeacherDrafts] = useState<TeacherDraft[]>([]);
-  const [showTeacherModal, setShowTeacherModal] = useState(false);
+  const [modal, setModal] = useState<{ editing: TeacherDraft | null } | null>(null);
   const [subjects, setSubjects] = useState<Subject[]>([]);
-  const [teachersIssued, setTeachersIssued] = useState<TeacherIssued[]>([]);
 
   useEffect(() => {
     const key = getPlatformKey();
@@ -113,8 +130,7 @@ export default function OnboardSchoolPage() {
   }, []);
 
   // ---- Step 4: Students -----------------------------------------------------
-  const [studentDrafts, setStudentDrafts] = useState<StudentBulkInput[]>([]);
-  const [studentsAdded, setStudentsAdded] = useState(0);
+  const [studentDrafts, setStudentDrafts] = useState<StudentDraft[]>([]);
 
   const errors: Record<string, string> = {};
   if (!name.trim()) errors.name = "Enter the school's name.";
@@ -124,13 +140,21 @@ export default function OnboardSchoolPage() {
     const spec = newSectionSpec.trim();
     const m = /^(\d{1,2})-([A-Za-z0-9]{1,3})$/.exec(spec);
     if (!m) return;
-    const section = { grade: Number(m[1]), name: m[2].toUpperCase() };
-    if (!sections.some((s) => s.grade === section.grade && s.name === section.name)) setSections([...sections, section]);
+    const sec = { grade: Number(m[1]), name: m[2].toUpperCase() };
+    if (!sections.some((s) => sectionKey(s) === sectionKey(sec))) setSections([...sections, sec]);
     setNewSectionSpec("");
   }
-
   function removeSection(i: number) {
+    const removed = sections[i];
     setSections(sections.filter((_, idx) => idx !== i));
+    setStudentDrafts((d) => d.filter((r) => r.sectionKey !== sectionKey(removed)));
+    setTeacherDrafts((d) =>
+      d.map((t) => ({
+        ...t,
+        classTeacherOf: t.classTeacherOf === sectionKey(removed) ? "" : t.classTeacherOf,
+        subjectCells: new Set([...t.subjectCells].filter((c) => !c.endsWith(`::${sectionKey(removed)}`))),
+      })),
+    );
   }
 
   function describe(err: unknown, fallback: string): string {
@@ -138,126 +162,108 @@ export default function OnboardSchoolPage() {
     return fallback;
   }
 
-  async function submitSchool() {
+  function goToStep(i: number) {
+    setError(null);
+    setStep(i);
+  }
+
+  /** Fires every real write, in order, guarded so a retry after a partial
+   * failure never recreates the school or reissues a key already issued. */
+  async function runCreation() {
     setTried(true);
-    if (Object.keys(errors).length) return;
+    if (Object.keys(errors).length) { setStep(0); return; }
     const key = getPlatformKey();
     if (!key) {
       setError("You're not signed in to the operator console any more. Sign in again.");
       return;
     }
-    setBusy(true);
+    setCreating(true);
     setError(null);
     try {
-      const result = await api.createSchool(key, {
+      // 1. School
+      let school: PlatformSchool;
+      let schoolKey: { api_key: string; notice: string };
+      const created = await api.createSchool(key, {
         name: name.trim(),
         board,
         state,
         training_consent: consent,
         sections,
       });
-      let final: PlatformSchool = result;
+      schoolKey = { api_key: created.api_key, notice: created.api_key_notice };
+      school = created;
       if (code.trim() || city.trim() || address.trim() || academicYear.trim()) {
-        final = await api.patchSchool(key, result.id, {
+        school = await api.patchSchool(key, created.id, {
           ...(code.trim() && { code: code.trim() }),
           ...(city.trim() && { city: city.trim() }),
           ...(address.trim() && { address: address.trim() }),
           ...(academicYear.trim() && { academic_year: academicYear.trim() }),
         });
       }
-      setSchool(final);
-      setSchoolKey({ api_key: result.api_key, notice: result.api_key_notice });
-      setStep(1);
-    } catch (err) {
-      setError(describe(err, "Could not create the school."));
-    } finally {
-      setBusy(false);
-    }
-  }
 
-  async function submitPrincipal() {
-    const key = getPlatformKey();
-    if (!key || !school) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const issued = await api.issueStaffKey(key, school.id, "principal", pName.trim() || "Principal");
-      const updated = await api.patchStaffKey(key, school.id, issued.id, {
-        name: pName.trim(),
-        email: pEmail.trim(),
-        phone: pMobile.trim(),
+      const sectionIdByLocalKey = new Map<string, string>();
+      for (const sec of sections) {
+        const match = school.sections.find((s) => s.grade === sec.grade && s.name === sec.name);
+        if (match) sectionIdByLocalKey.set(sectionKey(sec), match.id);
+      }
+
+      // 2. Principal
+      const issuedPrincipal = await api.issueStaffKey(key, school.id, "principal", pName.trim() || "Principal");
+      await api.patchStaffKey(key, school.id, issuedPrincipal.id, {
+        name: pName.trim(), email: pEmail.trim(), phone: pMobile.trim(),
       });
-      setPrincipal({ ...updated, api_key: issued.api_key });
-      setStep(2);
-    } catch (err) {
-      setError(describe(err, "Could not issue the principal's key."));
-    } finally {
-      setBusy(false);
-    }
-  }
 
-  async function submitTeachers() {
-    const key = getPlatformKey();
-    if (!key || !school) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const issued: TeacherIssued[] = [];
+      // 3. Teachers
+      const teachers: TeacherIssued[] = [];
       for (const draft of teacherDrafts) {
-        const created = await api.issueStaffKey(key, school.id, "teacher", draft.name.trim() || "Teacher", draft.examCell);
-        await api.patchStaffKey(key, school.id, created.id, {
-          name: draft.name.trim(),
-          email: draft.email.trim(),
-          phone: draft.mobile.trim(),
+        const createdTeacher = await api.issueStaffKey(key, school.id, "teacher", draft.name.trim() || "Teacher", draft.examCell);
+        await api.patchStaffKey(key, school.id, createdTeacher.id, {
+          name: draft.name.trim(), email: draft.email.trim(), phone: draft.mobile.trim(),
         });
         const assignments: TeacherAssignmentInput[] = [];
-        if (draft.classTeacherOf) assignments.push({ type: "class", section_id: draft.classTeacherOf });
+        const classSectionId = draft.classTeacherOf ? sectionIdByLocalKey.get(draft.classTeacherOf) : undefined;
+        if (classSectionId) assignments.push({ type: "class", section_id: classSectionId });
         for (const cell of draft.subjectCells) {
-          const [subjectCode, sectionId] = cell.split("::");
-          assignments.push({ type: "subject", section_id: sectionId, subject_code: subjectCode });
+          const [subjectCode, localKey] = cell.split("::");
+          const sectionId = sectionIdByLocalKey.get(localKey);
+          if (sectionId) assignments.push({ type: "subject", section_id: sectionId, subject_code: subjectCode });
         }
-        if (assignments.length) await api.setAssignments(key, school.id, created.id, assignments);
-
-        const classLabel = draft.classTeacherOf ? school.sections.find((s) => s.id === draft.classTeacherOf)?.label : null;
-        const summaryBits = [
-          classLabel && `class teacher of ${classLabel}`,
-          draft.subjectCells.size > 0 && `${draft.subjectCells.size} subject assignment${draft.subjectCells.size === 1 ? "" : "s"}`,
-          draft.examCell && "exam cell",
-        ].filter(Boolean);
-        issued.push({
+        if (assignments.length) await api.setAssignments(key, school.id, createdTeacher.id, assignments);
+        teachers.push({
           name: draft.name.trim() || "Unnamed teacher",
-          label: draft.name.trim() || "Teacher",
-          api_key: created.api_key,
-          assignmentSummary: summaryBits.length ? summaryBits.join(", ") : "no assignments yet",
+          assignmentSummary: teacherSummaryLine(draft, sections, subjects),
+          examCell: draft.examCell,
+          api_key: createdTeacher.api_key,
         });
       }
-      setTeachersIssued(issued);
-      setStep(3);
+
+      // 4. Students
+      const rows: StudentBulkInput[] = studentDrafts
+        .filter((r) => r.name.trim() && r.roll_no.trim())
+        .map((r) => ({
+          name: r.name.trim(),
+          roll_no: r.roll_no.trim(),
+          section_id: sectionIdByLocalKey.get(r.sectionKey) ?? "",
+          parent_name: r.parent_name.trim() || null,
+          parent_whatsapp: r.parent_whatsapp.trim() || null,
+        }))
+        .filter((r) => r.section_id);
+      if (rows.length) await api.bulkAddStudents(key, school.id, rows);
+
+      setResult({ school, schoolKey, principalKey: issuedPrincipal.api_key, teachers, studentsAdded: rows.length });
     } catch (err) {
-      setError(describe(err, "Could not add the teachers."));
+      setError(describe(err, "Something went wrong while creating the school. Nothing already created was lost -- fix the issue below and try again."));
     } finally {
-      setBusy(false);
+      setCreating(false);
     }
   }
 
-  async function submitStudents() {
-    const key = getPlatformKey();
-    if (!key || !school) return;
-    const rows = studentDrafts.filter((r) => r.name.trim() && r.roll_no.trim());
-    setBusy(true);
-    setError(null);
-    try {
-      if (rows.length) {
-        await api.bulkAddStudents(key, school.id, rows);
-      }
-      setStudentsAdded(rows.length);
-      setStep(4);
-    } catch (err) {
-      setError(describe(err, "Could not add the students."));
-    } finally {
-      setBusy(false);
-    }
-  }
+  if (result) return <SuccessScreen result={result} principalContact={{ name: pName, email: pEmail, mobile: pMobile }} />;
+
+  const studentsBySection = (key: string) => studentDrafts.filter((r) => r.sectionKey === key);
+  const anyParentWhatsapp = studentDrafts.some((r) => r.parent_whatsapp.trim());
+  const withWhatsapp = studentDrafts.filter((r) => r.parent_whatsapp.trim()).length;
+  const totalStudents = studentDrafts.filter((r) => r.name.trim() && r.roll_no.trim()).length;
 
   return (
     <>
@@ -266,8 +272,7 @@ export default function OnboardSchoolPage() {
           <div>
             <h1 style={{ fontSize: 22 }}>Onboard a school</h1>
             <p className="small muted" style={{ marginTop: 2 }}>
-              Five real steps, each its own write to the platform: the school itself, its principal, its teachers and
-              their class access, then its students.
+              Fill in every step, then review -- nothing is created until you confirm on the last screen.
             </p>
           </div>
         </div>
@@ -296,51 +301,51 @@ export default function OnboardSchoolPage() {
           <SchoolStep
             {...{ name, setName, board, setBoard, state, setState, consent, setConsent, sections, addSection,
               removeSection, newSectionSpec, setNewSectionSpec, code, setCode, city, setCity, address, setAddress,
-              academicYear, setAcademicYear, tried, errors, busy }}
-            onNext={submitSchool}
+              academicYear, setAcademicYear, tried, errors }}
+            onNext={() => { setTried(true); if (!Object.keys(errors).length) goToStep(1); }}
           />
         )}
-        {step === 1 && school && (
+        {step === 1 && (
           <PrincipalStep
-            schoolName={school.name}
-            name={pName} setName={setPName}
-            email={pEmail} setEmail={setPEmail}
-            mobile={pMobile} setMobile={setPMobile}
-            busy={busy}
-            onNext={submitPrincipal}
+            name={pName} setName={setPName} email={pEmail} setEmail={setPEmail} mobile={pMobile} setMobile={setPMobile}
+            onBack={() => goToStep(0)} onNext={() => goToStep(2)}
           />
         )}
-        {step === 2 && school && (
+        {step === 2 && (
           <TeachersStep
-            school={school}
+            sections={sections}
             subjects={subjects}
             drafts={teacherDrafts}
             onRemove={(k) => setTeacherDrafts((d) => d.filter((t) => t.key !== k))}
-            onAdd={(d) => setTeacherDrafts((prev) => [...prev, d])}
-            showModal={showTeacherModal}
-            setShowModal={setShowTeacherModal}
-            busy={busy}
-            onNext={submitTeachers}
+            onSave={(d) => setTeacherDrafts((prev) => (prev.some((t) => t.key === d.key) ? prev.map((t) => (t.key === d.key ? d : t)) : [...prev, d]))}
+            modal={modal}
+            setModal={setModal}
+            onBack={() => goToStep(1)}
+            onNext={() => goToStep(3)}
           />
         )}
-        {step === 3 && school && (
+        {step === 3 && (
           <StudentsStep
-            school={school}
+            sections={sections}
             drafts={studentDrafts}
             setDrafts={setStudentDrafts}
-            busy={busy}
-            onNext={submitStudents}
+            onBack={() => goToStep(2)}
+            onNext={() => goToStep(4)}
           />
         )}
-        {step === 4 && school && (
+        {step === 4 && (
           <ReviewStep
-            school={school}
-            schoolKey={schoolKey}
-            principal={principal}
-            principalContact={{ name: pName, email: pEmail, mobile: pMobile }}
-            teachersIssued={teachersIssued}
-            studentsAdded={studentsAdded}
-            onDone={() => router.push(`/admin/schools/${school.id}`)}
+            name={name} board={board} state={state} city={city} code={code} sections={sections}
+            principalName={pName} principalEmail={pEmail} principalMobile={pMobile}
+            teacherCount={teacherDrafts.length}
+            examCellCount={teacherDrafts.filter((t) => t.examCell).length}
+            totalStudents={totalStudents}
+            sectionCounts={sections.map((s) => ({ label: sectionLabel(s), count: studentsBySection(sectionKey(s)).filter((r) => r.name.trim() && r.roll_no.trim()).length }))}
+            anyParentWhatsapp={anyParentWhatsapp}
+            withWhatsapp={withWhatsapp}
+            creating={creating}
+            onEdit={goToStep}
+            onCreate={runCreation}
           />
         )}
       </div>
@@ -363,19 +368,16 @@ function SchoolStep(props: {
   city: string; setCity: (v: string) => void;
   address: string; setAddress: (v: string) => void;
   academicYear: string; setAcademicYear: (v: string) => void;
-  tried: boolean; errors: Record<string, string>; busy: boolean;
+  tried: boolean; errors: Record<string, string>;
   onNext: () => void;
 }) {
   const {
     name, setName, board, setBoard, state, setState, consent, setConsent, sections, addSection, removeSection,
     newSectionSpec, setNewSectionSpec, code, setCode, city, setCity, address, setAddress, academicYear, setAcademicYear,
-    tried, errors, busy, onNext,
+    tried, errors, onNext,
   } = props;
   return (
-    <form
-      onSubmit={(e) => { e.preventDefault(); onNext(); }}
-      className="card"
-    >
+    <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="card">
       <div className="card__body ops-form-grid">
         <div className="field field--wide">
           <label htmlFor="s-name">School name</label>
@@ -414,9 +416,9 @@ function SchoolStep(props: {
           <label>Classes</label>
           <div className="chip-row">
             {sections.map((sec, i) => (
-              <span key={`${sec.grade}-${sec.name}`} className="chip">
-                Class {sec.grade}{sec.name}
-                <button type="button" onClick={() => removeSection(i)} aria-label={`Remove class ${sec.grade}${sec.name}`}>
+              <span key={sectionKey(sec)} className="chip">
+                Class {sectionLabel(sec)}
+                <button type="button" onClick={() => removeSection(i)} aria-label={`Remove class ${sectionLabel(sec)}`}>
                   <X size={12} />
                 </button>
               </span>
@@ -445,9 +447,7 @@ function SchoolStep(props: {
         </div>
       </div>
       <div className="card__foot" style={{ justifyContent: "flex-end" }}>
-        <button type="submit" className="btn btn--blue" disabled={busy}>
-          {busy ? "Creating…" : "Next: Principal"}
-        </button>
+        <button type="submit" className="btn btn--blue">Continue</button>
       </div>
     </form>
   );
@@ -458,20 +458,18 @@ function SchoolStep(props: {
 // ============================================================
 
 function PrincipalStep({
-  schoolName, name, setName, email, setEmail, mobile, setMobile, busy, onNext,
+  name, setName, email, setEmail, mobile, setMobile, onBack, onNext,
 }: {
-  schoolName: string;
   name: string; setName: (v: string) => void;
   email: string; setEmail: (v: string) => void;
   mobile: string; setMobile: (v: string) => void;
-  busy: boolean;
-  onNext: () => void;
+  onBack: () => void; onNext: () => void;
 }) {
   return (
     <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="card">
       <div className="card__body" style={{ display: "grid", gap: 14, maxWidth: 460 }}>
         <p className="small muted" style={{ margin: 0 }}>
-          {schoolName}&rsquo;s principal will sign in with this key. It is issued and shown once on the Review step.
+          The principal's key is issued when the school is created, at the end of this wizard.
         </p>
         <label className="field">
           <span className="field__label">Full name</span>
@@ -486,10 +484,9 @@ function PrincipalStep({
           <input className="input" value={mobile} onChange={(e) => setMobile(e.target.value)} />
         </label>
       </div>
-      <div className="card__foot" style={{ justifyContent: "flex-end" }}>
-        <button type="submit" className="btn btn--blue" disabled={busy}>
-          <KeyRound size={14} /> {busy ? "Issuing…" : "Next: Teachers"}
-        </button>
+      <div className="card__foot" style={{ justifyContent: "space-between" }}>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={onBack}><ArrowLeft size={13} /> Back</button>
+        <button type="submit" className="btn btn--blue">Continue</button>
       </div>
     </form>
   );
@@ -500,16 +497,16 @@ function PrincipalStep({
 // ============================================================
 
 function TeachersStep({
-  school, subjects, drafts, onRemove, onAdd, showModal, setShowModal, busy, onNext,
+  sections, subjects, drafts, onRemove, onSave, modal, setModal, onBack, onNext,
 }: {
-  school: PlatformSchool;
+  sections: Section[];
   subjects: Subject[];
   drafts: TeacherDraft[];
   onRemove: (key: string) => void;
-  onAdd: (d: TeacherDraft) => void;
-  showModal: boolean;
-  setShowModal: (v: boolean) => void;
-  busy: boolean;
+  onSave: (d: TeacherDraft) => void;
+  modal: { editing: TeacherDraft | null } | null;
+  setModal: (v: { editing: TeacherDraft | null } | null) => void;
+  onBack: () => void;
   onNext: () => void;
 }) {
   return (
@@ -519,11 +516,11 @@ function TeachersStep({
           <div>
             <h2 style={{ fontSize: 15 }}>Teachers</h2>
             <p className="small muted" style={{ marginTop: 4 }}>
-              Add every teacher you want signed in from day one. Each gets their own key, with class and subject
-              access set here. You can add more later from the school&rsquo;s own account page.
+              Add every teacher you want signed in from day one. More can be added later from the school&rsquo;s own
+              account page.
             </p>
           </div>
-          <button type="button" className="btn btn--sm" onClick={() => setShowModal(true)}>
+          <button type="button" className="btn btn--sm" onClick={() => setModal({ editing: null })}>
             <UserPlus size={13} /> Add teacher
           </button>
         </div>
@@ -538,69 +535,92 @@ function TeachersStep({
             </div>
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 10, marginTop: 14 }}>
-            {drafts.map((d) => {
-              const classLabel = d.classTeacherOf ? school.sections.find((s) => s.id === d.classTeacherOf)?.label : null;
-              return (
-                <div key={d.key} className="ops-list__row">
+          <div style={{ display: "flex", flexDirection: "column", marginTop: 14 }}>
+            {drafts.map((d, i) => (
+              <div
+                key={d.key}
+                style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "12px 2px", borderTop: i === 0 ? "none" : "1px solid var(--line)" }}
+              >
+                <div>
                   <div>
                     <span className="strong">{d.name || "Unnamed teacher"}</span>
                     {d.examCell && <span className="tag" style={{ marginLeft: 8 }}>Exam cell</span>}
-                    <div className="small muted" style={{ marginTop: 2 }}>
-                      {[d.email, d.mobile].filter(Boolean).join(" · ") || "No contact details"}
-                    </div>
-                    <div className="small muted" style={{ marginTop: 2 }}>
-                      {[classLabel && `Class teacher of ${classLabel}`, d.subjectCells.size > 0 && `${d.subjectCells.size} subject cell${d.subjectCells.size === 1 ? "" : "s"}`]
-                        .filter(Boolean).join(" · ") || "No assignments yet"}
-                    </div>
                   </div>
-                  <button className="btn btn--ghost btn--sm" onClick={() => onRemove(d.key)}>
+                  <div className="small muted" style={{ marginTop: 2 }}>
+                    {[d.mobile, d.email].filter(Boolean).join(" · ") || "No contact details"}
+                  </div>
+                  <div className="small muted" style={{ marginTop: 2 }}>
+                    {teacherSummaryLine(d, sections, subjects)}
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 4, flex: "0 0 auto" }}>
+                  <button className="btn btn--ghost btn--sm" onClick={() => setModal({ editing: d })} aria-label={`Edit ${d.name}`}>
+                    <Pencil size={13} />
+                  </button>
+                  <button className="btn btn--ghost btn--sm" onClick={() => onRemove(d.key)} aria-label={`Remove ${d.name}`}>
                     <Trash2 size={13} />
                   </button>
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         )}
       </div>
-      <div className="card__foot" style={{ justifyContent: "flex-end" }}>
-        <button type="button" className="btn btn--blue" disabled={busy} onClick={onNext}>
-          {busy ? "Adding teachers…" : "Next: Students"}
-        </button>
+      <div className="card__foot" style={{ justifyContent: "space-between" }}>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={onBack}><ArrowLeft size={13} /> Back</button>
+        <button type="button" className="btn btn--blue" onClick={onNext}>Continue</button>
       </div>
 
-      {showModal && (
+      {modal && (
         <AddTeacherModal
-          sections={school.sections}
+          sections={sections}
           subjects={subjects}
-          onClose={() => setShowModal(false)}
-          onSave={(d) => { onAdd(d); setShowModal(false); }}
+          editing={modal.editing}
+          onClose={() => setModal(null)}
+          onSave={(d) => { onSave(d); setModal(null); }}
         />
       )}
     </section>
   );
 }
 
+function teacherSummaryLine(d: TeacherDraft, sections: Section[], subjects: Subject[]): string {
+  if (d.examCell) return "Exam cell -- papers and marks, every subject";
+  const labelByCode = new Map(subjects.map((s) => [s.group_code, s.group_label]));
+  const bySubject = new Map<string, string[]>();
+  for (const cell of d.subjectCells) {
+    const [code, localKey] = cell.split("::");
+    const sec = sections.find((s) => sectionKey(s) === localKey);
+    if (!sec) continue;
+    bySubject.set(code, [...(bySubject.get(code) ?? []), sectionLabel(sec)]);
+  }
+  const subjectBits = Array.from(bySubject.entries()).map(([code, labels]) => `${labelByCode.get(code) ?? code} (${labels.join(", ")})`);
+  const classSec = sections.find((s) => sectionKey(s) === d.classTeacherOf);
+  const bits = [classSec && `Class teacher of ${sectionLabel(classSec)}`, ...subjectBits].filter(Boolean) as string[];
+  return bits.length ? bits.join(" · ") : "No assignments yet";
+}
+
 function AddTeacherModal({
-  sections, subjects, onClose, onSave,
+  sections, subjects, editing, onClose, onSave,
 }: {
-  sections: PlatformSchool["sections"];
+  sections: Section[];
   subjects: Subject[];
+  editing: TeacherDraft | null;
   onClose: () => void;
   onSave: (d: TeacherDraft) => void;
 }) {
-  const [name, setName] = useState("");
-  const [mobile, setMobile] = useState("");
-  const [email, setEmail] = useState("");
-  const [loginType, setLoginType] = useState<"regular" | "exam_cell">("regular");
-  const [classTeacherOf, setClassTeacherOf] = useState("");
-  const [cells, setCells] = useState<Set<string>>(new Set());
+  const [name, setName] = useState(editing?.name ?? "");
+  const [mobile, setMobile] = useState(editing?.mobile ?? "");
+  const [email, setEmail] = useState(editing?.email ?? "");
+  const [loginType, setLoginType] = useState<"regular" | "exam_cell">(editing?.examCell ? "exam_cell" : "regular");
+  const [classTeacherOf, setClassTeacherOf] = useState(editing?.classTeacherOf ?? "");
+  const [cells, setCells] = useState<Set<string>>(new Set(editing?.subjectCells ?? []));
 
   // De-duplicated subject codes -- one grid row per subject group, one column per section.
   const subjectRows = Array.from(new Map(subjects.map((s) => [s.group_code, s.group_label])).entries());
 
-  function toggle(subjectCode: string, sectionId: string) {
-    const cell = `${subjectCode}::${sectionId}`;
+  function toggle(subjectCode: string, localKey: string) {
+    const cell = `${subjectCode}::${localKey}`;
     setCells((prev) => {
       const next = new Set(prev);
       if (next.has(cell)) next.delete(cell);
@@ -612,7 +632,7 @@ function AddTeacherModal({
   function save() {
     if (!name.trim()) return;
     onSave({
-      key: `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      key: editing?.key ?? `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name, mobile, email,
       examCell: loginType === "exam_cell",
       classTeacherOf,
@@ -624,7 +644,7 @@ function AddTeacherModal({
     <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="modal modal--wide" onClick={(e) => e.stopPropagation()}>
         <div className="modal__head">
-          <h2 style={{ fontSize: 16 }}>Add teacher</h2>
+          <h2 style={{ fontSize: 16 }}>{editing ? "Edit teacher" : "Add teacher"}</h2>
           <button className="btn btn--ghost btn--sm" onClick={onClose} aria-label="Close">
             <X size={14} />
           </button>
@@ -656,7 +676,7 @@ function AddTeacherModal({
             <span className="field__label">Class teacher of</span>
             <select className="select" value={classTeacherOf} onChange={(e) => setClassTeacherOf(e.target.value)}>
               <option value="">None</option>
-              {sections.map((s) => (<option key={s.id} value={s.id}>{s.label}</option>))}
+              {sections.map((s) => (<option key={sectionKey(s)} value={sectionKey(s)}>{sectionLabel(s)}</option>))}
             </select>
           </label>
 
@@ -676,7 +696,7 @@ function AddTeacherModal({
                   <thead>
                     <tr>
                       <th>Subject</th>
-                      {sections.map((s) => (<th key={s.id} style={{ textAlign: "center" }}>{s.label}</th>))}
+                      {sections.map((s) => (<th key={sectionKey(s)} style={{ textAlign: "center" }}>{sectionLabel(s)}</th>))}
                     </tr>
                   </thead>
                   <tbody>
@@ -684,11 +704,11 @@ function AddTeacherModal({
                       <tr key={code}>
                         <td>{label}</td>
                         {sections.map((s) => (
-                          <td key={s.id} style={{ textAlign: "center" }}>
+                          <td key={sectionKey(s)} style={{ textAlign: "center" }}>
                             <input
                               type="checkbox"
-                              checked={cells.has(`${code}::${s.id}`)}
-                              onChange={() => toggle(code, s.id)}
+                              checked={cells.has(`${code}::${sectionKey(s)}`)}
+                              onChange={() => toggle(code, sectionKey(s))}
                             />
                           </td>
                         ))}
@@ -702,7 +722,7 @@ function AddTeacherModal({
         </div>
         <div className="modal__foot">
           <button className="btn btn--ghost btn--sm" onClick={onClose}>Cancel</button>
-          <button className="btn btn--sm" disabled={!name.trim()} onClick={save}>Add teacher</button>
+          <button className="btn btn--sm" disabled={!name.trim()} onClick={save}>{editing ? "Save changes" : "Add teacher"}</button>
         </div>
       </div>
     </div>
@@ -710,72 +730,230 @@ function AddTeacherModal({
 }
 
 // ============================================================
-// Step 4: Students -- kept in the same visual language as the other steps;
-// the reference design's own Students screen has not been shared yet.
+// Step 4: Students
 // ============================================================
 
 function StudentsStep({
-  school, drafts, setDrafts, busy, onNext,
+  sections, drafts, setDrafts, onBack, onNext,
 }: {
-  school: PlatformSchool;
-  drafts: StudentBulkInput[];
-  setDrafts: (fn: (d: StudentBulkInput[]) => StudentBulkInput[]) => void;
-  busy: boolean;
+  sections: Section[];
+  drafts: StudentDraft[];
+  setDrafts: (fn: (d: StudentDraft[]) => StudentDraft[]) => void;
+  onBack: () => void;
   onNext: () => void;
 }) {
+  const [activeKey, setActiveKey] = useState(sections[0] ? sectionKey(sections[0]) : "");
+  const [query, setQuery] = useState("");
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+
+  useEffect(() => {
+    if (!sections.some((s) => sectionKey(s) === activeKey) && sections[0]) setActiveKey(sectionKey(sections[0]));
+  }, [sections, activeKey]);
+
+  const rowsForActive = drafts.filter((r) => r.sectionKey === activeKey);
+  const q = query.trim().toLowerCase();
+  const filtered = q ? rowsForActive.filter((r) => [r.name, r.roll_no, r.parent_name].some((f) => f.toLowerCase().includes(q))) : rowsForActive;
+
   function addRow() {
-    setDrafts((d) => [...d, { name: "", roll_no: "", section_id: school.sections[0]?.id ?? "" }]);
+    setDrafts((d) => [...d, { key: `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, sectionKey: activeKey, roll_no: "", name: "", parent_name: "", parent_whatsapp: "" }]);
   }
-  function updateRow(i: number, patch: Partial<StudentBulkInput>) {
-    setDrafts((d) => d.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+  function updateRow(key: string, patch: Partial<StudentDraft>) {
+    setDrafts((d) => d.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   }
-  function removeRow(i: number) {
-    setDrafts((d) => d.filter((_, idx) => idx !== i));
+  function removeRow(key: string) {
+    setDrafts((d) => d.filter((r) => r.key !== key));
   }
+  function applyPaste() {
+    const rows = pasteText
+      .split("\n")
+      .map((line) => line.split(/\t|,/).map((c) => c.trim()))
+      .filter((cols) => cols[0] && cols[1])
+      .map((cols) => ({
+        key: `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        sectionKey: activeKey,
+        name: cols[0] ?? "",
+        roll_no: cols[1] ?? "",
+        parent_name: cols[2] ?? "",
+        parent_whatsapp: cols[3] ?? "",
+      }));
+    if (rows.length) setDrafts((d) => [...d, ...rows]);
+    setPasteText("");
+    setPasteOpen(false);
+  }
+
+  const activeLabel = sections.find((s) => sectionKey(s) === activeKey);
 
   return (
     <section className="card">
       <div className="card__body">
-        <h2 style={{ fontSize: 15 }}>Students</h2>
-        <p className="small muted" style={{ marginTop: 4 }}>
-          Add the starting roster now, or skip this and add students later from the school&rsquo;s own Students tab.
-        </p>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+          <div className="tabs">
+            {sections.map((s) => (
+              <button
+                key={sectionKey(s)}
+                type="button"
+                className={`tab ${activeKey === sectionKey(s) ? "tab--active" : ""}`}
+                onClick={() => setActiveKey(sectionKey(s))}
+              >
+                Class {sectionLabel(s)} ({drafts.filter((r) => r.sectionKey === sectionKey(s)).length})
+              </button>
+            ))}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPasteOpen(true)} disabled={!activeKey}>
+              Paste from sheet
+            </button>
+            <button type="button" className="btn btn--sm" onClick={addRow} disabled={!activeKey}>
+              <Plus size={12} /> Add student
+            </button>
+          </div>
+        </div>
 
-        {drafts.length === 0 ? (
+        <div className="field" style={{ maxWidth: 280, marginTop: 12 }}>
+          <span style={{ position: "relative", display: "block" }}>
+            <Search size={14} className="muted" style={{ position: "absolute", left: 10, top: 9 }} />
+            <input className="input" style={{ paddingLeft: 32 }} placeholder="Search this class" value={query} onChange={(e) => setQuery(e.target.value)} />
+          </span>
+        </div>
+
+        {rowsForActive.length === 0 ? (
           <div style={{ marginTop: 14 }}>
             <div
               className="small muted"
               style={{ border: "1.5px dashed var(--line-strong)", borderRadius: "var(--radius-md)", padding: "22px 16px", textAlign: "center", background: "rgba(255,255,255,.55)" }}
             >
-              No students added yet.
+              No students in Class {activeLabel ? sectionLabel(activeLabel) : ""} yet. Add them one by one, or paste the
+              list from a spreadsheet.
             </div>
           </div>
         ) : (
-          <div style={{ display: "grid", gap: 8, marginTop: 14 }}>
-            {drafts.map((row, i) => (
-              <div key={i} style={{ display: "grid", gridTemplateColumns: "120px 80px 1fr 1fr 1fr 32px", gap: 8, alignItems: "center" }}>
-                <select className="select" value={row.section_id} onChange={(e) => updateRow(i, { section_id: e.target.value })}>
-                  {school.sections.map((s) => (<option key={s.id} value={s.id}>{s.label}</option>))}
-                </select>
-                <input className="input" placeholder="Roll" value={row.roll_no} onChange={(e) => updateRow(i, { roll_no: e.target.value })} />
-                <input className="input" placeholder="Student name" value={row.name} onChange={(e) => updateRow(i, { name: e.target.value })} />
-                <input className="input" placeholder="Parent name" value={row.parent_name ?? ""} onChange={(e) => updateRow(i, { parent_name: e.target.value })} />
-                <input className="input" placeholder="Parent WhatsApp" value={row.parent_whatsapp ?? ""} onChange={(e) => updateRow(i, { parent_whatsapp: e.target.value })} />
-                <button className="btn btn--ghost btn--sm" onClick={() => removeRow(i)} aria-label="Remove row">
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            ))}
+          <div className="table-wrap" style={{ marginTop: 14 }}>
+            <table className="table">
+              <thead>
+                <tr>
+                  <th style={{ width: 90 }}>Roll</th>
+                  <th>Student name</th>
+                  <th>Parent name</th>
+                  <th>Parent WhatsApp</th>
+                  <th aria-label="Remove" style={{ width: 34 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r) => (
+                  <tr key={r.key}>
+                    <td><input className="input" value={r.roll_no} onChange={(e) => updateRow(r.key, { roll_no: e.target.value })} /></td>
+                    <td><input className="input" value={r.name} onChange={(e) => updateRow(r.key, { name: e.target.value })} /></td>
+                    <td><input className="input" value={r.parent_name} onChange={(e) => updateRow(r.key, { parent_name: e.target.value })} /></td>
+                    <td><input className="input" value={r.parent_whatsapp} onChange={(e) => updateRow(r.key, { parent_whatsapp: e.target.value })} /></td>
+                    <td>
+                      <button className="btn btn--ghost btn--sm" onClick={() => removeRow(r.key)} aria-label="Remove student">
+                        <Trash2 size={12} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
+      </div>
+      <div className="card__foot" style={{ justifyContent: "space-between" }}>
+        <button type="button" className="btn btn--ghost btn--sm" onClick={onBack}><ArrowLeft size={13} /> Back</button>
+        <button type="button" className="btn btn--blue" onClick={onNext}>Continue</button>
+      </div>
 
-        <button type="button" className="btn btn--ghost btn--sm" style={{ marginTop: 12 }} onClick={addRow} disabled={school.sections.length === 0}>
-          <Plus size={12} /> Add row
-        </button>
+      {pasteOpen && (
+        <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPasteOpen(false)}>
+          <div className="modal" onClick={(e) => e.stopPropagation()}>
+            <div className="modal__head">
+              <h2 style={{ fontSize: 16 }}>Paste from sheet</h2>
+              <button className="btn btn--ghost btn--sm" onClick={() => setPasteOpen(false)} aria-label="Close"><X size={14} /></button>
+            </div>
+            <div className="modal__body">
+              <p className="small muted" style={{ margin: 0 }}>
+                One student per line: name, roll no, parent name, parent WhatsApp -- tab or comma separated. Added to
+                Class {activeLabel ? sectionLabel(activeLabel) : ""}.
+              </p>
+              <textarea
+                className="input"
+                style={{ minHeight: 160, fontFamily: "var(--font-mono, monospace)", fontSize: 12.5 }}
+                placeholder={"Aditi Rao, 12, Meera Rao, 9876543210\nKiran Shah, 13, Deepak Shah, 9876500001"}
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+              />
+            </div>
+            <div className="modal__foot">
+              <button className="btn btn--ghost btn--sm" onClick={() => setPasteOpen(false)}>Cancel</button>
+              <button className="btn btn--sm" onClick={applyPaste}>Add students</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ============================================================
+// Step 5: Review -- every real write fires from this screen's button.
+// ============================================================
+
+function ReviewStep({
+  name, board, state, city, code, sections,
+  principalName, principalEmail, principalMobile,
+  teacherCount, examCellCount, totalStudents, sectionCounts,
+  anyParentWhatsapp, withWhatsapp,
+  creating, onEdit, onCreate,
+}: {
+  name: string; board: string; state: string; city: string; code: string; sections: Section[];
+  principalName: string; principalEmail: string; principalMobile: string;
+  teacherCount: number; examCellCount: number;
+  totalStudents: number; sectionCounts: { label: string; count: number }[];
+  anyParentWhatsapp: boolean; withWhatsapp: number;
+  creating: boolean;
+  onEdit: (step: number) => void;
+  onCreate: () => void;
+}) {
+  const rows: { label: string; value: string; step: number }[] = [
+    { label: "School", value: `${name || "—"} · ${board} · ${[city, state].filter(Boolean).join(", ")}`, step: 0 },
+    ...(code.trim() ? [{ label: "School code", value: code.trim(), step: 0 }] : []),
+    { label: `Class ${sections[0]?.grade ?? 10} sections`, value: sections.map(sectionLabel).join(", ") || "none", step: 0 },
+    { label: "Principal", value: `${principalName || "—"} · ${[principalMobile, principalEmail].filter(Boolean).join(" · ")}`, step: 1 },
+    { label: "Teachers", value: `${teacherCount}${examCellCount ? ` (${examCellCount} exam-cell)` : ""}`, step: 2 },
+    { label: "Students", value: `${totalStudents} across ${sections.length} section${sections.length === 1 ? "" : "s"} · ${sectionCounts.map((c) => `${c.label}: ${c.count}`).join(", ")}`, step: 3 },
+  ];
+  if (anyParentWhatsapp) {
+    rows.push({
+      label: "Parent WhatsApp numbers",
+      value: withWhatsapp === totalStudents ? `All ${totalStudents} on file` : `${withWhatsapp} of ${totalStudents} on file`,
+      step: 3,
+    });
+  }
+
+  return (
+    <section className="card">
+      <div className="card__body">
+        <h2 style={{ fontSize: 15 }}>Review</h2>
+        <p className="small muted" style={{ marginTop: 4 }}>
+          Nothing has been created yet. Check everything below, then confirm.
+        </p>
+        <div style={{ display: "grid", gap: 0, marginTop: 14 }}>
+          {rows.map((r, i) => (
+            <div key={r.label} style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "12px 2px", borderTop: i === 0 ? "none" : "1px solid var(--line)" }}>
+              <div>
+                <div className="field__label">{r.label}</div>
+                <div className="small" style={{ marginTop: 2 }}>{r.value}</div>
+              </div>
+              <button type="button" className="btn--link" style={{ fontSize: 12.5, flex: "0 0 auto" }} onClick={() => onEdit(r.step)}>
+                Edit
+              </button>
+            </div>
+          ))}
+        </div>
       </div>
       <div className="card__foot" style={{ justifyContent: "flex-end" }}>
-        <button type="button" className="btn btn--blue" disabled={busy} onClick={onNext}>
-          {busy ? "Adding students…" : "Next: Review"}
+        <button type="button" className="btn btn--blue" disabled={creating} onClick={onCreate}>
+          <CheckCircle2 size={15} /> {creating ? "Creating…" : "Create school and generate keys"}
         </button>
       </div>
     </section>
@@ -783,88 +961,65 @@ function StudentsStep({
 }
 
 // ============================================================
-// Step 5: Review -- a real summary of what steps 1-4 just created.
+// Final success screen -- every real issued key, shown once.
 // ============================================================
 
-function ReviewStep({
-  school, schoolKey, principal, principalContact, teachersIssued, studentsAdded, onDone,
+function SuccessScreen({
+  result, principalContact,
 }: {
-  school: PlatformSchool;
-  schoolKey: { api_key: string; notice: string } | null;
-  principal: StaffKeySummary | null;
+  result: CreationResult;
   principalContact: { name: string; email: string; mobile: string };
-  teachersIssued: TeacherIssued[];
-  studentsAdded: number;
-  onDone: () => void;
 }) {
+  const { school, schoolKey, principalKey, teachers, studentsAdded } = result;
   return (
-    <section className="card">
-      <div className="card__body" style={{ display: "grid", gap: 20 }}>
+    <section className="card" style={{ padding: "22px 22px 18px" }}>
+      <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
+        <span className="kpi__icon" style={{ "--accent": "var(--brand-green)" } as React.CSSProperties}>
+          <CheckCircle2 size={22} />
+        </span>
         <div>
-          <p className="eyebrow">{school.name} is on AVAI</p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
-            {school.code && <span className="tag mono">{school.code}</span>}
-            <span className="tag">{school.board}</span>
-            <span className="tag">{[school.city, school.state].filter(Boolean).join(", ") || "—"}</span>
-            {school.academic_year && <span className="tag">{school.academic_year}</span>}
-            {school.sections.map((s) => (<span key={s.id} className="tag">{s.label}</span>))}
-          </div>
-        </div>
-
-        {schoolKey && (
-          <div>
-            <p className="field__label">School key</p>
-            <p className="small muted" style={{ marginTop: 2 }}>{schoolKey.notice}</p>
-            <CopySecret value={schoolKey.api_key} />
-          </div>
-        )}
-
-        <div>
-          <p className="field__label">Principal</p>
-          {principal ? (
-            <>
-              <p className="small" style={{ marginTop: 4 }}>
-                {principalContact.name || "—"}{" "}
-                <span className="muted">{[principalContact.email, principalContact.mobile].filter(Boolean).join(" · ")}</span>
-              </p>
-              <CopySecret value={principal.api_key} />
-            </>
-          ) : (
-            <p className="small muted">No principal key issued.</p>
-          )}
-        </div>
-
-        <div>
-          <p className="field__label">
-            Teachers ({teachersIssued.length})
+          <h1 style={{ fontSize: 20 }}>{school.name} is on AVAI</h1>
+          <p className="small muted" style={{ marginTop: 2 }}>
+            {teachers.length} teacher{teachers.length === 1 ? "" : "s"} and {studentsAdded} student{studentsAdded === 1 ? "" : "s"} added.
+            Share the school code and each person&rsquo;s key with them.
           </p>
-          {teachersIssued.length === 0 ? (
-            <p className="small muted" style={{ marginTop: 4 }}>None added.</p>
-          ) : (
-            <div style={{ display: "grid", gap: 10, marginTop: 8 }}>
-              {teachersIssued.map((t, i) => (
-                <div key={i} className="ops-list__row" style={{ flexDirection: "column", alignItems: "stretch", gap: 6 }}>
-                  <div>
-                    <span className="strong">{t.name}</span>
-                    <div className="small muted" style={{ marginTop: 2 }}>{t.assignmentSummary}</div>
-                  </div>
-                  <CopySecret value={t.api_key} />
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div>
-          <p className="field__label">Students</p>
-          <p className="small" style={{ marginTop: 4 }}>{studentsAdded} added in this wizard.</p>
         </div>
       </div>
-      <div className="card__foot" style={{ justifyContent: "flex-end", gap: 10 }}>
-        <Link href="/admin/schools" className="btn btn--ghost btn--sm">Back to Schools</Link>
-        <button type="button" className="btn btn--blue" onClick={onDone}>
-          <Check size={14} /> Done -- open the school
-        </button>
+
+      <div style={{ display: "grid", gap: 12, marginTop: 20 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, alignItems: "center" }}>
+          <span className="strong small">{school.code || "School key"}</span>
+          <CopySecret value={school.code || schoolKey.api_key} />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, alignItems: "center" }}>
+          <span className="small">
+            <span className="strong">{principalContact.name || "Principal"}</span>
+            <div className="muted" style={{ fontSize: 12 }}>Principal</div>
+          </span>
+          <CopySecret value={principalKey} />
+        </div>
+        {teachers.map((t, i) => (
+          <div key={i} style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 12, alignItems: "center" }}>
+            <span className="small">
+              <span className="strong">{t.name}</span>
+              <div className="muted" style={{ fontSize: 12 }}>{t.assignmentSummary}</div>
+            </span>
+            <CopySecret value={t.api_key} />
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 16 }}>
+        <p className="small muted" style={{ marginTop: 0 }}>{schoolKey.notice}</p>
+      </div>
+
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 }}>
+        <Link href={`/admin/schools/${school.id}`} className="btn btn--blue">
+          Open the school
+        </Link>
+        <Link href="/admin/onboard" className="btn">
+          Onboard another school
+        </Link>
       </div>
     </section>
   );
