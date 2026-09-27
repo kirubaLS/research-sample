@@ -87,11 +87,22 @@ def main() -> None:
         # Cross-reference against what actually happened: needs_review placements whose
         # own reasoning names this exact "blocked" condition (choose_family's own wording,
         # via _run_placement_job's `choice.blocked` append), grouped by chapter.
+        #
+        # QuestionPlacement is append-only (see its own model docstring): a question
+        # blocked long ago can have since been settled by a person or a later /place
+        # re-run, and that OLD blocked row still sits in the table with needs_review=True
+        # forever. Counting every such row -- not just the latest one per question, the
+        # same rule review_queue() itself uses -- would overstate how many questions are
+        # ACTUALLY still stuck today, so only the latest placement per question counts.
+        latest_by_question: dict[str, QuestionPlacement] = {}
+        for row in db.scalars(select(QuestionPlacement).order_by(QuestionPlacement.created_at)):
+            latest_by_question[row.question_id] = row
+
         blocked_counts: dict[str, int] = defaultdict(int)
         total_needs_review = 0
-        for row in db.scalars(
-            select(QuestionPlacement).where(QuestionPlacement.needs_review.is_(True))
-        ):
+        for row in latest_by_question.values():
+            if not row.needs_review:
+                continue
             total_needs_review += 1
             if row.reasoning and "families of" in row.reasoning and "draw on section" in row.reasoning:
                 chapter = chapters.get(row.chapter_id) if row.chapter_id else None
