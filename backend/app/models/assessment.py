@@ -227,7 +227,9 @@ class Question(Base, PkMixin, TimestampMixin):
     variant_hash: Mapped[str] = mapped_column(String(64), index=True)
 
     # --- Layer 2B: learning demand (judgment; see QuestionJudgment for the review gate) ---
-    skill_required: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Matches app.classify.judge.Classification.skill_required's max_length=400 -- the
+    #: judge's own instructions invite a full descriptive phrase, not a short label.
+    skill_required: Mapped[str | None] = mapped_column(String(400), nullable=True)
     complexity: Mapped[str | None] = mapped_column(String(16), nullable=True)
     dependency_level: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
@@ -334,7 +336,8 @@ class QuestionPlacement(Base, PkMixin, TimestampMixin):
     )
     curriculum_section: Mapped[str | None] = mapped_column(String(32), nullable=True)
     tier: Mapped[str | None] = mapped_column(String(48), nullable=True)
-    skill_required: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Matches app.classify.judge.Classification.skill_required's max_length=400.
+    skill_required: Mapped[str | None] = mapped_column(String(400), nullable=True)
 
     confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
     #: 'model' | 'blueprint' | 'scope' | 'human'
@@ -361,7 +364,10 @@ class QuestionJudgment(Base, PkMixin, TimestampMixin):
 
     question_id: Mapped[str] = mapped_column(ForeignKey("question.id"), index=True)
     field: Mapped[str] = mapped_column(String(24), index=True)  # see JUDGMENT_FIELDS
-    value: Mapped[str] = mapped_column(String(200))
+    #: Holds whichever JUDGMENT_FIELDS value this row judges -- 400 to match
+    #: skill_required's own column width (Question/QuestionPlacement); complexity and
+    #: dependency_level are short enums and fit easily within it too.
+    value: Mapped[str] = mapped_column(String(400))
     reviewer_id: Mapped[str] = mapped_column(String(64), index=True)
     #: set when a third judgment settles a disagreement rather than being an independent read
     is_resolution: Mapped[bool] = mapped_column(Boolean, default=False)
