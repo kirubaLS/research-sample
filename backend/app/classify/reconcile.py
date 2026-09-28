@@ -54,6 +54,19 @@ class QuestionSlot:
     def best(self) -> Option:
         return max(self.options, key=lambda o: o.confidence)
 
+    @property
+    def margin(self) -> float:
+        """How much the best option beats the next-best real alternative.
+
+        A single-option slot (no runner-up was ever offered) has nothing to be thin
+        against, so it reads as a wide-open margin -- it must never get flagged by the
+        margin check alone.
+        """
+        if len(self.options) < 2:
+            return math.inf
+        ranked = sorted(o.confidence for o in self.options)
+        return ranked[-1] - ranked[-2]
+
 
 @dataclass
 class Reconciliation:
@@ -164,22 +177,52 @@ def reconcile(
     )
 
 
+#: How close a runner-up chapter has to be to the judge's top pick, in raw confidence, to
+#: make that pick untrustworthy on its own -- a case where "confidently placed" does not
+#: mean "correctly placed", because a real second candidate scored almost as well.
+#:
+#: pipeline._pass() builds options at three fixed relationships to the top confidence:
+#: runners-up from retrieval come in dampened to 0.4x, so at any top confidence above the
+#: 0.70 min_confidence floor their margin is already >= 0.6 * 0.70 = 0.42 -- nowhere near
+#: this threshold, so an ordinary "the judge also saw some other chapter nearby" case is
+#: never flagged just for having options. But the judge's own declared alternative_chapter
+#: -- its second-best real read, not a retrieval artifact -- comes in at 0.8x, a margin of
+#: only 0.2x confidence, i.e. ~0.14-0.20 across the confidence range that clears
+#: min_confidence today (0.70-1.0). That is exactly the "sailed through confidently, but a
+#: real second candidate was close behind" shape the user's paper showed (13 of 18 wrong
+#: answers went unflagged). The real fixture in this file for the exact case that started
+#: this investigation -- Applications of Trigonometry 0.68 vs Surface Areas 0.66 -- has a
+#: margin of 0.02, far inside any reasonable cutoff. 0.12 sits below the alternative_chapter
+#: band (so the judge naming a real second candidate reliably gets caught) while staying
+#: comfortably clear of ordinary retrieval runners-up (so most well-separated placements are
+#: left alone) -- a deliberately conservative cut in the same spirit as
+#: auto_resolve.SEMANTIC_FAMILY_MARGIN, calibrated to this score's own construction rather
+#: than copied from it.
+CHAPTER_OPTION_MARGIN = 0.12
+
+
 def needs_a_human(
     slots: list[QuestionSlot],
     result: Reconciliation,
     *,
     min_confidence: float = 0.70,
+    option_margin: float = CHAPTER_OPTION_MARGIN,
 ) -> list[str]:
     """The questions to put in front of a person.
 
-    Three ways to earn a look: the classifier was unsure; the blueprint overruled it, which
-    means two sources of evidence disagreed; or the totals never closed, in which case the
-    whole paper is suspect and the weakest calls are where to start.
+    Four ways to earn a look: the classifier was unsure; the blueprint overruled it, which
+    means two sources of evidence disagreed; the totals never closed, in which case the
+    whole paper is suspect and the weakest calls are where to start; or the judge's own top
+    pick barely beat a real runner-up -- a close call between two real candidates is exactly
+    the situation where the judge's self-reported confidence, however high, does not mean
+    the pick was right.
     """
     by_id = {s.question_id: s for s in slots}
     flagged = []
     for qid, option in result.assignment.items():
-        if option.confidence < min_confidence or qid in result.overruled:
+        slot = by_id.get(qid)
+        thin_margin = slot is not None and slot.margin < option_margin
+        if option.confidence < min_confidence or qid in result.overruled or thin_margin:
             flagged.append(qid)
     if not result.feasible:
         ranked = sorted(by_id, key=lambda q: result.assignment[q].confidence)

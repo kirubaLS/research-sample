@@ -163,6 +163,35 @@ def test_low_confidence_and_overruled_questions_both_reach_a_human():
     assert "strong" not in flagged
 
 
+def test_a_confident_pick_with_a_close_real_runner_up_still_reaches_a_human():
+    """High absolute confidence (0.85) used to sail straight through the old
+    confidence-only check. But a real runner-up scored 0.80 -- close enough that
+    "confidently picked" does not mean "correctly picked" -- so the margin check must
+    flag it even though 0.85 clears min_confidence on its own."""
+    slots = [
+        QuestionSlot("close_call", 1.0, [
+            Option("Political Parties", "POL", 0.85),
+            Option("Party Systems", "POL", 0.80),
+        ]),
+    ]
+    result = reconcile(slots, {"POL": 1.0})
+    assert result.assignment["close_call"].confidence >= 0.70  # old check would pass this
+    assert "close_call" in needs_a_human(slots, result)
+
+
+def test_a_genuinely_clear_win_is_not_flagged_just_for_having_a_runner_up():
+    """The flip side: a wide margin over a real alternative must not get penalised just
+    for the alternative existing -- only a *thin* margin earns a look."""
+    slots = [
+        QuestionSlot("clear", 1.0, [
+            Option("Political Parties", "POL", 0.95),
+            Option("Party Systems", "POL", 0.20),
+        ]),
+    ]
+    result = reconcile(slots, {"POL": 1.0})
+    assert "clear" not in needs_a_human(slots, result)
+
+
 def test_when_the_totals_never_close_the_whole_paper_is_suspect():
     slots = [
         QuestionSlot("a", 2.0, [Option("Circles", MENS, 0.99)]),
