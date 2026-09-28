@@ -1267,6 +1267,15 @@ def _section_number(code: str) -> str | None:
     return match.group(1).replace("_", ".") if match else None
 
 
+#: Fixed CBSE Class X Social Science paper convention, not something any one paper's cover
+#: page needs to declare and not inferred from anything: Section A is always History,
+#: Section B is always Geography, Section C is always Political Science ("Democratic
+#: Politics" in the syllabus), Section D is always Economics. Confirmed against
+#: X_HISTORY/X_GEOGRAPHY/X_POLITICAL_SCIENCE/X_ECONOMICS in app.curriculum, all of which
+#: share group_code "X.SST" -- this mapping only ever applies within that one group and is
+#: never inferred for any other subject group.
+_SST_SECTION_SUBJECT = {"A": "X.HIST", "B": "X.GEO", "C": "X.POL", "D": "X.ECO"}
+
 #: Subjects loaded by scripts/import_book_map.py (see its own SUBJECT_FILES). For these,
 #: BookChunk.reference IS the book's own heading text ("6 How can parties be reformed?"),
 #: written straight from the audited book_map JSON's own "number"/"title" fields at import
@@ -1503,7 +1512,7 @@ def map_paper_to_book(
     from app.config import get_settings
     from app.curriculum import group_subjects
     from app.extraction.paper import context_addresses
-    from app.ingest.probe import LexicalIndex, SemanticIndex, locate
+    from app.ingest.probe import LexicalIndex, SemanticIndex, locate, retrieval_query_text
     from app.mapping.auto_resolve import resolve_blocked_family
     from app.mapping.family import choose_family
 
@@ -1549,6 +1558,44 @@ def map_paper_to_book(
             dimensions=settings.embedding_dimensions,
         )))
         mode = "hybrid"
+
+    # X.SST papers group four books (History/Geography/Political Science/Economics) under
+    # one subject_code, so retrieval above searches all four for every question -- that is
+    # how a History question can land in the Political Science chapter "Power-sharing" on
+    # nothing but shared vocabulary. Each staged question already carries the section
+    # letter the paper itself printed (ScannedQuestion.section, read off the paper's own
+    # "SECTION A" headers -- see app.extraction.paper_vision), and CBSE's Class X SST
+    # section-to-subject layout is fixed board convention (_SST_SECTION_SUBJECT above), so
+    # when both are known retrieval for that one question is narrowed to just its own
+    # subject's chunks instead of the whole group. Built lazily, one index per subject
+    # actually needed, and cached because chunks/indexes are pure in-memory objects here.
+    from app.curriculum import CURRICULA
+
+    subject_curriculum = CURRICULA.get(assessment.subject_code)
+    is_sst_group = (
+        subject_curriculum.group_code if subject_curriculum else assessment.subject_code
+    ) == "X.SST"
+    _subject_index_cache: dict[str, tuple[list, str]] = {}
+
+    def _indexes_for_subject(subject_code: str) -> tuple[list, str] | None:
+        cached = _subject_index_cache.get(subject_code)
+        if cached is not None:
+            return cached
+        sub_chunks = [c for c in chunks if c.subject_code == subject_code]
+        if not sub_chunks:
+            return None
+        sub_indexes: list = [LexicalIndex(sub_chunks)]
+        sub_mode = "lexical"
+        if any(c.embedding for c in sub_chunks) and settings.jina_api_key:
+            from app.ingest.jina import JinaEmbedder
+
+            sub_indexes.append(SemanticIndex(sub_chunks, JinaEmbedder(
+                settings.jina_api_key, model=settings.embedding_model,
+                dimensions=settings.embedding_dimensions,
+            )))
+            sub_mode = "hybrid"
+        _subject_index_cache[subject_code] = (sub_indexes, sub_mode)
+        return _subject_index_cache[subject_code]
 
     nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
     units = {
@@ -1613,7 +1660,15 @@ def map_paper_to_book(
             blocked.append(row.address)
             continue
 
-        verdict = locate(row.stem_text, indexes)
+        row_indexes, row_mode = indexes, mode
+        if is_sst_group and row.section:
+            target_subject = _SST_SECTION_SUBJECT.get(row.section.strip().upper())
+            if target_subject and target_subject in book_subject_codes:
+                scoped = _indexes_for_subject(target_subject)
+                if scoped is not None:
+                    row_indexes, row_mode = scoped
+
+        verdict = locate(retrieval_query_text(row.stem_text), row_indexes)
         chapter = _chapter_of(verdict.node_id, nodes)
         if chapter is None:
             if row.question_no in case_study_question_nos:
@@ -1699,7 +1754,7 @@ def map_paper_to_book(
             concept_family_id=family.id,
             concept_variant=row.stem_text[:200],
             variant_hash=variant_hash(row.stem_text[:200]),
-            verified_against=f"retrieval:{mode}",
+            verified_against=f"retrieval:{row_mode}",
         )
         db.add(question)
         db.flush()
@@ -1713,7 +1768,7 @@ def map_paper_to_book(
             # rather than a person's, on a family this chapter never claimed before.
             source="model", needs_review=not verdict.agreed or ambiguous is not None or auto_resolved is not None,
             reasoning=(
-                f"{mode} retrieval, margin {verdict.margin:.3f}"
+                f"{row_mode} retrieval, margin {verdict.margin:.3f}"
                 + (f". {ambiguous}" if ambiguous else "")
                 + (f". Auto-resolved: {auto_resolved}" if auto_resolved else "")
             ),

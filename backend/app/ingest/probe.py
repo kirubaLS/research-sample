@@ -59,6 +59,50 @@ def tokens(text: str) -> list[str]:
     return [w for w in words if w not in STOPWORDS and len(w) > 2]
 
 
+#: The fixed CBSE lead-in every Assertion-Reason question opens with, verbatim, before the
+#: Assertion/Reason content that is actually question-specific. Confirmed against four real
+#: production questions (one per X.SST section) that share this sentence word-for-word.
+_AR_LEADIN = re.compile(
+    r"Two statements labelled as Assertion\s*\(A\)\s*and Reason\s*\(R\)\s*are given below\.\s*"
+    r"Read both the statements carefully and choose the correct option\s*:\s*",
+    re.IGNORECASE,
+)
+
+#: The start of the fixed 4-option "which of these is true" block every Assertion-Reason
+#: question closes with, verbatim, in every real example seen. Distinctive enough (it names
+#: both "Assertion (A)" and "Reason (R)" and the specific "correct explanation" phrasing) to
+#: not false-positive on an unrelated question that merely happens to say "Options :".
+_AR_OPTIONS_ANCHOR = (
+    "Options : (A) Both Assertion (A) and Reason (R) are true "
+    "and Reason (R) is the correct explanation"
+)
+
+
+def retrieval_query_text(text: str) -> str:
+    """The text to hand retrieval, not what is stored on the question or shown to anyone.
+
+    An Assertion-Reason question repeats ~90 words of fixed CBSE boilerplate -- the lead-in
+    sentence and the four-option block -- verbatim across every such question on a paper.
+    None of it is book content; left in, it drowns the two sentences of real
+    Assertion/Reason substance that could actually match a chapter, and can pull retrieval
+    toward whichever chapter's chunks happen to share words with "Both Assertion (A) and
+    Reason (R) are true" rather than with the question. Stripped only for the string built
+    into the retrieval query -- callers must never write this back onto stem_text or any
+    field a person reads.
+    """
+    if not text:
+        return text
+    query = text
+    anchor = query.find(_AR_OPTIONS_ANCHOR)
+    if anchor != -1:
+        query = query[:anchor]
+    query = _AR_LEADIN.sub("", query)
+    stripped = query.strip()
+    # Never hand retrieval an empty query -- fall back to the untouched original, which is
+    # what already happens today, rather than searching with nothing.
+    return stripped or text
+
+
 @dataclass(frozen=True)
 class Candidate:
     chunk_id: str

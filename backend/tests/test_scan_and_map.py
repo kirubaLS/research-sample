@@ -1972,3 +1972,233 @@ def test_map_uses_the_books_own_heading_not_a_mismatched_stale_subtopic_number(
     # semantically unrelated taxonomy_node. After the fix it is the book's own words.
     assert placed["mapped_to"]["topic"] == "6 How the zamgani conclave reforms"
     assert placed["mapped_to"]["topic"] != "A STALE, UNRELATED HEADING"
+
+
+# ----------------------------------------------------------------------------------------
+# Fix 2: an X.SST question's retrieval is scoped to its own section's subject
+#
+# CBSE's Class X Social Science paper is a fixed board layout, not a per-paper one:
+# Section A is always History, B is always Geography, C is always Political Science
+# ("Democratic Politics"), D is always Economics -- see _SST_SECTION_SUBJECT in
+# app.api.marks. Each staged question already carries its own printed section letter
+# (ScannedQuestion.section). Without scoping, retrieval searches all four books' chapters
+# for every question, which is exactly how the audit found a History question landing in
+# the Political Science chapter "Power-sharing" on nothing but shared vocabulary.
+# ----------------------------------------------------------------------------------------
+
+
+def test_sst_retrieval_is_scoped_to_the_questions_own_section_subject(
+    client, school, monkeypatch,
+):
+    """locate() is patched to simply record which subjects its candidate chunks came
+    from, rather than asserting on TF-IDF outcomes (fragile in this shared, session-scoped
+    test database). What matters is the *scope* handed to retrieval: a Section A question
+    must only ever see X.HIST chunks, never the other three books in the X.SST group --
+    and a question whose section is unknown must still see the whole group, never be
+    silently dropped or forced into a guessed subject.
+    """
+    from sqlalchemy import select
+
+    from app.curriculum import X_ECONOMICS, X_GEOGRAPHY, X_HISTORY, X_POLITICAL_SCIENCE
+    from app.curriculum.apply import apply as apply_curriculum
+    from app.db import SessionLocal
+    from app.ingest.probe import ChapterVerdict
+    from app.models import BookChunk, ScannedQuestion, TaxonomyNode
+
+    db = SessionLocal()
+    for curriculum in (X_HISTORY, X_GEOGRAPHY, X_POLITICAL_SCIENCE, X_ECONOMICS):
+        apply_curriculum(db, curriculum)
+    db.commit()
+
+    for subject_code, chapter_code in [
+        ("X.HIST", "X.HIST.NATIONALISM_EUROPE"),
+        ("X.GEO", "X.GEO.RESOURCES"),
+        ("X.POL", "X.POL.POWERSHARING"),
+        ("X.ECO", "X.ECO.DEVELOPMENT"),
+    ]:
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == chapter_code))
+        if db.scalar(select(BookChunk).where(
+            BookChunk.stem_hash == f"sst-scope-test-{subject_code}"
+        )) is None:
+            db.add(BookChunk(
+                curriculum_version=chapter.curriculum_version, subject_code=subject_code,
+                node_id=chapter.id, bucket="T", reference="Test",
+                text=f"placeholder {subject_code} body text",
+                section_number="1",
+                normalised=f"placeholder {subject_code} body text",
+                stem_hash=f"sst-scope-test-{subject_code}",
+            ))
+    db.commit()
+    db.close()
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.SST", "title": "SST scope test", "total_marks": 5,
+    }).json()["assessment_id"]
+
+    rows = [
+        ("A", "1", "History question stem, section A."),
+        ("B", "2", "Geography question stem, section B."),
+        ("C", "3", "Political science question stem, section C."),
+        ("D", "4", "Economics question stem, section D."),
+        (None, "5", "No section printed at all on this one."),
+    ]
+    expected = {
+        "History question stem, section A.": {"X.HIST"},
+        "Geography question stem, section B.": {"X.GEO"},
+        "Political science question stem, section C.": {"X.POL"},
+        "Economics question stem, section D.": {"X.ECO"},
+        # unknown section -- never silently dropped, never force-scoped to a guess
+        "No section printed at all on this one.": {"X.HIST", "X.GEO", "X.POL", "X.ECO"},
+    }
+
+    db2 = SessionLocal()
+    for section, qno, stem in rows:
+        db2.add(ScannedQuestion(
+            assessment_id=aid, address=f"{section or ''}/{qno}//", section=section,
+            question_no=qno, max_marks=1, stem_text=stem, logical_page=1,
+        ))
+    db2.commit()
+    db2.close()
+
+    confirm = client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    assert confirm.status_code == 200, confirm.text
+
+    captured: dict[str, set[str]] = {}
+
+    def fake_locate(query, indexes, **kwargs):
+        subjects = {
+            chunk.subject_code
+            for idx in indexes
+            for chunk in getattr(idx, "chunks", [])
+        }
+        captured[query] = subjects
+        return ChapterVerdict(
+            node_id=None, score=0.0, margin=0.0, agreed=False, evidence=[], runners_up=[],
+        )
+
+    import app.ingest.probe as probe
+
+    monkeypatch.setattr(probe, "locate", fake_locate)
+
+    mapped = client.post(f"/assessments/{aid}/map", headers=h)
+    assert mapped.status_code == 200, mapped.text
+
+    assert captured == expected, captured
+
+
+# ----------------------------------------------------------------------------------------
+# Fix 5: Assertion-Reason boilerplate is stripped from the retrieval query only
+#
+# Four real Assertion-Reason questions from one production paper (A5/B13/C23/D32) share
+# this exact framing verbatim, differing only in the Assertion/Reason content itself. The
+# lead-in sentence and the four-option "which of these is true" block carry no book
+# content and are stripped only from what is sent to retrieval -- never from stem_text,
+# never from anything stored or shown to a teacher.
+# ----------------------------------------------------------------------------------------
+
+_AR_LEADIN = (
+    "Two statements labelled as Assertion (A) and Reason (R) are given below. Read both "
+    "the statements carefully and choose the correct option : "
+)
+_AR_OPTIONS = (
+    "Options : (A) Both Assertion (A) and Reason (R) are true and Reason (R) is the "
+    "correct explanation of Assertion (A). (B) Both Assertion (A) and Reason (R) are "
+    "true, but Reason (R) is not the correct explanation of Assertion (A). (C) Assertion "
+    "(A) is true, but Reason (R) is false. (D) Assertion (A) is false, but Reason (R) is "
+    "true."
+)
+
+
+def _ar_question(assertion: str, reason: str) -> str:
+    return (
+        f"{_AR_LEADIN}Assertion (A) : {assertion} Reason (R) : {reason} {_AR_OPTIONS}"
+    )
+
+
+def test_assertion_reason_boilerplate_is_stripped_from_the_retrieval_query():
+    from app.ingest.probe import retrieval_query_text
+
+    # A5, verbatim.
+    a5 = _ar_question(
+        "The Roman Catholic Church began keeping an Index of Prohibited Books from the "
+        "middle of the sixteenth century.",
+        "The Church feared that the wide circulation of printed books would spread ideas "
+        "that questioned its authority.",
+    )
+    query = retrieval_query_text(a5)
+
+    # (a) the fixed boilerplate is gone from what is sent to retrieval
+    assert "Two statements labelled as Assertion" not in query
+    assert "Read both the statements carefully" not in query
+    assert "Options :" not in query
+    assert "correct explanation of Assertion (A)" not in query
+    assert "Reason (R) is false" not in query
+
+    # (b) the real Assertion/Reason content survives
+    assert "Roman Catholic Church" in query
+    assert "Index of Prohibited Books" in query
+    assert "wide circulation of printed books" in query
+    assert "questioned its authority" in query
+
+    # never touch the stored/shown stem itself -- retrieval_query_text is pure
+    assert a5 == _ar_question(
+        "The Roman Catholic Church began keeping an Index of Prohibited Books from the "
+        "middle of the sixteenth century.",
+        "The Church feared that the wide circulation of printed books would spread ideas "
+        "that questioned its authority.",
+    )
+
+
+def test_assertion_reason_stripping_works_on_all_four_real_paper_sections():
+    """B13 (Geography), C23 (Political Science) and D32 (Economics) -- same fixed framing,
+    different content, from the same real paper as A5 above."""
+    from app.ingest.probe import retrieval_query_text
+
+    cases = [
+        (
+            "Heavy industries and thermal power stations in India are located on or "
+            "near the coalfields.",
+            "Coal is a bulky material which loses weight on use as it is reduced to ash.",
+        ),
+        (
+            "The law against defection has made it more difficult for members of a "
+            "legislature to express dissent within their own party.",
+            "An MLA or MP who changes parties now loses his or her seat in the "
+            "legislature.",
+        ),
+        (
+            "In the past few decades there has not been much increase in the movement "
+            "of people between countries.",
+            "Countries have placed various restrictions on the movement of people "
+            "across their borders.",
+        ),
+    ]
+    for assertion, reason in cases:
+        raw = _ar_question(assertion, reason)
+        query = retrieval_query_text(raw)
+        assert "Options :" not in query
+        assert "Two statements labelled" not in query
+        assert assertion in query
+        assert reason in query
+
+
+def test_a_normal_questions_stem_is_completely_untouched():
+    """No false-positive stripping: a question that merely happens to mention 'options'
+    or 'assertion' in passing, or an ordinary stem with neither word, must come back
+    byte-for-byte identical."""
+    from app.ingest.probe import retrieval_query_text
+
+    ordinary = "Find the mean of the grouped data by the step-deviation method."
+    assert retrieval_query_text(ordinary) == ordinary
+
+    mentions_but_not_the_pattern = (
+        "Which of the following options best explains the assertion made by the "
+        "author in the passage above?"
+    )
+    assert retrieval_query_text(mentions_but_not_the_pattern) == (
+        mentions_but_not_the_pattern
+    )
+
+    assert retrieval_query_text("") == ""
+    assert retrieval_query_text(None) is None

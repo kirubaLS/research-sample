@@ -27,7 +27,7 @@ from app.classify.reconcile import (
     reconcile,
 )
 from app.classify.scope import InferredScope, Vote, infer_scope
-from app.ingest.probe import locate
+from app.ingest.probe import locate, retrieval_query_text
 
 #: how deep retrieval searches before the chapters are voted on. Not the number of
 #: passages the reader is shown -- that is a setting, because it is the price of the call.
@@ -86,8 +86,10 @@ def _pass(
     judged: dict[str, Classification] = {}
 
     for question_id, stem, marks in questions:
+        # Retrieval only -- the judge below still reads the real, untouched stem.
+        query = retrieval_query_text(stem)
         verdict = locate(
-            stem, indexes, depth=EVIDENCE_DEPTH, scope=scope, chapter_of=chapter_of,
+            query, indexes, depth=EVIDENCE_DEPTH, scope=scope, chapter_of=chapter_of,
             evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
         )
         # Retrieval applies the scope itself, so a question with nothing in scope comes
@@ -96,7 +98,7 @@ def _pass(
         out_of_scope = scope is not None and not verdict.evidence
         if out_of_scope:
             verdict = locate(
-                stem, indexes, depth=EVIDENCE_DEPTH,
+                query, indexes, depth=EVIDENCE_DEPTH,
                 evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
             )
         evidence = [
