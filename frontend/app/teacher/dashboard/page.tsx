@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import Link from "next/link";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowRight,
@@ -11,8 +12,12 @@ import {
   ChevronDown,
   ChevronRight,
   ClipboardList,
+  Eye,
+  FileCheck2,
   Loader2,
+  Pencil,
   Plus,
+  ShieldAlert,
   ShieldCheck,
   Sparkles,
   Target,
@@ -21,6 +26,7 @@ import {
   Trash2,
   Upload,
   Users,
+  X,
 } from "lucide-react";
 import { useAuth } from "@/lib/auth";
 import {
@@ -33,8 +39,12 @@ import {
   ConductedExam,
   ExamsOverview,
   PaperSummary,
+  ReviewChapterOption,
+  ReviewQuestion,
   ScheduledExam,
+  StagedQuestion,
 } from "@/lib/api";
+import { Stat } from "@/components/Stat";
 import { usePaperScan } from "@/lib/usePaperScan";
 import { useGridSheet } from "@/lib/useGridSheet";
 import { FilePickButtons } from "@/components/FilePickButtons";
@@ -129,13 +139,133 @@ export default function TeacherDashboardPage() {
 
 type TestRow = { id: string; name: string; date: string | null; status: "Analysed" | "Awaiting marks" | "Scheduled" };
 
+/** The three cognitive tiers a classified question is filed under -- the board's own
+ * words, which is what the backend accepts back (see TIER_ALIASES). */
+const TIERS = ["Remembering & Understanding", "Applying", "Analysing, Evaluating & Creating"];
+
 function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubjectCodes: Set<string> }) {
+  const { user } = useAuth();
   const scan = usePaperScan({
     listPapers: (key) => api.teacherPapers(key),
     listSubjects: (key) => api.subjects(key).then((r) => r.subjects),
   });
 
   const [newTitle, setNewTitle] = useState("Cycle Test I");
+
+  // The row currently open for editing -- only ever a pre-confirmation, unmapped row (see
+  // the Edit button's own guard below); editScanned() 409s past either point, so the
+  // affordance never appears once it would fail.
+  const [editing, setEditing] = useState<StagedQuestion | null>(null);
+  const [editForm, setEditForm] = useState({ question_no: "", section: "", max_marks: "", stem_text: "" });
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  function openEdit(q: StagedQuestion) {
+    setEditing(q);
+    setEditForm({
+      question_no: q.question_no ?? "",
+      section: q.section ?? "",
+      max_marks: q.max_marks != null ? String(q.max_marks) : "",
+      stem_text: q.stem_text ?? "",
+    });
+  }
+
+  async function saveEdit() {
+    if (!editing) return;
+    setSavingEdit(true);
+    const patch: Record<string, unknown> = {};
+    if (editForm.question_no !== (editing.question_no ?? "")) patch.question_no = editForm.question_no;
+    if (editForm.section !== (editing.section ?? "")) patch.section = editForm.section || null;
+    if (editForm.stem_text !== (editing.stem_text ?? "")) patch.stem_text = editForm.stem_text || null;
+    const maxMarksNum = editForm.max_marks.trim() === "" ? null : Number(editForm.max_marks);
+    if (maxMarksNum !== editing.max_marks) patch.max_marks = maxMarksNum;
+    try {
+      if (Object.keys(patch).length > 0) await scan.onEdit(editing.address, patch);
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function removeEdit() {
+    if (!editing) return;
+    if (!window.confirm(`Remove ${editing.section ?? ""}${editing.question_no}${editing.sub_part ?? ""}? The extractor sometimes invents a row from a heading -- this removes it entirely.`)) return;
+    setSavingEdit(true);
+    try {
+      await scan.onEdit(editing.address, { remove: true });
+      setEditing(null);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  // A needs-review row (the family or chapter the machine settled on, including a real
+  // auto-resolved one, is a machine's first answer, never a person's) is editable through
+  // the real POST /assessments/{id}/review/{question_id} route -- the same one
+  // review_queue's own pending list is read from. Fetched lazily, keyed to address, so
+  // opening the edit modal always has the question_id and the real chapter list to pick
+  // from (StagedQuestion itself carries no question_id -- only /review's own rows do).
+  const [reviewByAddress, setReviewByAddress] = useState<Record<string, ReviewQuestion>>({});
+  const [chapterOptions, setChapterOptions] = useState<ReviewChapterOption[]>([]);
+
+  useEffect(() => {
+    const key = getApiKey();
+    if (!key || !scan.assessmentId || !scan.mapped) return;
+    let cancelled = false;
+    void api.reviewQueue(key, scan.assessmentId).then((q) => {
+      if (cancelled) return;
+      setReviewByAddress(Object.fromEntries(q.questions.map((r) => [r.address, r])));
+      setChapterOptions(q.chapters);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scan.assessmentId, scan.mapped, scan.placed]);
+
+  const [settling, setSettling] = useState<{ address: string; question_id: string } | null>(null);
+  const [settleForm, setSettleForm] = useState({ chapter_code: "", curriculum_section: "", tier: "" });
+  const [savingSettle, setSavingSettle] = useState(false);
+  const [settleError, setSettleError] = useState<string | null>(null);
+
+  function openSettle(q: StagedQuestion) {
+    const pending = reviewByAddress[q.address];
+    if (!pending) return;
+    setSettling({ address: q.address, question_id: pending.question_id });
+    setSettleForm({
+      chapter_code: pending.proposed_chapter_code ?? "",
+      curriculum_section: pending.curriculum_section ?? "",
+      tier: q.mapped_to?.tier_label ?? "",
+    });
+    setSettleError(null);
+  }
+
+  async function saveSettle() {
+    const key = getApiKey();
+    if (!settling || !key || !scan.assessmentId) return;
+    if (!settleForm.chapter_code) {
+      setSettleError("Choose a chapter.");
+      return;
+    }
+    setSavingSettle(true);
+    setSettleError(null);
+    try {
+      await api.settleReview(key, scan.assessmentId, settling.question_id, {
+        chapter_code: settleForm.chapter_code,
+        curriculum_section: settleForm.curriculum_section || null,
+        tier: settleForm.tier || null,
+        reviewed_by: user?.name || "Teacher",
+      });
+      setSettling(null);
+      await scan.refresh(scan.assessmentId);
+      const q = await api.reviewQueue(key, scan.assessmentId);
+      setReviewByAddress(Object.fromEntries(q.questions.map((r) => [r.address, r])));
+      setChapterOptions(q.chapters);
+    } catch (err) {
+      setSettleError(scan.explain(err));
+    } finally {
+      setSavingSettle(false);
+    }
+  }
 
   const [tests, setTests] = useState<TestRow[]>([]);
   const [examsLoading, setExamsLoading] = useState(true);
@@ -312,7 +442,25 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                         {papers.length === 0 ? (
                           <p className="small muted">No papers attached to this test yet.</p>
                         ) : (
-                          papers.map((p) => {
+                          <>
+                            <div
+                              className="small muted"
+                              style={{
+                                display: "grid",
+                                gridTemplateColumns: "1fr 1fr auto auto",
+                                gap: 14,
+                                padding: "0 0 6px",
+                                textTransform: "uppercase",
+                                letterSpacing: "0.03em",
+                                fontSize: 11,
+                              }}
+                            >
+                              <div>Subject</div>
+                              <div>Blueprint coverage</div>
+                              <div>Status</div>
+                              <div></div>
+                            </div>
+                            {papers.map((p) => {
                             const st = statusTag(p);
                             const pct = coveragePct(p);
                             return (
@@ -355,7 +503,8 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                                 </button>
                               </div>
                             );
-                          })
+                          })}
+                          </>
                         )}
                       </div>
                     )}
@@ -537,6 +686,37 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                 </button>
               </div>
             )}
+            {scan.scan && (
+              <div className="grid grid--3">
+                <Stat label="Questions read" value={scan.scan.questions} />
+                <Stat label="Marks read" value={scan.scan.total_marks} />
+                <Stat label="Pages" value={scan.scan.pages} />
+              </div>
+            )}
+
+            {scan.mapped && (
+              <div className="grid grid--3">
+                <Stat
+                  label="Mapped" value={scan.mapped.mapped}
+                  icon={<FileCheck2 size={12} />} tone={scan.mapped.mapped > 0 ? "green" : undefined}
+                />
+                <Stat
+                  label="Blocked" value={scan.mapped.blocked}
+                  icon={<ShieldAlert size={12} />} tone={scan.mapped.blocked > 0 ? "risk" : undefined}
+                />
+                <Stat
+                  label="Needs review" value={scan.mapped.needs_review}
+                  icon={<Eye size={12} />} tone={scan.mapped.needs_review > 0 ? "gold" : undefined}
+                />
+              </div>
+            )}
+
+            {scan.mapped && scan.mapped.blocked > 0 && !scan.placed && (
+              <button className="btn btn--sm" onClick={() => scan.onMap()} disabled={scan.busy != null}>
+                Re-run mapping
+              </button>
+            )}
+
             {scan.mapped && scan.mapped.blocked === 0 && !scan.placed && !scan.alreadyClassified && (
               <button className="btn btn--primary btn--sm" onClick={() => scan.onClassify()}>
                 <Sparkles size={13} /> Read &amp; classify every question
@@ -547,9 +727,223 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                 <CheckCircle2 size={12} /> Classified
               </div>
             )}
+
+            {scan.review && scan.review.questions.length > 0 && (
+              <div className="drawer__section" style={{ padding: 0 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
+                  <h4 style={{ margin: 0 }}>Questions ({scan.blockedCount} not yet placed)</h4>
+                  <div className="tabs" role="tablist">
+                    {(["all", "mapped", "blocked"] as const).map((f) => (
+                      <button
+                        key={f}
+                        role="tab"
+                        aria-selected={scan.filter === f}
+                        className={`tab ${scan.filter === f ? "tab--active" : ""}`}
+                        onClick={() => scan.setFilter(f)}
+                      >
+                        {f}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="table-wrap table-wrap--scroll" style={{ maxHeight: 360 }}>
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Q</th>
+                        <th>Stem</th>
+                        <th className="num">Marks</th>
+                        <th>Chapter</th>
+                        <th>Topic</th>
+                        <th>Tier</th>
+                        <th>Needs review</th>
+                        <th></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scan.rows.map((q) => {
+                        // Backend rule (marks.py edit_scanned_question): editing 409s once
+                        // the scan is confirmed, and again once a row has already been
+                        // mapped (it has moved past staging into a real Question). So the
+                        // Edit action only ever appears for a still-staged, unconfirmed row.
+                        const canEdit = !scan.confirmed && !q.mapped_to;
+                        // needs_review rows only exist after mapping, which is always
+                        // after confirm -- gating this action on !scan.confirmed (the
+                        // way canEdit is) would mean it could never actually show.
+                        const canSettle = !!q.mapped_to?.needs_review && !!reviewByAddress[q.address];
+                        const autoResolved = q.mapped_to?.review_reason?.includes("Auto-resolved");
+                        return (
+                          <tr key={q.address}>
+                            <td className="strong">
+                              {q.section ?? ""}
+                              {q.question_no}
+                              {q.sub_part ?? ""}
+                            </td>
+                            <td className="small" style={{ maxWidth: 280 }}>
+                              {q.stem_text ?? "—"}
+                            </td>
+                            <td className="num">{q.max_marks ?? "—"}</td>
+                            <td>{q.mapped_to?.chapter ?? <span className="tag tag--risk">{q.blocked_reason ?? "Not placed"}</span>}</td>
+                            <td className="small">{q.mapped_to?.topic ?? "—"}</td>
+                            <td className="small">{q.mapped_to?.tier_label ?? "—"}</td>
+                            <td>
+                              {q.mapped_to?.needs_review ? (
+                                <div style={{ display: "grid", gap: 2 }}>
+                                  <span className="tag tag--gold" style={{ width: "fit-content" }}>{q.mapped_to.review_reason ?? "Review"}</span>
+                                  <span className="small muted">
+                                    {autoResolved
+                                      ? "Placed automatically from the book -- worth a glance, not necessarily wrong."
+                                      : "A family/mapping problem -- fix the concept-family data, or settle it here."}
+                                  </span>
+                                </div>
+                              ) : "—"}
+                            </td>
+                            <td style={{ textAlign: "right" }}>
+                              {canEdit && (
+                                <button className="btn btn--sm" onClick={() => openEdit(q)}>
+                                  <Pencil size={12} /> Edit
+                                </button>
+                              )}
+                              {canSettle && (
+                                <button className="btn btn--sm" onClick={() => openSettle(q)}>
+                                  <Pencil size={12} /> Settle
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
+
+      <AnimatePresence>
+        {editing && (
+          <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setEditing(null)}>
+            <motion.div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <div className="modal__head">
+                <h3>Edit question {editing.section ?? ""}{editing.question_no}{editing.sub_part ?? ""}</h3>
+                <button className="iconbtn" onClick={() => setEditing(null)} aria-label="Close">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal__body" style={{ display: "grid", gap: 10 }}>
+                <div className="field">
+                  <label htmlFor="edit-qno">Question no.</label>
+                  <input id="edit-qno" className="input" value={editForm.question_no} onChange={(e) => setEditForm((f) => ({ ...f, question_no: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-section">Section</label>
+                  <input id="edit-section" className="input" value={editForm.section} onChange={(e) => setEditForm((f) => ({ ...f, section: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-max">Max marks</label>
+                  <input id="edit-max" className="input" type="number" value={editForm.max_marks} onChange={(e) => setEditForm((f) => ({ ...f, max_marks: e.target.value }))} />
+                </div>
+                <div className="field">
+                  <label htmlFor="edit-stem">Stem text</label>
+                  <textarea id="edit-stem" className="input" rows={3} value={editForm.stem_text} onChange={(e) => setEditForm((f) => ({ ...f, stem_text: e.target.value }))} />
+                </div>
+              </div>
+              <div className="modal__foot" style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                <button className="btn btn--sm" onClick={removeEdit} disabled={savingEdit}>
+                  <Trash2 size={13} /> Remove this row
+                </button>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button className="btn btn--sm" onClick={() => setEditing(null)} disabled={savingEdit}>
+                    Cancel
+                  </button>
+                  <button className="btn btn--primary btn--sm" onClick={() => void saveEdit()} disabled={savingEdit}>
+                    {savingEdit ? <Loader2 size={13} className="spin" /> : <CheckCircle2 size={13} />} Save
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {settling && (
+          <motion.div className="modal-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={() => setSettling(null)}>
+            <motion.div className="modal" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+              <div className="modal__head">
+                <h3>Settle {settling.address}</h3>
+                <button className="iconbtn" onClick={() => setSettling(null)} aria-label="Close">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="modal__body" style={{ display: "grid", gap: 10 }}>
+                {reviewByAddress[settling.address]?.reasoning && (
+                  <p className="small muted" style={{ margin: 0 }}>
+                    {reviewByAddress[settling.address].reasoning}
+                  </p>
+                )}
+                {settleError && (
+                  <div className="evidence evidence--gold">
+                    <AlertTriangle size={16} />
+                    <div>{settleError}</div>
+                  </div>
+                )}
+                <div className="field">
+                  <label htmlFor="settle-chapter">Chapter</label>
+                  <select
+                    id="settle-chapter"
+                    className="select"
+                    value={settleForm.chapter_code}
+                    onChange={(e) => setSettleForm((f) => ({ ...f, chapter_code: e.target.value }))}
+                  >
+                    <option value="">Choose a chapter…</option>
+                    {chapterOptions.map((c) => (
+                      <option key={c.code} value={c.code}>
+                        {c.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label htmlFor="settle-section">Section (optional -- e.g. 12.2)</label>
+                  <input
+                    id="settle-section"
+                    className="input"
+                    value={settleForm.curriculum_section}
+                    onChange={(e) => setSettleForm((f) => ({ ...f, curriculum_section: e.target.value }))}
+                  />
+                </div>
+                <div className="field">
+                  <label htmlFor="settle-tier">Tier</label>
+                  <select
+                    id="settle-tier"
+                    className="select"
+                    value={settleForm.tier}
+                    onChange={(e) => setSettleForm((f) => ({ ...f, tier: e.target.value }))}
+                  >
+                    <option value="">Not set</option>
+                    {TIERS.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+              <div className="modal__foot" style={{ display: "flex", justifyContent: "flex-end", gap: 8 }}>
+                <button className="btn btn--sm" onClick={() => setSettling(null)} disabled={savingSettle}>
+                  Cancel
+                </button>
+                <button className="btn btn--primary btn--sm" onClick={() => void saveSettle()} disabled={savingSettle}>
+                  {savingSettle ? <Loader2 size={13} className="spin" /> : <CheckCircle2 size={13} />} Save
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <p className="small muted" style={{ marginTop: 14 }}>
         Real scan, mapping and classification against the backend -- nothing here is simulated.
@@ -583,7 +977,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                 </div>
                 <div>
                   <label className="small muted" style={{ display: "block", marginBottom: 8 }}>
-                    Subjects
+                    Subjects for this test
                   </label>
                   <div className="chipset">
                     {pickableSubjects.map((s) => (
