@@ -27,11 +27,53 @@ from app.classify.reconcile import (
     reconcile,
 )
 from app.classify.scope import InferredScope, Vote, infer_scope
-from app.ingest.probe import locate, retrieval_query_text
+from app.ingest.probe import full_chapter_evidence, locate, retrieval_query_text
 
 #: how deep retrieval searches before the chapters are voted on. Not the number of
 #: passages the reader is shown -- that is a setting, because it is the price of the call.
 EVIDENCE_DEPTH = 8
+
+#: Default per-passage character budget (mirrors app.config.classifier_passage_chars),
+#: used only when a caller does not pass its own -- pipeline.py stays testable without
+#: reading settings, the same reason evidence_passages/evidence_chapters are parameters
+#: rather than lookups.
+DEFAULT_PASSAGE_CHARS = 1200
+
+#: Above this many passages, trim each one more aggressively rather than let the prompt
+#: grow without bound. A chapter with a handful of sections keeps the full budget; a
+#: chapter with two or three dozen (the largest seen in this book's own book_map data,
+#: e.g. Minerals and Energy Resources) would otherwise multiply passage_chars by 30+.
+_PASSAGE_TAPER_AT = 10
+_MIN_PASSAGE_CHARS = 300
+
+
+def _adaptive_passage_chars(base: int, n_passages: int) -> int:
+    """Shrink the per-passage character budget as the evidence list grows.
+
+    Keeps the total evidence text roughly bounded (~10x the base budget) once a chapter's
+    real section count pushes the passage list past the point a fixed top-K used to cap
+    it at, instead of letting every extra section add a full passage's worth of tokens.
+    """
+    if n_passages <= _PASSAGE_TAPER_AT:
+        return base
+    return max(_MIN_PASSAGE_CHARS, (base * _PASSAGE_TAPER_AT) // n_passages)
+
+
+def _full_pool(indexes: list) -> list:
+    """Every content chunk any retriever holds, deduplicated by chunk id.
+
+    Locate()'s scored top-K is a guess at what is worth showing the judge; a chapter's
+    full set of real sections is not a guess, it is a fact about the book, independent of
+    how any one question happened to score against it. Every index already stores the
+    same content_chunks()-filtered pool it was built from (LexicalIndex keeps all of it;
+    SemanticIndex only what has an embedding), so the union is the fullest pool available
+    without a second database read.
+    """
+    seen: dict[str, object] = {}
+    for index in indexes:
+        for c in getattr(index, "chunks", []):
+            seen.setdefault(c.id, c)
+    return list(seen.values())
 
 
 @dataclass
@@ -80,10 +122,12 @@ def _pass(
     scope: set[str] | None,
     evidence_passages: int,
     evidence_chapters: int,
+    passage_chars: int = DEFAULT_PASSAGE_CHARS,
 ) -> tuple[list[QuestionSlot], dict[str, Classification]]:
     """One classification pass over every question."""
     slots: list[QuestionSlot] = []
     judged: dict[str, Classification] = {}
+    pool = _full_pool(indexes)
 
     for question_id, stem, marks in questions:
         # Retrieval only -- the judge below still reads the real, untouched stem.
@@ -101,14 +145,37 @@ def _pass(
                 query, indexes, depth=EVIDENCE_DEPTH,
                 evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
             )
+        # The structural fix: once a chapter is identified for this question, the judge
+        # is shown one representative passage from EVERY real section of that chapter --
+        # not locate()'s scored top-K, which is a guess at what is worth showing and can
+        # (and, on a real paper, did) rank the actually-correct section below any fixed
+        # cutoff. verdict.node_id was already chosen respecting scope (locate() filters
+        # its ranked lists by scope before ever picking a winner), so pulling everything
+        # this chapter has from `pool` -- which is not itself scope-filtered -- cannot
+        # leak an out-of-scope chapter's content: it only ever fetches content belonging
+        # to the exact node_id locate() already vetted.
+        own_evidence = full_chapter_evidence(verdict.node_id, pool, query) if verdict.node_id else []
+        if not own_evidence:
+            # No section-tagged content for this chapter (e.g. a book imported without
+            # section numbers) -- fall back to whatever locate() itself found, rather
+            # than showing the judge nothing about the chapter it voted for.
+            own_evidence = [c for c in verdict.evidence if c.node_id == verdict.node_id]
+        # Rival chapters' own passages are kept too: the judge still needs to see a real
+        # competing chapter to tell a question ABOUT a theorem from the theorem, which
+        # scoring alone cannot do (see judge.py's docstring). Only the WINNING chapter's
+        # evidence is replaced with full section coverage -- chapter selection itself is
+        # untouched, this is section-level disambiguation within it.
+        rival_evidence = [c for c in verdict.evidence if c.node_id != verdict.node_id]
+        candidates = own_evidence + rival_evidence
+        budget = _adaptive_passage_chars(passage_chars, len(candidates))
         evidence = [
             Evidence(
                 chapter=chapter_of(c.node_id) or "?",
                 reference=c.reference,
-                section=section_of(c.reference) or "",
-                text=c.text,
+                section=section_of(c.reference) or (c.section or ""),
+                text=c.text[:budget],
             )
-            for c in verdict.evidence
+            for c in candidates
         ]
         if not evidence:
             continue
@@ -201,6 +268,7 @@ def place_paper(
     infer_scope_when_undeclared: bool = True,
     evidence_passages: int = EVIDENCE_DEPTH,
     evidence_chapters: int = 1,
+    passage_chars: int = DEFAULT_PASSAGE_CHARS,
 ) -> PaperPlacement:
     """Place every question in a paper.
 
@@ -220,7 +288,7 @@ def place_paper(
 
     slots, judged = _pass(
         questions, indexes, judge, chapter_of, unit_of, section_of, scope,
-        evidence_passages, evidence_chapters,
+        evidence_passages, evidence_chapters, passage_chars,
     )
 
     if scope is None and infer_scope_when_undeclared and slots:
@@ -244,7 +312,7 @@ def place_paper(
         if inferred.confident:
             slots, judged = _pass(
                 questions, indexes, judge, chapter_of, unit_of, section_of,
-                inferred.chapters, evidence_passages, evidence_chapters,
+                inferred.chapters, evidence_passages, evidence_chapters, passage_chars,
             )
             scope_source = "inferred"
 

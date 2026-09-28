@@ -21,7 +21,14 @@ against the actual book map, both reproduced here with the book's own real text.
 
 from __future__ import annotations
 
-from app.ingest.probe import LexicalIndex, content_chunks, locate, retrieval_query_text
+from app.classify.judge import Classification
+from app.ingest.probe import (
+    LexicalIndex,
+    content_chunks,
+    full_chapter_evidence,
+    locate,
+    retrieval_query_text,
+)
 
 
 class _Chunk:
@@ -269,4 +276,186 @@ def test_default_evidence_passages_no_longer_starves_the_right_passage():
         "the judge must actually be shown the Nuclear passage to have any chance of "
         "reasoning its way to it -- retrieval must not silently drop real, "
         "correctly-chaptered evidence before the judge ever sees it"
+    )
+
+
+# --- the structural fix: no scored top-K can be correct for every paper -----------------
+#
+# The Tamil Nadu nuclear case above is fixed by raising classifier_evidence_passages to 8,
+# but that is a stopgap: no fixed K is right for every question, because scoring is
+# fundamentally approximate. Here Nuclear's own passage is pushed to 12th of 14 sections in
+# its own chapter -- the same shape of miss (activity boxes and captions that happen to
+# share literal words with the stem out-scoring the real teaching passage), just one rank
+# further down than the original bug -- to prove the fix is structural: full section
+# coverage, not a bigger number.
+
+MINERALS_14_SECTIONS = {
+    # section number -> (reference, text). Every entry below except 4.2.1 (Nuclear, the
+    # real book passage already used above) is written in the same "activity box / picture
+    # caption" style the real misses in this file were caused by: literal overlap with the
+    # stem's words without being what the stem is actually about.
+    "1": ("4 Energy Resources", "Locate on the map of India the nuclear power plant sites "
+          "and find out the state in which each is located."),
+    "2": ("2 Mode of Occurrence of Minerals", "Collect a picture of a nuclear power plant "
+          "located near your state and paste it in your notebook."),
+    "2.2": ("2.2 Ferrous Minerals", "Nuclear power plant located at Kalpakkam is one such "
+            "site students often visit on an excursion."),
+    "2.3": ("2.3 Non-Ferrous Minerals", "The nearest nuclear power plant located to a "
+            "non-ferrous mineral belt is often asked in map work."),
+    "4.1.1": ("4.1.1 Coal", "A thermal power plant located near a coalfield, unlike a "
+              "nuclear power plant located near a river, needs constant rail supply."),
+    "4.1.2": ("4.1.2 Petroleum", PETROLEUM.text),
+    "4.1.3": ("4.1.3 Natural Gas", "Natural gas is found with or without petroleum and is "
+              "used as fuel as well as an industrial raw material."),
+    "4.1.4": ("4.1.4 Electricity", ELECTRICITY_ACTIVITY.text),
+    "4.2.1": ("4.2.1 Nuclear or Atomic Energy", NUCLEAR.text),
+    "4.2.2": ("4.2.2 Solar Energy", "A solar power plant located in a desert state is far "
+              "more efficient than one located in a cloudy region."),
+    "4.2.3": ("4.2.3 Wind Power", WIND_POWER.text),
+    "4.2.4": ("4.2.4 Biogas", "A biogas plant located in a village in Tamil Nadu can meet "
+              "most of a household's cooking fuel needs."),
+    "4.2.5": ("4.2.5 Tidal Energy", "A tidal power plant located at the mouth of a Gujarat "
+              "estuary was India's first such project."),
+    "4.3": ("4.3 Conservation of Energy Resources (caption)", "Fig 4.9 A power plant "
+            "located in Tamil Nadu, seen from the coast."),
+}
+
+
+def _fourteen_section_pool():
+    return content_chunks([
+        _Chunk(section, reference, text, MINERALS_CHAPTER, section)
+        for section, (reference, text) in MINERALS_14_SECTIONS.items()
+    ])
+
+
+def test_no_fixed_top_k_survives_this_case_but_full_coverage_does():
+    """Reproduces the class of bug, not just the one instance: pick ANY fixed K and a paper
+    can push the right section past it. Here Nuclear ranks 12th of 14 -- past even the
+    just-bumped default of 8 -- yet full_chapter_evidence() still returns it, because
+    inclusion depends on being a real section of the identified chapter, not on rank."""
+    stem = "A nuclear power plant located in Tamil Nadu"
+    query = retrieval_query_text(stem)
+    pool = _fourteen_section_pool()
+    assert len(pool) == 14
+
+    index = LexicalIndex(pool)
+    ranked = index.search(query, k=len(pool))
+    nuclear_rank = next(
+        i for i, c in enumerate(ranked, 1) if c.reference.startswith("4.2.1")
+    )
+    assert nuclear_rank >= 12, (
+        "the fixture must reproduce Nuclear ranking below any plausible fixed K -- if this "
+        "no longer holds, the fixture stopped testing the structural claim"
+    )
+
+    # The old mechanism: locate()'s own scored top-K, at the current (already-bumped)
+    # default of 8. It still drops Nuclear -- proving the constant itself cannot be the
+    # fix, only ever a temporary, paper-specific patch.
+    starved = locate(query, [index], evidence_passages=8, evidence_chapters=1)
+    assert not any(c.reference.startswith("4.2.1") for c in starved.evidence), (
+        "reproduces the bug this test exists to catch a structural fix for -- if this "
+        "assertion starts failing, raise the fixture's difficulty, don't delete the test"
+    )
+
+    # The new mechanism: every real section of the identified chapter, regardless of score.
+    covered = full_chapter_evidence(MINERALS_CHAPTER, pool, query)
+    assert len(covered) == 14, "one representative passage per real section, no pruning"
+    assert any(c.reference.startswith("4.2.1") for c in covered), (
+        "the correct section must reach the judge because it is a real section of the "
+        "identified chapter, not because it happened to score well"
+    )
+
+
+def test_pipeline_end_to_end_hands_the_judge_the_low_ranking_correct_section():
+    """place_paper()'s own evidence-building, not just full_chapter_evidence() in
+    isolation: a stub judge captures exactly what it was shown, and Nuclear's real passage
+    must be in it even though it ranks 12th of 14 against the stem."""
+    from app.classify.pipeline import place_paper
+
+    pool = _fourteen_section_pool()
+    seen_evidence = {}
+
+    class RecordingJudge:
+        def classify(self, question, evidence):
+            seen_evidence[question] = evidence
+            return Classification(
+                chapter="Minerals and Energy Resources", tier="Remembering & Understanding",
+                skill_required="locate a fact on a map", reasoning="map-skill question",
+                confidence=0.8,
+            )
+
+    stem = "A nuclear power plant located in Tamil Nadu"
+    place_paper(
+        [("q1", stem, 1.0)],
+        [LexicalIndex(pool)],
+        RecordingJudge(),
+        chapter_of=lambda n: "Minerals and Energy Resources" if n == MINERALS_CHAPTER else None,
+        unit_of=lambda c: "GEO",
+        section_of=lambda r: None,
+        infer_scope_when_undeclared=False,
+    )
+
+    [evidence] = seen_evidence.values()
+    references = [e.reference for e in evidence]
+    assert len(references) == 14, "the judge must see all 14 real sections, not a shortlist"
+    assert any(r.startswith("4.2.1") for r in references), (
+        "the judge must actually be shown the Nuclear passage -- it reaches the evidence "
+        "list for a structural reason (full section coverage), not because it scored well"
+    )
+
+
+def test_scope_restricted_chapter_still_never_leaks_its_sections():
+    """The flip side that must not regress: full chapter coverage only ever fetches
+    sections of the chapter locate() itself already chose, and locate() enforces scope
+    before it ever picks a winner -- so a chapter ruled out of scope must still be
+    completely unreachable, not merely deprioritised."""
+    from app.classify.pipeline import place_paper
+
+    pool = _fourteen_section_pool()
+    # Must share enough vocabulary with the stem to score above zero within scope --
+    # otherwise locate() finds nothing in scope at all and (correctly, by existing
+    # design) retries unscoped rather than lose the question, which would make this test
+    # exercise that retry path instead of the one it means to check.
+    other_chapter_pool = content_chunks([
+        _Chunk("other1", "1.1 Other Chapter", "A power plant located somewhere is "
+               "mentioned here only in passing, nuclear or otherwise, Tamil Nadu included.",
+               "other-chapter", "1.1"),
+    ])
+    full_pool = pool + other_chapter_pool
+
+    class RecordingJudge:
+        def __init__(self):
+            self.calls = []
+
+        def classify(self, question, evidence):
+            self.calls.append(evidence)
+            chapters = {e.chapter for e in evidence}
+            [chapter] = chapters if len(chapters) == 1 else [next(iter(chapters))]
+            return Classification(
+                chapter=chapter, tier="Remembering & Understanding",
+                skill_required="x", reasoning="x", confidence=0.8,
+            )
+
+    stem = "A nuclear power plant located in Tamil Nadu"
+    chapter_of = lambda n: {
+        MINERALS_CHAPTER: "Minerals and Energy Resources",
+        "other-chapter": "Other Chapter",
+    }.get(n)
+
+    judge = RecordingJudge()
+    place_paper(
+        [("q1", stem, 1.0)],
+        [LexicalIndex(full_pool)],
+        judge,
+        chapter_of=chapter_of,
+        unit_of=lambda c: "GEO",
+        section_of=lambda r: None,
+        scope={"Other Chapter"},          # Minerals and Energy Resources is ruled out
+        infer_scope_when_undeclared=False,
+    )
+
+    [evidence] = judge.calls
+    assert all(e.chapter != "Minerals and Energy Resources" for e in evidence), (
+        "an out-of-scope chapter's sections must never reach the judge, however "
+        "complete the in-scope coverage is meant to be"
     )

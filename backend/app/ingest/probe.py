@@ -373,6 +373,66 @@ def locate(
     )
 
 
+def full_chapter_evidence(node_id: str, pool: list, question: str) -> list[Candidate]:
+    """One passage per real section of ``node_id``, independent of any scored top-K.
+
+    ``locate()``'s own evidence is a guess at what is worth showing the judge: it takes
+    the top-scoring chunks from a fused ranking, and no fixed K is ever correct for every
+    chapter -- the real Nuclear Energy section of a real Geography chapter has ranked as
+    low as 8th against a stem that happened to share more literal words with an activity
+    box and two picture captions, and the next such miss will just rank 9th. Once a
+    chapter is the one the judge is going to see, the honest evidence is not "whatever
+    scored best" but "one representative of every real section it actually has" -- a
+    small, bounded set (chapters in this book run from a handful of sections to a few
+    dozen), so the judge chooses from a complete picture instead of a scored shortlist.
+
+    ``pool`` must already be filtered the way retrieval itself is (``content_chunks()``):
+    this function does not exclude fragments or exercises again, it only groups by
+    section. A chunk with no section number is not attributable to a specific section
+    and is left out -- it is chapter-level connective text, not a section of its own.
+
+    Ties within a section are broken by the same TF-IDF scoring retrieval already uses,
+    scored only against this chapter's own chunks (so a section with several chunks
+    still contributes its single best-matching one, not all of them and not an arbitrary
+    one), but every section is included regardless of how that best chunk scores against
+    the stem -- that is the entire point: inclusion is earned by being a real section of
+    the chosen chapter, not by winning a scoring contest.
+    """
+    by_section: dict[str, list] = {}
+    for c in pool:
+        if c.node_id != node_id:
+            continue
+        section = getattr(c, "section_number", None)
+        if not section:
+            continue
+        by_section.setdefault(section, []).append(c)
+    if not by_section:
+        return []
+
+    chapter_chunks = [c for chunks in by_section.values() for c in chunks]
+    ranked = {
+        c.chunk_id: c
+        for c in LexicalIndex(chapter_chunks).search(question, k=len(chapter_chunks))
+    }
+
+    out: list[Candidate] = []
+    for section, chunks_in_section in by_section.items():
+        best: Candidate | None = None
+        best_score = -1.0
+        for c in chunks_in_section:
+            scored = ranked.get(c.id)
+            score = scored.score if scored else 0.0
+            if score > best_score:
+                best_score = score
+                best = scored or Candidate(
+                    c.id, c.reference, c.node_id, c.bucket, 0.0, section, c.text or "",
+                )
+        assert best is not None  # every section has at least one chunk by construction
+        out.append(best)
+    out.sort(key=lambda c: -c.score)
+    return out
+
+
 def _evidence_across(
     ordered: list,
     evidence: dict,

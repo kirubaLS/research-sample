@@ -293,6 +293,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             # What the reader is shown, and so what the run costs. Both from settings.
             evidence_passages=settings.classifier_evidence_passages,
             evidence_chapters=evidence_chapters,
+            passage_chars=settings.classifier_passage_chars,
             chapter_of=lambda nid: nodes[nid].label if nid in nodes else None,
             unit_of=lambda label: unit_by_chapter.get(label),
             section_of=lambda ref: None,
