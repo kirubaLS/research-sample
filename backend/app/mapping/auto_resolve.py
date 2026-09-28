@@ -464,7 +464,13 @@ def _resolve_blocked_family(
     ))
     if not chapter_chunks:
         return None
-    found = LexicalIndex(chapter_chunks).search(stem_text, k=3)
+    # Same exclusion as locate()'s callers in marks.py/placement.py: an exercise-bucket
+    # chunk carries no section_number and shares only surface vocabulary with a
+    # question, so it can win this family/section search without actually naming which
+    # section the question belongs to. Fall back to the unfiltered set if the chapter
+    # turns out to have no teaching-text chunks at all.
+    family_chunks = [c for c in chapter_chunks if c.bucket == "T"] or chapter_chunks
+    found = LexicalIndex(family_chunks).search(stem_text, k=3)
 
     # Semantic retrieval, additive to lexical rather than a replacement for it: a chapter
     # whose families all draw on the same handful of words (a civics chapter's sections
@@ -474,11 +480,11 @@ def _resolve_blocked_family(
     # attempted when embeddings are actually configured and this chapter's chunks
     # actually carry them -- SemanticIndex itself reports 0 usable chunks otherwise, and
     # that is silently fine, not an error.
-    if jina_api_key and any(getattr(c, "embedding", None) for c in chapter_chunks):
+    if jina_api_key and any(getattr(c, "embedding", None) for c in family_chunks):
         from app.ingest.jina import JinaEmbedder
         from app.ingest.probe import SemanticIndex
 
-        semantic = SemanticIndex(chapter_chunks, JinaEmbedder(
+        semantic = SemanticIndex(family_chunks, JinaEmbedder(
             jina_api_key, model=embedding_model, dimensions=embedding_dimensions,
         ))
         seen = {c.chunk_id for c in found}

@@ -202,11 +202,18 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         }
         unit_by_chapter = _chapter_to_unit(db, nodes, chapter_ids)
 
-        indexes: list = [LexicalIndex(chunks)]
-        if settings.jina_api_key and any(c.embedding for c in chunks):
+        # Exercise-bucket chunks (bucket='E') carry no section_number (see
+        # import_book_map.py) and only share surface vocabulary with a question, not
+        # what it's actually about -- left in the pool that decides chapter/section, an
+        # exercise chunk can beat the real teaching-text passage and produce a topicless
+        # placement. Excluded from retrieval only; `chunks` itself (used for
+        # known_sections below) is untouched.
+        retrieval_chunks = [c for c in chunks if c.bucket == "T"] or chunks
+        indexes: list = [LexicalIndex(retrieval_chunks)]
+        if settings.jina_api_key and any(c.embedding for c in retrieval_chunks):
             from app.ingest.jina import JinaEmbedder
 
-            indexes.append(SemanticIndex(chunks, JinaEmbedder(
+            indexes.append(SemanticIndex(retrieval_chunks, JinaEmbedder(
                 settings.jina_api_key, model=settings.embedding_model,
                 dimensions=settings.embedding_dimensions,
             )))

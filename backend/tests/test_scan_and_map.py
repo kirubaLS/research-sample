@@ -2088,6 +2088,228 @@ def test_sst_retrieval_is_scoped_to_the_questions_own_section_subject(
 
 
 # ----------------------------------------------------------------------------------------
+# Fix 4: exercise-bucket (bucket='E') chunks never compete with teaching-text (bucket='T')
+# chunks for BEING the primary retrieval match that decides a question's chapter/section.
+# import_book_map.py loads an exercise chunk with section_number=None (an end-of-chapter
+# exercise references the whole chapter, not one section), so an exercise chunk winning
+# retrieval on shared surface vocabulary alone produces a topicless placement even when a
+# real teaching-text passage elsewhere would have matched correctly.
+# ----------------------------------------------------------------------------------------
+RETRIEVAL_GUARD_PAPER = [[
+    (60, 60, "Maximum Marks: 3"),
+    (60, 100, "SECTION A"),
+    (60, 130, "1. Explain the velunca method for tiling quaprastic panels using"),
+    (60, 144, "distinctive coverage."),
+    (MARK_X, 130, "3"),
+]]
+
+
+@pytest.fixture
+def retrieval_guard_book(school):
+    """The real audit scenario, reproduced with invented vocabulary unique to this test so
+    real regression-fixture content elsewhere in this shared, session-scoped database
+    cannot compete: the correct chapter carries the real teaching-text (bucket='T')
+    passage, and an entirely DIFFERENT, unrelated chapter carries only an exercise
+    (bucket='E') chunk that happens to share more surface vocabulary with the question
+    (it is built to repeat literally every term of the stem, plus extras) -- exactly how
+    an "Exercise Q8" chunk can outscore the real passage and hijack chapter selection on
+    nothing but shared words, per the audit ("Women and Print" landing on an unrelated
+    exercise chunk). The unrelated chapter is deliberately left with no ChapterBoardUnit,
+    so a pre-fix win for it blocks the question rather than mis-filing it -- either way
+    the wrong-chapter failure is visible, never silently correct-looking.
+
+    Chapter-level voting sums each chapter's own best-scoring evidence (see
+    ``probe.locate``'s ``CORROBORATION_DEPTH``), so putting the exercise chunk in its own
+    chapter -- rather than alongside the teaching chunk in the same one -- is what actually
+    exposes the bug: two same-chapter candidates can never change which chapter wins.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import (
+        BookChunk, ChapterBoardUnit, ConceptFamilyProposal, TaxonomyNode,
+    )
+
+    db = SessionLocal()
+    subject = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH"))
+    unit = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.U.NUMBER"))
+    version = subject.curriculum_version
+
+    chapter_code = "X.MATH.TESTRETRIEVALGUARD"
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == chapter_code))
+    if chapter is None:
+        chapter = TaxonomyNode(
+            kind="chapter", code=chapter_code, label="Retrieval Guard (test)",
+            parent_id=subject.id, path=chapter_code, curriculum_version=version,
+        )
+        db.add(chapter)
+        db.flush()
+        db.add(ChapterBoardUnit(
+            curriculum_version=version, chapter_id=chapter.id, board_unit_id=unit.id,
+        ))
+
+    # A second, unrelated chapter -- no ChapterBoardUnit, so if this chapter wins
+    # unfiltered, the question is blocked rather than mis-filed under it.
+    other_code = "X.MATH.TESTRETRIEVALGUARDEXERCISE"
+    other = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == other_code))
+    if other is None:
+        other = TaxonomyNode(
+            kind="chapter", code=other_code, label="Unrelated Exercise Chapter (test)",
+            parent_id=subject.id, path=other_code, curriculum_version=version,
+        )
+        db.add(other)
+        db.flush()
+
+    subtopic_code = f"{chapter_code}.S9_3"
+    if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == subtopic_code)) is None:
+        db.add(TaxonomyNode(
+            kind="subtopic", code=subtopic_code, label="The velunca method (test)",
+            parent_id=chapter.id, path=subtopic_code, curriculum_version=version,
+        ))
+
+    # bucket='T': the real teaching text, in the correct chapter. Shares most, not all, of
+    # the question's terms.
+    if db.scalar(select(BookChunk).where(
+        BookChunk.stem_hash == "retrieval-guard-test-teaching"
+    )) is None:
+        db.add(BookChunk(
+            curriculum_version=version, subject_code="X.MATH", node_id=chapter.id,
+            bucket="T", reference="9.3 The velunca method", section_number="9.3",
+            text=(
+                "The velunca method tiles quaprastic panels through distinctive "
+                "coverage, proved by induction on the panel count."
+            ),
+            normalised="velunca method tile quaprastic panel distinctive coverage induction",
+            stem_hash="retrieval-guard-test-teaching",
+        ))
+    # bucket='E': an end-of-chapter exercise, filed under the UNRELATED chapter -- exactly
+    # how import_book_map.py stores one (section_number=None) -- with text engineered to
+    # repeat literally every term of the question stem, so unfiltered TF-IDF scores it
+    # above the teaching chunk and it hijacks chapter selection entirely.
+    if db.scalar(select(BookChunk).where(
+        BookChunk.stem_hash == "retrieval-guard-test-exercise"
+    )) is None:
+        db.add(BookChunk(
+            curriculum_version=version, subject_code="X.MATH", node_id=other.id,
+            bucket="E", reference="Exercise 9.3 Q8", section_number=None,
+            text=(
+                "Exercise 8. Explain the velunca method for tiling quaprastic panels "
+                "using distinctive coverage. Show your full working."
+            ),
+            normalised=(
+                "exercise explain velunca method tiling quaprastic panel using "
+                "distinctive coverage show full working"
+            ),
+            stem_hash="retrieval-guard-test-exercise",
+        ))
+    # Two more unrelated chunks elsewhere so TF-IDF has four documents, not two, to score
+    # against: the words the teaching and exercise chunks share (velunca, method,
+    # quaprastic, panels, distinctive, coverage) sit in exactly two of the corpus's
+    # documents, and idf = log(n / (1+df)) collapses to log(2/2) = 0 -- silencing that
+    # overlap entirely -- unless n is large enough that df=2 still gets a positive score
+    # (log(4/3) here). Same reasoning as political_parties_book_map's third chunk above,
+    # just needing one extra document because this fixture's shared terms sit in two docs
+    # rather than one.
+    for suffix, section, text in [
+        ("a", "9.1", "An unrelated passage about zolwina fractions and their kestrum sums."),
+        ("b", "9.2", "A second unrelated passage about worvellan ratios and hesk triangles."),
+    ]:
+        stem_hash = f"retrieval-guard-test-filler-{suffix}"
+        if db.scalar(select(BookChunk).where(BookChunk.stem_hash == stem_hash)) is None:
+            db.add(BookChunk(
+                curriculum_version=version, subject_code="X.MATH", node_id=chapter.id,
+                bucket="T", reference=f"{section} Unrelated filler (test)",
+                section_number=section, text=text, normalised=text.lower(),
+                stem_hash=stem_hash,
+            ))
+
+    if db.scalar(
+        select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.TESTRETRIEVALGUARD")
+    ) is None:
+        db.add(TaxonomyNode(
+            kind="concept_family", code="X.MATH.CF.TESTRETRIEVALGUARD",
+            label="The velunca method (test family)", parent_id=chapter.id,
+            path="X.MATH.CF.TESTRETRIEVALGUARD", curriculum_version=version,
+        ))
+        db.add(ConceptFamilyProposal(
+            curriculum_version=version, subject_code="X.MATH",
+            run_id="fixture", source="llm", model="fixture",
+            code="X.MATH.CF.TESTRETRIEVALGUARD", label="The velunca method (test family)",
+            chapter_id=chapter.id, evidence=["9.3"], from_sections=["9.3"],
+        ))
+    db.commit()
+    db.close()
+
+
+def test_exercise_bucket_chunks_never_win_retrieval_over_teaching_text(
+    client, school, retrieval_guard_book,
+):
+    """Fix 4: bucket='E' chunks are excluded from the pool that decides chapter/section --
+    left in, the exercise chunk here (in an unrelated chapter, built to share every term
+    of the stem) outscores the real teaching passage and hijacks chapter selection
+    entirely (the unrelated chapter has no board unit, so pre-fix this question is
+    blocked rather than placed at all). After the fix, retrieval never sees the exercise
+    chunk and falls through to the real teaching-text chapter and section.
+    """
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Retrieval guard", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(RETRIEVAL_GUARD_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+
+    out = client.post(f"/assessments/{aid}/map", headers=h)
+    assert out.status_code == 200, out.text
+    assert out.json()["mapped"] == 1, out.json()
+
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert placed["blocked_reason"] is None
+    assert placed["mapped_to"]["chapter"] == "Retrieval Guard (test)"
+    # Before the fix, the exercise chunk (no section_number) could win and this would be
+    # None -- the exact topicless failure the audit found.
+    assert placed["mapped_to"]["curriculum_section"] == "9.3"
+    assert placed["mapped_to"]["topic"] == "The velunca method (test)"
+
+
+def test_map_never_hands_retrieval_an_exercise_bucket_chunk(
+    client, school, retrieval_guard_book, monkeypatch,
+):
+    """Same fixture, but locate() is patched to simply record which buckets its candidate
+    indexes actually carried -- the direct assertion that /map's retrieval pool excludes
+    bucket='E' entirely, independent of how TF-IDF happens to score any particular pair of
+    chunks.
+    """
+    from app.ingest.probe import ChapterVerdict
+
+    captured: list[set[str]] = []
+
+    def fake_locate(query, indexes, **kwargs):
+        buckets = {
+            chunk.bucket for idx in indexes for chunk in getattr(idx, "chunks", [])
+        }
+        captured.append(buckets)
+        return ChapterVerdict(None, 0.0, 0.0, False, [], [])
+
+    import app.ingest.probe as probe
+
+    monkeypatch.setattr(probe, "locate", fake_locate)
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Retrieval guard pool", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(RETRIEVAL_GUARD_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+
+    mapped = client.post(f"/assessments/{aid}/map", headers=h)
+    assert mapped.status_code == 200, mapped.text
+
+    assert captured, "locate() was never called"
+    for buckets in captured:
+        assert "E" not in buckets, buckets
+
+
+# ----------------------------------------------------------------------------------------
 # Fix 5: Assertion-Reason boilerplate is stripped from the retrieval query only
 #
 # Four real Assertion-Reason questions from one production paper (A5/B13/C23/D32) share

@@ -1548,12 +1548,23 @@ def map_paper_to_book(
             f"against. Upload the chapters first.",
         )
 
-    indexes: list = [LexicalIndex(chunks)]
+    # Exercise-bucket chunks (bucket='E') never carry a section_number -- see
+    # import_book_map.py, which loads them with section_number=None because an
+    # end-of-chapter exercise references the whole chapter, not one section -- and they
+    # share only surface vocabulary with a question, not what the question is actually
+    # about. Left in the retrieval pool they can outscore the real teaching-text passage
+    # (an "Exercise Q8" chunk beating the actual "Women and Print" section on shared
+    # words) and, because they carry no section, that win also produces a topicless
+    # result even when real teaching text elsewhere in the chapter would have matched.
+    # Excluded here, from the pool that DECIDES chapter/section/topic, not from the book
+    # data itself -- chunks stays the full set for _book_map_topic_label below.
+    retrieval_chunks = [c for c in chunks if c.bucket == "T"] or chunks
+    indexes: list = [LexicalIndex(retrieval_chunks)]
     mode = "lexical"
-    if any(c.embedding for c in chunks) and settings.jina_api_key:
+    if any(c.embedding for c in retrieval_chunks) and settings.jina_api_key:
         from app.ingest.jina import JinaEmbedder
 
-        indexes.append(SemanticIndex(chunks, JinaEmbedder(
+        indexes.append(SemanticIndex(retrieval_chunks, JinaEmbedder(
             settings.jina_api_key, model=settings.embedding_model,
             dimensions=settings.embedding_dimensions,
         )))
@@ -1584,12 +1595,14 @@ def map_paper_to_book(
         sub_chunks = [c for c in chunks if c.subject_code == subject_code]
         if not sub_chunks:
             return None
-        sub_indexes: list = [LexicalIndex(sub_chunks)]
+        # Same exclusion as the whole-group indexes above, scoped to this one subject.
+        sub_retrieval_chunks = [c for c in sub_chunks if c.bucket == "T"] or sub_chunks
+        sub_indexes: list = [LexicalIndex(sub_retrieval_chunks)]
         sub_mode = "lexical"
-        if any(c.embedding for c in sub_chunks) and settings.jina_api_key:
+        if any(c.embedding for c in sub_retrieval_chunks) and settings.jina_api_key:
             from app.ingest.jina import JinaEmbedder
 
-            sub_indexes.append(SemanticIndex(sub_chunks, JinaEmbedder(
+            sub_indexes.append(SemanticIndex(sub_retrieval_chunks, JinaEmbedder(
                 settings.jina_api_key, model=settings.embedding_model,
                 dimensions=settings.embedding_dimensions,
             )))
