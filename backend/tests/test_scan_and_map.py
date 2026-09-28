@@ -1770,3 +1770,205 @@ def test_classifying_is_refused_without_a_key_rather_than_guessing(client, schoo
         settings.anthropic_api_key = before
     assert out.status_code == 409
     assert "no classifier key configured" in out.json()["detail"]
+
+
+# ----------------------------------------------------------------------------------------
+# Fix 1: the book_map's own real section numbering vs. a stale taxonomy_node subtopic that
+# happens to claim the same small integer for a completely different heading.
+# ----------------------------------------------------------------------------------------
+POLITICAL_PARTIES_PAPER = [[
+    (60, 60, "Maximum Marks: 3"),
+    (60, 100, "SECTION A"),
+    (60, 130, "1. Explain how the zamgani conclave reformed prazil selection using"),
+    (60, 144, "the tovenoc quorum and the ravelston seniority rule."),
+    (MARK_X, 130, "3"),
+]]
+
+
+@pytest.fixture
+def political_parties_book_map(school):
+    """A book_map-style seed for a private X.POL chapter: a real BookChunk at section "6"
+    whose reference is the book's own heading, plus a STALE taxonomy_node(kind='subtopic')
+    that also claims section "6" but under a different, unrelated label -- reproducing
+    exactly the two disconnected numbering schemes the audit found colliding in
+    production.
+
+    Lives under its own chapter code, never a real X.POL.* chapter, so it cannot collide
+    with the real "sst_polsci_political_parties.pdf" regression fixture another test in
+    this same shared, session-scoped database may already have uploaded (real section
+    numbers there are the book's own, not the "6" this fixture picks for the test).
+    """
+    from sqlalchemy import select
+
+    from app.curriculum import X_POLITICAL_SCIENCE
+    from app.curriculum.apply import apply as apply_curriculum
+    from app.db import SessionLocal
+    from app.models import BookChunk, ChapterBoardUnit, ConceptFamilyProposal, TaxonomyNode
+
+    db = SessionLocal()
+    apply_curriculum(db, X_POLITICAL_SCIENCE)
+    db.commit()
+
+    subject = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.POL"))
+    unit = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.POL.U.WHOLE"))
+    version = subject.curriculum_version
+
+    chapter_code = "X.POL.TESTREFORM"
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == chapter_code))
+    if chapter is None:
+        chapter = TaxonomyNode(
+            kind="chapter", code=chapter_code, label="Political Parties (test)",
+            parent_id=subject.id, path=chapter_code, curriculum_version=version,
+        )
+        db.add(chapter)
+        db.flush()
+        db.add(ChapterBoardUnit(
+            curriculum_version=version, chapter_id=chapter.id, board_unit_id=unit.id,
+        ))
+
+    other_code = "X.POL.TESTPOWERSHARING"
+    other = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == other_code))
+    if other is None:
+        other = TaxonomyNode(
+            kind="chapter", code=other_code, label="Power-sharing (test)",
+            parent_id=subject.id, path=other_code, curriculum_version=version,
+        )
+        db.add(other)
+        db.flush()
+        db.add(ChapterBoardUnit(
+            curriculum_version=version, chapter_id=other.id, board_unit_id=unit.id,
+        ))
+
+    # The real book_map chunk: section "6" of this chapter, reference is the book's own
+    # heading -- exactly what import_book_map.py writes.
+    # Deliberately invented vocabulary, not real NCERT text: this test must not compete
+    # for retrieval against whatever real "Political Parties" content another test in
+    # this same shared, session-scoped database may have uploaded from the real
+    # regression fixture -- rare, unique tokens keep it unambiguously distinct.
+    db.add(BookChunk(
+        curriculum_version=version, subject_code="X.POL",
+        node_id=chapter.id, bucket="T", reference="6 How the zamgani conclave reforms",
+        section_number="6",
+        text=(
+            "The zamgani conclave reformed prazil selection by adopting the tovenoc "
+            "quorum and the ravelston seniority rule, limiting how a prazil could be "
+            "chosen without a full zamgani vote."
+        ),
+        normalised="zamgani conclave reform prazil tovenoc quorum ravelston seniority",
+        stem_hash="polparties-testreform-s6-body",
+    ))
+    # A second, contrasting chunk in a different (private) chapter so lexical retrieval
+    # has more than one chapter's worth of content to score against.
+    db.add(BookChunk(
+        curriculum_version=version, subject_code="X.POL",
+        node_id=other.id, bucket="T", reference="3 Why the wenlarid accord is desirable",
+        section_number="3",
+        text=(
+            "The wenlarid accord is desirable because it splits authority between "
+            "different orlenna councils and keeps any one bloc from dominating the "
+            "kestrilan assembly."
+        ),
+        normalised="wenlarid accord orlenna council kestrilan assembly authority",
+        stem_hash="polpowersharing-testreform-s3-body",
+    ))
+    # A third, unrelated chunk so TF-IDF has more than two documents to score against --
+    # with exactly two, every term unique to one document gets idf = log(2/2) = 0 and
+    # nothing is retrievable at all.
+    db.add(BookChunk(
+        curriculum_version=version, subject_code="X.POL",
+        node_id=other.id, bucket="T", reference="2 The dalvorn representation gap",
+        section_number="2",
+        text=(
+            "The dalvorn representation gap describes how few makreth delegates sit in "
+            "the kestrilan assembly compared to their share of the orlenna population."
+        ),
+        normalised="dalvorn representation makreth delegate kestrilan assembly orlenna",
+        stem_hash="polgender-testreform-s2-body",
+    ))
+
+    # The stale, pre-book_map subtopic node: same chapter, same section number "6", but a
+    # completely different, unrelated heading -- left behind because import_book_map.py
+    # never touches taxonomy_node(kind='subtopic') rows (see its own module docstring).
+    stale_code = f"{chapter_code}.S6"
+    if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == stale_code)) is None:
+        db.add(TaxonomyNode(
+            kind="subtopic", code=stale_code, label="A STALE, UNRELATED HEADING",
+            parent_id=chapter.id, path=stale_code, curriculum_version=version,
+        ))
+
+    if db.scalar(
+        select(TaxonomyNode).where(TaxonomyNode.code == "X.POL.CF.TESTPARTY_REFORM")
+    ) is None:
+        family = TaxonomyNode(
+            kind="concept_family", code="X.POL.CF.TESTPARTY_REFORM",
+            label="Reforming political parties", parent_id=chapter.id,
+            path="X.POL.CF.TESTPARTY_REFORM", curriculum_version=version,
+        )
+        db.add(family)
+        db.add(ConceptFamilyProposal(
+            curriculum_version=version, subject_code="X.POL",
+            run_id="book_map_import_v1", source="book_map", model=None,
+            code="X.POL.CF.TESTPARTY_REFORM", label="Reforming political parties",
+            chapter_id=chapter.id, evidence=["6"], from_sections=["6"],
+        ))
+    db.commit()
+    db.close()
+
+
+def test_map_uses_the_books_own_heading_not_a_mismatched_stale_subtopic_number(
+    client, school, political_parties_book_map, monkeypatch
+):
+    """Fix 1: book_chunk section "6" and taxonomy_node subtopic "...S6" are two different,
+    unrelated numbering schemes that happen to collide on the same small integer. The
+    topic must come from the book_map chunk's own real heading, never from the stale
+    number-matched taxonomy_node.
+
+    Retrieval itself (which chunk best matches a question's wording) is a separate
+    concern from this bug and is already covered elsewhere in this file; a real chapter
+    in this shared, session-scoped test database can carry hundreds of chunks uploaded by
+    other tests (real regression-fixture PDFs, some badly OCR'd), so lexical scoring
+    across the whole suite is not deterministic enough to assert an exact section on.
+    `locate` is patched here to hand back the chapter and section this fixture set up,
+    exactly the shape a real winning verdict has, so the assertions below are actually
+    about the topic-lookup bug rather than about how retrieval happened to score today.
+    """
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.ingest.probe import ChapterVerdict
+    from app.models import TaxonomyNode
+
+    db = SessionLocal()
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.POL.TESTREFORM"))
+    chapter_id = chapter.id
+    db.close()
+
+    def fake_locate(question, indexes, **kwargs):
+        return ChapterVerdict(
+            node_id=chapter_id, score=1.0, margin=1.0, agreed=True,
+            evidence=[], runners_up=[], section="6",
+        )
+
+    import app.ingest.probe as probe
+
+    monkeypatch.setattr(probe, "locate", fake_locate)
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.POL", "title": "Political Parties", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(POLITICAL_PARTIES_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+
+    out = client.post(f"/assessments/{aid}/map", headers=h)
+    assert out.status_code == 200, out.text
+
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert out.json()["mapped"] == 1, (placed["blocked_reason"], placed["stem_text"])
+    assert placed["blocked_reason"] is None
+    assert placed["mapped_to"]["chapter"] == "Political Parties (test)"
+    assert placed["mapped_to"]["curriculum_section"] == "6"
+    # Before the fix this was "A STALE, UNRELATED HEADING" -- the number-matched but
+    # semantically unrelated taxonomy_node. After the fix it is the book's own words.
+    assert placed["mapped_to"]["topic"] == "6 How the zamgani conclave reforms"
+    assert placed["mapped_to"]["topic"] != "A STALE, UNRELATED HEADING"
