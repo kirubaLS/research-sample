@@ -238,6 +238,112 @@ def resolve_blocked_family(
         return None
 
 
+#: how far the winning family's best-matching chunk must lead the runner-up's, in raw
+#: cosine similarity, before this is trusted to resolve on its own rather than left for a
+#: person. Two families a hundredth of a point apart is not evidence, it is noise -- the
+#: choice is exactly as unsettled as choose_family()'s own tie-breaking language says a
+#: genuine tie is. 0.08 is a deliberately conservative first cut: cosine similarity on
+#: short exam stems against paragraph-length book text rarely clusters tightly by chance,
+#: so a real semantic match tends to clear this by a wide margin, while two sections of
+#: the same chapter that both mention the same few nouns (a civics chapter's "party",
+#: "election") tend to land within it -- exactly where a person should still look.
+SEMANTIC_FAMILY_MARGIN = 0.08
+
+
+def semantic_family_choice(
+    chapter_chunks: list[BookChunk],
+    candidates: list[TaxonomyNode],
+    sections_of: dict[str, list[str]],
+    stem_text: str,
+    *,
+    jina_api_key: str | None,
+    embedding_model: str | None,
+    embedding_dimensions: int | None,
+    margin: float = SEMANTIC_FAMILY_MARGIN,
+) -> Resolution | None:
+    """Rank each candidate family by how closely ITS OWN book text matches the question,
+    using the same embedding infrastructure retrieval already relies on -- reused rather
+    than reinvented, and never asked to guess when the case really is ambiguous.
+
+    This is the fallback `choose_family()` itself cannot offer: it only knows a literal
+    section number, and the judge frequently has none to give it (chronological-order
+    MCQs, Assertion-Reason, map-skill questions rarely cite one book section by name).
+    Retrieval already computed real semantic similarity to find the chapter in the first
+    place; this reuses that same signal to settle which family WITHIN the chapter, instead
+    of discarding it and asking a person every time.
+
+    Returns None -- leave it for the existing (slower, LLM-grounded) stages, or ultimately
+    for a person -- whenever there is nothing to rank (no embeddings configured, no chunk
+    carries a section any candidate family claims) or the top two families are within
+    ``margin`` of each other: a near-tie is a genuine ambiguity, not a gap this should
+    paper over.
+    """
+    if not jina_api_key or not stem_text or not stem_text.strip():
+        return None
+
+    section_owner: dict[str, str] = {}
+    for code in (c.code for c in candidates):
+        for section in sections_of.get(code, []):
+            # A section two families both claim (rare, but choose_family's own claimants
+            # branch allows it) is not this stage's to arbitrate -- it is exactly the
+            # "several families draw on this section" case a person settles, so it is
+            # left out of the ranking rather than silently handed to whichever family
+            # happened to be seen first.
+            section_owner[section] = "?" if section in section_owner else code
+    section_owner = {s: code for s, code in section_owner.items() if code != "?"}
+    if not section_owner:
+        return None
+
+    scored_chunks = [c for c in chapter_chunks if c.section_number in section_owner]
+    if not scored_chunks:
+        return None
+
+    from app.ingest.jina import JinaEmbedder
+    from app.ingest.probe import SemanticIndex
+
+    index = SemanticIndex(scored_chunks, JinaEmbedder(
+        jina_api_key, model=embedding_model, dimensions=embedding_dimensions,
+    ))
+    if not index.chunks:
+        return None
+    ranked = index.search(stem_text, k=len(index.chunks))
+    if not ranked:
+        return None
+
+    best_by_family: dict[str, tuple] = {}  # code -> (score, candidate)
+    for candidate in ranked:
+        code = section_owner.get(candidate.section)
+        if code is None:
+            continue
+        if code not in best_by_family or candidate.score > best_by_family[code][0]:
+            best_by_family[code] = (candidate.score, candidate)
+
+    if len(best_by_family) < 1:
+        return None
+    ranking = sorted(best_by_family.items(), key=lambda kv: -kv[1][0])
+    winner_code, (top_score, top_chunk) = ranking[0]
+    if len(ranking) > 1:
+        _, (second_score, _) = ranking[1]
+        if top_score - second_score < margin:
+            return None  # near-tie: a person should settle it, not this
+
+    winner = next((c for c in candidates if c.code == winner_code), None)
+    if winner is None:
+        return None
+    lead = f"{top_score:.3f}" + (
+        f" vs {ranking[1][1][0]:.3f} for the runner-up" if len(ranking) > 1 else ""
+    )
+    return Resolution(
+        family=winner,
+        rationale=(
+            f"semantic similarity {lead} against \"{top_chunk.reference}\" "
+            f"(section {top_chunk.section}): {top_chunk.text[:200]!r}"
+        ),
+        grounded_in="semantic_family",
+        book_section=top_chunk.section,
+    )
+
+
 def _resolve_blocked_family(
     db: Session,
     *,
@@ -253,7 +359,7 @@ def _resolve_blocked_family(
     embedding_model: str | None = None,
     embedding_dimensions: int | None = None,
 ) -> Resolution | None:
-    if not api_key or not stem_text or not stem_text.strip():
+    if not stem_text or not stem_text.strip():
         return None
 
     proposals = list(db.scalars(
@@ -266,6 +372,36 @@ def _resolve_blocked_family(
     for p in proposals:
         sections_of.setdefault(p.code, [])
         sections_of[p.code] = sorted(set(sections_of[p.code]) | set(clean_sections(p.from_sections)))
+
+    # Stage 0: pure semantic ranking of the chapter's own candidate families against the
+    # question, no LLM call needed -- cheap, and it is exactly the signal retrieval
+    # already computed to find this chapter in the first place, just not yet reused to
+    # pick a family within it. Only acts when one family clearly leads; a near-tie falls
+    # through to the slower, LLM-grounded stages below, same as before this existed.
+    chapter_chunks_for_semantic = list(db.scalars(
+        select(BookChunk).where(
+            BookChunk.subject_code.in_(subject_codes),
+            BookChunk.node_id == chapter.id,
+        )
+    ))
+    semantic_resolution = semantic_family_choice(
+        chapter_chunks_for_semantic, candidates, sections_of, stem_text,
+        jina_api_key=jina_api_key, embedding_model=embedding_model,
+        embedding_dimensions=embedding_dimensions,
+    )
+    if semantic_resolution is not None:
+        if semantic_resolution.book_section:
+            record_family_section(
+                db, winner=semantic_resolution.family, chapter=chapter,
+                section=semantic_resolution.book_section,
+                subject_codes=subject_codes, proposals=proposals, model="semantic-embedding",
+                source="auto_resolve_semantic_family",
+                rationale=f"auto-resolved from semantic_family: {semantic_resolution.rationale}",
+            )
+        return semantic_resolution
+
+    if not api_key:
+        return None
 
     import anthropic
 

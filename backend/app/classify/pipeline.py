@@ -111,7 +111,31 @@ def _pass(
         if not evidence:
             continue
 
-        call = judge.classify(stem, evidence)
+        try:
+            call = judge.classify(stem, evidence)
+        except Exception as exc:  # noqa: BLE001 -- one bad question must not sink the paper
+            # The judge can fail for reasons that have nothing to do with whether this
+            # question has a real chapter: the model's own reply can violate a field
+            # constraint (a ValidationError raised inside the SDK's own .parse()), a rate
+            # limit, a network hiccup, malformed JSON. None of those are evidence about
+            # where the question belongs, so this is treated exactly like out_of_scope --
+            # confidence forced to 0, no chapter guessed, and it surfaces for a person --
+            # rather than being allowed to abort every other question in the paper.
+            judged[question_id] = Classification(
+                chapter=None,
+                curriculum_section=None,
+                tier=None,
+                skill_required="",
+                reasoning=(
+                    "the reading model's answer for this question was invalid "
+                    f"({exc}) -- needs a person."
+                ),
+                evidence=[],
+                confidence=0.0,
+                alternative_chapter=None,
+            )
+            slots.append(QuestionSlot(question_id, marks, [Option(None, None, 0.0)]))
+            continue
 
         # a question whose evidence all fell outside the scope cannot be trusted to the
         # confidence the judge gave it, whatever that was

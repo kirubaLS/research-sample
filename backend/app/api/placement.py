@@ -225,6 +225,17 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             tail = node.code.rsplit(".", 1)[-1]
             if tail.startswith("S") and "_" in tail:
                 known_sections.setdefault(parent.label, set()).add(tail[1:].replace("_", "."))
+        # The book_map import (app.scripts.import_book_map) never creates "subtopic"
+        # nodes -- it writes section numbers straight onto BookChunk.section_number
+        # instead. Without this, every chapter imported that way (X.HIST/GEO/POL/ECO)
+        # has an empty known_sections entry, so ground() strips a genuinely correct
+        # curriculum_section from every question in those subjects, unconditionally.
+        for c in chunks:
+            if not c.section_number or c.node_id not in chapter_ids:
+                continue
+            chapter_node = nodes.get(c.node_id)
+            if chapter_node is not None:
+                known_sections.setdefault(chapter_node.label, set()).add(c.section_number)
 
         from app.classify.anthropic_judge import AnthropicJudge
 

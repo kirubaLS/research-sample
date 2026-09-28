@@ -286,6 +286,84 @@ def test_a_skill_anchored_letter_gets_no_chapter_end_to_end():
     assert placement.feasible, "the letter's marks are simply not part of the arithmetic"
 
 
+def test_one_questions_classify_failure_does_not_abort_the_rest_of_the_paper():
+    """The real production crash: the SDK's own pydantic validation raises inside
+    judge.classify() when the model's skill_required exceeds the field's max_length --
+    ValidationError, uncaught. That must sink only the one question, not the whole paper:
+    every other question still gets placed, and the failed one surfaces for a person with
+    an honest reason instead of a fabricated chapter."""
+    from pydantic import ValidationError
+
+    from app.classify.pipeline import place_paper
+    from app.ingest.probe import LexicalIndex
+
+    class Chunk:
+        def __init__(self, cid, text, node):
+            self.chunk_id = cid
+            self.id = cid
+            self.text = text
+            self.reference = cid
+            self.node_id = node
+            self.bucket = "T"
+            self.embedding = None
+
+    chunks = [
+        Chunk("mens1", "cone slant height radius volume of a solid", "SAV"),
+        Chunk("trig1", "tower height angle of elevation observer", "APPTRIG"),
+    ]
+    chunks += [Chunk(f"pad{i}", f"unrelated topic {i}", f"P{i}") for i in range(20)]
+
+    class FlakyJudge:
+        """Question 'bad' raises, exactly as AnthropicJudge.classify() does when the
+        model's own reply violates a field constraint inside the SDK's .parse()."""
+
+        def classify(self, question, evidence):
+            if "bad question" in question:
+                try:
+                    Classification(
+                        chapter=None, tier=None,
+                        skill_required="x" * 500,  # exceeds max_length
+                        reasoning="irrelevant", confidence=0.5,
+                    )
+                except ValidationError as exc:
+                    raise exc
+            return Classification(
+                chapter="Surface Areas and Volumes", tier="Applying",
+                skill_required="compute volume", reasoning="mensuration passage",
+                confidence=0.9,
+            )
+
+    names = {"SAV": "Surface Areas and Volumes", "APPTRIG": "Applications of Trigonometry"}
+    units = {"Surface Areas and Volumes": MENS, "Applications of Trigonometry": TRIG}
+
+    placement = place_paper(
+        [
+            ("1", "bad question cone slant height radius", 1.0),
+            ("2", "cone slant height radius", 4.0),
+        ],
+        [LexicalIndex(chunks)],
+        FlakyJudge(),
+        chapter_of=lambda n: names.get(n),
+        unit_of=lambda c: units.get(c),
+        section_of=lambda r: None,
+        declared=None,
+    )
+
+    by_id = {q.question_id: q for q in placement.questions}
+    assert set(by_id) == {"1", "2"}, "the good question must still be placed"
+
+    failed = by_id["1"]
+    assert failed.chapter is None, "a failed classification must never invent a chapter"
+    assert failed.confidence == 0.0
+    assert failed.needs_review
+    assert "invalid" in failed.reasoning.lower()
+    assert "needs a person" in failed.reasoning.lower()
+
+    good = by_id["2"]
+    assert good.chapter == "Surface Areas and Volumes"
+    assert good.confidence == 0.9
+
+
 def test_a_content_anchored_but_ambiguous_question_still_uses_the_low_confidence_path():
     """The null-chapter path must not swallow this one: a question that IS about content,
     just ambiguously which chapter, still gets a real (low-confidence) chapter guess and

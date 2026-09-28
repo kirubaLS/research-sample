@@ -45,7 +45,7 @@ class Classification(BaseModel):
         default=None, description="Exactly one of: " + "; ".join(TIERS) + ", or null"
     )
     #: what the student has to DO -- the schema's Skill Required, in the model's words
-    skill_required: str = Field(max_length=200)
+    skill_required: str = Field(max_length=400)
     #: 'the question asks which correspondence is invalid, which is the similarity criteria
     #: in Section 6.3' -- a reason a teacher can disagree with
     reasoning: str = Field(max_length=600)

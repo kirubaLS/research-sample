@@ -759,6 +759,115 @@ def test_auto_resolve_stage2_adds_semantic_retrieval_alongside_lexical(monkeypat
     db.close()
 
 
+def test_auto_resolve_semantic_family_stage_resolves_a_clear_lead_without_an_llm(monkeypatch):
+    """The new Stage 0: when the judge names no curriculum_section at all (chronological
+    order, Assertion-Reason, map-skill questions rarely cite one), choose_family() has
+    nothing to disambiguate with and blocks -- but retrieval already has real semantic
+    similarity between the stem and every family's own book text. When one family's text
+    is clearly closer, this now resolves automatically, with the real chunk and its score
+    recorded as evidence, no LLM call needed. A near-tie must still fall through and leave
+    it for a person -- proven by the second case below with no configured margin lead."""
+    from sqlalchemy import select
+
+    from app.db import SessionLocal, init_db
+    from app.mapping.auto_resolve import resolve_blocked_family
+    from app.models import BookChunk, ConceptFamilyProposal, TaxonomyNode
+
+    init_db()
+    db = SessionLocal()
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "TEST.SEMFAM.CH"))
+    if chapter is None:
+        chapter = TaxonomyNode(
+            kind="chapter", code="TEST.SEMFAM.CH", label="Fixture semantic-family chapter",
+            path="TEST.SEMFAM.CH", curriculum_version="TEST-FIXTURE",
+        )
+        db.add(chapter)
+        db.flush()
+    candidates = []
+    for code, label, section in [
+        ("TEST.SEMFAM.CF.A", "Majoritarianism in Sri Lanka", "2"),
+        ("TEST.SEMFAM.CF.B", "Accommodation in Belgium", "3"),
+    ]:
+        node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+        if node is None:
+            node = TaxonomyNode(
+                kind="concept_family", code=code, label=label, parent_id=chapter.id,
+                path=code, curriculum_version="TEST-FIXTURE",
+            )
+            db.add(node)
+            db.flush()
+            db.add(ConceptFamilyProposal(
+                curriculum_version="TEST-FIXTURE", subject_code="TEST.SEMFAM",
+                run_id="fixture-semfam", source="book_map", model=None,
+                code=code, label=label, chapter_id=chapter.id,
+                evidence=[section], from_sections=[section],
+            ))
+        candidates.append(node)
+
+    chunk_a = ("TEST.SEMFAM.CHUNK.A", "2", "Sri Lanka's constitution made Sinhala the "
+               "only official language and favoured the Sinhala majority.", [1.0, 0.0])
+    chunk_b = ("TEST.SEMFAM.CHUNK.B", "3", "Belgian leaders amended their constitution "
+               "four times to share power between linguistic communities.", [0.0, 1.0])
+    for code, section, text, embedding in [chunk_a, chunk_b]:
+        if db.scalar(select(BookChunk).where(BookChunk.stem_hash == code)) is not None:
+            continue
+        db.add(BookChunk(
+            curriculum_version="TEST-FIXTURE", subject_code="TEST.SEMFAM",
+            node_id=chapter.id, bucket="T", reference=code, text=text,
+            section_number=section, normalised=text.lower(), stem_hash=code,
+            embedding=embedding,
+        ))
+    db.commit()
+    db.close()
+
+    # Case 1: a clear lead. The query embedding lands exactly on chunk_a's vector, far
+    # from chunk_b's -- should auto-resolve to family A, no LLM needed (no api_key at all).
+    class _EmbedderNearA:
+        def __init__(self, api_key, *, model=None, dimensions=None):
+            pass
+
+        def embed_texts(self, texts, *, is_query=False):
+            return [[1.0, 0.0] for _ in texts]
+
+    monkeypatch.setattr("app.ingest.jina.JinaEmbedder", _EmbedderNearA)
+    db = SessionLocal()
+    resolution = resolve_blocked_family(
+        db, api_key=None, model="unused", effort=None,
+        subject_codes=["TEST.SEMFAM"], section=None,
+        stem_text="Why did Sinhala-only language policy alienate Tamils in Sri Lanka?",
+        chapter=chapter, candidates=candidates,
+        jina_api_key="test-jina-key", embedding_model="fake-model", embedding_dimensions=2,
+    )
+    db.close()
+    assert resolution is not None, "a clear semantic lead should resolve without an LLM"
+    assert resolution.family.code == "TEST.SEMFAM.CF.A"
+    assert resolution.grounded_in == "semantic_family"
+    assert resolution.book_section == "2"
+    assert "0." in resolution.rationale, "the real similarity score must be recorded as evidence"
+
+    # Case 2: a near-tie. The query embedding lands equally close to both chunks -- must
+    # NOT auto-resolve; it should fall through (no LLM configured here either) and leave
+    # the question blocked for a person, same as before this stage existed.
+    class _EmbedderTied:
+        def __init__(self, api_key, *, model=None, dimensions=None):
+            pass
+
+        def embed_texts(self, texts, *, is_query=False):
+            return [[0.7071, 0.7071] for _ in texts]
+
+    monkeypatch.setattr("app.ingest.jina.JinaEmbedder", _EmbedderTied)
+    db = SessionLocal()
+    resolution = resolve_blocked_family(
+        db, api_key=None, model="unused", effort=None,
+        subject_codes=["TEST.SEMFAM"], section=None,
+        stem_text="Compare power-sharing arrangements across two countries.",
+        chapter=chapter, candidates=candidates,
+        jina_api_key="test-jina-key", embedding_model="fake-model", embedding_dimensions=2,
+    )
+    db.close()
+    assert resolution is None, "a near-tied semantic score must still be left for a person"
+
+
 def test_mapping_refuses_when_no_book_is_loaded(client, school):
     r = client.post(
         "/assessments", headers=_auth(school),
