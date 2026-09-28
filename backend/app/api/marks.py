@@ -1515,6 +1515,21 @@ def map_paper_to_book(
     }
 
     context = context_addresses(staged)
+    # A case study's sub-parts all read the same source passage, which is not in the book
+    # at all (an unseen extract, invented for this paper) -- so raw retrieval can easily
+    # find real evidence for one sub-part (a shared word with some unrelated chapter) and
+    # none for another, even though a person would place every sub-part of the same
+    # question identically. Rather than block the unlucky sub-part outright -- which
+    # would leave it with no Question row at all, invisible to marks entry and every
+    # report downstream, unlike the standalone skill-anchored path the judge in /place
+    # handles -- a sub-part with no evidence of its own borrows whichever chapter/family a
+    # sibling sub-part of the *same* case study already earned, flagged for review rather
+    # than force-fit with confidence. Only a real question. sub_part within a case study
+    # group qualifies; an ordinary standalone question with no chapter match is still
+    # genuinely unplaceable and stays blocked.
+    case_study_question_nos = {r.question_no for r in staged if r.address in context}
+    group_placement: dict[str, dict] = {}
+    deferred: list = []
     mapped, blocked, context_kept, with_topic = 0, [], 0, 0
     for row in staged:
         if row.address in context:
@@ -1535,6 +1550,12 @@ def map_paper_to_book(
         verdict = locate(row.stem_text, indexes)
         chapter = _chapter_of(verdict.node_id, nodes)
         if chapter is None:
+            if row.question_no in case_study_question_nos:
+                # A sibling sub-part of this same case study may still rescue it -- later
+                # in this loop, or already have, since sub-parts are read in order. Held
+                # back rather than blocked immediately.
+                deferred.append(row)
+                continue
             row.blocked_reason = "no chapter in the book matched this question"
             blocked.append(row.address)
             continue
@@ -1634,6 +1655,67 @@ def map_paper_to_book(
         # The topic is a skill the question tests, which is what the report reads to group
         # findings by sub-topic. Without this row a mapped question contributed to no topic
         # at all and the report fell back to the chapter.
+        if topic is not None:
+            db.add(QuestionSkill(
+                question_id=question.id, node_id=topic.id, source="retrieval",
+            ))
+            with_topic += 1
+        row.question_id = question.id
+        row.blocked_reason = None
+        mapped += 1
+
+        if row.question_no in case_study_question_nos:
+            group_placement.setdefault(row.question_no, {
+                "chapter": chapter, "unit_id": unit_id, "section": section, "topic": topic,
+            })
+
+    for row in deferred:
+        borrowed = group_placement.get(row.question_no)
+        if borrowed is None:
+            # No sub-part of this case study found any evidence at all; there is nothing
+            # left to borrow, and it stays a real gap rather than a guess.
+            row.blocked_reason = "no chapter in the book matched this question"
+            blocked.append(row.address)
+            continue
+
+        chapter, unit_id, section, topic = (
+            borrowed["chapter"], borrowed["unit_id"], borrowed["section"], borrowed["topic"],
+        )
+        candidates = families.get(chapter.id, [])
+        choice = choose_family(candidates, sections_of, section, chapter.label)
+        family = choice.family
+        if family is None:
+            row.blocked_reason = choice.blocked or (
+                f"no concept family exists for {chapter.label}."
+            )
+            blocked.append(row.address)
+            continue
+
+        question = Question(
+            assessment_id=assessment.id, address=row.address, section=row.section,
+            question_no=row.question_no, sub_part=row.sub_part, choice_alt=row.choice_alt,
+            attempt_required=row.attempt_required,
+            max_marks=row.max_marks, stem_text=row.stem_text,
+            stem_hash=stem_hash(row.stem_text), logical_page=row.logical_page,
+            board_unit_id=unit_id, chapter_id=chapter.id, curriculum_section=section,
+            concept_family_id=family.id,
+            concept_variant=row.stem_text[:200],
+            variant_hash=variant_hash(row.stem_text[:200]),
+            verified_against=f"retrieval:{mode}",
+        )
+        db.add(question)
+        db.flush()
+        db.add(QuestionPlacement(
+            question_id=question.id, chapter_id=chapter.id, board_unit_id=unit_id,
+            curriculum_section=section, confidence=0.0,
+            source="model", needs_review=True,
+            reasoning=(
+                "no book evidence of its own -- placed under the same chapter as another "
+                "sub-part of this same case-study question, and needs a person's check."
+            ),
+            evidence=[],
+            candidates=[],
+        ))
         if topic is not None:
             db.add(QuestionSkill(
                 question_id=question.id, node_id=topic.id, source="retrieval",
