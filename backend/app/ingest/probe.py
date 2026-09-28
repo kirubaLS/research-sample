@@ -103,6 +103,34 @@ def retrieval_query_text(text: str) -> str:
     return stripped or text
 
 
+#: A chunk with fewer real words than this carries no topical content of its own -- a bare
+#: state name or percentage lifted from a pie-chart legend, not a sentence -- and TF-IDF's
+#: length normalization rewards exactly that: a one-word "document" scores at nearly its
+#: raw idf, undiluted by anything else in it, while the real teaching-text passage on the
+#: same topic is penalized for being an actual paragraph. Confirmed on a real miss: the
+#: book map stores a Bauxite production pie chart's caption as one chunk per slice
+#: ("Gujarat", "9%", "Odisha", ...), and the bare one-word "Gujarat" chunk alone outscored
+#: the entire Petroleum passage -- which names Gujarat's real oil fields -- for the stem
+#: "An oil field located in Gujarat", pulling both the chapter and the section wrong.
+MIN_CONTENT_TOKENS = 3
+
+
+def content_chunks(chunks: list) -> list:
+    """The chunks retrieval may use to decide a chapter or section.
+
+    Bucket 'E' (end-of-chapter exercises, excluded already at every call site of this
+    before this function existed) and a chunk with fewer than MIN_CONTENT_TOKENS real words
+    are excluded for the same reason: both share surface vocabulary with a question without
+    being what the question is actually about, and, left in, can outscore the passage that
+    is. `chunks` itself -- used for things like the book's own topic labels -- is never
+    touched; only the pool retrieval scores against is narrowed. Falls back one step at a
+    time rather than ever returning an empty pool.
+    """
+    text_chunks = [c for c in chunks if c.bucket == "T"] or chunks
+    with_content = [c for c in text_chunks if len(tokens(c.text)) >= MIN_CONTENT_TOKENS]
+    return with_content or text_chunks
+
+
 @dataclass(frozen=True)
 class Candidate:
     chunk_id: str
@@ -291,12 +319,46 @@ def locate(
     agreed = len(ranked) > 1 and len({lst[0].node_id for lst in ranked}) == 1
 
     # Which section of the winning chapter its own evidence points at. Only passages that
-    # voted for this chapter count, and only the ones the book gave a section.
-    by_section: dict[str, float] = {}
+    # voted for this chapter count, and only the ones the book gave a section. The same
+    # bulk-beats-precision failure that CORROBORATION_DEPTH exists to stop at the chapter
+    # level (a long chapter accumulating weak matches over a short precise one) recurs one
+    # level down: a parent section's own intro paragraph is routinely split into several
+    # chunks (multiple paragraphs, an activity box), so it can rack up more matching chunks
+    # than a child section that is one tight paragraph -- even when the child's single chunk
+    # scores higher than any one of the parent's. Confirmed on a real miss: "Explain the
+    # difference between ferrous and non-ferrous minerals" scored 2.2 Ferrous Minerals's own
+    # passage highest of anything in the chapter, but parent section "2" (whose intro
+    # paragraph happens to use the words "minerals" and "non-ferrous" while introducing the
+    # children) had three separate matching chunks and out-summed it. Capped the same way,
+    # for the same reason.
+    by_section: dict[str, list[float]] = {}
     for chunk_id, score in fused.items():
         candidate = by_chunk[chunk_id]
         if candidate.node_id == top_node and candidate.section:
-            by_section[candidate.section] = by_section.get(candidate.section, 0.0) + score
+            by_section.setdefault(candidate.section, []).append(score)
+    section_totals = {
+        section: sum(sorted(vals, reverse=True)[:CORROBORATION_DEPTH])
+        for section, vals in by_section.items()
+    }
+
+    # The corroboration cap above narrows the gap but does not close it here: "2 Mode of
+    # Occurrence of Minerals" still out-sums "2.2 Ferrous Minerals" on its own two
+    # strongest chunks. A section number is the book's own claim about specificity -- "2.2"
+    # is, by construction, a more precise place in the book than its own parent "2" -- so
+    # when a child of the leading section is *also* real, voted-for evidence (not merely
+    # present in the chapter), the child is the more specific true claim and is preferred
+    # over its own parent's coarser one. This never touches a contest between siblings
+    # (Coal vs Petroleum, Bauxite vs Iron Ore): only a section that is a dotted-prefix
+    # extension of the current leader can win this way, so two chunks that only happen to
+    # share vocabulary are decided on evidence exactly as before.
+    top_section = max(section_totals, key=section_totals.get) if section_totals else None
+    if top_section:
+        descendants = {
+            sec: total for sec, total in section_totals.items()
+            if sec != top_section and sec.startswith(top_section + ".")
+        }
+        if descendants:
+            top_section = max(descendants, key=descendants.get)
 
     return ChapterVerdict(
         node_id=top_node,
@@ -307,7 +369,7 @@ def locate(
             ordered, evidence, evidence_chapters, evidence_passages
         ),
         runners_up=[(n, round(s, 4)) for n, s in ordered[1:4]],
-        section=max(by_section, key=by_section.get) if by_section else None,
+        section=top_section,
     )
 
 

@@ -1512,7 +1512,13 @@ def map_paper_to_book(
     from app.config import get_settings
     from app.curriculum import group_subjects
     from app.extraction.paper import context_addresses
-    from app.ingest.probe import LexicalIndex, SemanticIndex, locate, retrieval_query_text
+    from app.ingest.probe import (
+        LexicalIndex,
+        SemanticIndex,
+        content_chunks,
+        locate,
+        retrieval_query_text,
+    )
     from app.mapping.auto_resolve import resolve_blocked_family
     from app.mapping.family import choose_family
 
@@ -1557,8 +1563,13 @@ def map_paper_to_book(
     # words) and, because they carry no section, that win also produces a topicless
     # result even when real teaching text elsewhere in the chapter would have matched.
     # Excluded here, from the pool that DECIDES chapter/section/topic, not from the book
-    # data itself -- chunks stays the full set for _book_map_topic_label below.
-    retrieval_chunks = [c for c in chunks if c.bucket == "T"] or chunks
+    # data itself -- chunks stays the full set for _book_map_topic_label below. A bare
+    # pie-chart-legend fragment ("Gujarat", "9%", one word lifted from a chart caption)
+    # fails the same way an exercise chunk does -- it shares a word with the question, not
+    # what the question is about, and its short length makes TF-IDF's own normalization
+    # score it *higher* than the real teaching-text passage on the same topic. See
+    # content_chunks.
+    retrieval_chunks = content_chunks(chunks)
     indexes: list = [LexicalIndex(retrieval_chunks)]
     mode = "lexical"
     if any(c.embedding for c in retrieval_chunks) and settings.jina_api_key:
@@ -1596,7 +1607,7 @@ def map_paper_to_book(
         if not sub_chunks:
             return None
         # Same exclusion as the whole-group indexes above, scoped to this one subject.
-        sub_retrieval_chunks = [c for c in sub_chunks if c.bucket == "T"] or sub_chunks
+        sub_retrieval_chunks = content_chunks(sub_chunks)
         sub_indexes: list = [LexicalIndex(sub_retrieval_chunks)]
         sub_mode = "lexical"
         if any(c.embedding for c in sub_retrieval_chunks) and settings.jina_api_key:

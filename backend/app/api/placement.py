@@ -24,7 +24,7 @@ from app.mapping.auto_resolve import record_family_section, resolve_blocked_fami
 from app.mapping.family import Choice, choose_family
 from app.config import get_settings
 from app.db import get_session
-from app.ingest.probe import LexicalIndex, SemanticIndex
+from app.ingest.probe import LexicalIndex, SemanticIndex, content_chunks
 from app.models import (
     Assessment,
     BookChunk,
@@ -206,9 +206,10 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         # import_book_map.py) and only share surface vocabulary with a question, not
         # what it's actually about -- left in the pool that decides chapter/section, an
         # exercise chunk can beat the real teaching-text passage and produce a topicless
-        # placement. Excluded from retrieval only; `chunks` itself (used for
+        # placement. A bare pie-chart-legend fragment fails the same way (see
+        # content_chunks). Excluded from retrieval only; `chunks` itself (used for
         # known_sections below) is untouched.
-        retrieval_chunks = [c for c in chunks if c.bucket == "T"] or chunks
+        retrieval_chunks = content_chunks(chunks)
         indexes: list = [LexicalIndex(retrieval_chunks)]
         if settings.jina_api_key and any(c.embedding for c in retrieval_chunks):
             from app.ingest.jina import JinaEmbedder
