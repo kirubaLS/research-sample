@@ -469,6 +469,59 @@ def require_reader(
     return school_in_scope(staff, x_school_id, db)
 
 
+def require_exam_read_scope(
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Reading the exam-day list (GET /admin/exams): everyone require_reader already
+    allows, plus an exam-cell teacher key.
+
+    An exam day spans every subject -- exactly the cross-subject view require_reader's
+    own docstring says a teacher must never get, since a subject-scoped teacher reading
+    it would see other teachers' subjects too. The exam cell is the one teacher role that
+    already holds papers-and-marks rights across every subject with no assignment row
+    (see teacher_papers/teacher_sections above), so it is let through as the same kind of
+    named exception, not a general loosening: a plain subject or class teacher still gets
+    403 here exactly as require_reader already gives them.
+    """
+    if staff.is_teacher:
+        if not staff.exam_cell:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "a teacher key acts through its own scoped routes, not this one",
+            )
+        assert staff.home is not None, "a teacher key always names its school"
+        return staff.home
+    return school_in_scope(staff, x_school_id, db)
+
+
+def require_exam_write_scope(
+    staff: Staff = Depends(current_staff),
+    x_school_id: str | None = Header(default=None, alias="X-School-Id"),
+    db: Session = Depends(get_session),
+) -> School:
+    """Scheduling an exam day and attaching/detaching its papers: a principal or admin,
+    same authority as require_admin, plus an exam-cell teacher key.
+
+    This is the same deliberate widening require_scanner already made for scan_papers and
+    enter_marks (see that dependency's own docstring): the exam cell's job is papers and
+    marks across every subject, and organising which papers belong to which exam day is
+    part of that job, not a roster/credentials change require_admin still reserves for a
+    principal or admin alone. A plain subject or class teacher (exam_cell is False) is
+    refused with 403 here exactly as require_admin already refuses every teacher.
+    """
+    if staff.is_teacher:
+        if not staff.exam_cell:
+            raise HTTPException(
+                status.HTTP_403_FORBIDDEN,
+                "this needs a principal, admin, or exam-cell teacher key",
+            )
+        assert staff.home is not None, "a teacher key always names its school"
+        return staff.home
+    return require_admin(require_admin_staff(staff), x_school_id, db)
+
+
 def require_platform_admin(
     x_platform_key: str | None = Header(default=None, alias="X-Platform-Key"),
     x_api_key: str | None = Header(default=None, alias="X-API-Key"),

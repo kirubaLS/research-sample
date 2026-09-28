@@ -539,6 +539,12 @@ def test_exam_cell_key_can_enter_marks_with_no_assignment_at_all(client, school,
     assert r.status_code == 200, r.text
 
 
+def test_exam_cell_key_can_create_a_paper_for_a_subject_it_holds_no_assignment_for(client, school):
+    h = _exam_cell_teacher(client, school)
+    r = client.post("/assessments", headers=h, json={"subject_code": "X.SCI", "title": "Exam-cell-created paper"})
+    assert r.status_code == 200, r.text
+
+
 def test_regular_subject_teacher_is_not_exam_cell(client, school):
     """A plain subject teacher -- the pre-existing case this flag must not widen -- still
     reports exam_cell: false, matching the assignment-scoped rights they actually hold."""

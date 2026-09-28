@@ -150,3 +150,106 @@ def test_attach_refuses_an_unknown_exam_or_paper(client, school):
     assert r.status_code == 404
     r = client.post("/assessments", headers=h, json={"subject_code": "X.MATH", "title": "t", "exam_id": "missing"})
     assert r.status_code == 404
+
+
+# --- Exam cell: scheduling and reading exam days, widened the same way scan_papers and
+# enter_marks were (see require_exam_read_scope/require_exam_write_scope) -----------------
+
+
+def _exam_cell_teacher(client, school):
+    import secrets
+
+    from app.db import SessionLocal
+    from app.models import StaffKey
+
+    db = SessionLocal()
+    api_key = secrets.token_urlsafe(24)
+    db.add(StaffKey(
+        school_id=school["school_id"], api_key=api_key, role="teacher",
+        label="Exam cell", exam_cell=True,
+    ))
+    db.commit()
+    db.close()
+    return {"X-API-Key": api_key}
+
+
+def _subject_teacher(client, school, subject_code):
+    import secrets
+
+    from app.db import SessionLocal
+    from app.models import StaffKey, TeacherAssignment
+
+    db = SessionLocal()
+    api_key = secrets.token_urlsafe(24)
+    key = StaffKey(school_id=school["school_id"], api_key=api_key, role="teacher", label="Subject teacher")
+    db.add(key)
+    db.flush()
+    db.add(TeacherAssignment(
+        staff_key_id=key.id, type="subject", section_id=school["section_id"], subject_code=subject_code,
+    ))
+    db.commit()
+    db.close()
+    return {"X-API-Key": api_key}
+
+
+def test_exam_cell_teacher_can_schedule_and_read_exams(client, school):
+    h = _exam_cell_teacher(client, school)
+    when = date.today() + timedelta(days=4)
+    r = client.post("/admin/exams", headers=h, json={"name": "Cycle Test I", "scheduled_date": when.isoformat()})
+    assert r.status_code == 200, r.text
+    exam_id = r.json()["id"]
+
+    r = client.get("/admin/exams", headers=h)
+    assert r.status_code == 200, r.text
+    assert _find(r.json()["upcoming"], "id", exam_id) is not None
+
+
+def test_exam_cell_teacher_can_attach_and_detach_a_paper(client, school, students):
+    h = _exam_cell_teacher(client, school)
+    a, _b = students
+    exam_id = client.post("/admin/exams", headers=h, json={"name": "UT3", "scheduled_date": "2026-11-01"}).json()["id"]
+    aid = _paper(client, school, "X.MATH", "UT3 Maths", {a: 8})
+
+    r = client.post(f"/admin/exams/{exam_id}/papers", headers=h, json={"assessment_id": aid})
+    assert r.status_code == 200, r.text
+    assert r.json()["paper_count"] == 1
+
+    r = client.delete(f"/admin/exams/{exam_id}/papers/{aid}", headers=h)
+    assert r.status_code == 200, r.text
+    assert r.json()["paper_count"] == 0
+
+
+def test_a_plain_subject_teacher_is_refused_scheduling_and_reading_exams(client, school):
+    """The widening is scoped to the exam cell only -- a regular subject-assigned teacher
+    key must still be refused, exactly as require_admin/require_reader already refused
+    every teacher before this change."""
+    h = _subject_teacher(client, school, "X.MATH")
+    r = client.post("/admin/exams", headers=h, json={"name": "Nope", "scheduled_date": "2026-12-01"})
+    assert r.status_code == 403
+    r = client.get("/admin/exams", headers=h)
+    assert r.status_code == 403
+
+
+def test_a_class_only_teacher_with_no_assignment_is_refused_exams_too(client, school):
+    import secrets
+
+    from app.db import SessionLocal
+    from app.models import StaffKey
+
+    db = SessionLocal()
+    api_key = secrets.token_urlsafe(24)
+    db.add(StaffKey(school_id=school["school_id"], api_key=api_key, role="teacher", label="Class teacher"))
+    db.commit()
+    db.close()
+    h = {"X-API-Key": api_key}
+    r = client.get("/admin/exams", headers=h)
+    assert r.status_code == 403
+
+
+def test_principal_and_admin_scheduling_still_works_unchanged(client, school):
+    """The pre-existing admin-only path must still work exactly as before the widening."""
+    h = _auth(school)
+    r = client.post("/admin/exams", headers=h, json={"name": "Still fine", "scheduled_date": "2026-12-15"})
+    assert r.status_code == 200, r.text
+    r = client.get("/admin/exams", headers=h)
+    assert r.status_code == 200, r.text

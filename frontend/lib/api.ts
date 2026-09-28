@@ -565,6 +565,9 @@ export interface PaperSummary {
   paper_code: string | null;
   total_marks: number | null;
   created_at: string | null;
+  /** The exam day this paper is grouped under (see ExamSummary), or null for a paper
+   *  never attached to one. */
+  exam_id: string | null;
   stage: "empty" | "scanned" | "confirmed" | "mapped";
   scanned_questions: number;
   questions: number;

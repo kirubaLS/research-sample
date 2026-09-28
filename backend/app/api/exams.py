@@ -1,11 +1,12 @@
 """Exam days: a named, dated exam ("Unit Test 2", "Quarterly Exam") that groups each
 subject's own paper, and can be scheduled before any paper for it exists.
 
-Every name and date here is one a principal or admin entered through POST /admin/exams;
-every score is the same resolved-mark rollup app.api.academics computes for every other
-screen, grouped by exam instead of by paper. Papers that were never attached to an exam
-(everything entered before this existed) still appear, each as its own conducted entry,
-exactly as the old per-paper list showed them.
+Every name and date here is one a principal, admin, or exam-cell teacher entered through
+POST /admin/exams (see require_exam_write_scope); every score is the same resolved-mark
+rollup app.api.academics computes for every other screen, grouped by exam instead of by
+paper. Papers that were never attached to an exam (everything entered before this
+existed) still appear, each as its own conducted entry, exactly as the old per-paper list
+showed them.
 """
 
 from __future__ import annotations
@@ -24,7 +25,7 @@ from app.api.academics import (
     section_subject_averages,
     tests_with_movement,
 )
-from app.api.deps import require_admin, require_reader
+from app.api.deps import require_exam_read_scope, require_exam_write_scope
 from app.db import get_session
 from app.models import Assessment, Exam, School
 
@@ -57,7 +58,7 @@ def _get_exam(db: Session, school: School, exam_id: str) -> Exam:
 
 @router.post("")
 def create_exam(
-    body: ExamIn, school: School = Depends(require_admin), db: Session = Depends(get_session),
+    body: ExamIn, school: School = Depends(require_exam_write_scope), db: Session = Depends(get_session),
 ) -> dict:
     """Schedule an exam day. It needs no paper yet -- that is what makes it upcoming."""
     name = body.name.strip()
@@ -72,7 +73,7 @@ def create_exam(
 @router.post("/{exam_id}/papers")
 def attach_paper(
     exam_id: str, body: ExamPaperIn,
-    school: School = Depends(require_admin), db: Session = Depends(get_session),
+    school: School = Depends(require_exam_write_scope), db: Session = Depends(get_session),
 ) -> dict:
     """Put an existing paper under this exam. Moving it from another exam is allowed --
     the paper's own marks do not change, only which exam day they are reported under."""
@@ -89,7 +90,7 @@ def attach_paper(
 @router.delete("/{exam_id}/papers/{assessment_id}")
 def detach_paper(
     exam_id: str, assessment_id: str,
-    school: School = Depends(require_admin), db: Session = Depends(get_session),
+    school: School = Depends(require_exam_write_scope), db: Session = Depends(get_session),
 ) -> dict:
     exam = _get_exam(db, school, exam_id)
     paper = db.get(Assessment, assessment_id)
@@ -117,7 +118,7 @@ def _rollup(db: Session, rows: list[TaggedRow]) -> dict:
 
 @router.get("")
 def list_exams(
-    school: School = Depends(require_reader), db: Session = Depends(get_session),
+    school: School = Depends(require_exam_read_scope), db: Session = Depends(get_session),
 ) -> dict:
     """Upcoming (scheduled, no marks yet), awaiting marks (date passed, no marks yet) and
     conducted (at least one resolved mark), plus the weakest subject across every mark."""

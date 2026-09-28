@@ -90,9 +90,12 @@ def create_assessment(
     if staff.is_teacher:
         # A teacher may create a paper only for a subject they hold a subject assignment
         # for -- an Assessment names no section, so this is the one place authoring a
-        # paper is checked before an assessment_id exists to check it against.
+        # paper is checked before an assessment_id exists to check it against. The exam
+        # cell is exempt, the same as require_paper_scope already exempts it from this
+        # same check once an assessment_id exists: it holds papers-and-marks rights
+        # across every subject with no assignment row to check.
         assert staff.home is not None
-        if body.subject_code not in teacher_subject_codes(staff, db):
+        if not staff.exam_cell and body.subject_code not in teacher_subject_codes(staff, db):
             raise HTTPException(404, "not found")
         school = staff.home
     else:
@@ -181,6 +184,10 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
             "paper_code": a.paper_code,
             "total_marks": float(a.total_marks) if a.total_marks else None,
             "created_at": a.created_at.isoformat() if a.created_at else None,
+            #: Which exam day this paper is grouped under, if any (see app.api.exams) --
+            #: real, not derived, so the Question Papers screen can group a teacher's own
+            #: papers by test without a second round trip per paper.
+            "exam_id": a.exam_id,
             "stage": stage,
             "scanned_questions": scanned.get(a.id, 0),
             "questions": n_questions,
