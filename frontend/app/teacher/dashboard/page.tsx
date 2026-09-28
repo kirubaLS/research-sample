@@ -207,6 +207,23 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
   const [reviewByAddress, setReviewByAddress] = useState<Record<string, ReviewQuestion>>({});
   const [chapterOptions, setChapterOptions] = useState<ReviewChapterOption[]>([]);
 
+  // A case-study/source passage (is_context) carries no marks of its own and is never
+  // promoted to a real, gradable Question row -- there is nothing to place, by design
+  // (see app.api.marks's context handling). Its real sub-parts (same section+question_no,
+  // is_context false) are what actually get chapter/topic/tier. Showing "Not placed" on
+  // the passage row itself is not an error report, it is mislabelling a correct state as
+  // a failure -- so for display only, roll up whatever its sub-parts actually settled on,
+  // never writing this back as a real placement anywhere.
+  function contextRollup(q: StagedQuestion) {
+    const children = (scan.review?.questions ?? []).filter(
+      (r) => !r.is_context && r.section === q.section && r.question_no === q.question_no,
+    );
+    const chapters = Array.from(new Set(children.map((c) => c.mapped_to?.chapter).filter((v): v is string => !!v)));
+    const topics = Array.from(new Set(children.map((c) => c.mapped_to?.topic).filter((v): v is string => !!v)));
+    const placed = children.filter((c) => c.mapped_to?.chapter).length;
+    return { children, chapters, topics, placed };
+  }
+
   useEffect(() => {
     const key = getApiKey();
     if (!key || !scan.assessmentId || !scan.mapped) return;
@@ -772,6 +789,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                         // way canEdit is) would mean it could never actually show.
                         const canSettle = !!q.mapped_to?.needs_review && !!reviewByAddress[q.address];
                         const autoResolved = q.mapped_to?.review_reason?.includes("Auto-resolved");
+                        const rollup = q.is_context ? contextRollup(q) : null;
                         return (
                           <tr key={q.address}>
                             <td className="strong">
@@ -783,9 +801,33 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                               {q.stem_text ?? "—"}
                             </td>
                             <td className="num">{q.max_marks ?? "—"}</td>
-                            <td>{q.mapped_to?.chapter ?? <span className="tag tag--risk">{q.blocked_reason ?? "Not placed"}</span>}</td>
-                            <td className="small">{q.mapped_to?.topic ?? "—"}</td>
-                            <td className="small">{q.mapped_to?.tier_label ?? "—"}</td>
+                            <td>
+                              {rollup ? (
+                                rollup.chapters.length === 1 ? (
+                                  <span className="small">{rollup.chapters[0]}</span>
+                                ) : rollup.chapters.length > 1 ? (
+                                  <span className="small">{rollup.chapters.join(" / ")}</span>
+                                ) : (
+                                  <span className="small muted">
+                                    {rollup.children.length === 0
+                                      ? "Source passage -- see sub-parts"
+                                      : `Source passage -- ${rollup.placed}/${rollup.children.length} sub-parts placed`}
+                                  </span>
+                                )
+                              ) : (
+                                q.mapped_to?.chapter ?? <span className="tag tag--risk">{q.blocked_reason ?? "Not placed"}</span>
+                              )}
+                            </td>
+                            <td className="small">
+                              {rollup
+                                ? rollup.topics.length === 1
+                                  ? rollup.topics[0]
+                                  : rollup.topics.length > 1
+                                    ? rollup.topics.join(" / ")
+                                    : "—"
+                                : q.mapped_to?.topic ?? "—"}
+                            </td>
+                            <td className="small">{rollup ? "—" : q.mapped_to?.tier_label ?? "—"}</td>
                             <td>
                               {q.mapped_to?.needs_review ? (
                                 <div style={{ display: "grid", gap: 2 }}>

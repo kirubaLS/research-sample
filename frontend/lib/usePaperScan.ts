@@ -610,10 +610,14 @@ export function usePaperScan(opts: {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [assessmentId]);
 
+  // A context/source-passage row (is_context) carries no marks and is never promoted to
+  // a real Question -- it has no mapped_to by design, not because anything failed. Never
+  // counting it as "blocked": that would inflate the review count and land it in the
+  // Blocked tab next to genuine failures, when its own sub-parts are what actually placed.
   const rows = (review?.questions ?? []).filter((q) =>
-    filter === "all" ? true : filter === "mapped" ? !!q.mapped_to : !q.mapped_to,
+    filter === "all" ? true : filter === "mapped" ? !!q.mapped_to : !q.mapped_to && !q.is_context,
   );
-  const blockedCount = (review?.questions ?? []).filter((q) => !q.mapped_to).length;
+  const blockedCount = (review?.questions ?? []).filter((q) => !q.mapped_to && !q.is_context).length;
 
   return {
     // data
