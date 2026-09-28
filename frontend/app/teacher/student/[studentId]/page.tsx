@@ -32,7 +32,7 @@ export default function StudentReportPage() {
   const { user } = useAuth();
   const by = user && "name" in user && user.name ? user.name : "";
 
-  usePageHeader({ title: overview?.student.name ?? studentId, backHref: "/teacher/home" });
+  usePageHeader({ title: overview?.student.name ?? studentId, backHref: "/teacher/dashboard" });
 
   useEffect(() => {
     const key = getApiKey();

@@ -6,5 +6,5 @@ import { ErrorFallback } from "@/components/ErrorFallback";
  * teacher/layout.tsx, one level up, so it stays put and navigable even
  * while this page's content has fallen over. */
 export default function TeacherError({ error, reset }: { error: Error & { digest?: string }; reset: () => void }) {
-  return <ErrorFallback error={error} reset={reset} homeHref="/teacher/home" homeLabel="Go to My Home" />;
+  return <ErrorFallback error={error} reset={reset} homeHref="/teacher/dashboard" homeLabel="Go to Dashboard" />;
 }

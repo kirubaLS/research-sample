@@ -557,6 +557,13 @@ export interface GridConfirmResult {
   confirmed_by: string;
 }
 
+export interface TeacherExamRow {
+  id: string;
+  name: string;
+  scheduled_date: string;
+  status: "Analysed" | "Scheduled" | "Awaiting marks";
+}
+
 export interface PaperSummary {
   id: string;
   title: string;
@@ -1954,6 +1961,12 @@ export const api = {
    *  routes, not by this list being narrower. */
   teacherPapers: (key: string) =>
     authed<{ assessments: PaperSummary[] }>("/admin/teacher/papers", key),
+
+  /** Exam-day grouping scoped to papers this teacher key may author (every subject for
+   *  the exam cell, only her own held subjects otherwise) -- the teacher-scoped sibling
+   *  of exams() above, which stays a cross-subject, exam-cell-only view. */
+  teacherExams: (key: string) =>
+    authed<{ exams: TeacherExamRow[]; assessments: PaperSummary[] }>("/admin/teacher/exams", key),
 
   // --- sharing a report with the student it belongs to ---
 

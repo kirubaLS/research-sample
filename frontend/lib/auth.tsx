@@ -81,8 +81,7 @@ function readUser(): CurrentUser | null {
 /** Where a signed-in user's home page is. */
 export function homeFor(user: CurrentUser | CurrentUser["role"]) {
   const role = typeof user === "string" ? user : user.role;
-  if (role === "teacher" && typeof user !== "string" && user.role === "teacher" && user.examsOnly) return "/teacher/papers";
-  return role === "teacher" ? "/teacher/home" : "/principal/classes";
+  return role === "teacher" ? "/teacher/dashboard" : "/principal/classes";
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {

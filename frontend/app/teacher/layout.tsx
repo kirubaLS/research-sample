@@ -1,38 +1,19 @@
 "use client";
 
-import { BookOpen, FileUp, Home, Users } from "lucide-react";
+import { LayoutDashboard } from "lucide-react";
 import { RoleGuard, StaffShell, type NavItem } from "@/components/Shell";
 
+/** Every teacher key -- exam-cell or a plain subject/class teacher alike -- gets exactly
+ * one nav entry, to the one common dashboard (Question papers/Enter marks/Insights/My
+ * class, each real and scoped to whatever this key actually holds). This replaces the
+ * old fragmentation of one nav row per class assignment and one per subject×section
+ * assignment: see app/teacher/dashboard/page.tsx for where all of that real
+ * functionality now lives. */
 export default function TeacherLayout({ children }: { children: React.ReactNode }) {
   return (
     <RoleGuard role="teacher">
       {(user) => {
-        const examsOnly = user.role === "teacher" && user.examsOnly;
-        const nav: NavItem[] = examsOnly
-          ? [{ href: "/teacher/papers", label: "Papers & Marks", icon: FileUp }]
-          : [{ href: "/teacher/home", label: "My Home", icon: Home }];
-        if (user.role === "teacher" && !examsOnly) {
-          for (const a of user.assignments) {
-            if (a.type === "class") {
-              nav.push({
-                href: `/teacher/class/${a.section_id}`,
-                label: `Class ${a.section_label ?? a.section_id}`,
-                icon: Users,
-                group: "My classes",
-              });
-            }
-          }
-          for (const a of user.assignments) {
-            if (a.type === "subject" && a.subject_code) {
-              nav.push({
-                href: `/teacher/subject/${encodeURIComponent(a.subject_code)}/${a.section_id}`,
-                label: `${a.subject_label ?? a.subject_code} · ${a.section_label ?? a.section_id}`,
-                icon: BookOpen,
-                group: "My subjects",
-              });
-            }
-          }
-        }
+        const nav: NavItem[] = [{ href: "/teacher/dashboard", label: "Dashboard", icon: LayoutDashboard }];
         return (
           <StaffShell user={user} nav={nav} roleLabel="Teacher">
             {children}
