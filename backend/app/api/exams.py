@@ -25,7 +25,13 @@ from app.api.academics import (
     section_subject_averages,
     tests_with_movement,
 )
-from app.api.deps import require_exam_read_scope, require_exam_write_scope
+from app.api.deps import (
+    Staff,
+    current_staff,
+    require_exam_read_scope,
+    require_exam_write_scope,
+    teacher_subject_codes,
+)
 from app.db import get_session
 from app.models import Assessment, Exam, School
 
@@ -70,10 +76,23 @@ def create_exam(
     return _exam_view(exam, 0)
 
 
+def _require_paper_subject_scope(staff: Staff, db: Session, paper: Assessment) -> None:
+    """The real check behind attach/detach: an exam-cell teacher, principal or admin may
+    touch any subject's paper, exactly as before. A plain teacher (exam_cell is False)
+    may only attach/detach a paper whose subject_code is one she actually holds a subject
+    assignment for -- the same ``teacher_subject_codes`` check require_paper_scope already
+    makes for authoring a paper directly, so a teacher can never reach another teacher's
+    subject through the exam-day route either."""
+    if staff.is_teacher and not staff.exam_cell and paper.subject_code not in teacher_subject_codes(staff, db):
+        raise HTTPException(404, "no such paper")
+
+
 @router.post("/{exam_id}/papers")
 def attach_paper(
     exam_id: str, body: ExamPaperIn,
-    school: School = Depends(require_exam_write_scope), db: Session = Depends(get_session),
+    school: School = Depends(require_exam_write_scope),
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
 ) -> dict:
     """Put an existing paper under this exam. Moving it from another exam is allowed --
     the paper's own marks do not change, only which exam day they are reported under."""
@@ -81,6 +100,7 @@ def attach_paper(
     paper = db.get(Assessment, body.assessment_id)
     if paper is None or paper.school_id != school.id:
         raise HTTPException(404, "no such paper")
+    _require_paper_subject_scope(staff, db, paper)
     paper.exam_id = exam.id
     db.flush()
     count = len(list(db.scalars(select(Assessment.id).where(Assessment.exam_id == exam.id))))
@@ -90,12 +110,15 @@ def attach_paper(
 @router.delete("/{exam_id}/papers/{assessment_id}")
 def detach_paper(
     exam_id: str, assessment_id: str,
-    school: School = Depends(require_exam_write_scope), db: Session = Depends(get_session),
+    school: School = Depends(require_exam_write_scope),
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
 ) -> dict:
     exam = _get_exam(db, school, exam_id)
     paper = db.get(Assessment, assessment_id)
     if paper is None or paper.school_id != school.id or paper.exam_id != exam.id:
         raise HTTPException(404, "that paper is not part of this exam")
+    _require_paper_subject_scope(staff, db, paper)
     paper.exam_id = None
     db.flush()
     count = len(list(db.scalars(select(Assessment.id).where(Assessment.exam_id == exam.id))))
@@ -118,20 +141,50 @@ def _rollup(db: Session, rows: list[TaggedRow]) -> dict:
 
 @router.get("")
 def list_exams(
-    school: School = Depends(require_exam_read_scope), db: Session = Depends(get_session),
+    school: School = Depends(require_exam_read_scope),
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
 ) -> dict:
     """Upcoming (scheduled, no marks yet), awaiting marks (date passed, no marks yet) and
-    conducted (at least one resolved mark), plus the weakest subject across every mark."""
+    conducted (at least one resolved mark), plus the weakest subject across every mark.
+
+    An exam-cell teacher, principal or admin sees every subject, unchanged. A plain
+    teacher (exam_cell is False) instead only ever sees exams that have at least one of
+    HER OWN subjects' papers attached -- the same ``teacher_subject_codes`` scoping
+    require_paper_scope/teacher_papers already use, reused here rather than reinvented so
+    there is exactly one real definition of "a teacher's own subjects" in this codebase.
+    An exam with no paper of hers, or no paper at all, never appears for her; scheduling a
+    fresh, still-empty exam day (POST /admin/exams) is the one moment that is not yet
+    scoped to any subject, and it does not show up here again until she -- or the exam
+    cell -- attaches a paper of hers to it.
+    """
     today = date.today()
+    teacher_subjects: set[str] | None = None
+    if staff.is_teacher and not staff.exam_cell:
+        teacher_subjects = teacher_subject_codes(staff, db)
+        if not teacher_subjects:
+            return {
+                "today": today.isoformat(), "upcoming": [], "awaiting_marks": [],
+                "conducted": [], "weakest_subject": None,
+            }
+
     exams = list(db.scalars(select(Exam).where(Exam.school_id == school.id)))
-    papers = list(db.scalars(select(Assessment).where(Assessment.school_id == school.id)))
+    papers_query = select(Assessment).where(Assessment.school_id == school.id)
+    if teacher_subjects is not None:
+        papers_query = papers_query.where(Assessment.subject_code.in_(teacher_subjects))
+    papers = list(db.scalars(papers_query))
     papers_by_exam: dict[str, list[Assessment]] = {}
     for p in papers:
         if p.exam_id:
             papers_by_exam.setdefault(p.exam_id, []).append(p)
     exam_of = {p.id: p.exam_id for p in papers}
+    if teacher_subjects is not None:
+        # An exam with none of her subjects' papers attached does not exist for her.
+        exams = [e for e in exams if e.id in papers_by_exam]
 
     tagged = resolved_rows(db, school)
+    if teacher_subjects is not None:
+        tagged = [t for t in tagged if t.subject_code in teacher_subjects]
     rows_by_exam: dict[str, list[TaggedRow]] = {}
     standalone_rows: list[TaggedRow] = []
     for t in tagged:

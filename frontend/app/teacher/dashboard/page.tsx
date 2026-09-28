@@ -34,7 +34,6 @@ import {
   ExamsOverview,
   PaperSummary,
   ScheduledExam,
-  TeacherExamRow,
 } from "@/lib/api";
 import { usePaperScan } from "@/lib/usePaperScan";
 import { useGridSheet } from "@/lib/useGridSheet";
@@ -52,14 +51,14 @@ import { AnimatedBar, Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { getApiKey } from "@/lib/session";
 
 /** The one common teacher dashboard, every teacher key lands on -- exam-cell or a plain
- * subject/class teacher alike. Question papers and Enter marks are real end to end for
- * both: the exam cell sees every subject (GET /admin/exams, api.teacherPapers already
- * returns every paper for it); a plain teacher sees only papers/exams touching a subject
- * she actually holds (GET /admin/teacher/exams, the same teacher_subject_codes scoping
- * api.teacherPapers already used). Scheduling a brand-new, multi-subject exam day stays
- * exam-cell/principal-only (require_exam_write_scope) -- that action is cross-subject by
- * nature, so the "Create test" button below only ever appears for the exam cell; a plain
- * teacher instead uploads a standalone paper for her own subject(s), same as before.
+ * subject/class teacher alike. Question papers and Enter marks, including "Create test",
+ * are real end to end for both, with no special "exam cell" gate on the flow itself: the
+ * exam cell sees and can attach every subject (GET /admin/exams, api.teacherPapers
+ * already return every paper for it); a plain teacher sees and can attach only her own
+ * held subject(s) -- GET /admin/exams now filters down to teacher_subject_codes for any
+ * non-exam_cell teacher server-side (see require_exam_read_scope/list_exams), and
+ * POST /admin/exams/{id}/papers refuses attaching a subject she does not hold, so the
+ * subject chip list below is a convenience, not the real gate.
  *
  * Insights (KPI tiles, cohort findings, SubjectRoster) and the class-teacher homeroom
  * view (KPIs/risk badge/roster/"since last test") are folded in here too, as two more
@@ -146,28 +145,26 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
     const key = getApiKey();
     if (!key) return;
     try {
-      if (examCell) {
-        const exams: ExamsOverview = await api.exams(key);
-        const conducted: TestRow[] = exams.conducted
-          .filter((c): c is ConductedExam & { kind: "exam" } => c.kind === "exam")
-          .map((c) => ({ id: c.id, name: c.name, date: c.date, status: "Analysed" }));
-        const awaiting: TestRow[] = exams.awaiting_marks.map((e: ScheduledExam) => ({
-          id: e.id, name: e.name, date: e.scheduled_date, status: "Awaiting marks",
-        }));
-        const upcoming: TestRow[] = exams.upcoming.map((e: ScheduledExam) => ({
-          id: e.id, name: e.name, date: e.scheduled_date, status: "Scheduled",
-        }));
-        setTests([...conducted, ...awaiting, ...upcoming].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")));
-      } else {
-        const { exams }: { exams: TeacherExamRow[] } = await api.teacherExams(key);
-        setTests(exams.map((e) => ({ id: e.id, name: e.name, date: e.scheduled_date, status: e.status })));
-      }
+      // GET /admin/exams is real and scoped for every teacher now: the exam cell sees
+      // every subject, a plain teacher only ever sees exams with a paper of her own
+      // subject(s) attached (server-side, via require_exam_read_scope/list_exams).
+      const exams: ExamsOverview = await api.exams(key);
+      const conducted: TestRow[] = exams.conducted
+        .filter((c): c is ConductedExam & { kind: "exam" } => c.kind === "exam")
+        .map((c) => ({ id: c.id, name: c.name, date: c.date, status: "Analysed" }));
+      const awaiting: TestRow[] = exams.awaiting_marks.map((e: ScheduledExam) => ({
+        id: e.id, name: e.name, date: e.scheduled_date, status: "Awaiting marks",
+      }));
+      const upcoming: TestRow[] = exams.upcoming.map((e: ScheduledExam) => ({
+        id: e.id, name: e.name, date: e.scheduled_date, status: "Scheduled",
+      }));
+      setTests([...conducted, ...awaiting, ...upcoming].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")));
     } catch {
       /* the flat papers list below still works without the test grouping */
     } finally {
       setExamsLoading(false);
     }
-  }, [examCell]);
+  }, []);
 
   useEffect(() => {
     void loadExams();
@@ -259,8 +256,13 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
   return (
     <div>
       <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
-        {!scan.assessmentId && examCell && (
-          <button className="btn btn--primary" onClick={() => setShowCreate(true)}>
+        {!scan.assessmentId && (
+          <button
+            className="btn btn--primary"
+            onClick={() => setShowCreate(true)}
+            disabled={!examCell && pickableSubjects.length === 0}
+            title={!examCell && pickableSubjects.length === 0 ? "You have no subject assignment to create a test for." : undefined}
+          >
             <Plus size={14} /> Create test
           </button>
         )}
@@ -584,7 +586,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                     Subjects
                   </label>
                   <div className="chipset">
-                    {scan.subjects.map((s) => (
+                    {pickableSubjects.map((s) => (
                       <button
                         type="button"
                         key={s.subject_code}

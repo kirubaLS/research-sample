@@ -475,22 +475,18 @@ def require_exam_read_scope(
     db: Session = Depends(get_session),
 ) -> School:
     """Reading the exam-day list (GET /admin/exams): everyone require_reader already
-    allows, plus an exam-cell teacher key.
+    allows, plus ANY teacher key -- exam cell or a plain subject/class teacher alike.
 
-    An exam day spans every subject -- exactly the cross-subject view require_reader's
-    own docstring says a teacher must never get, since a subject-scoped teacher reading
-    it would see other teachers' subjects too. The exam cell is the one teacher role that
-    already holds papers-and-marks rights across every subject with no assignment row
-    (see teacher_papers/teacher_sections above), so it is let through as the same kind of
-    named exception, not a general loosening: a plain subject or class teacher still gets
-    403 here exactly as require_reader already gives them.
+    There is no more special "exam cell" gate on reading: every teacher uses the same
+    "Create test" / Question Papers flow (see the teacher dashboard). What keeps a plain
+    teacher from seeing another teacher's subject is not this dependency -- it is
+    list_exams itself, which filters its exams/papers/rollup down to
+    ``teacher_subject_codes(staff, db)`` for any non-exam_cell teacher, exactly the same
+    real scoping require_paper_scope already uses for paper authoring. A teacher with no
+    subject assignment at all (a class-only teacher) is let through here too and simply
+    gets an empty result, the same shape a subject teacher with no papers yet would see.
     """
     if staff.is_teacher:
-        if not staff.exam_cell:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                "a teacher key acts through its own scoped routes, not this one",
-            )
         assert staff.home is not None, "a teacher key always names its school"
         return staff.home
     return school_in_scope(staff, x_school_id, db)
@@ -501,22 +497,18 @@ def require_exam_write_scope(
     x_school_id: str | None = Header(default=None, alias="X-School-Id"),
     db: Session = Depends(get_session),
 ) -> School:
-    """Scheduling an exam day and attaching/detaching its papers: a principal or admin,
-    same authority as require_admin, plus an exam-cell teacher key.
+    """Scheduling an exam day (POST /admin/exams): a principal, admin, or ANY teacher key.
 
-    This is the same deliberate widening require_scanner already made for scan_papers and
-    enter_marks (see that dependency's own docstring): the exam cell's job is papers and
-    marks across every subject, and organising which papers belong to which exam day is
-    part of that job, not a roster/credentials change require_admin still reserves for a
-    principal or admin alone. A plain subject or class teacher (exam_cell is False) is
-    refused with 403 here exactly as require_admin already refuses every teacher.
+    Creating the exam shell is just a name and a date -- it names no subject and controls
+    no other teacher's data until a paper is actually attached to it, so there is nothing
+    here for a subject check to protect; refusing a plain teacher would only block her
+    from using the same "Create test" flow every other teacher gets. The real scoping
+    lives on attach_paper (POST /admin/exams/{id}/papers), which checks
+    ``teacher_subject_codes`` before letting a non-exam_cell teacher put a paper of a
+    given subject under any exam, the same real check require_paper_scope already makes
+    for authoring a paper directly.
     """
     if staff.is_teacher:
-        if not staff.exam_cell:
-            raise HTTPException(
-                status.HTTP_403_FORBIDDEN,
-                "this needs a principal, admin, or exam-cell teacher key",
-            )
         assert staff.home is not None, "a teacher key always names its school"
         return staff.home
     return require_admin(require_admin_staff(staff), x_school_id, db)

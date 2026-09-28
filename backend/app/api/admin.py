@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import secrets
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -741,54 +741,12 @@ def teacher_papers(
     return {"assessments": assessment_summaries(db, assessments)}
 
 
-@router.get("/teacher/exams")
-def teacher_exams(
-    staff: Staff = Depends(current_staff), db: Session = Depends(get_session)
-) -> dict:
-    """Exam-day grouping for the common Papers & Marks dashboard, scoped to papers this
-    teacher key may author -- the teacher-scoped sibling of GET /admin/exams, which stays
-    a cross-subject, exam-cell-only view (see require_exam_read_scope's own docstring: a
-    plain subject teacher reading it would see other teachers' subjects too). This route
-    instead reuses teacher_papers' own subject scoping (every subject for the exam cell,
-    only a held subject assignment's papers otherwise) and just groups those same papers
-    by the exam day they were attached to, so a non-exam-cell teacher gets real exam
-    names/dates for her own subjects without ever seeing another subject's papers.
-
-    Scheduling a brand-new, multi-subject exam day stays exam-cell/principal/admin-only
-    (POST /admin/exams, require_exam_write_scope) -- that is a cross-subject action this
-    route does not grant.
-    """
-    if not staff.is_teacher:
-        raise HTTPException(403, "this route is for teacher keys; use GET /admin/exams")
-    assert staff.home is not None
-    from app.models import Exam
-    from app.api.marks import assessment_summaries
-
-    query = select(Assessment).where(Assessment.school_id == staff.home.id)
-    if not staff.exam_cell:
-        subjects = teacher_subject_codes(staff, db)
-        if not subjects:
-            return {"exams": [], "assessments": []}
-        query = query.where(Assessment.subject_code.in_(subjects))
-    assessments = list(db.scalars(query.order_by(Assessment.created_at.desc())))
-    summaries = assessment_summaries(db, assessments)
-
-    exam_ids = {a.exam_id for a in assessments if a.exam_id}
-    exams = list(db.scalars(select(Exam).where(Exam.id.in_(exam_ids)))) if exam_ids else []
-    today = date.today()
-    marked_exam_ids = {s["exam_id"] for s in summaries if s.get("exam_id") and s["students_with_marks"] > 0}
-    exam_rows = []
-    for e in exams:
-        status = (
-            "Analysed" if e.id in marked_exam_ids
-            else "Scheduled" if e.scheduled_date >= today
-            else "Awaiting marks"
-        )
-        exam_rows.append({
-            "id": e.id, "name": e.name, "scheduled_date": e.scheduled_date.isoformat(), "status": status,
-        })
-    exam_rows.sort(key=lambda r: r["scheduled_date"], reverse=True)
-    return {"exams": exam_rows, "assessments": summaries}
+# GET /admin/teacher/exams used to live here as a teacher-scoped sibling of GET
+# /admin/exams, built only because require_exam_read_scope refused any non-exam_cell
+# teacher outright. Now that require_exam_read_scope lets every teacher key through and
+# GET /admin/exams (exams.list_exams) does the same teacher_subject_codes filtering
+# itself, this second endpoint was two competing ways to read the same data -- removed in
+# favour of the one real, already-scoped GET /admin/exams every teacher now uses.
 
 
 @router.get("/teacher/cohort/{section_id}")
