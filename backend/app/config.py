@@ -114,7 +114,22 @@ class Settings(BaseSettings):
     #: retrieval; too many and every question carries passages that were never in
     #: contention. Settings rather than constants because the right number depends on the
     #: book, and finding it should not need a code change.
-    classifier_evidence_passages: int = 6
+    #:
+    #: 6 was too few even *within* an already-correctly-chosen chapter: a real audited miss
+    #: ("A nuclear power plant located in Tamil Nadu", Geography's Minerals and Energy
+    #: Resources) reached the judge without its own Nuclear or Atomic Energy passage at all.
+    #: locate()'s round-robin (_evidence_across) spends the budget across
+    #: classifier_evidence_chapters candidate chapters before it finishes one chapter's own
+    #: list, and within that one correct chapter an activity box ("Locate the 6 nuclear
+    #: power stations...") and picture captions outscored the section's own prose on pure
+    #: lexical overlap -- so the section the question is actually about was real, correctly
+    #: chaptered, voted-for evidence that never reached position 6. It reaches the judge at
+    #: position 8 (measured against the real book text -- see
+    #: tests/test_geography_section_retrieval.py). Raised to match EVIDENCE_DEPTH
+    #: (app/classify/pipeline.py), the deepest pool locate() ever draws candidates from per
+    #: retriever, so this is the most headroom a passages setting can use on its own without
+    #: also widening depth.
+    classifier_evidence_passages: int = 8
     classifier_evidence_chapters: int = 3
     #: Characters kept from each passage. A whole exercise runs to 8500 and the signal is
     #: at the start; the tail is later questions that pull the reading off.
