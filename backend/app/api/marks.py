@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import re
 from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Header, HTTPException, UploadFile, status
@@ -37,6 +36,12 @@ from app.extraction.choice import group_choices
 from app.extraction.verification import verify_paper
 from app.ingest.book import stem_hash
 from app.mapping.solver import Constraint, QuestionDist, solve
+from app.mapping.topic_node import (
+    BOOK_MAP_SUBJECTS,
+    book_map_topic_label,
+    section_number,
+    topic_node,
+)
 from app.models import (
     MARK_STATES,
     SOURCE_PRECEDENCE,
@@ -1294,13 +1299,9 @@ def _chapter_of(node_id: str | None, nodes: dict[str, TaxonomyNode]) -> Taxonomy
 #: 'S13_2' -> section 13.2. Anchored and digits-only after the S, because chapter codes
 #: begin with S too: X.MATH.SAV read as section "AV" and X.MATH.STATS as "TATS", which
 #: then matched no concept family and blocked every question in those chapters.
-_SECTION_CODE = re.compile(r"^S(\d+(?:_\d+)*)$")
-
-
 def _section_number(code: str) -> str | None:
     """'X.MATH.STATS.S13_2' -> '13.2'. None when the code carries no section."""
-    match = _SECTION_CODE.match(code.rsplit(".", 1)[-1])
-    return match.group(1).replace("_", ".") if match else None
+    return section_number(code)
 
 
 #: Fixed CBSE Class X Social Science paper convention, not something any one paper's cover
@@ -1312,62 +1313,11 @@ def _section_number(code: str) -> str | None:
 #: never inferred for any other subject group.
 _SST_SECTION_SUBJECT = {"A": "X.HIST", "B": "X.GEO", "C": "X.POL", "D": "X.ECO"}
 
-#: Subjects loaded by scripts/import_book_map.py (see its own SUBJECT_FILES). For these,
-#: BookChunk.reference IS the book's own heading text ("6 How can parties be reformed?"),
-#: written straight from the audited book_map JSON's own "number"/"title" fields at import
-#: time -- see import_book_map._text_chunks. The separate taxonomy_node(kind='subtopic')
-#: rows these subjects carry were never touched by that importer (it deliberately leaves
-#: subtopic nodes alone, see its own module docstring) and predate it under a different,
-#: unrelated numbering, so a number-match between the two is a coincidence, not a join.
-_BOOK_MAP_SUBJECTS = {"X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI"}
-
-#: A book_map body chunk's reference is "{number} {title}", optionally with one of these
-#: suffixes appended for a glossary/box/source/activity/caption chunk (see _text_chunks).
-#: Strip it so the topic is the section's own heading, not one incidental passage's label.
-_BOOK_MAP_SUFFIX = re.compile(
-    r"\s*\((?:activity|caption|box|source|glossary)[^)]*\)$"
-)
-
-
-def _book_map_topic_label(
-    chunks: list[BookChunk], chapter_id: str, section: str
-) -> str | None:
-    """The book's own heading for this chapter+section, straight from a book_map chunk's
-    reference, or None when no such chunk exists (an ordinary non-book_map subject, or a
-    section the book map never recorded)."""
-    candidates = [
-        c.reference for c in chunks
-        if c.node_id == chapter_id and c.section_number == section and c.reference
-    ]
-    if not candidates:
-        return None
-    # Prefer the shortest -- a plain body reference has no suffix at all, and is the
-    # cleanest heading; a glossary/box/etc reference is only ever longer once stripped.
-    stripped = sorted({_BOOK_MAP_SUFFIX.sub("", ref).strip() for ref in candidates}, key=len)
-    return stripped[0]
-
-
-def _book_map_topic_node(
-    db: Session, chapter: TaxonomyNode, section: str, label: str
-) -> TaxonomyNode:
-    """Get-or-create the subtopic node for a book_map chapter+section, keyed and labelled
-    from the same book_map data the chapter/section themselves came from -- so, unlike the
-    stale pre-book_map subtopic rows, this key and this label can never drift apart."""
-    code = f"{chapter.code}.S{section.replace('.', '_')}"
-    node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
-    if node is None:
-        node = TaxonomyNode(
-            kind="subtopic", code=code, label=label, parent_id=chapter.id,
-            path=code, curriculum_version=chapter.curriculum_version,
-        )
-        db.add(node)
-        db.flush()
-    elif node.label != label:
-        # Re-mapping after the book_map data changed (a title correction) must not leave
-        # the old label sitting here forever -- the same reasoning books.py's own
-        # subtopic-label refresh already relies on.
-        node.label = label
-    return node
+#: see app.mapping.topic_node -- the helpers live there now so classify and review can
+#: write a topic the same way map does.
+_BOOK_MAP_SUBJECTS = BOOK_MAP_SUBJECTS
+_book_map_topic_label = book_map_topic_label
+_book_map_topic_node = topic_node
 
 
 class ScanEditIn(BaseModel):

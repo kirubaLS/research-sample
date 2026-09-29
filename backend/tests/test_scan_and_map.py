@@ -1615,7 +1615,21 @@ def _place_with(monkeypatch, chapter: str, section: str | None, tier: str | None
                 reasoning="the passage defines the modal class", confidence=0.9,
             )
 
+    class AbstainingTopicJudge:
+        """No request either: the chapter judge's own section then stands."""
+
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def pick(self, stem, chapter_label, headings, passages):
+            class _Choice:
+                section = "none"
+                rationale = "stub"
+
+            return _Choice()
+
     monkeypatch.setattr("app.classify.anthropic_judge.AnthropicJudge", StubJudge)
+    monkeypatch.setattr("app.classify.topic.TopicJudge", AbstainingTopicJudge)
     settings = get_settings()
     before = settings.anthropic_api_key
     settings.anthropic_api_key = "test-key"

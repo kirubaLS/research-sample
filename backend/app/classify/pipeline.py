@@ -125,24 +125,37 @@ def _pass(
     evidence_chapters: int,
     passage_chars: int = DEFAULT_PASSAGE_CHARS,
     on_progress: Callable[[int, int], None] | None = None,
+    scope_of: Callable[[str], set[str] | None] | None = None,
 ) -> tuple[list[QuestionSlot], dict[str, Classification]]:
-    """One classification pass over every question."""
+    """One classification pass over every question.
+
+    ``scope_of(question_id)``, when given, narrows one question to its own set of chapter
+    names -- a Social Science paper's Section B is Geography by board convention, so a
+    Geography question is never offered a Manufacturing Industries chapter from the
+    same group's other book. Combined with the paper-wide ``scope`` by intersection;
+    the question's own scope wins outright when the two do not overlap, because it is
+    the more certain fact of the two.
+    """
     slots: list[QuestionSlot] = []
     judged: dict[str, Classification] = {}
     pool = _full_pool(indexes)
     total = len(questions)
 
     for done, (question_id, stem, marks) in enumerate(questions, start=1):
+        own_scope = scope_of(question_id) if scope_of is not None else None
+        q_scope = scope
+        if own_scope:
+            q_scope = (scope & own_scope or own_scope) if scope is not None else own_scope
         # Retrieval only -- the judge below still reads the real, untouched stem.
         query = retrieval_query_text(stem)
         verdict = locate(
-            query, indexes, depth=EVIDENCE_DEPTH, scope=scope, chapter_of=chapter_of,
+            query, indexes, depth=EVIDENCE_DEPTH, scope=q_scope, chapter_of=chapter_of,
             evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
         )
         # Retrieval applies the scope itself, so a question with nothing in scope comes
         # back empty. Retry without it rather than lose the question: one missing from the
         # report is worse than one visibly in the wrong place.
-        out_of_scope = scope is not None and not verdict.evidence
+        out_of_scope = q_scope is not None and not verdict.evidence
         if out_of_scope:
             verdict = locate(
                 query, indexes, depth=EVIDENCE_DEPTH,
@@ -240,7 +253,7 @@ def _pass(
             seen = {call.chapter}
             for node, _ in verdict.runners_up:
                 name = chapter_of(node)
-                if scope is not None and not out_of_scope and name not in scope:
+                if q_scope is not None and not out_of_scope and name not in q_scope:
                     continue
                 if name and name not in seen:
                     seen.add(name)
@@ -248,7 +261,7 @@ def _pass(
                         Option(name, unit_of(name) or "?", max(0.05, call.confidence * 0.4))
                     )
             if call.alternative_chapter and call.alternative_chapter not in seen:
-                if scope is None or out_of_scope or call.alternative_chapter in scope:
+                if q_scope is None or out_of_scope or call.alternative_chapter in q_scope:
                     options.append(
                         Option(
                             call.alternative_chapter,
@@ -279,6 +292,7 @@ def place_paper(
     evidence_chapters: int = 1,
     passage_chars: int = DEFAULT_PASSAGE_CHARS,
     on_progress: Callable[[int, int], None] | None = None,
+    scope_of: Callable[[str], set[str] | None] | None = None,
 ) -> PaperPlacement:
     """Place every question in a paper.
 
@@ -304,7 +318,7 @@ def place_paper(
 
     slots, judged = _pass(
         questions, indexes, judge, chapter_of, unit_of, section_of, scope,
-        evidence_passages, evidence_chapters, passage_chars, on_progress,
+        evidence_passages, evidence_chapters, passage_chars, on_progress, scope_of,
     )
 
     if scope is None and infer_scope_when_undeclared and slots:
@@ -329,7 +343,7 @@ def place_paper(
             slots, judged = _pass(
                 questions, indexes, judge, chapter_of, unit_of, section_of,
                 inferred.chapters, evidence_passages, evidence_chapters, passage_chars,
-                on_progress,
+                on_progress, scope_of,
             )
             scope_source = "inferred"
 

@@ -82,6 +82,29 @@ was arrived at.
 
 ---
 
+### The topic is a closed-set choice, not a search
+
+Finding the chapter is a search over a whole book. Finding the topic is not: once the
+chapter is known, the topic is one of that chapter's own section headings, a small set
+the book ingest recorded on every chunk. So the topic is decided after the chapter is
+final (the blueprint may have moved it), by a second judge (`app.classify.topic`) that is
+shown every section of the chapter by number and heading plus the best-matching
+passages, and must answer with one of those numbers. Retrieval votes separately on the
+chapter's own chunks. When the two agree the row is settled; when they disagree the
+judge's answer stands and the row is flagged, naming both. That flag is about the one
+question, not about the chapter's family data, so it lands on the rows a teacher should
+actually look at.
+
+A sub-question of a source-based question is judged together with its passage, as the
+student had it on the page. On a Social Science paper each section is restricted to its
+own subject's chapters by board convention (A History, B Geography, C Political Science,
+D Economics), so a Geography question is never offered a Political Science chapter.
+
+Whatever decides the section last -- the map step, classify, or a person settling the row
+in review -- writes the topic the Topic column reads (`app.mapping.topic_node`). The
+concept family follows the section too: of several families claiming one section, the one
+named after the section's heading wins.
+
 ## 3. Answer script to report
 
 ```
@@ -93,6 +116,8 @@ was arrived at.
         v
    place each question                  <- retrieve -> judge -> constraints
    chapter / section / concept family / tier
+        |
+   topic within the chapter             <- closed-set judge, checked by retrieval
         |
    [ questions below confidence -> a person confirms, once per paper ]
         |

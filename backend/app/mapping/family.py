@@ -11,6 +11,7 @@ draws on; nothing about any subject, chapter or section is written into it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol
@@ -34,11 +35,25 @@ class Choice:
     unsettled: str | None = None
 
 
+def _words(label: str) -> str:
+    """'6 How can parties be reformed?' -> 'how can parties be reformed'."""
+    return " ".join(re.findall(r"[a-z]+", re.sub(r"^[\d.\s]+", "", label.lower())))
+
+
+def alike(label: str, heading: str) -> bool:
+    """A family label and a section heading that are one idea: the same words, or one
+    inside the other. Families are proposed from section headings, so this is the usual
+    case, and it is a far better tie-break than which one claims fewer sections."""
+    a, b = _words(label), _words(heading)
+    return bool(a) and bool(b) and (a == b or a in b or b in a)
+
+
 def choose_family(
     candidates: Sequence[Family],
     sections_of: Mapping[str, set[str]],
     section: str | None,
     chapter_label: str,
+    prefer_label: str | None = None,
 ) -> Choice:
     """Which family of a chapter a question in ``section`` belongs to.
 
@@ -67,6 +82,14 @@ def choose_family(
     ]
     if len(claimants) == 1:
         return Choice(claimants[0])
+    if claimants and prefer_label:
+        # Several families claim the section; the one named after the section's own
+        # heading is the one a person would pick, and it is not a tie.
+        named = [f for f in claimants if alike(f.label, prefer_label)]
+        if len(named) == 1:
+            return Choice(named[0])
+        if named:
+            claimants = named
     if claimants:
         return Choice(
             min(claimants, key=lambda f: (len(sections_of.get(f.code, ())), f.code)),

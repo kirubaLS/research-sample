@@ -22,6 +22,7 @@ from app.classify.pipeline import place_paper
 from app.curriculum import group_subjects
 from app.mapping.auto_resolve import record_family_section, resolve_blocked_family
 from app.mapping.family import Choice, choose_family
+from app.mapping.topic_node import section_headings, set_question_topic
 from app.config import get_settings
 from app.db import get_session
 from app.ingest.probe import LexicalIndex, SemanticIndex, content_chunks
@@ -33,6 +34,7 @@ from app.models import (
     Question,
     QuestionPlacement,
     QuestionTier,
+    ScannedQuestion,
     School,
     TaxonomyNode,
 )
@@ -189,7 +191,31 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         questions = db.scalars(
             select(Question).where(Question.assessment_id == a.id).order_by(Question.address)
         ).all()
-        stems = [(q.id, q.stem_text or "", float(q.max_marks)) for q in questions if q.stem_text]
+        # A sub-question of a source-based question ("State one way public libraries
+        # widened access") is unplaceable on its own words -- the passage it is about was
+        # scanned as a separate context row and never became a Question. Hand the judge
+        # (and retrieval) the passage together with the sub-question, exactly as the
+        # student had them on the page. The stored stem is untouched.
+        from app.extraction.paper import context_addresses
+
+        staged = db.scalars(
+            select(ScannedQuestion).where(ScannedQuestion.assessment_id == a.id)
+        ).all()
+        context_rows = context_addresses(staged)
+        passage_of: dict[tuple[str | None, str], str] = {
+            (r.section, r.question_no): r.stem_text.strip()
+            for r in staged if r.address in context_rows and (r.stem_text or "").strip()
+        }
+
+        def judge_text(q: Question) -> str:
+            text = q.stem_text or ""
+            passage = passage_of.get((q.section, q.question_no)) if q.sub_part else None
+            if passage and passage not in text:
+                return f"{passage}\n\nQUESTION ON THE PASSAGE ABOVE:\n{text}"
+            return text
+
+        stems = [(q.id, judge_text(q), float(q.max_marks)) for q in questions if q.stem_text]
+        stem_by_id = {qid: text for qid, text, _ in stems}
         if not stems:
             _finish_placement_job(
                 job_id, status_value="failed", error_status=409,
@@ -287,6 +313,51 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         if a.syllabus_scope:
             scope = {nodes[n.id].label for n in by_label.values() if n.code in a.syllabus_scope}
 
+        # A Social Science paper's sections are fixed by board convention (A History,
+        # B Geography, C Political Science, D Economics -- see marks._SST_SECTION_SUBJECT),
+        # so a Section B question is never offered a Political Science chapter, however
+        # well one of its passages happens to match. The same narrowing map_paper already
+        # applies; classify used to search the whole group and could land a Geography
+        # question in Manufacturing Industries.
+        from app.api.marks import _SST_SECTION_SUBJECT
+        from app.curriculum import CURRICULA
+
+        subject_curriculum = CURRICULA.get(a.subject_code)
+        group_code = subject_curriculum.group_code if subject_curriculum else a.subject_code
+        own_scope: dict[str, set[str]] = {}
+        if group_code == "X.SST":
+            labels_of_subject = {
+                code: {nodes[i].label for i in _chapters_in_subjects(nodes, [code])}
+                for code in book_subject_codes
+            }
+            for q in questions:
+                subject = _SST_SECTION_SUBJECT.get((q.section or "").strip().upper())
+                if subject and labels_of_subject.get(subject):
+                    own_scope[q.id] = labels_of_subject[subject]
+
+        # The closed set the topic judge chooses from, per chapter: every section the
+        # book has for it, with its heading.
+        headings_of = {
+            node.id: section_headings(chunks, node, nodes) for node in by_label.values()
+        }
+        embedder = None
+        if settings.jina_api_key and any(c.embedding for c in retrieval_chunks):
+            from app.ingest.jina import JinaEmbedder
+
+            embedder = JinaEmbedder(
+                settings.jina_api_key, model=settings.embedding_model,
+                dimensions=settings.embedding_dimensions,
+            )
+        from app.classify.topic import TopicJudge, choose_topic
+
+        try:
+            topic_judge = TopicJudge(
+                settings.anthropic_api_key, settings.model_classifier,
+                effort=settings.model_effort, passage_chars=settings.classifier_passage_chars,
+            )
+        except Exception:  # noqa: BLE001 -- retrieval within the chapter still decides
+            topic_judge = None
+
         families: dict[str, list[TaxonomyNode]] = {}
         for node in nodes.values():
             if node.kind == "concept_family" and node.parent_id:
@@ -330,6 +401,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             declared=declared,
             scope=scope,
             on_progress=lambda done, total: _report_placement_progress(job_id, done, total),
+            scope_of=own_scope.get,
         )
     except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
         _finish_placement_job(
@@ -337,6 +409,23 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             error_detail=f"classification failed ({type(exc).__name__}: {exc})",
         )
         return
+
+    # The topic, decided once the chapter is final (the blueprint may have moved it),
+    # from the closed set of that chapter's own sections. Still outside any database
+    # session: this is one more model call per question.
+    topic_picks: dict[str, object] = {}
+    for placed in result.questions:
+        chapter_node = by_label.get(placed.chapter) if placed.chapter is not None else None
+        if chapter_node is None:
+            continue
+        topic_picks[placed.question_id] = choose_topic(
+            stem_by_id.get(placed.question_id, ""), chapter_node.id, chapter_node.label,
+            retrieval_chunks, headings_of.get(chapter_node.id, {}), topic_judge,
+            fallback_section=placed.curriculum_section,
+            embedder=embedder,
+            evidence_passages=settings.classifier_evidence_passages,
+            passage_chars=settings.classifier_passage_chars,
+        )
 
     db = SessionLocal()
     try:
@@ -354,6 +443,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             # mapping step's attempt stays in the placement history.
             choice = Choice(None)
             auto_resolved: str | None = None
+            pick = topic_picks.get(placed.question_id)
+            if pick is not None and pick.section is not None:
+                import dataclasses
+
+                placed = dataclasses.replace(placed, curriculum_section=pick.section)
             if question is not None and placed.chapter is None:
                 # Skill-anchored: the judge confidently said this question has no chapter,
                 # and the question record should say the same rather than keep whatever
@@ -371,6 +465,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 choice = choose_family(
                     families.get(chapter.id, []), sections_of,
                     placed.curriculum_section, chapter.label,
+                    prefer_label=pick.heading if pick is not None else None,
                 )
                 if choice.family is None and choice.blocked is not None:
                     # The mapping step already tries this same auto-resolve (see
@@ -423,6 +518,18 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                         question.curriculum_section = placed.curriculum_section
                         if unit_id:
                             question.board_unit_id = unit_id
+                        # The Topic column reads QuestionSkill, so the section decided
+                        # here has to be written there too, or the column keeps showing
+                        # the retrieval-time guess from map forever.
+                        heading = (
+                            pick.heading if pick is not None and pick.section == placed.curriculum_section
+                            else None
+                        ) or headings_of.get(chapter.id, {}).get(placed.curriculum_section)
+                        set_question_topic(
+                            db, question.id, chapter, placed.curriculum_section,
+                            heading or placed.curriculum_section,
+                            source="classify", confidence=placed.confidence,
+                        )
                     settled += 1
                     if choice.unsettled:
                         unsettled += 1
@@ -456,12 +563,18 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 source="blueprint" if placed.overruled else "model",
                 needs_review=(
                     placed.needs_review
+                    or (pick is not None and pick.section is not None and not pick.agreed)
                     or choice.unsettled is not None
                     or choice.blocked is not None
                     or auto_resolved is not None
                 ),
                 reasoning=" ".join(filter(None, [
-                    placed.reasoning, choice.unsettled, choice.blocked,
+                    placed.reasoning,
+                    (
+                        f"Topic {pick.section} ({pick.heading}): {pick.rationale}"
+                        if pick is not None and pick.section is not None else None
+                    ),
+                    choice.unsettled, choice.blocked,
                     f"Auto-resolved: {auto_resolved}" if auto_resolved else None,
                 ])),
                 evidence=placed.evidence,
@@ -511,9 +624,13 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             "spend": {
                 "model": settings.model_classifier,
                 "effort": settings.model_effort,
-                "calls": getattr(judge, "calls", 0),
-                "input_tokens": getattr(judge, "input_tokens", 0),
-                "output_tokens": getattr(judge, "output_tokens", 0),
+                "calls": getattr(judge, "calls", 0) + getattr(topic_judge, "calls", 0),
+                "input_tokens": (
+                    getattr(judge, "input_tokens", 0) + getattr(topic_judge, "input_tokens", 0)
+                ),
+                "output_tokens": (
+                    getattr(judge, "output_tokens", 0) + getattr(topic_judge, "output_tokens", 0)
+                ),
                 "passages_shown": settings.classifier_evidence_passages,
                 "chapters_shown": evidence_chapters,
             },
@@ -846,6 +963,23 @@ def confirm(
     if resolved_section:
         question.chapter_id = chapter.id
         question.curriculum_section = resolved_section
+        # ...and so does the Topic column, which reads QuestionSkill rather than the
+        # section: a settled section that left the old topic showing was settled nowhere
+        # a teacher could see.
+        chapter_chunks = db.scalars(
+            select(BookChunk).where(BookChunk.node_id == chapter.id)
+        ).all()
+        subtopics = {
+            n.id: n for n in db.scalars(
+                select(TaxonomyNode).where(TaxonomyNode.parent_id == chapter.id)
+            )
+        }
+        headings = section_headings(chapter_chunks, chapter, subtopics)
+        set_question_topic(
+            db, question.id, chapter, resolved_section,
+            headings.get(resolved_section) or resolved_section,
+            source="human", confidence=1.0,
+        )
     if family is not None:
         question.concept_family_id = family.id
         if resolved_section:
