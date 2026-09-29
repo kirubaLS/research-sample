@@ -456,13 +456,16 @@ def choose_topic(
         ) + (f" ({rationale})" if rationale else "")
         return fall_back(why)
 
-    agreed = (retrieval_section is None or _related(section, retrieval_section)) and (
-        named is None or _related(section, named)
-    )
+    # Settled when the strongest independent evidence agrees: the book's own use of the
+    # question's terms when there is one, otherwise retrieval within the chapter.
+    if named is not None:
+        agreed = _related(section, named)
+    else:
+        agreed = retrieval_section is None or _related(section, retrieval_section)
     note = rationale
     if notes:
         note = " ".join([rationale, *[n[0].upper() + n[1:] + "." for n in notes]]).strip()
-    if not agreed:
+    if not agreed and retrieval_section is not None and not _related(section, retrieval_section):
         note = (
             f"{note} Retrieval within the chapter pointed at section "
             f"{retrieval_section} ({headings.get(retrieval_section, '')}) instead."

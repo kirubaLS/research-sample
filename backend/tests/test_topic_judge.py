@@ -553,7 +553,8 @@ def test_a_term_the_book_uses_in_one_section_forces_a_re_read_even_when_retrieva
     votes, shown = term_evidence(INDEX_STEM, chunks)
     assert votes["Index of Prohibited Books"] == ["3.3"]
     assert term_vote(votes) == "3.3"
-    assert [c.id for c in shown] == ["d", "f"], "the Index chunk first; Church is in both sections, shown but no vote"
+    # the Index chunk first; "Church" is in both sections, so its chunk is shown but casts no vote
+    assert [c.id for c in shown] == ["d", "f"]
 
     judge = _QuotingJudge([
         ("3.2", "The Church feared that printed books would spread rebellious ideas"),
