@@ -62,13 +62,12 @@ import { getApiKey } from "@/lib/session";
 
 /** The one common teacher dashboard, every teacher key lands on -- exam-cell or a plain
  * subject/class teacher alike. Question papers and Enter marks, including "Create test",
- * are real end to end for both, with no special "exam cell" gate on the flow itself: the
- * exam cell sees and can attach every subject (GET /admin/exams, api.teacherPapers
- * already return every paper for it); a plain teacher sees and can attach only her own
- * held subject(s) -- GET /admin/exams now filters down to teacher_subject_codes for any
- * non-exam_cell teacher server-side (see require_exam_read_scope/list_exams), and
- * POST /admin/exams/{id}/papers refuses attaching a subject she does not hold, so the
- * subject chip list below is a convenience, not the real gate.
+ * are real end to end for both, with no special "exam cell" gate on the flow itself:
+ * every teacher key sees and can attach/upload/view every subject's papers and exams
+ * (GET /admin/exams, api.teacherPapers, POST /admin/exams/{id}/papers all now treat
+ * every teacher key exactly like the exam cell always was). A subject assignment is no
+ * longer required for any of this -- it still governs marks entry and the
+ * Insights/My-class tabs below, a different, real access boundary this does not touch.
  *
  * Insights (KPI tiles, cohort findings, SubjectRoster) and the class-teacher homeroom
  * view (KPIs/risk badge/roster/"since last test") are folded in here too, as two more
@@ -87,14 +86,6 @@ export default function TeacherDashboardPage() {
     () => (user?.role === "teacher" ? user.assignments.filter((a) => a.type === "class") : []),
     [user],
   );
-  // Real assignment-held subject codes, for narrowing the paper-authoring subject picker
-  // client-side (the backend already enforces this on every write; this is just so a
-  // plain teacher is never even offered a subject she cannot save a paper for).
-  const heldSubjectCodes = useMemo(
-    () => new Set(subjectAssignments.map((a) => a.subject_code as string)),
-    [subjectAssignments],
-  );
-
   type MainTab = "papers" | "marks" | "insights" | "myclass";
   const [tab, setTab] = useState<MainTab>("papers");
 
@@ -124,7 +115,7 @@ export default function TeacherDashboardPage() {
       </div>
 
       <div style={{ marginTop: 18 }}>
-        {tab === "papers" && <PapersTab examCell={!!examCell} heldSubjectCodes={heldSubjectCodes} />}
+        {tab === "papers" && <PapersTab examCell={!!examCell} />}
         {tab === "marks" && <MarksTab />}
         {tab === "insights" && <InsightsTab assignments={subjectAssignments} />}
         {tab === "myclass" && <MyClassTab assignments={classAssignments} />}
@@ -143,7 +134,7 @@ type TestRow = { id: string; name: string; date: string | null; status: "Analyse
  * words, which is what the backend accepts back (see TIER_ALIASES). */
 const TIERS = ["Remembering & Understanding", "Applying", "Analysing, Evaluating & Creating"];
 
-function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubjectCodes: Set<string> }) {
+function PapersTab({ examCell }: { examCell: boolean }) {
   const { user } = useAuth();
   const scan = usePaperScan({
     listPapers: (key) => api.teacherPapers(key),
@@ -339,9 +330,11 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
 
   const standalonePapers = scan.papers.filter((p) => !p.exam_id);
 
-  // A plain teacher's own held subjects only -- the exam cell still sees every subject
-  // this deployment carries, exactly as before.
-  const pickableSubjects = examCell ? scan.subjects : scan.subjects.filter((s) => heldSubjectCodes.has(s.subject_code));
+  // Paper authoring/upload/status is open to every teacher key for every subject this
+  // deployment carries now, exam cell or not -- see require_paper_scope. A subject
+  // assignment still governs marks entry and the Insights/My-class tabs, just not this
+  // picker.
+  const pickableSubjects = scan.subjects;
 
   const [showCreate, setShowCreate] = useState(false);
   const [examName, setExamName] = useState("");
@@ -407,8 +400,8 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
           <button
             className="btn btn--primary"
             onClick={() => setShowCreate(true)}
-            disabled={!examCell && pickableSubjects.length === 0}
-            title={!examCell && pickableSubjects.length === 0 ? "You have no subject assignment to create a test for." : undefined}
+            disabled={pickableSubjects.length === 0}
+            title={pickableSubjects.length === 0 ? "This deployment carries no subjects yet." : undefined}
           >
             <Plus size={14} /> Create test
           </button>
@@ -471,7 +464,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                           <p className="small muted">No papers attached to this test yet.</p>
                         ) : (
                           <div className="table-wrap">
-                            <table className="table">
+                            <table className="table table--hover">
                               <thead>
                                 <tr>
                                   <th>Subject</th>
@@ -540,7 +533,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
 
             {!examsLoading && tests.length === 0 && (
               <p className="small muted">
-                {examCell ? 'No test has been scheduled yet. Use "Create test" to add one.' : "No test day has a paper of yours attached yet."}
+                No test has been scheduled yet. Use &quot;Create test&quot; to add one.
               </p>
             )}
           </Stagger>
@@ -576,7 +569,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                     </div>
                   </div>
                   {pickableSubjects.length === 0 ? (
-                    <p className="small muted">You have no subject assignment to author a paper for.</p>
+                    <p className="small muted">This deployment carries no subjects yet.</p>
                   ) : (
                     <div style={{ display: "flex", gap: 8 }}>
                       <button
