@@ -19,6 +19,7 @@ retrieval guess. On a Political Science chapter whose every section says "party"
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
@@ -59,6 +60,15 @@ class _TopicChoice(BaseModel):
         "the literal 'none' when the question fits no listed section"
     )
     rationale: str = Field(max_length=400, description="one sentence a teacher can check")
+    #: verbatim words copied from ONE of the passages shown -- the sentence that holds the
+    #: fact the question tests. Checked as a real substring of the passages before the
+    #: answer is trusted, and the section that sentence sits in is the section: a fact's
+    #: location in the book outranks whichever heading sounds most like the question.
+    quote: str = Field(
+        default="",
+        description="exact words copied from the one passage that contains what the "
+        "question tests; empty only if no passage shown contains it",
+    )
 
 
 _SYSTEM = """You place one CBSE Class X exam question under the ONE section of its NCERT
@@ -71,6 +81,10 @@ about the functions of political parties belongs under the section whose heading
 functions, even if a later section on reform mentions functions in passing.
 
 Rules:
+- The section is where the FACT the question tests is written, not the heading that
+  sounds most like the question. A question about the Index of Prohibited Books belongs
+  to the section whose text mentions the Index, even if another section's heading is
+  "the Fear of Print". Copy that sentence into `quote`, verbatim, from the passage shown.
 - Prefer the most specific section that is genuinely about the question. A sub-section
   (2.2) beats its parent (2) when the question is about that sub-section's subject; the
   parent is right only when the question spans its children or is about the parent's
@@ -164,6 +178,24 @@ class TopicJudge:
         return response.parsed_output
 
 
+def _normalise(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip().lower()
+
+
+def quoted_sections(quote: str, passages: list[Candidate]) -> list[str]:
+    """The sections of the passages that actually contain ``quote``, in the order the
+    passages were shown. Empty when the quote is not in any of them -- a paraphrase, or
+    an invention, and either way not evidence."""
+    q = _normalise(quote)
+    if len(q) < 12:
+        return []
+    out: list[str] = []
+    for c in passages:
+        if c.section and q in _normalise(c.text) and c.section not in out:
+            out.append(c.section)
+    return out
+
+
 def _related(a: str | None, b: str | None) -> bool:
     """Same section, or one is the other's parent ('2' and '2.2'): the same place in the
     book at two levels of detail, not a disagreement."""
@@ -184,6 +216,7 @@ def choose_topic(
     embedder=None,
     evidence_passages: int = 6,
     passage_chars: int = 1200,
+    all_chunks_of_section=None,
 ) -> TopicPick:
     """Decide the section within ``chapter_id`` that ``stem`` tests.
 
@@ -252,17 +285,76 @@ def choose_topic(
     if judge is None:
         return fall_back("no topic judge available")
 
+    shown = [
+        Candidate(c.chunk_id, c.reference, c.node_id, c.bucket, c.score, c.section,
+                  c.text[:budget])
+        for c in passages
+    ]
     try:
-        choice = judge.pick(stem, chapter_label, headings, [
-            Candidate(c.chunk_id, c.reference, c.node_id, c.bucket, c.score, c.section,
-                      c.text[:budget])
-            for c in passages
-        ])
+        choice = judge.pick(stem, chapter_label, headings, shown)
         section = normalise_section(getattr(choice, "section", ""), headings)
         rationale = str(getattr(choice, "rationale", "") or "")
     except Exception:  # noqa: BLE001 -- one question's topic must never sink the paper
         logger.exception("topic judge failed for chapter %s; retrieval decides", chapter_label)
         choice, section, rationale = None, None, ""
+
+    # Evidence outranks the label. The judge had to quote the passage holding the fact;
+    # where that sentence sits is the section, whatever number it wrote beside it.
+    notes: list[str] = []
+    if section is not None:
+        evidence = quoted_sections(str(getattr(choice, "quote", "") or ""), shown)
+        if evidence and section not in evidence and not any(_related(section, e) for e in evidence):
+            anchored = retrieval_section if retrieval_section in evidence else evidence[0]
+            notes.append(
+                f"the judge named section {section} ({headings.get(section, '')}) but the "
+                f"passage it quoted is in section {anchored} ({headings.get(anchored, '')}), "
+                "which was taken"
+            )
+            section = anchored
+
+    # A disagreement with retrieval is re-decided on the two sections' FULL text, not the
+    # one representative passage each: the passage that settles it (the sentence naming
+    # the Index of Prohibited Books, say) is often not the one word overlap ranked first
+    # for its section. One more call, only on the rows that would be flagged anyway.
+    if (
+        section is not None and retrieval_section is not None
+        and not _related(section, retrieval_section)
+    ):
+        pair = {s: headings.get(s, "") for s in (section, retrieval_section)}
+        by_section: dict[str, list] = {s: [] for s in pair}
+        for c in chapter_chunks:
+            if c.section_number in by_section:
+                by_section[c.section_number].append(c)
+        if all_chunks_of_section is not None:
+            for s in pair:
+                by_section[s] = list(all_chunks_of_section(s)) or by_section[s]
+        full = [
+            Candidate(c.id, c.reference, c.node_id, c.bucket, 0.0, c.section_number,
+                      (c.text or "")[:_adaptive_passage_chars(passage_chars, 2 * max(
+                          len(v) for v in by_section.values()) or 1)])
+            for s in pair for c in by_section[s] if c.text
+        ]
+        try:
+            second = judge.pick(stem, chapter_label, pair, full)
+            confirmed = normalise_section(getattr(second, "section", ""), pair)
+            evidence = quoted_sections(str(getattr(second, "quote", "") or ""), full)
+            if evidence and confirmed not in evidence:
+                confirmed = evidence[0]
+            if confirmed is not None and confirmed != section:
+                notes.append(
+                    f"re-read against the full text of sections {section} and "
+                    f"{retrieval_section}, the judge switched to {confirmed} "
+                    f"({headings.get(confirmed, '')}): "
+                    + str(getattr(second, "rationale", "") or "")
+                )
+                section = confirmed
+            elif confirmed == section:
+                notes.append(
+                    f"confirmed against the full text of sections {section} and "
+                    f"{retrieval_section}"
+                )
+        except Exception:  # noqa: BLE001 -- the first answer stands, flagged below
+            logger.exception("topic confirm pass failed for chapter %s", chapter_label)
 
     if section is None:
         why = (
@@ -273,9 +365,11 @@ def choose_topic(
 
     agreed = retrieval_section is None or _related(section, retrieval_section)
     note = rationale
+    if notes:
+        note = " ".join([rationale, *[n[0].upper() + n[1:] + "." for n in notes]]).strip()
     if not agreed:
         note = (
-            f"{rationale} Retrieval within the chapter pointed at section "
+            f"{note} Retrieval within the chapter pointed at section "
             f"{retrieval_section} ({headings.get(retrieval_section, '')}) instead."
         ).strip()
     return TopicPick(section, headings.get(section), "judge", agreed, retrieval_section, note)

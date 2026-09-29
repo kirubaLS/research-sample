@@ -435,3 +435,80 @@ def test_a_questions_own_scope_keeps_the_other_subjects_chapters_out():
     )
     assert offered[1] == {"Minerals and Energy Resources"}
     assert scoped.questions[0].chapter == "Minerals and Energy Resources"
+
+
+# --- evidence outranks the label; a disagreement is re-read on the full section text --
+
+class _QuotingJudge:
+    """Answers per call: a list of (section, quote) consumed in order."""
+
+    def __init__(self, answers):
+        self.answers, self.calls = list(answers), []
+
+    def pick(self, stem, chapter_label, headings, passages):
+        self.calls.append((dict(headings), list(passages)))
+        section, quote = self.answers.pop(0)
+
+        class _Choice:
+            pass
+
+        c = _Choice()
+        c.section, c.quote, c.rationale = section, quote, "because"
+        return c
+
+
+MODE_SENTENCE = "The modal class is the class with the greatest frequency"
+
+
+def test_the_section_is_where_the_quoted_fact_lives_not_the_heading_the_judge_named():
+    """The judge writes 13.2 beside a quote copied from the 13.3 passage: the quote wins,
+    retrieval agrees, and the row is not flagged."""
+    judge = _QuotingJudge([("13.2", MODE_SENTENCE)])
+    pick = choose_topic(
+        "Find the modal class and hence the mode of the frequency distribution", STATS,
+        "Statistics", CHUNKS, HEADINGS, judge,
+    )
+    assert pick.section == "13.3" and pick.agreed
+    assert "named section 13.2" in pick.rationale and "13.3" in pick.rationale
+    assert len(judge.calls) == 1, "no disagreement left to confirm"
+
+
+def test_a_disagreement_is_re_read_against_the_full_text_of_both_sections():
+    """First pass: 13.2, no quote, while retrieval says 13.3. The confirm pass is shown
+    every chunk of 13.2 and 13.3 -- including one the first pass never saw -- and its
+    quoted answer stands."""
+    extra = _Chunk("c3b", "13.3 Mode of Grouped Data (example)", STATS,
+                   "Example: the modal class of the given data is 60-80 and the mode is 65.",
+                   "13.3")
+    judge = _QuotingJudge([("13.2", ""), ("13.3", "the modal class of the given data is 60-80")])
+    pick = choose_topic(
+        "Find the modal class and hence the mode of the frequency distribution", STATS,
+        "Statistics", CHUNKS + [extra], HEADINGS, judge,
+    )
+    assert len(judge.calls) == 2
+    second_headings, second_passages = judge.calls[1]
+    assert set(second_headings) == {"13.2", "13.3"}
+    assert {p.chunk_id for p in second_passages} == {"c2", "c3", "c3b"}
+    assert pick.section == "13.3" and pick.agreed
+    assert "switched to 13.3" in pick.rationale
+
+
+def test_a_confirmed_disagreement_stays_with_the_judge_and_is_flagged():
+    judge = _QuotingJudge([("13.2", ""), ("13.2", "step-deviation method uses an assumed mean")])
+    pick = choose_topic(
+        "Find the modal class and hence the mode of the frequency distribution", STATS,
+        "Statistics", CHUNKS, HEADINGS, judge,
+    )
+    assert pick.section == "13.2" and not pick.agreed
+    assert "onfirmed against the full text" in pick.rationale
+    assert "pointed at section 13.3" in pick.rationale
+
+
+def test_a_quote_that_is_not_in_any_passage_is_not_evidence():
+    from app.classify.topic import quoted_sections
+    from app.ingest.probe import Candidate
+
+    shown = [Candidate("c3", "r", STATS, "T", 0.0, "13.3", CHUNKS[2].text)]
+    assert quoted_sections("The modal class is the class with the greatest", shown) == ["13.3"]
+    assert quoted_sections("the mode is the most common value", shown) == []
+    assert quoted_sections("modal", shown) == [], "a fragment this short proves nothing"
