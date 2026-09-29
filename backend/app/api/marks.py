@@ -1490,12 +1490,155 @@ def confirm_scan(
     }
 
 
-@router.post("/{assessment_id}/map")
+def _map_inputs(db: Session, assessment: Assessment) -> tuple[list, list]:
+    """What map needs before it can start: a confirmed scan, staged rows, a loaded book.
+    Checked inline when the job is queued (so the person who clicked learns why in the
+    same second) and again by the job itself."""
+    from app.curriculum import group_subjects
+
+    if not assessment.scan_confirmed_at:
+        raise HTTPException(
+            409,
+            "nobody has confirmed this extraction yet. Everything after this treats the "
+            "questions as what the paper says, so a person checks them first: "
+            f"POST /assessments/{assessment.id}/scan/confirm",
+        )
+    staged = [
+        row for row in db.scalars(
+            select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
+        )
+        if row.question_id is None
+    ]
+    if not staged:
+        raise HTTPException(422, "nothing staged to map; scan the paper first")
+    chunks = list(db.scalars(
+        select(BookChunk).where(BookChunk.subject_code.in_(group_subjects(assessment.subject_code)))
+    ))
+    if not chunks:
+        raise HTTPException(
+            422,
+            f"no book is loaded for {assessment.subject_code}, so there is nothing to map "
+            f"against. Upload the chapters first.",
+        )
+    return staged, chunks
+
+
+@router.post("/{assessment_id}/map", status_code=status.HTTP_202_ACCEPTED)
 def map_paper_to_book(
     assessment_id: str,
+    background_tasks: BackgroundTasks,
+    school: School = Depends(require_paper_scope),
+    db: Session = Depends(get_session),
+) -> JSONResponse:
+    """Queue the map step (see _map_paper) and answer with a job to poll.
+
+    Map used to run inside this request. With the topic judge reading every question
+    against its chapter's sections it is now a model call per question, and a request
+    the browser must keep open for minutes is lost the moment the tab is closed or the
+    reverse proxy times out -- the same reason /place and /scan already run as jobs.
+    Poll GET .../map/jobs/{job_id}; the pre-checks still fail inline.
+    """
+    assessment = _get_assessment(db, school, assessment_id)
+    _map_inputs(db, assessment)
+    job = PlacementJob(school_id=school.id, assessment_id=assessment.id, kind="map")
+    db.add(job)
+    db.commit()
+    background_tasks.add_task(_run_map_job, job.id)
+    return JSONResponse(
+        status_code=status.HTTP_202_ACCEPTED,
+        content={
+            "job_id": job.id, "status": "pending",
+            "next": f"Poll GET /assessments/{assessment.id}/map/jobs/{job.id} for the result.",
+        },
+    )
+
+
+@router.get("/{assessment_id}/map/jobs/{job_id}")
+def get_map_job(
+    assessment_id: str,
+    job_id: str,
     school: School = Depends(require_paper_scope),
     db: Session = Depends(get_session),
 ) -> dict:
+    """Poll for the result of a queued map run. A failed job carries the status code and
+    detail the synchronous handler used to raise, not a bare 'failed'."""
+    job = db.get(PlacementJob, job_id)
+    if (
+        job is None or job.kind != "map" or job.assessment_id != assessment_id
+        or job.school_id != school.id
+    ):
+        raise HTTPException(404, f"no job {job_id!r} for this paper")
+    if job.status == "failed":
+        raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
+    if job.status != "succeeded":
+        return {
+            "job_id": job.id, "status": job.status,
+            "progress_done": job.progress_done, "progress_total": job.progress_total,
+        }
+    return {
+        "job_id": job.id, "status": "succeeded",
+        "progress_done": job.progress_done, "progress_total": job.progress_total,
+        **(job.result or {}),
+    }
+
+
+def _run_map_job(job_id: str) -> None:
+    """The map step, after the request that queued it has returned. Never raises: the
+    job row is the only place a failure can be seen once that request is gone."""
+    from datetime import UTC, datetime
+
+    from app.db import SessionLocal
+
+    def finish(status_value: str, *, result: dict | None = None,
+               error_status: int | None = None, error_detail: str | None = None) -> None:
+        session = SessionLocal()
+        try:
+            job = session.get(PlacementJob, job_id)
+            if job is not None:
+                job.status, job.result = status_value, result
+                job.error_status, job.error_detail = error_status, error_detail
+                job.finished_at = datetime.now(UTC)
+                session.commit()
+        finally:
+            session.close()
+
+    def progress(done: int, total: int) -> None:
+        try:
+            session = SessionLocal()
+            try:
+                job = session.get(PlacementJob, job_id)
+                if job is not None:
+                    job.progress_done, job.progress_total = done, total
+                    session.commit()
+            finally:
+                session.close()
+        except Exception:  # noqa: BLE001 -- a progress write must never sink the run
+            pass
+
+    db = SessionLocal()
+    try:
+        job = db.get(PlacementJob, job_id)
+        if job is None:
+            return
+        assessment = db.get(Assessment, job.assessment_id)
+        if assessment is None:
+            finish("failed", error_status=404, error_detail="the paper this job belonged to was removed")
+            return
+        result = _map_paper(db, assessment, on_progress=progress)
+    except HTTPException as exc:
+        db.rollback()
+        finish("failed", error_status=exc.status_code, error_detail=str(exc.detail))
+        return
+    except Exception as exc:  # noqa: BLE001 -- see docstring
+        db.rollback()
+        finish("failed", error_status=500, error_detail=f"{type(exc).__name__}: {exc}")
+        return
+    finally:
+        db.close()
+    finish("succeeded", result=result)
+
+
+def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     """Place every staged question against the book, and promote what can be placed.
 
     This is the join the whole product rests on: a mark is only diagnostic because the
@@ -1521,37 +1664,10 @@ def map_paper_to_book(
     from app.mapping.auto_resolve import resolve_blocked_family
     from app.mapping.family import choose_family
 
-    assessment = _get_assessment(db, school, assessment_id)
     settings = get_settings()
-
-    if not assessment.scan_confirmed_at:
-        raise HTTPException(
-            409,
-            "nobody has confirmed this extraction yet. Everything after this treats the "
-            "questions as what the paper says, so a person checks them first: "
-            f"POST /assessments/{assessment.id}/scan/confirm",
-        )
-
-    staged = [
-        row for row in db.scalars(
-            select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
-        )
-        if row.question_id is None
-    ]
-    if not staged:
-        raise HTTPException(422, "nothing staged to map; scan the paper first")
-
+    staged, chunks = _map_inputs(db, assessment)
     book_subject_codes = group_subjects(assessment.subject_code)
     is_book_map_subject = bool(_BOOK_MAP_SUBJECTS.intersection(book_subject_codes))
-    chunks = list(db.scalars(
-        select(BookChunk).where(BookChunk.subject_code.in_(book_subject_codes))
-    ))
-    if not chunks:
-        raise HTTPException(
-            422,
-            f"no book is loaded for {assessment.subject_code}, so there is nothing to map "
-            f"against. Upload the chapters first.",
-        )
 
     # Exercise-bucket chunks (bucket='E') never carry a section_number -- see
     # import_book_map.py, which loads them with section_number=None because an
@@ -1712,7 +1828,9 @@ def map_paper_to_book(
     group_placement: dict[str, dict] = {}
     deferred: list = []
     mapped, blocked, context_kept, with_topic = 0, [], 0, 0
-    for row in staged:
+    for done, row in enumerate(staged, start=1):
+        if on_progress is not None:
+            on_progress(done, len(staged))
         if row.address in context:
             # The shared stem of a case study. Its sub-parts are the questions and they
             # map on their own; placing the paragraph too would file the same marks twice.

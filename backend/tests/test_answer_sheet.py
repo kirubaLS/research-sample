@@ -44,7 +44,7 @@ def mapped_paper(client, school, book):
         files=[("files", ("p.pdf", io.BytesIO(data), "application/pdf"))],
     )
     client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
-    client.post(f"/assessments/{aid}/map", headers=_auth(school))
+    _map(client, f"/assessments/{aid}/map", headers=_auth(school))
     return aid
 
 
@@ -417,3 +417,12 @@ def test_a_pdf_for_someone_elses_report_is_refused(client, school, mapped_paper,
         f"/reports/issued/{report_id}/pdf", headers={"X-API-Key": "other-report-pdf-key"},
     )
     assert pdf.status_code == 404
+
+
+def _map(client, url: str, headers: dict):
+    """POST /map now queues a job (202) and the result is read from its job row -- the
+    same shape /place has. Pre-check failures still come back inline."""
+    out = client.post(url, headers=headers)
+    if out.status_code != 202:
+        return out
+    return client.get(f"{url}/jobs/{out.json()['job_id']}", headers=headers)

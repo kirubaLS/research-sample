@@ -89,7 +89,7 @@ def test_a_case_study_sub_part_with_no_book_evidence_of_its_own_is_not_deleted(
     )
     assert confirm.status_code == 200, confirm.text
 
-    mapped = client.post(f"/assessments/{aid}/map", headers=_auth(school))
+    mapped = _map(client, f"/assessments/{aid}/map", headers=_auth(school))
     assert mapped.status_code == 200, mapped.text
     body = mapped.json()
 
@@ -170,7 +170,7 @@ def test_a_standalone_question_with_no_evidence_at_all_still_stays_blocked(
     confirm = client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
     assert confirm.status_code == 200, confirm.text
 
-    mapped = client.post(f"/assessments/{aid}/map", headers=_auth(school))
+    mapped = _map(client, f"/assessments/{aid}/map", headers=_auth(school))
     assert mapped.status_code == 200, mapped.text
     body = mapped.json()
     assert body["mapped"] == 0
@@ -181,3 +181,12 @@ def test_a_standalone_question_with_no_evidence_at_all_still_stays_blocked(
     real = db.scalars(select(Question).where(Question.assessment_id == aid)).all()
     db.close()
     assert real == []
+
+
+def _map(client, url: str, headers: dict):
+    """POST /map now queues a job (202) and the result is read from its job row -- the
+    same shape /place has. Pre-check failures still come back inline."""
+    out = client.post(url, headers=headers)
+    if out.status_code != 202:
+        return out
+    return client.get(f"{url}/jobs/{out.json()['job_id']}", headers=headers)

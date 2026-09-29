@@ -542,8 +542,12 @@ export function usePaperScan(opts: {
     if (!key || !assessmentId) return;
     setError(null);
     setBusy("Matching every question against the book…");
+    setProgress(null);
     try {
-      const result = await api.mapPaper(key, assessmentId);
+      const result = await api.mapPaper(key, assessmentId, (jobId) => {
+        setJob("paper-map", assessmentId, jobId);
+      }, setProgress);
+      clearJob("paper-map", assessmentId);
       setMapped(result);
       setPlaced(null);
       await refresh(assessmentId);
@@ -562,9 +566,11 @@ export function usePaperScan(opts: {
         return;
       }
     } catch (err) {
+      clearJob("paper-map", assessmentId);
       setError(explain(err));
     } finally {
       setBusy(null);
+      setProgress(null);
     }
   }
 
@@ -587,6 +593,50 @@ export function usePaperScan(opts: {
       setProgress(null);
     }
   }
+
+  // A map run left in flight from an earlier visit (the tab was closed or switched away
+  // while it ran) -- the job kept running on the server; resume watching it, and carry
+  // on to classify exactly as the click would have.
+  useEffect(() => {
+    if (!assessmentId) return;
+    const jobId = getJob("paper-map", assessmentId);
+    if (!jobId || mapped) return;
+    const key = getApiKey();
+    if (!key) return;
+    let cancelled = false;
+    setBusy("Matching every question against the book…");
+    setProgress(null);
+    (async () => {
+      try {
+        const result = await api.resumeMapJob(key, assessmentId, jobId, (p) => {
+          if (!cancelled) setProgress(p);
+        });
+        if (cancelled) return;
+        clearJob("paper-map", assessmentId);
+        setMapped(result);
+        setPlaced(null);
+        await refresh(assessmentId);
+        if (result.mapped > 0 && !alreadyClassified) {
+          setBusy(null);
+          setProgress(null);
+          await onClassify();
+        }
+      } catch (err) {
+        if (cancelled) return;
+        clearJob("paper-map", assessmentId);
+        setError(explain(err));
+      } finally {
+        if (!cancelled) {
+          setBusy(null);
+          setProgress(null);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [assessmentId]);
 
   // A classify run left in flight from an earlier visit -- resume watching it instead of
   // showing the "Read and classify" button as though the paper were untouched.

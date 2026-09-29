@@ -2348,8 +2348,23 @@ export const api = {
       body: JSON.stringify({ by }),
     }),
 
-  mapPaper: (key: string, assessmentId: string) =>
-    authed<MapResult>(`/assessments/${assessmentId}/map`, key, { method: "POST" }),
+  /** Match every staged question against the book. Runs as a server-side job (202 +
+   *  poll), like placePaper: the topic judge is a model call per question, and a request
+   *  the browser had to keep open was lost the moment the tab closed. onJobQueued fires
+   *  as soon as it is queued so a closed tab resumes watching the same job on return. */
+  mapPaper: (
+    key: string, assessmentId: string,
+    onJobQueued?: (jobId: string) => void,
+    onProgress?: (progress: JobProgress) => void,
+  ) =>
+    postAndPoll<MapResult>(`/assessments/${assessmentId}/map`, key, onJobQueued, onProgress),
+
+  /** Resume watching a map job already queued on the server -- see resumePlacementJob. */
+  resumeMapJob: (
+    key: string, assessmentId: string, jobId: string,
+    onProgress?: (progress: JobProgress) => void,
+  ) =>
+    pollJob<MapResult>(`/assessments/${assessmentId}/map`, key, jobId, "X-API-Key", onProgress),
 
   /** The judge reads the passages retrieval found and settles chapter, topic, sub-topic
    *  and the cognitive category. Needs the classifier key on the API service.

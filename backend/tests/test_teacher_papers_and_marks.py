@@ -119,7 +119,7 @@ def test_teacher_can_touch_a_paper_from_a_subject_they_do_not_hold(client, schoo
     h = _subject_teacher(client, school, "X.MATH")
     assert client.patch(f"/assessments/{aid}", headers=h, json={"title": "x"}).status_code == 200
     assert client.get(f"/assessments/{aid}/scan", headers=h).status_code == 200
-    assert client.post(f"/assessments/{aid}/map", headers=h).status_code == 409
+    assert _map(client, f"/assessments/{aid}/map", headers=h).status_code == 409
 
 
 def test_class_only_teacher_can_author_papers(client, school):
@@ -586,3 +586,12 @@ def test_class_only_teacher_can_still_scan_papers_but_not_enter_marks(client, sc
     body = client.get("/admin/me", headers=h).json()
     assert body["can"]["scan_papers"] is True
     assert body["can"]["enter_marks"] is False
+
+
+def _map(client, url: str, headers: dict):
+    """POST /map now queues a job (202) and the result is read from its job row -- the
+    same shape /place has. Pre-check failures still come back inline."""
+    out = client.post(url, headers=headers)
+    if out.status_code != 202:
+        return out
+    return client.get(f"{url}/jobs/{out.json()['job_id']}", headers=headers)

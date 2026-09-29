@@ -268,6 +268,15 @@ def test_map_retrieves_book_chunks_across_the_whole_group(client, school, englis
     confirmed = client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
     assert confirmed.status_code == 200, confirmed.text
 
-    mapped = client.post(f"/assessments/{aid}/map", headers=_auth(school))
+    mapped = _map(client, f"/assessments/{aid}/map", headers=_auth(school))
     assert mapped.status_code == 200, mapped.text
     assert "no book is loaded" not in mapped.text
+
+
+def _map(client, url: str, headers: dict):
+    """POST /map now queues a job (202) and the result is read from its job row -- the
+    same shape /place has. Pre-check failures still come back inline."""
+    out = client.post(url, headers=headers)
+    if out.status_code != 202:
+        return out
+    return client.get(f"{url}/jobs/{out.json()['job_id']}", headers=headers)

@@ -12,7 +12,7 @@
 
 const PREFIX = "yaadhum:job:";
 
-export type JobKind = "paper-scan" | "paper-place" | "gridsheet";
+export type JobKind = "paper-scan" | "paper-map" | "paper-place" | "gridsheet";
 
 function storageKey(kind: JobKind, scopeKey: string): string {
   return `${PREFIX}${kind}:${scopeKey}`;

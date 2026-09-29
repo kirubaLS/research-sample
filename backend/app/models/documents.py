@@ -364,6 +364,11 @@ class PlacementJob(Base, PkMixin, TimestampMixin):
 
     school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
     assessment_id: Mapped[str] = mapped_column(ForeignKey("assessment.id"), index=True)
+    #: "place" (the classify step) or "map" (matching staged questions against the
+    #: book). Map moved here for the same reason place did: with a topic judge call per
+    #: question it no longer finishes inside one request, and a request the browser has
+    #: to keep open is lost the moment the tab is closed.
+    kind: Mapped[str] = mapped_column(String(16), default="place", server_default="place")
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     #: whatever the synchronous handler used to return as its response body
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)

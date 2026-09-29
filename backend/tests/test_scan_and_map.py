@@ -461,7 +461,7 @@ def test_mapping_blocks_a_question_rather_than_inventing_a_chapter(
     this pipeline refuses."""
     _upload(client, school, assessment, _paper_bytes(PAPER))
     client.post(f"/assessments/{assessment}/scan/confirm", headers=_auth(school), json={})
-    r = client.post(f"/assessments/{assessment}/map", headers=_auth(school))
+    r = _map(client, f"/assessments/{assessment}/map", headers=_auth(school))
     assert r.status_code == 200, r.text
     body = r.json()
 
@@ -879,7 +879,7 @@ def test_mapping_refuses_when_no_book_is_loaded(client, school):
     aid = r.json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
-    out = client.post(f"/assessments/{aid}/map", headers=_auth(school))
+    out = _map(client, f"/assessments/{aid}/map", headers=_auth(school))
     assert out.status_code == 422
     assert "no book is loaded" in out.json()["detail"]
 
@@ -923,7 +923,7 @@ def test_mapping_refuses_until_someone_has_confirmed_the_extraction(
     extraction nobody checked is not that -- it is a good guess that would become a mark on
     a child's report with no person in the loop."""
     _upload(client, school, assessment, _paper_bytes(PAPER))
-    blocked = client.post(f"/assessments/{assessment}/map", headers=_auth(school))
+    blocked = _map(client, f"/assessments/{assessment}/map", headers=_auth(school))
     assert blocked.status_code == 409
     assert "confirmed this extraction" in blocked.json()["detail"]
 
@@ -933,7 +933,7 @@ def test_mapping_refuses_until_someone_has_confirmed_the_extraction(
     assert ok.status_code == 200, ok.text
     assert ok.json()["confirmed_by"] == "Mrs Rani"
 
-    mapped = client.post(f"/assessments/{assessment}/map", headers=_auth(school))
+    mapped = _map(client, f"/assessments/{assessment}/map", headers=_auth(school))
     assert mapped.status_code == 200
 
 
@@ -1298,7 +1298,7 @@ def test_a_mapped_question_gets_a_chapter_a_topic_and_a_sub_topic(client, school
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
 
-    out = client.post(f"/assessments/{aid}/map", headers=h)
+    out = _map(client, f"/assessments/{aid}/map", headers=h)
     assert out.status_code == 200, out.text
     assert out.json()["mapped"] == 1
     assert out.json()["with_topic"] == 1
@@ -1369,7 +1369,7 @@ def test_map_lets_the_topic_judge_choose_the_section_within_the_retrieved_chapte
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    out = client.post(f"/assessments/{aid}/map", headers=h)
+    out = _map(client, f"/assessments/{aid}/map", headers=h)
     assert out.status_code == 200, out.text
     assert out.json()["mapped"] == 1
 
@@ -1399,7 +1399,7 @@ def test_the_topic_is_recorded_as_a_skill_so_the_report_can_group_by_it(
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    client.post(f"/assessments/{aid}/map", headers=h)
+    _map(client, f"/assessments/{aid}/map", headers=h)
 
     db = SessionLocal()
     try:
@@ -1430,7 +1430,7 @@ def test_the_cognitive_category_is_null_until_something_has_read_the_question(
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    client.post(f"/assessments/{aid}/map", headers=h)
+    _map(client, f"/assessments/{aid}/map", headers=h)
 
     placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
     assert placed["mapped_to"]["tier"] is None
@@ -1453,7 +1453,7 @@ def test_a_person_settling_a_tier_is_recorded_where_the_report_reads_it(
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    client.post(f"/assessments/{aid}/map", headers=h)
+    _map(client, f"/assessments/{aid}/map", headers=h)
 
     db = SessionLocal()
     question_id = db.scalar(select(Question).where(Question.assessment_id == aid)).id
@@ -1500,7 +1500,7 @@ def test_a_tier_that_is_not_a_tier_is_refused(client, school, book):
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    client.post(f"/assessments/{aid}/map", headers=h)
+    _map(client, f"/assessments/{aid}/map", headers=h)
 
     db = SessionLocal()
     question_id = db.scalar(select(Question).where(Question.assessment_id == aid)).id
@@ -1557,7 +1557,7 @@ def test_the_narrowest_family_claiming_the_section_is_taken_and_flagged(
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    out = client.post(f"/assessments/{aid}/map", headers=h)
+    out = _map(client, f"/assessments/{aid}/map", headers=h)
     assert out.status_code == 200, out.text
     assert out.json()["mapped"] == 1
 
@@ -1722,7 +1722,7 @@ def test_the_judge_settles_the_chapter_topic_and_sub_topic_on_the_question(
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    client.post(f"/assessments/{aid}/map", headers=h)
+    _map(client, f"/assessments/{aid}/map", headers=h)
 
     # The judge disagrees with retrieval: it says the mode section, not the mean section.
     settings, before = _place_with(monkeypatch, "Statistics", "13.3", "Applying")
@@ -1786,7 +1786,7 @@ def test_a_judge_that_abstains_on_the_tier_leaves_it_unset(
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    client.post(f"/assessments/{aid}/map", headers=h)
+    _map(client, f"/assessments/{aid}/map", headers=h)
 
     settings, before = _place_with(monkeypatch, "Statistics", "13.2", None)
     try:
@@ -1820,7 +1820,7 @@ def test_the_classified_flag_is_false_until_a_classify_pass_has_actually_run(
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    client.post(f"/assessments/{aid}/map", headers=h)
+    _map(client, f"/assessments/{aid}/map", headers=h)
 
     assert client.get(f"/assessments/{aid}/scan", headers=h).json()["classified"] is False
 
@@ -1844,7 +1844,7 @@ def test_classifying_is_refused_without_a_key_rather_than_guessing(client, schoo
     }).json()["assessment_id"]
     _upload(client, school, aid, _paper_bytes(STATS_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    client.post(f"/assessments/{aid}/map", headers=h)
+    _map(client, f"/assessments/{aid}/map", headers=h)
 
     settings = get_settings()
     before = settings.anthropic_api_key
@@ -2045,7 +2045,7 @@ def test_map_uses_the_books_own_heading_not_a_mismatched_stale_subtopic_number(
     _upload(client, school, aid, _paper_bytes(POLITICAL_PARTIES_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
 
-    out = client.post(f"/assessments/{aid}/map", headers=h)
+    out = _map(client, f"/assessments/{aid}/map", headers=h)
     assert out.status_code == 200, out.text
 
     placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
@@ -2166,7 +2166,7 @@ def test_sst_retrieval_is_scoped_to_the_questions_own_section_subject(
 
     monkeypatch.setattr(probe, "locate", fake_locate)
 
-    mapped = client.post(f"/assessments/{aid}/map", headers=h)
+    mapped = _map(client, f"/assessments/{aid}/map", headers=h)
     assert mapped.status_code == 200, mapped.text
 
     assert captured == expected, captured
@@ -2343,7 +2343,7 @@ def test_exercise_bucket_chunks_never_win_retrieval_over_teaching_text(
     _upload(client, school, aid, _paper_bytes(RETRIEVAL_GUARD_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
 
-    out = client.post(f"/assessments/{aid}/map", headers=h)
+    out = _map(client, f"/assessments/{aid}/map", headers=h)
     assert out.status_code == 200, out.text
     assert out.json()["mapped"] == 1, out.json()
 
@@ -2386,7 +2386,7 @@ def test_map_never_hands_retrieval_an_exercise_bucket_chunk(
     _upload(client, school, aid, _paper_bytes(RETRIEVAL_GUARD_PAPER))
     client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
 
-    mapped = client.post(f"/assessments/{aid}/map", headers=h)
+    mapped = _map(client, f"/assessments/{aid}/map", headers=h)
     assert mapped.status_code == 200, mapped.text
 
     assert captured, "locate() was never called"
@@ -2509,3 +2509,12 @@ def test_a_normal_questions_stem_is_completely_untouched():
 
     assert retrieval_query_text("") == ""
     assert retrieval_query_text(None) is None
+
+
+def _map(client, url: str, headers: dict):
+    """POST /map now queues a job (202) and the result is read from its job row -- the
+    same shape /place has. Pre-check failures still come back inline."""
+    out = client.post(url, headers=headers)
+    if out.status_code != 202:
+        return out
+    return client.get(f"{url}/jobs/{out.json()['job_id']}", headers=headers)
