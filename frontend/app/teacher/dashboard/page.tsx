@@ -442,7 +442,13 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                       style={{ width: "100%", background: "none", border: 0, textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }}
                     >
                       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                        {open ? <ChevronDown size={18} style={{ marginTop: 2 }} /> : <ChevronRight size={18} style={{ marginTop: 2 }} />}
+                        <motion.span
+                          style={{ display: "inline-flex", marginTop: 2 }}
+                          animate={{ rotate: open ? 90 : 0 }}
+                          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
+                        >
+                          <ChevronRight size={18} />
+                        </motion.span>
                         <div>
                           <div className="strong" style={{ fontSize: 15, fontWeight: 650 }}>{t.name}</div>
                           <div className="small muted" style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
@@ -459,69 +465,66 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                         {papers.length === 0 ? (
                           <p className="small muted">No papers attached to this test yet.</p>
                         ) : (
-                          <>
-                            <div
-                              className="small muted"
-                              style={{
-                                display: "grid",
-                                gridTemplateColumns: "1fr 1fr auto auto",
-                                gap: 14,
-                                padding: "0 0 6px",
-                                textTransform: "uppercase",
-                                letterSpacing: "0.03em",
-                                fontSize: 11,
-                              }}
-                            >
-                              <div>Subject</div>
-                              <div>Blueprint coverage</div>
-                              <div>Status</div>
-                              <div></div>
-                            </div>
-                            {papers.map((p) => {
-                            const st = statusTag(p);
-                            const pct = coveragePct(p);
-                            return (
-                              <div
-                                key={p.id}
-                                style={{
-                                  display: "grid",
-                                  gridTemplateColumns: "1fr 1fr auto auto",
-                                  gap: 14,
-                                  alignItems: "center",
-                                  padding: "10px 0",
-                                  borderTop: "1px solid var(--line)",
-                                }}
-                              >
-                                <div>
-                                  <div className="strong" style={{ fontSize: 13.5 }}>{p.subject_label}</div>
-                                  <div className="small muted" style={{ marginTop: 2 }}>
-                                    {p.scanned_questions > 0
-                                      ? `Scanned · ${p.scanned_questions} question${p.scanned_questions === 1 ? "" : "s"} read`
-                                      : "No file yet"}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="small muted" style={{ marginBottom: 4 }}>
-                                    Blueprint coverage · {pct}%
-                                  </div>
-                                  <AnimatedBar value={pct} accent={pct === 100 ? "var(--brand-green)" : "var(--brand-teal)"} height={7} />
-                                </div>
-                                <span className={`tag ${st.cls}`}>{st.label}</span>
-                                <button className="btn btn--sm" onClick={() => void scan.openPaper(p)}>
-                                  {p.stage === "empty" ? (
-                                    <>
-                                      <Upload size={13} /> Upload
-                                    </>
-                                  ) : (
-                                    <>
-                                      <ClipboardList size={13} /> View mapping
-                                    </>
-                                  )}
-                                </button>
-                              </div>
-                            );
-                          })}
-                          </>
+                          <div className="table-wrap">
+                            <table className="table">
+                              <thead>
+                                <tr>
+                                  <th>Subject</th>
+                                  <th>File</th>
+                                  <th>Blueprint coverage</th>
+                                  <th>Status</th>
+                                  <th></th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {papers.map((p) => {
+                                  const st = statusTag(p);
+                                  const pct = coveragePct(p);
+                                  return (
+                                    <tr key={p.id}>
+                                      <td className="strong">{p.subject_label}</td>
+                                      <td>
+                                        <div className="small muted" style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                                          {p.scanned_questions > 0 ? (
+                                            <>
+                                              <FileCheck2 size={13} />
+                                              {p.scanned_questions} question{p.scanned_questions === 1 ? "" : "s"} read
+                                            </>
+                                          ) : (
+                                            <>
+                                              <Upload size={13} /> No file yet
+                                            </>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td style={{ minWidth: 160 }}>
+                                        <div className="small muted" style={{ marginBottom: 4 }}>
+                                          {pct}%
+                                        </div>
+                                        <AnimatedBar value={pct} accent={pct === 100 ? "var(--brand-green)" : "var(--brand-teal)"} height={7} />
+                                      </td>
+                                      <td>
+                                        <span className={`tag ${st.cls}`}>{st.label}</span>
+                                      </td>
+                                      <td style={{ textAlign: "right" }}>
+                                        <button className="btn btn--sm" onClick={() => void scan.openPaper(p)}>
+                                          {p.stage === "empty" ? (
+                                            <>
+                                              <Upload size={13} /> Upload
+                                            </>
+                                          ) : (
+                                            <>
+                                              <ClipboardList size={13} /> View mapping
+                                            </>
+                                          )}
+                                        </button>
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
                         )}
                       </div>
                     )}
@@ -611,7 +614,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
               {standalonePapers.length > 0 && (
                 <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
                   {standalonePapers.map((p) => (
-                    <div className="card" key={p.id}>
+                    <div className="card card--hover" key={p.id}>
                       <button
                         onClick={() => scan.openPaper(p)}
                         style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
