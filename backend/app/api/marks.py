@@ -946,6 +946,17 @@ def _run_paper_scan_job(job_id: str) -> None:
             declared_sections=reading.declared_sections, declared_count=reading.declared_count,
             declared_total=reading.declared_total, problems=reading.problems,
         )
+        check_db = SessionLocal()
+        try:
+            db_assessment = check_db.get(Assessment, assessment_id)
+            refusal = (
+                check_paper_subject(check_db, db_assessment, extract) if db_assessment else None
+            )
+        finally:
+            check_db.close()
+        if refusal:
+            _finish_paper_scan_job(job_id, status_value="failed", error_status=422, error_detail=refusal)
+            return
     except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape.
         # This covers the rasterize/vision-read half of the job, the same way the
         # try/except below already covered the database-write half -- previously a
@@ -1057,6 +1068,12 @@ async def scan_paper(
         source_sha = __import__("hashlib").sha256(raw_bytes).hexdigest()
     finally:
         path.unlink(missing_ok=True)
+
+    # Another subject's paper is refused here, before a page or a row is stored: read
+    # against this subject's book it would only ever be filed wrongly.
+    refusal = check_paper_subject(db, assessment, extract)
+    if refusal:
+        raise HTTPException(422, refusal)
 
     # The text route ran and produced something, but its own marks don't add up against
     # what the paper declares for itself -- see _text_route_is_confident. One shot only:
@@ -1445,6 +1462,83 @@ def edit_scanned_question(
 
 class ConfirmIn(BaseModel):
     by: str = Field(default="teacher", max_length=64)
+
+
+#: how many of a paper's questions must be read before its subject is judged at all,
+#: and how lopsided the tally must be before the paper is refused as another subject's
+SUBJECT_CHECK_MIN_QUESTIONS = 5
+SUBJECT_CHECK_OTHER_SHARE = 0.6
+SUBJECT_CHECK_OWN_SHARE = 0.35
+
+
+def check_paper_subject(db: Session, assessment: Assessment, extract) -> str | None:
+    """Is this the subject's own paper? The reason to refuse it if not, else None.
+
+    Every question stem is matched against every book this deployment has loaded, and
+    the subject each stem lands in is tallied. A paper whose questions overwhelmingly
+    land in another subject's book -- while hardly any land in this one -- is that
+    subject's paper, uploaded under the wrong test, and forcing it onto this subject's
+    chapters would file every mark under the wrong topic. It is refused before anything
+    is stored, so nothing has to be undone.
+
+    Decided only when there is something to decide with: at least a handful of readable
+    questions, this subject's own book loaded, and at least one other subject's book to
+    tell it apart from. A deployment with one book cannot tell subjects apart by content
+    and does not pretend to.
+    """
+    from app.curriculum import CURRICULA
+    from app.ingest.probe import LexicalIndex, content_chunks, locate, retrieval_query_text
+
+    def group_of(subject_code: str) -> str:
+        c = CURRICULA.get(subject_code)
+        return c.group_code if c else subject_code
+
+    def label_of(group: str) -> str:
+        for c in CURRICULA.values():
+            if c.group_code == group:
+                return c.group_label or c.subject_label
+        return group
+
+    expected = group_of(assessment.subject_code)
+    stems = [
+        q.stem_text for q in extract.questions
+        if not q.is_context and len((q.stem_text or "").split()) >= 4
+    ]
+    if len(stems) < SUBJECT_CHECK_MIN_QUESTIONS:
+        return None
+    chunks = list(db.scalars(
+        select(BookChunk).where(BookChunk.curriculum_version == assessment.curriculum_version)
+    ))
+    groups_loaded = {group_of(c.subject_code) for c in chunks}
+    if expected not in groups_loaded or len(groups_loaded) < 2:
+        return None
+    pool = content_chunks(chunks)
+    group_by_chunk = {c.id: group_of(c.subject_code) for c in pool}
+    index = LexicalIndex(pool)
+    tally: dict[str, int] = {}
+    judged = 0
+    for stem in stems:
+        verdict = locate(retrieval_query_text(stem), [index], depth=6, evidence_passages=1)
+        if not verdict.evidence:
+            continue
+        group = group_by_chunk.get(verdict.evidence[0].chunk_id)
+        if group is None:
+            continue
+        tally[group] = tally.get(group, 0) + 1
+        judged += 1
+    if judged < SUBJECT_CHECK_MIN_QUESTIONS:
+        return None
+    leader, count = max(tally.items(), key=lambda kv: kv[1])
+    own = tally.get(expected, 0)
+    lopsided = count / judged >= SUBJECT_CHECK_OTHER_SHARE and own / judged <= SUBJECT_CHECK_OWN_SHARE
+    if leader != expected and lopsided:
+        return (
+            f"This looks like a {label_of(leader)} paper, not {label_of(expected)}: "
+            f"{count} of {judged} questions match the {label_of(leader)} book and only "
+            f"{own} match {label_of(expected)}. Nothing was extracted or mapped. Upload it "
+            f"under {label_of(leader)}, or check that the right file was chosen."
+        )
+    return None
 
 
 def auto_confirm_scan(db: Session, assessment: Assessment) -> dict:

@@ -180,3 +180,96 @@ def test_auto_confirm_excuses_an_unreadable_cell_instead_of_blocking_the_student
         assert confirmed == [] and "problem" in skipped[0]["reason"]
     finally:
         db.close()
+
+
+# --- another subject's paper is refused, nothing stored ----------------------------------
+
+SCIENCE_PAPER = [[
+    (60, 60, "Maximum Marks: 5"),
+    (60, 100, "SECTION A"),
+    (60, 130, "1. Balance the chemical equation for the combustion of magnesium ribbon in oxygen."),
+    (MARK_X, 130, "1"),
+    (60, 160, "2. Why is a chemical reaction between an acid and a base called neutralisation?"),
+    (MARK_X, 160, "1"),
+    (60, 190, "3. Name the metal that reacts with cold water to produce hydrogen gas."),
+    (MARK_X, 190, "1"),
+    (60, 220, "4. What happens when zinc metal is added to dilute sulphuric acid?"),
+    (MARK_X, 220, "1"),
+    (60, 250, "5. Explain why silver chloride turns grey in sunlight, naming the reaction type."),
+    (MARK_X, 250, "1"),
+]]
+
+
+def test_another_subjects_paper_is_refused_before_anything_is_stored(client, school, book):
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import BookChunk, ScanDocument, ScannedQuestion, TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        # the test database carries Mathematics only; give it a Science book to tell apart
+        version = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH")).curriculum_version
+
+        def node_for(code: str, label: str, kind: str, parent_id: str | None = None) -> TaxonomyNode:
+            n = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+            if n is None:
+                n = TaxonomyNode(kind=kind, code=code, label=label, parent_id=parent_id, path=code,
+                                 curriculum_version=version)
+                db.add(n)
+                db.flush()
+            return n
+
+        sci = node_for("X.SCI", "Class X Science", "subject")
+        chem = node_for("X.SCI.CHEMRXN", "Chemical Reactions and Equations", "chapter", sci.id)
+        acids = node_for("X.SCI.ACIDS", "Acids, Bases and Salts", "chapter", sci.id)
+        metals = node_for("X.SCI.METALS", "Metals and Non-metals", "chapter", sci.id)
+        for node, ref, text in [
+            (chem, "1.1", "A magnesium ribbon burns in oxygen with a dazzling white flame to form "
+                          "magnesium oxide; a balanced chemical equation has equal atoms on both sides."),
+            (chem, "1.2", "Silver chloride turns grey in sunlight as it decomposes into silver and "
+                          "chlorine, a photochemical decomposition reaction."),
+            (acids, "2.1", "The reaction between an acid and a base to give a salt and water is "
+                           "called a neutralisation reaction."),
+            (metals, "3.1", "Sodium and potassium react violently with cold water producing hydrogen "
+                            "gas; zinc reacts with dilute sulphuric acid to give zinc sulphate and "
+                            "hydrogen."),
+        ]:
+            if node is None:
+                continue
+            if db.scalar(select(BookChunk).where(BookChunk.stem_hash == f"sci-{ref}")) is None:
+                db.add(BookChunk(
+                    curriculum_version=node.curriculum_version, subject_code="X.SCI",
+                    node_id=node.id, bucket="T", reference=f"Section {ref}", text=text,
+                    section_number=ref, normalised=text.lower(), stem_hash=f"sci-{ref}",
+                ))
+        db.commit()
+    finally:
+        db.close()
+
+    try:
+        h = _auth(school)
+        aid = client.post("/assessments", headers=h, json={
+            "subject_code": "X.MATH", "title": "Wrong subject", "total_marks": 5,
+        }).json()["assessment_id"]
+        out = _upload(client, school, aid, _paper_bytes(SCIENCE_PAPER))
+        assert out.status_code == 422, out.text
+        detail = out.json()["detail"]
+        assert "Science" in detail and "not Class X Mathematics" in detail
+        assert "Nothing was extracted" in detail
+
+        db = SessionLocal()
+        try:
+            assert db.scalar(select(ScannedQuestion).where(ScannedQuestion.assessment_id == aid)) is None
+            assert db.scalar(select(ScanDocument).where(ScanDocument.assessment_id == aid)) is None
+        finally:
+            db.close()
+    finally:
+        # the Science book was this test's own; other tests rely on none being loaded
+        db = SessionLocal()
+        try:
+            for c in db.scalars(select(BookChunk).where(BookChunk.stem_hash.like("sci-%"))):
+                db.delete(c)
+            db.commit()
+        finally:
+            db.close()
