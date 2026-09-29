@@ -1,7 +1,17 @@
 """Teacher-scoped parity for the three principal screens (Papers, Enter Marks, Scan
-Answer Sheets): a subject-assignment teacher gets working equivalents scoped to exactly
-that subject (papers) or that section+subject (marks/gridsheets); a class-only teacher
-gets none of it, matching teacher_can_enter_marks's existing rule."""
+Answer Sheets).
+
+Papers (create/edit/scan/map/delete/review, and the /admin/teacher/papers list) is open
+to EVERY teacher key for EVERY subject this deployment carries, exam_cell or not, with or
+without a subject assignment -- a deliberate removal of the subject-scoping this file used
+to assert (see git history): every teacher now behaves like the exam cell always did for
+paper authoring/viewing specifically.
+
+Enter Marks and Scan Answer Sheets (gridsheets) stay real, section+subject-scoped
+boundaries: a subject-assignment teacher gets working equivalents scoped to exactly that
+section+subject; a class-only teacher gets none of it, matching teacher_can_enter_marks's
+existing rule. This is a different, real access boundary (which class's students a
+teacher may see/enter marks for) that the paper-authoring change above does not touch."""
 
 from __future__ import annotations
 
@@ -86,16 +96,19 @@ def test_teacher_can_create_and_edit_a_paper_for_their_own_subject(client, schoo
     assert r.status_code == 200, r.text
 
 
-def test_teacher_cannot_create_a_paper_for_a_subject_they_do_not_hold(client, school):
+def test_teacher_can_create_a_paper_for_a_subject_they_do_not_hold(client, school):
+    """Paper authoring is open to every teacher key for any subject this deployment
+    carries -- no subject assignment required (see require_paper_scope/create_assessment).
+    This used to be refused; it is now the confirmed policy."""
     h = _subject_teacher(client, school, "X.MATH")
     r = client.post(
         "/assessments", headers=h,
         json={"subject_code": "X.SCI", "title": "Not Mine", "total_marks": 10},
     )
-    assert r.status_code == 404
+    assert r.status_code == 200, r.text
 
 
-def test_teacher_cannot_touch_a_paper_from_a_subject_they_do_not_hold(client, school):
+def test_teacher_can_touch_a_paper_from_a_subject_they_do_not_hold(client, school):
     principal = _auth(school)
     tag = uuid.uuid4().hex[:8]
     aid = client.post(
@@ -104,18 +117,20 @@ def test_teacher_cannot_touch_a_paper_from_a_subject_they_do_not_hold(client, sc
     ).json()["assessment_id"]
 
     h = _subject_teacher(client, school, "X.MATH")
-    assert client.patch(f"/assessments/{aid}", headers=h, json={"title": "x"}).status_code == 404
-    assert client.get(f"/assessments/{aid}/scan", headers=h).status_code == 404
-    assert client.post(f"/assessments/{aid}/map", headers=h).status_code == 404
+    assert client.patch(f"/assessments/{aid}", headers=h, json={"title": "x"}).status_code == 200
+    assert client.get(f"/assessments/{aid}/scan", headers=h).status_code == 200
+    assert client.post(f"/assessments/{aid}/map", headers=h).status_code == 409
 
 
-def test_class_only_teacher_cannot_author_papers(client, school):
+def test_class_only_teacher_can_author_papers(client, school):
+    """A class-only teacher (no subject assignment at all) may now author a paper for any
+    subject too -- paper authoring no longer requires a subject assignment of any kind."""
     h = _class_teacher(client, school)
     r = client.post(
         "/assessments", headers=h,
-        json={"subject_code": "X.MATH", "title": "Nope", "total_marks": 10},
+        json={"subject_code": "X.MATH", "title": "Now allowed", "total_marks": 10},
     )
-    assert r.status_code == 404
+    assert r.status_code == 200, r.text
 
 
 def test_teacher_can_delete_a_paper_for_their_own_subject(client, school):
@@ -131,7 +146,7 @@ def test_teacher_can_delete_a_paper_for_their_own_subject(client, school):
     assert client.get(f"/assessments/{aid}/scan", headers=h).status_code == 404
 
 
-def test_teacher_cannot_delete_a_paper_from_a_subject_they_do_not_hold(client, school):
+def test_teacher_can_delete_a_paper_from_a_subject_they_do_not_hold(client, school):
     principal = _auth(school)
     tag = uuid.uuid4().hex[:8]
     aid = client.post(
@@ -140,48 +155,56 @@ def test_teacher_cannot_delete_a_paper_from_a_subject_they_do_not_hold(client, s
     ).json()["assessment_id"]
 
     h = _subject_teacher(client, school, "X.MATH")
-    assert client.delete(f"/assessments/{aid}", headers=h).status_code == 404
-    # still there, refused not silently ignored
-    assert client.get(f"/assessments/{aid}/scan", headers=principal).status_code == 200
+    assert client.delete(f"/assessments/{aid}", headers=h).status_code == 204
 
 
-def test_class_only_teacher_cannot_delete_a_paper(client, school):
+def test_class_only_teacher_can_delete_a_paper(client, school):
     principal = _auth(school)
     tag = uuid.uuid4().hex[:8]
     aid = client.post(
         "/assessments", headers=principal,
-        json={"subject_code": "X.MATH", "title": f"Class Teacher Cannot Delete {tag}", "total_marks": 10},
+        json={"subject_code": "X.MATH", "title": f"Class Teacher Can Now Delete {tag}", "total_marks": 10},
     ).json()["assessment_id"]
 
     h = _class_teacher(client, school)
-    assert client.delete(f"/assessments/{aid}", headers=h).status_code == 404
+    assert client.delete(f"/assessments/{aid}", headers=h).status_code == 204
 
 
-def test_teacher_papers_list_is_scoped_to_held_subjects(client, school):
+def test_teacher_papers_list_shows_every_subject(client, school):
+    """/admin/teacher/papers is no longer scoped to a teacher's own subject assignment --
+    every teacher key sees every paper in the school, the same as the exam cell always
+    did (see test_exam_cell_key_sees_every_subjects_papers below)."""
     principal = _auth(school)
     tag = uuid.uuid4().hex[:8]
     math_aid = client.post(
         "/assessments", headers=principal,
         json={"subject_code": "X.MATH", "title": f"List Maths {tag}", "total_marks": 10},
     ).json()["assessment_id"]
-    client.post(
+    sci_aid = client.post(
         "/assessments", headers=principal,
         json={"subject_code": "X.SCI", "title": f"List Science {tag}", "total_marks": 10},
-    )
+    ).json()["assessment_id"]
 
     h = _subject_teacher(client, school, "X.MATH")
     r = client.get("/admin/teacher/papers", headers=h)
     assert r.status_code == 200, r.text
     ids = {a["id"] for a in r.json()["assessments"]}
     assert math_aid in ids
-    assert all(a["subject_code"] == "X.MATH" for a in r.json()["assessments"])
+    assert sci_aid in ids
 
 
-def test_class_only_teacher_papers_list_is_empty(client, school):
+def test_class_only_teacher_papers_list_shows_every_subject(client, school):
+    principal = _auth(school)
+    tag = uuid.uuid4().hex[:8]
+    aid = client.post(
+        "/assessments", headers=principal,
+        json={"subject_code": "X.MATH", "title": f"List For Class Teacher {tag}", "total_marks": 10},
+    ).json()["assessment_id"]
+
     h = _class_teacher(client, school)
     r = client.get("/admin/teacher/papers", headers=h)
     assert r.status_code == 200
-    assert r.json()["assessments"] == []
+    assert aid in {a["id"] for a in r.json()["assessments"]}
 
 
 # --- Enter Marks: section+subject scoped marks entry --------------------------------
@@ -464,7 +487,9 @@ def test_teacher_can_settle_a_needs_review_question_on_their_own_paper(client, s
     assert after["pending"] == 0, "settling a question must clear it from the queue"
 
 
-def test_settling_a_question_is_still_refused_for_a_different_subject(client, school, mapped_paper):
+def test_settling_a_question_is_now_allowed_for_a_different_subject_teacher(client, school, mapped_paper):
+    """Settling a needs-review row goes through require_paper_scope, the same dependency
+    as the rest of paper authoring -- now open to any teacher key for any subject."""
     from sqlalchemy import select
 
     from app.db import SessionLocal
@@ -484,7 +509,7 @@ def test_settling_a_question_is_still_refused_for_a_different_subject(client, sc
         f"/assessments/{mapped_paper}/review/{qid}", headers=h,
         json={"chapter_code": "X.MATH.SAV", "reviewed_by": "Someone else's teacher"},
     )
-    assert r.status_code == 404
+    assert r.status_code == 200, r.text
 
 
 # --- Exam cell: papers-and-marks rights across every subject, no assignment needed --
@@ -551,3 +576,13 @@ def test_regular_subject_teacher_is_not_exam_cell(client, school):
     h = _subject_teacher(client, school, "X.MATH")
     body = client.get("/admin/me", headers=h).json()
     assert body["exam_cell"] is False
+
+
+def test_class_only_teacher_can_still_scan_papers_but_not_enter_marks(client, school):
+    """scan_papers (paper authoring/upload/status) is now unconditionally true for any
+    teacher key, exam_cell or not, with or without a subject assignment. enter_marks is
+    unchanged -- it still requires a real subject assignment (or exam_cell)."""
+    h = _class_teacher(client, school)
+    body = client.get("/admin/me", headers=h).json()
+    assert body["can"]["scan_papers"] is True
+    assert body["can"]["enter_marks"] is False

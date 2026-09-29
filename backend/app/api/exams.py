@@ -30,7 +30,6 @@ from app.api.deps import (
     current_staff,
     require_exam_read_scope,
     require_exam_write_scope,
-    teacher_subject_codes,
 )
 from app.db import get_session
 from app.models import Assessment, Exam, School
@@ -77,14 +76,12 @@ def create_exam(
 
 
 def _require_paper_subject_scope(staff: Staff, db: Session, paper: Assessment) -> None:
-    """The real check behind attach/detach: an exam-cell teacher, principal or admin may
-    touch any subject's paper, exactly as before. A plain teacher (exam_cell is False)
-    may only attach/detach a paper whose subject_code is one she actually holds a subject
-    assignment for -- the same ``teacher_subject_codes`` check require_paper_scope already
-    makes for authoring a paper directly, so a teacher can never reach another teacher's
-    subject through the exam-day route either."""
-    if staff.is_teacher and not staff.exam_cell and paper.subject_code not in teacher_subject_codes(staff, db):
-        raise HTTPException(404, "no such paper")
+    """Attach/detach is open to any teacher key for any subject's paper, exam cell or
+    not -- the same every-subject right require_paper_scope now gives for authoring a
+    paper directly. Kept as its own function (rather than inlined) since attach/detach is
+    the one place this check runs against an already-fetched Assessment instead of an
+    assessment_id."""
+    return
 
 
 @router.post("/{exam_id}/papers")
@@ -148,43 +145,23 @@ def list_exams(
     """Upcoming (scheduled, no marks yet), awaiting marks (date passed, no marks yet) and
     conducted (at least one resolved mark), plus the weakest subject across every mark.
 
-    An exam-cell teacher, principal or admin sees every subject, unchanged. A plain
-    teacher (exam_cell is False) instead only ever sees exams that have at least one of
-    HER OWN subjects' papers attached -- the same ``teacher_subject_codes`` scoping
-    require_paper_scope/teacher_papers already use, reused here rather than reinvented so
-    there is exactly one real definition of "a teacher's own subjects" in this codebase.
-    An exam with no paper of hers, or no paper at all, never appears for her; scheduling a
-    fresh, still-empty exam day (POST /admin/exams) is the one moment that is not yet
-    scoped to any subject, and it does not show up here again until she -- or the exam
-    cell -- attaches a paper of hers to it.
+    Every teacher key -- exam cell or a plain subject/class teacher alike -- sees every
+    subject, exactly like a principal or admin. There is no more subject filtering here;
+    a teacher's own subject *assignment* still governs marks entry and the
+    Insights/My-class tabs, just not this exam-day list.
     """
     today = date.today()
-    teacher_subjects: set[str] | None = None
-    if staff.is_teacher and not staff.exam_cell:
-        teacher_subjects = teacher_subject_codes(staff, db)
-        if not teacher_subjects:
-            return {
-                "today": today.isoformat(), "upcoming": [], "awaiting_marks": [],
-                "conducted": [], "weakest_subject": None,
-            }
 
     exams = list(db.scalars(select(Exam).where(Exam.school_id == school.id)))
     papers_query = select(Assessment).where(Assessment.school_id == school.id)
-    if teacher_subjects is not None:
-        papers_query = papers_query.where(Assessment.subject_code.in_(teacher_subjects))
     papers = list(db.scalars(papers_query))
     papers_by_exam: dict[str, list[Assessment]] = {}
     for p in papers:
         if p.exam_id:
             papers_by_exam.setdefault(p.exam_id, []).append(p)
     exam_of = {p.id: p.exam_id for p in papers}
-    if teacher_subjects is not None:
-        # An exam with none of her subjects' papers attached does not exist for her.
-        exams = [e for e in exams if e.id in papers_by_exam]
 
     tagged = resolved_rows(db, school)
-    if teacher_subjects is not None:
-        tagged = [t for t in tagged if t.subject_code in teacher_subjects]
     rows_by_exam: dict[str, list[TaggedRow]] = {}
     standalone_rows: list[TaggedRow] = []
     for t in tagged:

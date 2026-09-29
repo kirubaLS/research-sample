@@ -21,7 +21,6 @@ from app.api.deps import (
     require_reader,
     require_scanner,
     school_in_scope,
-    teacher_subject_codes,
 )
 from app.api.documents import content_type_for, store_document
 from app.api.schemas import (
@@ -90,15 +89,13 @@ def create_assessment(
     from app.curriculum import CURRICULA
 
     if staff.is_teacher:
-        # A teacher may create a paper only for a subject they hold a subject assignment
-        # for -- an Assessment names no section, so this is the one place authoring a
-        # paper is checked before an assessment_id exists to check it against. The exam
-        # cell is exempt, the same as require_paper_scope already exempts it from this
-        # same check once an assessment_id exists: it holds papers-and-marks rights
-        # across every subject with no assignment row to check.
+        # Paper authoring is open to every teacher key for every subject this deployment
+        # carries, exam cell or not -- see require_paper_scope, which gives the same
+        # every-subject right once an assessment_id exists to check it against. A
+        # teacher's subject *assignment* still governs marks entry and class/section
+        # visibility elsewhere; it grants nothing extra here and its absence refuses
+        # nothing here either.
         assert staff.home is not None
-        if not staff.exam_cell and body.subject_code not in teacher_subject_codes(staff, db):
-            raise HTTPException(404, "not found")
         school = staff.home
     else:
         school = school_in_scope(staff, x_school_id, db)

@@ -241,29 +241,27 @@ def test_a_plain_subject_teacher_can_create_a_test_and_attach_her_own_subjects_p
     assert _find(body["conducted"] + body["upcoming"] + body["awaiting_marks"], "id", exam_id)
 
 
-def test_a_plain_subject_teacher_cannot_attach_a_paper_of_a_subject_she_does_not_hold(client, school, students):
-    """The real scoping: a subject teacher for X.MATH must never be able to attach or
-    detach another subject's paper, even though she can create the exam shell and attach
-    her own subject's paper."""
+def test_a_plain_subject_teacher_can_attach_a_paper_of_a_subject_she_does_not_hold(client, school, students):
+    """Attach/detach is now open to any teacher key for any subject's paper -- the same
+    every-subject right the exam cell always had (see _require_paper_subject_scope). This
+    used to be refused for a subject a teacher held no assignment for; it is now the
+    confirmed policy that every teacher key behaves like the exam cell here."""
     h = _subject_teacher(client, school, "X.MATH")
     a, _b = students
     exam_id = client.post("/admin/exams", headers=h, json={"name": "UT5", "scheduled_date": "2026-12-02"}).json()["id"]
     sci = _paper(client, school, "X.SCI", "UT5 Science", {a: 5})
 
     r = client.post(f"/admin/exams/{exam_id}/papers", headers=h, json={"assessment_id": sci})
-    assert r.status_code == 404
-
-    # attach it as the school's own admin key, then a X.MATH-only teacher must still be
-    # refused detaching it
-    r = client.post(f"/admin/exams/{exam_id}/papers", headers=_auth(school), json={"assessment_id": sci})
     assert r.status_code == 200, r.text
+
     r = client.delete(f"/admin/exams/{exam_id}/papers/{sci}", headers=h)
-    assert r.status_code == 404
+    assert r.status_code == 200, r.text
 
 
-def test_a_plain_subject_teacher_only_sees_exams_with_her_own_subjects_papers(client, school, students):
-    """GET /admin/exams filters down to a plain teacher's own subjects -- an exam that
-    only has another subject's paper attached must not appear for her at all."""
+def test_a_plain_subject_teacher_sees_exams_with_any_subjects_papers(client, school, students):
+    """GET /admin/exams no longer filters by subject assignment -- an exam with only
+    another subject's paper attached is visible to every teacher key now, the same as it
+    always was for the exam cell."""
     h_math = _subject_teacher(client, school, "X.MATH")
     a, _b = students
     exam_id = client.post("/admin/exams", headers=_auth(school), json={"name": "UT6", "scheduled_date": "2026-12-03"}).json()["id"]
@@ -271,13 +269,13 @@ def test_a_plain_subject_teacher_only_sees_exams_with_her_own_subjects_papers(cl
     client.post(f"/admin/exams/{exam_id}/papers", headers=_auth(school), json={"assessment_id": sci})
 
     body = client.get("/admin/exams", headers=h_math).json()
-    assert _find(body["conducted"] + body["upcoming"] + body["awaiting_marks"], "id", exam_id) is None
+    assert _find(body["conducted"] + body["upcoming"] + body["awaiting_marks"], "id", exam_id) is not None
 
 
-def test_a_class_only_teacher_with_no_assignment_can_create_but_not_attach(client, school, students):
-    """A class-only, non-exam_cell teacher (no subject assignment at all) may still
-    create the empty exam shell and gets an empty (not 403) list, but has no subject to
-    attach a paper for -- teacher_subject_codes is empty, so attach is always refused."""
+def test_a_class_only_teacher_with_no_assignment_can_create_and_attach_any_subject(client, school, students):
+    """A class-only, non-exam_cell teacher (no subject assignment at all) may now create
+    the exam shell AND attach any subject's paper to it -- paper authoring/attach no
+    longer requires any subject assignment (see require_paper_scope)."""
     import secrets
 
     from app.db import SessionLocal
@@ -294,16 +292,13 @@ def test_a_class_only_teacher_with_no_assignment_can_create_but_not_attach(clien
     assert r.status_code == 200, r.text
     exam_id = r.json()["id"]
 
-    r = client.get("/admin/exams", headers=h)
-    assert r.status_code == 200, r.text
-    assert r.json() == {
-        "today": r.json()["today"], "upcoming": [], "awaiting_marks": [], "conducted": [], "weakest_subject": None,
-    }
-
     a, _b = students
-    aid = _paper(client, school, "X.MATH", "Not hers", {a: 8})
+    aid = _paper(client, school, "X.MATH", "Now hers too", {a: 8})
     r = client.post(f"/admin/exams/{exam_id}/papers", headers=h, json={"assessment_id": aid})
-    assert r.status_code == 404
+    assert r.status_code == 200, r.text
+
+    body = client.get("/admin/exams", headers=h).json()
+    assert _find(body["conducted"] + body["upcoming"] + body["awaiting_marks"], "id", exam_id) is not None
 
 
 def test_principal_and_admin_scheduling_still_works_unchanged(client, school):

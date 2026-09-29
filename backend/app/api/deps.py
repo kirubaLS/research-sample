@@ -249,9 +249,11 @@ def require_scanner_or_teacher(
 
 
 def teacher_subject_codes(staff: Staff, db: Session) -> set[str]:
-    """Every subject a teacher key may author a paper for. A class assignment names no
-    subject and grants nothing here -- paper-authoring, like marks entry, is a subject
-    right (spec §10.2's default)."""
+    """Every subject a teacher key holds a real subject assignment for. Still the real
+    gate for marks entry and for which subjects show up in a teacher's Insights/My-class
+    views -- a class assignment names no subject and grants nothing here. It is no longer
+    consulted for paper authoring/scanning/viewing (see require_paper_scope): every
+    teacher key may act on any subject's paper, the same as the exam cell always could."""
     return {
         a.subject_code
         for a in teacher_assignments(staff, db)
@@ -266,18 +268,17 @@ def require_paper_scope(
     db: Session = Depends(get_session),
 ) -> School:
     """Authoring one paper: create-questions-aside, this covers scan/edit/confirm/map and
-    reading the same. An Assessment is not section-scoped -- it is shared by every section
-    that sits it -- so a subject assignment on *any* section is enough; unlike marks entry
-    there is no single section to check against. A class-only teacher never reaches this,
-    the same as they never reach marks entry.
+    reading the same. Every teacher key may act on any subject's paper -- the same right
+    the exam cell always had, now extended to every teacher key rather than gated behind
+    a subject assignment. This dependency only ever refused another *school's* assessment
+    (still enforced below); a class-only teacher passes here exactly like a subject
+    teacher or the exam cell.
     """
     if not staff.is_teacher:
         return school_in_scope(staff, x_school_id, db)
     assert staff.home is not None, "a teacher key always names its school"
     assessment = db.get(Assessment, assessment_id)
     if assessment is None or assessment.school_id != staff.home.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
-    if not staff.exam_cell and assessment.subject_code not in teacher_subject_codes(staff, db):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
     return staff.home
 
@@ -350,8 +351,7 @@ def require_document_scope(
     if assessment is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
     if document.kind == "question_paper":
-        if assessment.subject_code not in teacher_subject_codes(staff, db):
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+        pass  # any teacher key may confirm/delete any subject's question paper document
     elif document.kind == "answer_sheet":
         student = db.get(StudentProfile, document.student_id) if document.student_id else None
         if student is None:
@@ -478,13 +478,9 @@ def require_exam_read_scope(
     allows, plus ANY teacher key -- exam cell or a plain subject/class teacher alike.
 
     There is no more special "exam cell" gate on reading: every teacher uses the same
-    "Create test" / Question Papers flow (see the teacher dashboard). What keeps a plain
-    teacher from seeing another teacher's subject is not this dependency -- it is
-    list_exams itself, which filters its exams/papers/rollup down to
-    ``teacher_subject_codes(staff, db)`` for any non-exam_cell teacher, exactly the same
-    real scoping require_paper_scope already uses for paper authoring. A teacher with no
-    subject assignment at all (a class-only teacher) is let through here too and simply
-    gets an empty result, the same shape a subject teacher with no papers yet would see.
+    "Create test" / Question Papers flow (see the teacher dashboard), and list_exams no
+    longer filters its exams/papers/rollup by subject assignment either -- every teacher
+    key now sees every subject's exams/papers, the same as the exam cell always did.
     """
     if staff.is_teacher:
         assert staff.home is not None, "a teacher key always names its school"
@@ -502,11 +498,10 @@ def require_exam_write_scope(
     Creating the exam shell is just a name and a date -- it names no subject and controls
     no other teacher's data until a paper is actually attached to it, so there is nothing
     here for a subject check to protect; refusing a plain teacher would only block her
-    from using the same "Create test" flow every other teacher gets. The real scoping
-    lives on attach_paper (POST /admin/exams/{id}/papers), which checks
-    ``teacher_subject_codes`` before letting a non-exam_cell teacher put a paper of a
-    given subject under any exam, the same real check require_paper_scope already makes
-    for authoring a paper directly.
+    from using the same "Create test" flow every other teacher gets. attach_paper (POST
+    /admin/exams/{id}/papers) now lets any teacher key attach any subject's paper to any
+    exam, the same every-subject right require_paper_scope gives for authoring a paper
+    directly.
     """
     if staff.is_teacher:
         assert staff.home is not None, "a teacher key always names its school"

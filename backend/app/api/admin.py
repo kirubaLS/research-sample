@@ -71,10 +71,11 @@ def whoami(
     hiding the wrong one; this way the dashboard and the API cannot disagree.
     """
     school = school_in_scope(staff, x_school_id, db)
-    # A teacher's own paper-authoring/marks/scanning rights turn on holding at least one
-    # *subject* assignment -- a class-only teacher stays read-only, same rule as
-    # teacher_can_enter_marks. Computed once and reused for both flags: they are granted
-    # or refused together, since both routes live behind exactly the same subject check.
+    # Marks entry still turns on holding at least one *subject* assignment -- a
+    # class-only teacher stays read-only there, same rule as teacher_can_enter_marks and
+    # the Insights/My-class tabs. Paper authoring/scanning is no longer gated the same
+    # way: every teacher key may act on any subject's paper (see require_paper_scope), so
+    # it no longer shares this flag with marks entry.
     teacher_has_subject = staff.is_teacher and (bool(teacher_subject_codes(staff, db)) or staff.exam_cell)
     out = {
         "school_id": school.id,
@@ -93,9 +94,11 @@ def whoami(
         "exam_cell": staff.is_teacher and staff.exam_cell,
         "can": {
             "read_results": not staff.is_teacher,
-            # Scanning and marks entry are open to any staff. A principal produces marks
-            # as well as reading them: a deliberate choice, not an oversight.
-            "scan_papers": (not staff.is_teacher) or teacher_has_subject,
+            # Scanning/authoring a question paper is open to any staff, and now to any
+            # teacher key for any subject -- no assignment required. Marks entry is open
+            # to any non-teacher staff, and to a teacher key only where they hold a real
+            # subject assignment (or are the exam cell).
+            "scan_papers": True,
             "enter_marks": (not staff.is_teacher) or teacher_has_subject,
             # The roster is now open to a principal too (add/edit/remove a student in
             # their own school) -- the same widening require_scanner already made for
@@ -716,12 +719,9 @@ def teacher_roster(
 def teacher_papers(
     staff: Staff = Depends(current_staff), db: Session = Depends(get_session)
 ) -> dict:
-    """Every paper this teacher key may author -- one whose subject_code is one they
-    hold a subject assignment for, whatever section that assignment names, or every
-    paper in the school for the exam cell, which holds that right for every subject
-    without needing an assignment row per one. A class-only, non-exam-cell teacher (no
-    subject assignment at all) gets an empty list, the same as they get no
-    paper-authoring route to act on one anyway.
+    """Every paper in the school -- every teacher key may now author/view any subject's
+    paper, the same right the exam cell always had. A subject assignment no longer
+    limits this list; it still governs marks entry and the Insights/My-class tabs.
 
     Reuses marks.assessment_summaries so this list can never show a different "stage" for
     a paper than the principal's own /assessments listing does.
@@ -732,11 +732,6 @@ def teacher_papers(
     from app.api.marks import assessment_summaries
 
     query = select(Assessment).where(Assessment.school_id == staff.home.id)
-    if not staff.exam_cell:
-        subjects = teacher_subject_codes(staff, db)
-        if not subjects:
-            return {"assessments": []}
-        query = query.where(Assessment.subject_code.in_(subjects))
     assessments = list(db.scalars(query.order_by(Assessment.created_at.desc())))
     return {"assessments": assessment_summaries(db, assessments)}
 
