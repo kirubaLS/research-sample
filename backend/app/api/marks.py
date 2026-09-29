@@ -278,26 +278,40 @@ def delete_assessment(
     holds paper-authoring rights at all, still can't reach this.
     """
     a = _get_assessment(db, school, assessment_id)
-    question_ids = list(db.scalars(
-        select(Question.id).where(Question.assessment_id == assessment_id)
-    ))
-    if question_ids:
-        db.execute(QuestionSkill.__table__.delete().where(
-            QuestionSkill.question_id.in_(question_ids)
-        ))
-        db.execute(QuestionTier.__table__.delete().where(
-            QuestionTier.question_id.in_(question_ids)
-        ))
-        db.execute(QuestionPlacement.__table__.delete().where(
-            QuestionPlacement.question_id.in_(question_ids)
-        ))
-        # Layer 2B's review trail -- also keyed on question_id with no cascade, same as
-        # the three above. Missing here meant any paper with at least one judged question
-        # (rare, but real) 500'd on delete with a foreign key violation and no explanation,
-        # exactly the failure mode the job-table fix below already describes.
-        db.execute(QuestionJudgment.__table__.delete().where(
-            QuestionJudgment.question_id.in_(question_ids)
-        ))
+    from sqlalchemy.exc import IntegrityError
+
+    # The per-question tables (skill, tier, placement, judgment) are keyed on question_id
+    # with no cascade. They are deleted by a subquery on the paper's questions, not from
+    # a list of ids read beforehand, and immediately before Question itself: a "Read and
+    # classify" job still running on this paper commits new placement/tier rows in the
+    # background, and a snapshot of ids taken a statement earlier missed exactly the rows
+    # it inserted in between -- the Question delete then failed on a foreign key
+    # violation as a bare 500. If the job lands a row inside even that window, the whole
+    # cleanup is retried; a paper the job keeps writing to is refused with a reason
+    # rather than an internal error.
+    own_questions = select(Question.id).where(Question.assessment_id == assessment_id)
+    for attempt in range(3):
+        try:
+            with db.begin_nested():
+                for model in (QuestionSkill, QuestionTier, QuestionPlacement, QuestionJudgment):
+                    db.execute(model.__table__.delete().where(
+                        model.question_id.in_(own_questions)
+                    ))
+                _delete_assessment_rows(db, assessment_id)
+            break
+        except IntegrityError:
+            if attempt == 2:
+                raise HTTPException(
+                    409,
+                    "a background job (Read and classify, or a scan) is still writing to "
+                    "this paper. Wait for it to finish, then delete the paper again.",
+                ) from None
+    db.delete(a)
+    db.commit()
+
+
+def _delete_assessment_rows(db: Session, assessment_id: str) -> None:
+    """Everything keyed on assessment.id, in an order the foreign keys allow."""
     for model in (
         # ScannedQuestion and MarkEvent both go before Question: ScannedQuestion.question_id
         # is a nullable FK onto Question, set once a scanned row is promoted, and
@@ -326,13 +340,11 @@ def delete_assessment(
         select(ScanDocument).where(ScanDocument.assessment_id == assessment_id)
     ):
         db.delete(document)
-    # Flushed separately from the assessment's own delete below: ScanDocument's cascade to
-    # its ScanPage/GridSheetRow rows is an ORM-level delete the unit of work only orders
+    # Flushed separately from the assessment's own delete: ScanDocument's cascade to its
+    # ScanPage/GridSheetRow rows is an ORM-level delete the unit of work only orders
     # correctly against the bulk, Core-level deletes above (and against the assessment row
     # itself) once it has actually run, not merely been queued.
     db.flush()
-    db.delete(a)
-    db.commit()
 
 
 @router.post("/{assessment_id}/questions")

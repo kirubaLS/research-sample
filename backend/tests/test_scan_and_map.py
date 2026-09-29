@@ -1338,6 +1338,32 @@ def test_map_lets_the_topic_judge_choose_the_section_within_the_retrieved_chapte
 
     monkeypatch.setattr("app.classify.topic.TopicJudge", StubTopicJudge)
 
+    # A family that claims the mode section, so the family can follow the judge's
+    # section the way it does in production (where every section has one).
+    from sqlalchemy import select
+
+    from app.db import SessionLocal
+    from app.models import ConceptFamilyProposal, TaxonomyNode
+
+    db = SessionLocal()
+    try:
+        stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.MODE")) is None:
+            db.add(TaxonomyNode(
+                kind="concept_family", code="X.MATH.CF.MODE", label="Mode of grouped data",
+                parent_id=stats.id, path="X.MATH.CF.MODE",
+                curriculum_version=stats.curriculum_version,
+            ))
+            db.add(ConceptFamilyProposal(
+                curriculum_version=stats.curriculum_version, subject_code="X.MATH",
+                run_id="fixture", source="llm", model="fixture",
+                code="X.MATH.CF.MODE", label="Mode of grouped data",
+                chapter_id=stats.id, evidence=["Section 13.3"], from_sections=["13.3"],
+            ))
+            db.commit()
+    finally:
+        db.close()
+
     aid = client.post("/assessments", headers=h, json={
         "subject_code": "X.MATH", "title": "Judged topic", "total_marks": 3,
     }).json()["assessment_id"]
@@ -1351,6 +1377,7 @@ def test_map_lets_the_topic_judge_choose_the_section_within_the_retrieved_chapte
     assert placed["mapped_to"]["chapter"] == "Statistics"
     assert placed["mapped_to"]["curriculum_section"] == "13.3"
     assert placed["mapped_to"]["topic"] == "Mode of Grouped Data"
+    assert placed["mapped_to"]["concept_family"] == "Mode of grouped data"
     assert placed["mapped_to"]["needs_review"] is True
     assert "Topic 13.3 (Mode of Grouped Data)" in placed["mapped_to"]["review_reason"]
     assert "pointed at section 13.2" in placed["mapped_to"]["review_reason"]
