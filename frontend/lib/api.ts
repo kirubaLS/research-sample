@@ -588,6 +588,8 @@ export interface PaperSummary {
   exam_id: string | null;
   stage: "empty" | "scanned" | "confirmed" | "mapped";
   scanned_questions: number;
+  /** The question paper's own upload, newest first, or null before any upload. */
+  document: { id: string; kind: string; page_count: number; uploaded_at: string | null } | null;
   questions: number;
   mapped_questions: number;
   students_with_marks: number;
@@ -1696,6 +1698,9 @@ export const api = {
       assignments?: TeacherAssignment[];
       /** Only present for a teacher key: the exam cell, the server's own fact. */
       exam_cell?: boolean;
+      label?: string | null;
+      board?: string | null;
+      academic_year?: string | null;
     }>("/admin/me", key),
 
   overview: (key: string) => authed<Overview>("/admin/overview", key),

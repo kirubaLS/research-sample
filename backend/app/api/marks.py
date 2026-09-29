@@ -168,6 +168,20 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
         .where(MarkEvent.assessment_id.in_(ids))
         .group_by(MarkEvent.assessment_id)
     ).all()) if ids else {}
+    # The question paper's own upload (student_id null), newest first: what kind of file
+    # and how many pages, so the papers screen can name the file it holds rather than
+    # only counting the questions read from it.
+    documents: dict[str, dict] = {}
+    if ids:
+        for doc in db.scalars(
+            select(ScanDocument)
+            .where(ScanDocument.assessment_id.in_(ids), ScanDocument.student_id.is_(None))
+            .order_by(ScanDocument.created_at.desc())
+        ):
+            documents.setdefault(doc.assessment_id, {
+                "id": doc.id, "kind": doc.kind, "page_count": doc.page_count,
+                "uploaded_at": doc.created_at.isoformat() if doc.created_at else None,
+            })
 
     rows = []
     for a in assessments:
@@ -195,6 +209,7 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
             "exam_id": a.exam_id,
             "stage": stage,
             "scanned_questions": scanned.get(a.id, 0),
+            "document": documents.get(a.id),
             "questions": n_questions,
             "mapped_questions": n_mapped,
             "students_with_marks": marked.get(a.id, 0),

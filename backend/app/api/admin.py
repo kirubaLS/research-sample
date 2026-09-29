@@ -82,6 +82,12 @@ def whoami(
         "name": school.name,
         "board": school.board,
         "state": school.state,
+        "academic_year": school.academic_year,
+        #: the person's own name as the key was issued (StaffKey.label) -- what the
+        #: sidebar shows as who is signed in; null for the legacy school-wide key
+        "label": (
+            db.get(StaffKey, staff.staff_key_id).label if staff.staff_key_id else None
+        ),
         "training_consent": school.training_consent,
         "role": staff.role,
         #: An admin key is not tied to a school, so the dashboard has to offer a choice of

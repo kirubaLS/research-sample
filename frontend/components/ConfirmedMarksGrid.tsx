@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2 } from "lucide-react";
+import { Lock } from "lucide-react";
 import { api, MarksGridReport } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 import { BusyBanner } from "@/components/BusyBanner";
@@ -73,66 +73,73 @@ export function ConfirmedMarksGrid({
   const groups = Array.from(new Set(report.questions.map((q) => q.group)));
 
   return (
-    <div className="card" style={{ marginTop: 16 }}>
-      <div className="card__body" style={{ display: "grid", gap: 10 }}>
-        <div className="flagbar flagbar--ok" role="status" style={{ justifyContent: "space-between" }}>
-          <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <CheckCircle2 size={16} />
-            {report.questions.length} questions, {report.total_marks} marks total. These answer cards are already
-            mapped.
-          </span>
-          <span className="tag tag--green">Mapped, view only</span>
-        </div>
-
-        <div className="pm-legend">
-          {groups.map((g) => (
-            <span className="pm-legend-item" key={g}>
-              <span className="pm-legend-dot" style={{ background: colorFor(g) }} /> {g}
-            </span>
-          ))}
-        </div>
-
-        <div className="table-wrap table-wrap--scroll">
-          <table className="table pm-grid">
-            <thead>
-              <tr>
-                <th>Roll</th>
-                <th>Student</th>
-                {report.questions.map((q) => (
-                  <th key={q.address} className="num" title={q.group}>
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <span className="pm-legend-dot" style={{ background: colorFor(q.group) }} />
-                      {q.label}../{q.max_marks}
-                    </span>
-                  </th>
-                ))}
-                <th className="num">Total</th>
-              </tr>
-            </thead>
-            <tbody>
-              {report.students.map((row) => (
-                <tr key={row.student_id}>
-                  <td className="mono">{row.roll_no}</td>
-                  <td>{row.name}</td>
-                  {report.questions.map((q) => (
-                    <td key={q.address} className="num">
-                      {row.marks[q.address] ?? "—"}
-                    </td>
-                  ))}
-                  <td className="num strong">
-                    {row.total}/{report.total_marks}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        <p className="small muted" style={{ margin: 0 }}>
-          Marks for all {report.students.length} students are saved and feed the principal&apos;s dashboard. They
-          cannot be edited here.
-        </p>
+    <div className="pm-marks-card">
+      <div className="pm-marks-head" role="status">
+        <span className="pm-marks-head__text">
+          {report.questions.length} questions, {report.total_marks} marks total. These answer cards are already
+          mapped.
+        </span>
+        <span className="pm-pill pm-pill--mapped">
+          <Lock size={12} /> Mapped, view only
+        </span>
       </div>
+
+      <div className="pm-legend">
+        {groups.map((g) => (
+          <span className="pm-legend-item" key={g}>
+            <span className="pm-legend-dot" style={{ background: colorFor(g) }} /> {g}
+          </span>
+        ))}
+      </div>
+
+      <div className="pm-grid-wrap">
+        <table className="pm-grid">
+          <thead>
+            {/* one colour band per question, so a chapter reads as a run of columns */}
+            <tr className="pm-grid__strip" aria-hidden="true">
+              <td />
+              <td />
+              {report.questions.map((q) => (
+                <td key={q.address} style={{ background: colorFor(q.group) }} />
+              ))}
+              <td />
+            </tr>
+            <tr>
+              <th className="pm-grid__left">Roll</th>
+              <th className="pm-grid__left">Student</th>
+              {report.questions.map((q) => (
+                <th key={q.address} title={q.group}>
+                  <div className="pm-grid__q">{q.label}</div>
+                  <div className="pm-grid__max">/{q.max_marks}</div>
+                </th>
+              ))}
+              <th className="pm-grid__total-head">Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {report.students.map((row) => (
+              <tr key={row.student_id}>
+                <td className="pm-grid__left pm-grid__roll">{row.roll_no}</td>
+                <td className="pm-grid__left strong">{row.name}</td>
+                {report.questions.map((q) => (
+                  <td key={q.address}>
+                    <span className="pm-cell">{row.marks[q.address] ?? "—"}</span>
+                  </td>
+                ))}
+                <td className="pm-grid__total-cell">
+                  <span className="pm-total">{row.total}</span>
+                  <span className="pm-total__max">/{report.total_marks}</span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <p className="small muted pm-marks-foot">
+        Marks for all {report.students.length} students are saved and feed the principal&apos;s dashboard. They
+        cannot be edited here.
+      </p>
     </div>
   );
 }

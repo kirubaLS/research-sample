@@ -6,12 +6,10 @@ import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
   ArrowRight,
-  Calendar,
   Camera,
   CheckCircle2,
   ChevronDown,
-  ChevronRight,
-  ClipboardList,
+  FileText,
   Eye,
   FileCheck2,
   Loader2,
@@ -74,7 +72,7 @@ import { getApiKey } from "@/lib/session";
  * tabs that only appear for a teacher who actually holds that kind of assignment -- real
  * data, reusing the same components/hooks the old per-subject/per-class pages used. */
 export default function TeacherDashboardPage() {
-  usePageHeader({ title: "Teacher Dashboard" });
+  usePageHeader({ title: "Question Papers & Marks" });
   const { user } = useAuth();
   const examCell = user?.role === "teacher" && user.examsOnly;
 
@@ -92,7 +90,8 @@ export default function TeacherDashboardPage() {
   return (
     <>
       <p className="page-sub" style={{ marginTop: 0 }}>
-        {examCell ? "Every subject, question papers and marks." : "Your subjects and classes, real end to end."}
+        Every subject, every section, question papers and marks only. Create a test here and it shows up in Enter
+        Marks immediately.
       </p>
 
       <div className="tabs" role="tablist" style={{ marginTop: 18, flexWrap: "wrap" }}>
@@ -296,7 +295,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
       const upcoming: TestRow[] = exams.upcoming.map((e: ScheduledExam) => ({
         id: e.id, name: e.name, date: e.scheduled_date, status: "Scheduled",
       }));
-      setTests([...conducted, ...awaiting, ...upcoming].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")));
+      setTests([...conducted, ...awaiting, ...upcoming].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "")));
     } catch {
       /* the flat papers list below still works without the test grouping */
     } finally {
@@ -318,12 +317,21 @@ function PapersTab({ examCell }: { examCell: boolean }) {
   }
 
   const papersByExam = useMemo(() => {
+    // the timetable's own order: Mathematics, Science, English, Social Science, then
+    // any other subject alphabetically
+    const rank = (code: string) => {
+      const i = ["X.MATH", "X.SCI", "X.ENG", "X.SST"].indexOf(code);
+      return i === -1 ? 99 : i;
+    };
     const map = new Map<string, PaperSummary[]>();
     for (const p of scan.papers) {
       if (!p.exam_id) continue;
       const list = map.get(p.exam_id) ?? [];
       list.push(p);
       map.set(p.exam_id, list);
+    }
+    for (const list of map.values()) {
+      list.sort((a, b) => rank(a.subject_code) - rank(b.subject_code) || a.subject_label.localeCompare(b.subject_label));
     }
     return map;
   }, [scan.papers]);
@@ -392,10 +400,30 @@ function PapersTab({ examCell }: { examCell: boolean }) {
   function coveragePct(p: PaperSummary): number {
     return p.questions > 0 ? Math.round((p.mapped_questions / p.questions) * 100) : 0;
   }
+  /** The test's own state, read off its papers: every paper mapped is analysed, nothing
+   * uploaded yet is scheduled, anything in between is awaiting. The server's own
+   * conducted/upcoming split decides only the in-between wording. */
+  function testStatus(t: TestRow, papers: PaperSummary[]): { label: string; cls: string } {
+    const uploaded = papers.filter((p) => p.stage !== "empty").length;
+    const mapped = papers.filter((p) => p.stage === "mapped").length;
+    if (papers.length > 0 && mapped === papers.length) return { label: "Analysed", cls: "pm-status--analysed" };
+    if (uploaded === 0) return { label: "Scheduled", cls: "pm-status--scheduled" };
+    return { label: t.status === "Scheduled" ? "In progress" : "Awaiting marks", cls: "pm-status--awaiting" };
+  }
+  /** "Class X Mathematics" -> "Mathematics": the class is the whole screen's context. */
+  function shortSubject(label: string): string {
+    return label.replace(/^Class\s+[A-Z0-9]+\s+/i, "");
+  }
+  function fileLabel(p: PaperSummary): string {
+    const d = p.document;
+    if (!d) return "No file yet";
+    const kind = d.kind === "question_paper" ? "Question paper" : d.kind.replace(/_/g, " ");
+    return `${kind} · ${d.page_count} page${d.page_count === 1 ? "" : "s"}`;
+  }
 
   return (
     <div>
-      <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: 8 }}>
+      <div className="pm-toolbar">
         {!scan.assessmentId && (
           <button
             className="btn btn--primary"
@@ -424,112 +452,132 @@ function PapersTab({ examCell }: { examCell: boolean }) {
               const papers = papersByExam.get(t.id) ?? [];
               const mappedCount = papers.filter((p) => p.stage === "mapped").length;
               const open = expanded.has(t.id);
+              const status = testStatus(t, papers);
               return (
                 <StaggerItem key={t.id}>
-                  {/* .pm-examcard--hover's perspective/preserve-3d only applies while
-                     collapsed -- the header is a single clickable target then, but once
-                     expanded this card holds real per-subject action buttons, and that
-                     same 3D transform is what silently ate clicks on the Standalone
-                     papers form above (see the note there). */}
-                  <div className={`pm-examcard ${open ? "" : "pm-examcard--hover"}`}>
+                  {/* The 3D tilt (.pm-examcard--hover) only applies while collapsed: the
+                     header is a single clickable target then, but once expanded this
+                     card holds real per-subject action buttons, and a preserve-3d
+                     transform is what silently ate clicks on the Standalone papers form
+                     below. */}
+                  <div className={`pm-examcard ${open ? "pm-examcard--open" : "pm-examcard--hover"}`}>
                     <button
                       type="button"
                       onClick={() => toggle(t.id)}
                       aria-expanded={open}
                       className="pm-examcard__head"
                     >
-                      <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
-                        <motion.span
-                          style={{ display: "inline-flex", marginTop: 2 }}
-                          animate={{ rotate: open ? 90 : 0 }}
-                          transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-                        >
-                          <ChevronRight size={18} />
-                        </motion.span>
-                        <div>
-                          <div className="pm-examcard__title">{t.name}</div>
-                          <div className="pm-examcard__meta">
-                            <Calendar size={12} /> {t.date ?? "no date"} · {papers.length} subject{papers.length === 1 ? "" : "s"} ·{" "}
-                            {mappedCount} of {papers.length} mapped
-                          </div>
+                      <div>
+                        <div className="pm-examcard__title">{t.name}</div>
+                        <div className="pm-examcard__meta">
+                          {t.date ?? "no date"} · {papers.length} subject{papers.length === 1 ? "" : "s"} ·{" "}
+                          {mappedCount} of {papers.length} mapped
                         </div>
                       </div>
-                      <span className={`tag ${t.status === "Analysed" ? "tag--green" : ""}`}>{t.status}</span>
+                      <div className="pm-examcard__right">
+                        <span className={`pm-status ${status.cls}`}>{status.label}</span>
+                        <motion.span
+                          className="pm-examcard__chev"
+                          animate={{ rotate: open ? 180 : 0 }}
+                          transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                        >
+                          <ChevronDown size={16} />
+                        </motion.span>
+                      </div>
                     </button>
 
-                    {open && (
-                      <div className="pm-examcard__body">
-                        {papers.length === 0 ? (
-                          <p className="small muted">No papers attached to this test yet.</p>
-                        ) : (
-                          <div className="pm-table-wrap">
-                            <table className="pm-table">
-                              <thead>
-                                <tr>
-                                  <th>Subject</th>
-                                  <th>File</th>
-                                  <th>Blueprint coverage</th>
-                                  <th>Status</th>
-                                  <th></th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {papers.map((p) => {
-                                  const st = statusTag(p);
-                                  const pct = coveragePct(p);
-                                  return (
-                                    <tr key={p.id}>
-                                      <td className="strong">{p.subject_label}</td>
-                                      <td>
-                                        <div className="small muted" style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                                          {p.scanned_questions > 0 ? (
-                                            <>
-                                              <FileCheck2 size={13} />
-                                              {p.scanned_questions} question{p.scanned_questions === 1 ? "" : "s"} read
-                                            </>
-                                          ) : (
-                                            <>
-                                              <Upload size={13} /> No file yet
-                                            </>
-                                          )}
-                                        </div>
-                                      </td>
-                                      <td>
-                                        <div className="pm-coverage">
-                                          <div className="pm-coverage__track">
-                                            <div
-                                              className="pm-coverage__fill"
-                                              style={{ width: `${pct}%`, background: pct === 100 ? "var(--brand-green)" : "var(--brand-teal)" }}
-                                            />
-                                          </div>
-                                          <span className="pm-coverage__pct">{pct}%</span>
-                                        </div>
-                                      </td>
-                                      <td>
-                                        <span className={`pm-pill ${st.cls}`}>{st.label}</span>
-                                      </td>
-                                      <td style={{ textAlign: "right" }}>
-                                        <button className="btn btn--sm" onClick={() => void scan.openPaper(p)}>
-                                          {p.stage === "empty" ? (
-                                            <>
-                                              <Upload size={13} /> Upload
-                                            </>
-                                          ) : (
-                                            <>
-                                              <ClipboardList size={13} /> View mapping
-                                            </>
-                                          )}
-                                        </button>
-                                      </td>
+                    <AnimatePresence initial={false}>
+                      {open && (
+                        <motion.div
+                          key="body"
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
+                          style={{ overflow: "hidden" }}
+                        >
+                          <div className="pm-examcard__body">
+                            {papers.length === 0 ? (
+                              <p className="small muted">No papers attached to this test yet.</p>
+                            ) : (
+                              <div className="pm-table-wrap">
+                                <table className="pm-table">
+                                  <thead>
+                                    <tr>
+                                      <th>Subject</th>
+                                      <th>File</th>
+                                      <th>Blueprint coverage</th>
+                                      <th>Status</th>
+                                      <th></th>
                                     </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                                  </thead>
+                                  <tbody>
+                                    {papers.map((p, i) => {
+                                      const st = statusTag(p);
+                                      const pct = coveragePct(p);
+                                      return (
+                                        <motion.tr
+                                          key={p.id}
+                                          initial={{ opacity: 0, y: 6 }}
+                                          animate={{ opacity: 1, y: 0 }}
+                                          transition={{ duration: 0.3, delay: 0.05 + i * 0.05, ease: [0.22, 1, 0.36, 1] }}
+                                        >
+                                          <td className="strong">{shortSubject(p.subject_label)}</td>
+                                          <td>
+                                            {p.document ? (
+                                              <span
+                                                className="pm-file"
+                                                title={p.scanned_questions > 0 ? `${p.scanned_questions} questions read` : undefined}
+                                              >
+                                                <FileText size={14} /> {fileLabel(p)}
+                                              </span>
+                                            ) : (
+                                              <span className="muted">No file yet</span>
+                                            )}
+                                          </td>
+                                          <td>
+                                            {p.questions > 0 ? (
+                                              <div className="pm-coverage">
+                                                <div className="pm-coverage__track">
+                                                  <motion.div
+                                                    className="pm-coverage__fill"
+                                                    initial={{ width: 0 }}
+                                                    animate={{ width: `${pct}%` }}
+                                                    transition={{ duration: 0.7, delay: 0.15 + i * 0.05, ease: [0.22, 1, 0.36, 1] }}
+                                                    style={{ background: pct === 100 ? "var(--brand-green)" : "var(--brand-teal)" }}
+                                                  />
+                                                </div>
+                                                <span className="pm-coverage__pct">{pct}%</span>
+                                              </div>
+                                            ) : (
+                                              <span className="muted">{p.stage === "empty" ? "Not yet available" : "Not yet mapped"}</span>
+                                            )}
+                                          </td>
+                                          <td>
+                                            <span className={`pm-pill ${st.cls}`}>{st.label}</span>
+                                          </td>
+                                          <td style={{ textAlign: "right" }}>
+                                            <button className="btn btn--sm pm-btn-action" onClick={() => void scan.openPaper(p)}>
+                                              {p.stage === "empty" ? (
+                                                <>
+                                                  <Upload size={13} /> Upload
+                                                </>
+                                              ) : (
+                                                "View mapping"
+                                              )}
+                                            </button>
+                                          </td>
+                                        </motion.tr>
+                                      );
+                                    })}
+                                  </tbody>
+                                </table>
+                              </div>
+                            )}
                           </div>
-                        )}
-                      </div>
-                    )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </StaggerItem>
               );
@@ -999,13 +1047,33 @@ function PapersTab({ examCell }: { examCell: boolean }) {
         Real scan, mapping and classification against the backend -- nothing here is simulated.
       </p>
 
-      {showCreate && (
-        <div className="modal-backdrop" onClick={() => !creating && setShowCreate(false)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal__head">
-              <div className="strong">Create test</div>
-              <button className="btn btn--sm" onClick={() => setShowCreate(false)} disabled={creating}>
-                Close
+      <AnimatePresence>
+        {showCreate && (
+          <motion.div
+            className="modal-backdrop"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            onClick={() => !creating && setShowCreate(false)}
+          >
+            <motion.div
+              className="modal pm-modal"
+              initial={{ opacity: 0, scale: 0.94, y: 14, rotateX: 6 }}
+              animate={{ opacity: 1, scale: 1, y: 0, rotateX: 0 }}
+              exit={{ opacity: 0, scale: 0.97, y: 8 }}
+              transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+              onClick={(e) => e.stopPropagation()}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="create-test-title"
+            >
+            <div className="pm-modal__head">
+              <div className="pm-modal__title" id="create-test-title">
+                <Plus size={16} /> Create test
+              </div>
+              <button type="button" className="pm-modal__close" onClick={() => setShowCreate(false)} disabled={creating} aria-label="Close">
+                <X size={16} />
               </button>
             </div>
             <form onSubmit={createTest}>
@@ -1017,7 +1085,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                     className="input"
                     value={examName}
                     onChange={(e) => setExamName(e.target.value)}
-                    placeholder="e.g. Unit Test 2"
+                    placeholder="e.g. Weekly Test 3"
                     maxLength={200}
                   />
                 </div>
@@ -1034,8 +1102,9 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                         key={s.subject_code}
                         className={`pm-chip ${pickedSubjects.has(s.subject_code) ? "pm-chip--on" : ""}`}
                         onClick={() => toggleSubject(s.subject_code)}
+                        aria-pressed={pickedSubjects.has(s.subject_code)}
                       >
-                        {s.label}
+                        {shortSubject(s.label)}
                       </button>
                     ))}
                   </div>
@@ -1046,14 +1115,19 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                 <button type="button" className="btn" onClick={() => setShowCreate(false)} disabled={creating}>
                   Cancel
                 </button>
-                <button type="submit" className="btn btn--primary" disabled={creating}>
-                  {creating ? "Creating…" : "Create test"}
+                <button
+                  type="submit"
+                  className="btn btn--primary"
+                  disabled={creating || !examName.trim() || !examDate || pickedSubjects.size === 0}
+                >
+                  <Plus size={14} /> {creating ? "Creating…" : "Create test"}
                 </button>
               </div>
             </form>
-          </div>
-        </div>
-      )}
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -1067,16 +1141,61 @@ function MarksTab() {
   const [notReady, setNotReady] = useState<Set<string>>(new Set());
   const marksKey = `${grid.paperId}:${grid.sectionId}`;
 
+  // Assessment first, then the subject within it: a test day (exam_id) groups one paper
+  // per subject; a paper never attached to a test is its own single-subject assessment.
+  const assessments = useMemo(() => {
+    const groups = new Map<string, { key: string; label: string; papers: PaperSummary[] }>();
+    for (const p of grid.ready) {
+      const key = p.exam_id ?? `paper:${p.id}`;
+      const g = groups.get(key) ?? { key, label: p.title, papers: [] };
+      g.papers.push(p);
+      groups.set(key, g);
+    }
+    return Array.from(groups.values());
+  }, [grid.ready]);
+  const [assessmentKey, setAssessmentKey] = useState("");
+  const chosen = assessments.find((a) => a.key === assessmentKey) ?? null;
+  // a paper picked elsewhere (or the only paper of a test) keeps the two selects in step
+  useEffect(() => {
+    if (!grid.paperId) return;
+    const owner = assessments.find((a) => a.papers.some((p) => p.id === grid.paperId));
+    if (owner && owner.key !== assessmentKey) setAssessmentKey(owner.key);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [grid.paperId, assessments]);
+
+  function pickAssessment(key: string) {
+    setAssessmentKey(key);
+    const group = assessments.find((a) => a.key === key);
+    grid.pickPaper(group && group.papers.length === 1 ? group.papers[0].id : "");
+  }
+
   return (
     <div>
       <div className="filterbar">
         <div className="filter">
-          <label htmlFor="marks-paper">Assessment</label>
-          <select id="marks-paper" className="select" value={grid.paperId} onChange={(e) => grid.pickPaper(e.target.value)}>
-            <option value="">Choose a paper…</option>
-            {grid.ready.map((p) => (
+          <label htmlFor="marks-assessment">Assessment</label>
+          <select id="marks-assessment" className="select" value={assessmentKey} onChange={(e) => pickAssessment(e.target.value)}>
+            <option value="">Choose a test…</option>
+            {assessments.map((a) => (
+              <option key={a.key} value={a.key}>
+                {a.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="filter">
+          <label htmlFor="marks-paper">Subject</label>
+          <select
+            id="marks-paper"
+            className="select"
+            value={grid.paperId}
+            onChange={(e) => grid.pickPaper(e.target.value)}
+            disabled={!chosen}
+          >
+            <option value="">{chosen ? "Choose a subject…" : "Pick a test first"}</option>
+            {(chosen?.papers ?? []).map((p) => (
               <option key={p.id} value={p.id}>
-                {p.title} · {p.subject_label}
+                {p.subject_label.replace(/^Class\s+[A-Z0-9]+\s+/i, "")}
               </option>
             ))}
           </select>

@@ -50,6 +50,12 @@ export interface StaffRole {
    * subject, no assignments of their own. The server's own fact, not something the
    * client infers from assignments/can. */
   exam_cell?: boolean;
+  /** The person's own name as the key was issued (StaffKey.label); null for the
+   * legacy school-wide key. */
+  label?: string | null;
+  board?: string | null;
+  state?: string | null;
+  academic_year?: string | null;
 }
 
 /**

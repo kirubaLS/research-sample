@@ -264,7 +264,10 @@ function StaffSignIn() {
     try {
       const me = await api.whoami(key);
       setApiKey(key, me.name);
-      setRole({ role: me.role, can: me.can, scope: me.scope, assignments: me.assignments, exam_cell: me.exam_cell });
+      setRole({
+        role: me.role, can: me.can, scope: me.scope, assignments: me.assignments, exam_cell: me.exam_cell,
+        label: me.label ?? null, board: me.board ?? null, state: me.state ?? null, academic_year: me.academic_year ?? null,
+      });
       // router.push is a client-side route change -- it never remounts the root
       // AuthProvider, so without this its `user` stays whatever it was before sign-in
       // (usually null) and the destination's RoleGuard bounces straight back to /login.

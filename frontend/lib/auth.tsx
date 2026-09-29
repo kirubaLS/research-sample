@@ -58,7 +58,8 @@ function readUser(): CurrentUser | null {
     return {
       role: "teacher",
       id: key,
-      name,
+      // the person's own name as the key was issued; the school's only as a fallback
+      name: role.label || name,
       assignments,
       can: role.can,
       examsOnly: role.exam_cell === true,
