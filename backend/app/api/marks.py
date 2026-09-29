@@ -1476,7 +1476,10 @@ def auto_confirm_scan(db: Session, assessment: Assessment) -> dict:
     for r in rows:
         if r.address in context or r.max_marks is not None:
             continue
-        siblings = [float(s.max_marks) for s in by_question[(r.section, r.question_no)] if s.max_marks is not None]
+        siblings = [
+            float(s.max_marks) for s in by_question[(r.section, r.question_no)]
+            if s.max_marks is not None
+        ]
         if siblings:
             guess = Counter(siblings).most_common(1)[0][0]
         elif by_section.get(r.section):

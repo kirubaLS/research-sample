@@ -569,7 +569,10 @@ def _run_gridsheet_job(job_id: str) -> None:
                     student = db.get(StudentProfile, r.suggested_student_id)
                     if student is not None:
                         r.student_id, r.status = student.id, "clean"
-                        r.note = f"auto: matched by name; the sheet's roll {r.roll_no!r} is not {student.roll_no!r}"
+                        r.note = (
+                            f"auto: matched by name; the sheet's roll {r.roll_no!r} "
+                            f"is not {student.roll_no!r}"
+                        )
                         _write_proposed_marks(db, school, assessment, questions, student, r, source_name)
                         auto_resolved += 1
             db.flush()

@@ -163,7 +163,10 @@ def test_auto_confirm_excuses_an_unreadable_cell_instead_of_blocking_the_student
         confirmed, skipped = _confirm_grid_rows(db, a, [row], by="auto", excuse_problems=True)
         db.commit()
         assert confirmed == [student.roll_no] and skipped == []
-        events = {e.question_id: e for e in db.scalars(select(MarkEvent).where(MarkEvent.assessment_id == aid))}
+        events = {
+            e.question_id: e
+            for e in db.scalars(select(MarkEvent).where(MarkEvent.assessment_id == aid))
+        }
         assert float(events[qs["1"].id].marks) == 1.0 and events[qs["1"].id].source == "auto"
         assert events[qs["2"].id].state == "not_offered" and events[qs["2"].id].marks is None
         assert events[qs["2"].id].provenance["excused"] is True
