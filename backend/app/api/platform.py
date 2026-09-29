@@ -248,6 +248,70 @@ def whoami(request: Request) -> dict:
     return {"role": "platform_admin"}
 
 
+@router.get("/subjects")
+def list_subjects(db: Session = Depends(get_session)) -> dict:
+    """Every real subject this deployment carries, group codes included (e.g. "X.SST"
+    for Social Science) -- reachable with the operator key, unlike app.api.admin's own
+    /admin/subjects (which needs `current_staff`, a real school's key, and quietly locks
+    the operator key out). Same response shape as that route -- the school console's own
+    "assign a subject" picker (and the onboarding wizard's) both read this to offer real
+    codes instead of free text. A typed-in code that doesn't exactly match one of these
+    (a stray "SST" instead of "X.SST", a lowercase or misspelled guess) can never match
+    what create_assessment checks a teacher's own assignments against, and 404s a
+    teacher trying to author a real paper for a subject the school console *shows* them
+    holding.
+    """
+    from sqlalchemy import func, select
+
+    from app.curriculum import subject_groups
+    from app.models import BookChunk
+
+    out = []
+    for group in subject_groups():
+        books = []
+        group_chapters = group_board_units = group_chunks = group_embedded = 0
+        for curriculum in group.members:
+            chunks = db.scalar(
+                select(func.count(BookChunk.id)).where(
+                    BookChunk.subject_code == curriculum.subject_code
+                )
+            ) or 0
+            embedded = db.scalar(
+                select(func.count(BookChunk.id)).where(
+                    BookChunk.subject_code == curriculum.subject_code,
+                    BookChunk.embedding.isnot(None),
+                )
+            ) or 0
+            books.append({
+                "subject_code": curriculum.subject_code,
+                "label": curriculum.subject_label,
+                "grade": curriculum.grade,
+                "chapters": len(curriculum.chapters),
+                "board_units": len(curriculum.units),
+                "book_loaded": embedded > 0,
+                "chunks": chunks,
+                "chunks_embedded": embedded,
+            })
+            group_chapters += len(curriculum.chapters)
+            group_board_units += len(curriculum.units)
+            group_chunks += chunks
+            group_embedded += embedded
+        out.append({
+            "group_code": group.group_code,
+            "group_label": group.group_label,
+            "subject_code": group.group_code,
+            "label": group.group_label,
+            "grade": group.members[0].grade,
+            "chapters": group_chapters,
+            "board_units": group_board_units,
+            "book_loaded": group_embedded > 0,
+            "chunks": group_chunks,
+            "chunks_embedded": group_embedded,
+            "books": books,
+        })
+    return {"subjects": out}
+
+
 @router.get("/schools")
 def list_schools(db: Session = Depends(get_session)) -> list[dict]:
     schools = db.scalars(select(School).order_by(School.name)).all()

@@ -847,6 +847,23 @@ function TeachersTab({
     const q = search.trim().toLowerCase();
     return [t.name, t.label, t.email, t.phone].filter(Boolean).some((v) => v!.toLowerCase().includes(q));
   });
+
+  // The real subject_code list this deployment carries, fetched once here rather than
+  // per row -- so "Add subject" below can offer an actual pick list instead of the free
+  // text a typo in could never match what create_assessment checks a teacher's own
+  // assignments against.
+  const [subjects, setSubjects] = useState<{ subject_code: string; label: string }[]>([]);
+  useEffect(() => {
+    const key = getPlatformKey();
+    if (!key) return;
+    api
+      .platformSubjects(key)
+      .then((r) => setSubjects(r.subjects))
+      .catch(() => {
+        /* the row below falls back to a plain text prompt if this never loads */
+      });
+  }, []);
+
   return (
     <section className="card">
       <div className="card__body">
@@ -902,6 +919,7 @@ function TeachersTab({
                 key={t.id}
                 entry={t}
                 sections={sections}
+                subjects={subjects}
                 schoolCode={schoolCode}
                 flashed={flashIds.has(t.id)}
                 onRevoke={onRevoke}
@@ -920,6 +938,7 @@ function TeachersTab({
 function TeacherRow({
   entry,
   sections,
+  subjects,
   schoolCode,
   flashed,
   onRevoke,
@@ -929,6 +948,7 @@ function TeacherRow({
 }: {
   entry: StaffKeySummary;
   sections: PlatformSchool["sections"];
+  subjects: { subject_code: string; label: string }[];
   schoolCode: string | null;
   flashed: boolean;
   onRevoke: (entry: StaffKeySummary) => void;
@@ -976,14 +996,21 @@ function TeacherRow({
   }
 
   function addSubject() {
-    const subject = window.prompt("Subject code (e.g. MATH, SCI, ENG)", "");
-    if (!subject) return;
     const sectionId = sections[0]?.id;
-    if (!sectionId) return;
+    if (!sectionId || subjects.length === 0) return;
+    // A real subject_code from the deployment's own curriculum, not free text -- picking
+    // whichever one isn't already assigned yet is just a sane starting point; the row's
+    // own dropdown below is what actually decides it, exactly like section already works.
+    const already = new Set(assignments.filter((a) => a.type === "subject").map((a) => a.subject_code));
+    const first = subjects.find((s) => !already.has(s.subject_code)) ?? subjects[0];
     setAssignments((prev) => [
       ...prev,
-      { id: `new-subj-${Date.now()}`, staff_key_id: entry.id, type: "subject", section_id: sectionId, subject_code: subject.toUpperCase() },
+      { id: `new-subj-${Date.now()}`, staff_key_id: entry.id, type: "subject", section_id: sectionId, subject_code: first.subject_code },
     ]);
+  }
+
+  function updateSubjectCode(assignmentId: string, subjectCode: string) {
+    setAssignments((prev) => prev.map((a) => (a.id === assignmentId ? { ...a, subject_code: subjectCode } : a)));
   }
 
   function updateSubjectSection(assignmentId: string, sectionId: string) {
@@ -1108,7 +1135,17 @@ function TeacherRow({
               <div style={{ display: "grid", gap: 6, marginTop: 6 }}>
                 {subjectAssignments.map((a) => (
                   <div key={a.id} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                    <span className="tag mono">{a.subject_code}</span>
+                    <select className="input" style={{ maxWidth: 200 }} value={a.subject_code ?? ""} onChange={(e) => updateSubjectCode(a.id, e.target.value)}>
+                      {/* A stored code from before this picker existed may not match any
+                         real subject_code any more -- keep it selectable rather than
+                         silently swap it out for something the admin never chose. */}
+                      {a.subject_code && !subjects.some((s) => s.subject_code === a.subject_code) && (
+                        <option value={a.subject_code}>{a.subject_code} (unrecognised)</option>
+                      )}
+                      {subjects.map((s) => (
+                        <option key={s.subject_code} value={s.subject_code}>{s.label}</option>
+                      ))}
+                    </select>
                     <select className="input" style={{ maxWidth: 160 }} value={a.section_id} onChange={(e) => updateSubjectSection(a.id, e.target.value)}>
                       {sections.map((s) => (
                         <option key={s.id} value={s.id}>{s.label}</option>
