@@ -1461,6 +1461,9 @@ export interface Subject extends SubjectBook {
 }
 
 export interface ScanResult {
+  /** Set when the server runs the rest of the pipeline itself (auto_pipeline): the map
+   *  and classify jobs already queued for this paper, to watch rather than start. */
+  auto?: { map_job_id: string; place_job_id: string };
   route: "text" | "vision";
   pages: number;
   questions: number;

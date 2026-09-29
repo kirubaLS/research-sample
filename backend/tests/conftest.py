@@ -13,6 +13,8 @@ def _tmp_db():
     fd, path = tempfile.mkstemp(suffix=".db")
     os.close(fd)
     os.environ["YAADHUM_DATABASE_URL"] = f"sqlite+pysqlite:///{path}"
+    # each step is exercised on its own here; the zero-touch chain has its own tests
+    os.environ["YAADHUM_AUTO_PIPELINE"] = "false"
     yield
     try:
         os.unlink(path)

@@ -35,6 +35,7 @@ from app.extraction.address import Address, AddressResolver
 from app.extraction.choice import group_choices
 from app.extraction.verification import verify_paper
 from app.ingest.book import stem_hash
+from app.mapping.family import Choice
 from app.mapping.solver import Constraint, QuestionDist, solve
 from app.mapping.topic_node import (
     BOOK_MAP_SUBJECTS,
@@ -988,7 +989,17 @@ def _run_paper_scan_job(job_id: str) -> None:
     finally:
         db.close()
 
+    auto: dict | None = None
+    if get_settings().auto_pipeline:
+        db = SessionLocal()
+        try:
+            auto = _queue_auto_pipeline(db, school_id, assessment_id)
+        finally:
+            db.close()
+        result = {**result, "auto": auto}
     _finish_paper_scan_job(job_id, status_value="succeeded", result=result)
+    if auto is not None:
+        _run_auto_pipeline(assessment_id, auto)
 
 
 @router.post("/{assessment_id}/scan", status_code=status.HTTP_201_CREATED, response_model=None)
@@ -1075,7 +1086,17 @@ async def scan_paper(
             )
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=content)
 
-    return _finish_paper_scan(db, school, assessment, extract, originals, source_sha)
+    result = _finish_paper_scan(db, school, assessment, extract, originals, source_sha)
+    if get_settings().auto_pipeline:
+        # The text route answers inline; the rest of the pipeline (confirm, map,
+        # classify) still runs by itself, after this response has gone back.
+        auto = _queue_auto_pipeline(db, school.id, assessment.id)
+        result = {**result, "auto": auto}
+        if background_tasks is not None:
+            background_tasks.add_task(_run_auto_pipeline, assessment.id, auto)
+        else:
+            _run_auto_pipeline(assessment.id, auto)
+    return result
 
 
 #: No legitimate scan sits in "pending" this long -- rasterizing a paper and reading it
@@ -1426,6 +1447,122 @@ class ConfirmIn(BaseModel):
     by: str = Field(default="teacher", max_length=64)
 
 
+def auto_confirm_scan(db: Session, assessment: Assessment) -> dict:
+    """Confirm the extraction without a person, filling what a person would have typed.
+
+    A row whose mark label was not read gets the mark its own paper implies: the marks of
+    a sibling sub-part of the same question, else the most common mark among the rows of
+    its section, else 1. Each fill is recorded on the row (edited_by "auto"). The paper's
+    declared total is compared and the difference reported, never used to refuse -- the
+    marks that were read still teach more than a paper nobody could get past this step.
+    """
+    from collections import Counter
+
+    from app.extraction.paper import context_addresses
+
+    rows = list(db.scalars(
+        select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
+    ))
+    context = context_addresses(rows)
+    filled: list[str] = []
+    by_question: dict[tuple[str | None, str], list] = {}
+    by_section: dict[str | None, Counter] = {}
+    for r in rows:
+        if r.address in context:
+            continue
+        by_question.setdefault((r.section, r.question_no), []).append(r)
+        if r.max_marks is not None:
+            by_section.setdefault(r.section, Counter())[float(r.max_marks)] += 1
+    for r in rows:
+        if r.address in context or r.max_marks is not None:
+            continue
+        siblings = [float(s.max_marks) for s in by_question[(r.section, r.question_no)] if s.max_marks is not None]
+        if siblings:
+            guess = Counter(siblings).most_common(1)[0][0]
+        elif by_section.get(r.section):
+            guess = by_section[r.section].most_common(1)[0][0]
+        else:
+            guess = 1.0
+        r.max_marks = guess
+        r.edited_at = datetime.now(UTC).isoformat()
+        r.edited_by = "auto"
+        filled.append(r.address)
+
+    read_total = _scanned_effective_total(rows, set(context))
+    declared_total = (assessment.declared or {}).get("total_marks")
+    if declared_total is None and assessment.total_marks is not None:
+        declared_total = float(assessment.total_marks)
+    assessment.scan_confirmed_at = datetime.now(UTC).isoformat()
+    assessment.scan_confirmed_by = "auto"
+    db.commit()
+    return {
+        "confirmed_by": "auto",
+        "questions": len(rows),
+        "marks_filled": filled,
+        "total_marks": read_total,
+        "declared_total": declared_total,
+        "total_difference": (
+            round(float(declared_total) - read_total, 2) if declared_total is not None else None
+        ),
+    }
+
+
+def _queue_auto_pipeline(db: Session, school_id: str, assessment_id: str) -> dict:
+    """Create the map and classify job rows up front so the screen can follow them."""
+    map_job = PlacementJob(school_id=school_id, assessment_id=assessment_id, kind="map")
+    place_job = PlacementJob(school_id=school_id, assessment_id=assessment_id, kind="place")
+    db.add_all([map_job, place_job])
+    db.commit()
+    return {"map_job_id": map_job.id, "place_job_id": place_job.id}
+
+
+def _run_auto_pipeline(assessment_id: str, jobs: dict) -> None:
+    """Scan is read: confirm it, map it, classify it, with nobody in the loop. Every
+    stage records its own job row, so a browser that comes back can watch it, and a
+    stage that fails leaves the next one failed with the reason rather than pending
+    forever."""
+    from app.db import SessionLocal
+
+    def fail_place(reason: str) -> None:
+        session = SessionLocal()
+        try:
+            job = session.get(PlacementJob, jobs["place_job_id"])
+            if job is not None and job.status == "pending":
+                job.status, job.error_status, job.error_detail = "failed", 409, reason
+                job.finished_at = datetime.now(UTC)
+                session.commit()
+        finally:
+            session.close()
+
+    try:
+        db = SessionLocal()
+        try:
+            assessment = db.get(Assessment, assessment_id)
+            if assessment is None:
+                fail_place("the paper was removed before it could be processed")
+                return
+            auto_confirm_scan(db, assessment)
+        finally:
+            db.close()
+        _run_map_job(jobs["map_job_id"])
+        db = SessionLocal()
+        try:
+            map_job = db.get(PlacementJob, jobs["map_job_id"])
+            ok = map_job is not None and map_job.status == "succeeded"
+            detail = (map_job.error_detail if map_job is not None else None) or "mapping did not finish"
+        finally:
+            db.close()
+        if not ok:
+            fail_place(f"not classified because mapping failed: {detail}")
+            return
+        from app.api.placement import _run_placement_job
+
+        _run_placement_job(jobs["place_job_id"])
+    except Exception:  # noqa: BLE001 -- the scan itself succeeded; this must never undo that
+        logger.exception("auto pipeline failed for assessment %s", assessment_id)
+        fail_place("the automatic pipeline hit an error; see the server log")
+
+
 @router.post("/{assessment_id}/scan/confirm")
 def confirm_scan(
     assessment_id: str,
@@ -1503,6 +1640,46 @@ def confirm_scan(
         "total_marks": read_total,
         "next": f"POST /assessments/{assessment.id}/map",
     }
+
+
+def _ensure_family(
+    db: Session, chapter: TaxonomyNode, section: str | None, heading: str | None,
+    families: dict[str, list[TaxonomyNode]], sections_of: dict[str, set[str]],
+    subject_codes: list[str],
+) -> TaxonomyNode:
+    """The concept family for ``section`` of ``chapter``, created from the book's own
+    heading when none exists -- the same one-family-per-section-heading shape the book
+    screen proposes, made without waiting for anyone to press its button. Recorded as
+    claiming its section so every later paper resolves to it directly."""
+    from app.mapping.auto_resolve import record_family_section
+
+    tail = f"S{section.replace('.', '_')}" if section else "CHAPTER"
+    code = f"{chapter.code}.CF.AUTO_{tail}"
+    label = (heading or (section and f"Section {section}") or chapter.label).strip()
+    node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+    if node is None:
+        node = TaxonomyNode(
+            kind="concept_family", code=code, label=label, parent_id=chapter.id,
+            path=code, curriculum_version=chapter.curriculum_version,
+        )
+        db.add(node)
+        db.flush()
+    if node not in families.setdefault(chapter.id, []):
+        families[chapter.id].append(node)
+    if section:
+        proposals = list(db.scalars(
+            select(ConceptFamilyProposal).where(
+                ConceptFamilyProposal.subject_code.in_(subject_codes),
+                ConceptFamilyProposal.code == node.code,
+            )
+        ))
+        record_family_section(
+            db, winner=node, chapter=chapter, section=section, subject_codes=subject_codes,
+            proposals=proposals, model="auto", source="auto_pipeline",
+            rationale=f"created from the book's own heading {label!r} while mapping",
+        )
+        sections_of.setdefault(node.code, set()).add(section)
+    return node
 
 
 def _map_inputs(db: Session, assessment: Assessment) -> tuple[list, list]:
@@ -1960,7 +2137,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         # comes from the winning passages, and a family created from the book records the
         # section it came from, so the two can be matched.
         candidates = families.get(chapter.id, [])
-        if not candidates:
+        if not candidates and not settings.auto_pipeline:
             row.blocked_reason = (
                 f"no concept family exists for {chapter.label}. Open the book screen for "
                 f"this subject and create the families it proposes from the chapter's own "
@@ -1971,10 +2148,10 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         choice = choose_family(
             candidates, sections_of, section, chapter.label,
             prefer_label=pick.heading if pick.section else None,
-        )
+        ) if candidates else Choice(None, blocked="no family yet")
         family, ambiguous = choice.family, choice.unsettled
         auto_resolved: str | None = None
-        if family is None and choice.blocked is not None:
+        if family is None and choice.blocked is not None and candidates:
             resolution = resolve_blocked_family(
                 db,
                 api_key=settings.anthropic_api_key,
@@ -1994,6 +2171,14 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
                 auto_resolved = f"[{resolution.grounded_in}] {resolution.rationale}"
                 if resolution.book_section:
                     sections_of.setdefault(family.code, set()).add(resolution.book_section)
+        if family is None and settings.auto_pipeline:
+            # Nobody will come to create the family, so it is created from the book: one
+            # family per section heading, exactly what the book screen proposes.
+            family = _ensure_family(
+                db, chapter, section, pick.heading if pick.section else None,
+                families, sections_of, book_subject_codes,
+            )
+            auto_resolved = f"[auto_family] created {family.label!r} for section {section or 'the chapter'}"
         if family is None:
             row.blocked_reason = choice.blocked
             blocked.append(row.address)
@@ -2086,8 +2271,13 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         choice = choose_family(
             candidates, sections_of, section, chapter.label,
             prefer_label=pick.heading if pick.section else None,
-        )
+        ) if candidates else Choice(None, blocked="no family yet")
         family = choice.family
+        if family is None and settings.auto_pipeline:
+            family = _ensure_family(
+                db, chapter, section, pick.heading if pick.section else None,
+                families, sections_of, book_subject_codes,
+            )
         if family is None:
             row.blocked_reason = choice.blocked or (
                 f"no concept family exists for {chapter.label}."

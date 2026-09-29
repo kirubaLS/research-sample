@@ -107,6 +107,13 @@ class Settings(BaseSettings):
     #: the one most worth measuring before moving.
     model_effort: str = "medium"
 
+    #: Zero-touch: a question paper runs scan -> confirm -> map -> classify by itself the
+    #: moment its upload is read, and an answer sheet's rows are resolved and its marks
+    #: confirmed the moment they are read. Nobody clicks Confirm, Map or Classify, and
+    #: nothing waits on a review. Off only for a deployment that wants a person in the
+    #: loop (and in the test suite, which exercises each step on its own).
+    auto_pipeline: bool = True
+
     # --- what the classifier is shown, which is what it costs ---------------------------
     #: How many book passages go into one classification, and how many chapters they are
     #: drawn from. Both are the price of the call and the quality of the answer at once:

@@ -385,7 +385,7 @@ export function usePaperScan(opts: {
           setAssessmentId(id);
         }
         const capturedId = id;
-        setScan(await api.scanPaper(key, id, files, (jobId) => {
+        const scanned = await api.scanPaper(key, id, files, (jobId) => {
           if (sessionId) {
             void setPending({
               sessionId, subject: scanSubject, title: scanTitle, assessmentId: capturedId,
@@ -395,7 +395,12 @@ export function usePaperScan(opts: {
               prev && prev.sessionId === sessionId ? { ...prev, assessmentId: capturedId, jobId } : prev,
             );
           }
-        }, setProgress));
+        }, setProgress);
+        setScan(scanned);
+        if (scanned.auto) {
+          setJob("paper-map", id, scanned.auto.map_job_id);
+          setJob("paper-place", id, scanned.auto.place_job_id);
+        }
       }
       setMapped(null);
       setConfirmation(null);
@@ -404,6 +409,10 @@ export function usePaperScan(opts: {
         await clearPending(sessionId);
         setPendingResume(null);
       }
+      // The server carries on by itself (confirm, map, classify). Watch it so the
+      // screen fills in as it goes; closing the tab loses nothing, and coming back
+      // resumes watching the same jobs (see the resume effects below).
+      if (scan_auto_follow(id)) await followAutoPipeline(id);
     } catch (err) {
       if (err instanceof ApiUnreachable && sessionId) {
         const existing = await getPending(sessionId);
@@ -535,6 +544,40 @@ export function usePaperScan(opts: {
       return;
     }
     await onMap();
+  }
+
+  function scan_auto_follow(id: string): boolean {
+    return !!getJob("paper-map", id);
+  }
+
+  async function followAutoPipeline(id: string) {
+    const key = getApiKey();
+    if (!key) return;
+    const mapJob = getJob("paper-map", id);
+    const placeJob = getJob("paper-place", id);
+    try {
+      if (mapJob) {
+        setBusy("Matching every question against the book…");
+        setProgress(null);
+        setMapped(await api.resumeMapJob(key, id, mapJob, setProgress));
+        clearJob("paper-map", id);
+        await refresh(id);
+      }
+      if (placeJob) {
+        setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
+        setProgress(null);
+        setPlaced(await api.resumePlacementJob(key, id, placeJob, setProgress));
+        clearJob("paper-place", id);
+        await refresh(id);
+      }
+    } catch (err) {
+      clearJob("paper-map", id);
+      clearJob("paper-place", id);
+      setError(explain(err));
+    } finally {
+      setBusy(null);
+      setProgress(null);
+    }
   }
 
   async function onMap() {

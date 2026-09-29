@@ -555,6 +555,30 @@ def _run_gridsheet_job(job_id: str) -> None:
             "problems": reading.problems,
             "next": f"/assessments/{assessment.id}/gridsheet/{document.id}",
         }
+        if settings.auto_pipeline:
+            # Zero-touch: what a person would have done row by row, done now. A roll that
+            # matched but whose name reads differently is that student; an unmatched row
+            # with one clear name suggestion is that student. Then every resolved row's
+            # marks are confirmed, unreadable cells excused rather than blocking.
+            auto_resolved = 0
+            for r in rows:
+                if r.status == "name_mismatch" and r.student_id is not None:
+                    r.status, r.note = "clean", "auto: roll matched; the name on the sheet reads differently"
+                    auto_resolved += 1
+                elif r.status == "unmatched" and r.suggested_student_id:
+                    student = db.get(StudentProfile, r.suggested_student_id)
+                    if student is not None:
+                        r.student_id, r.status = student.id, "clean"
+                        r.note = f"auto: matched by name; the sheet's roll {r.roll_no!r} is not {student.roll_no!r}"
+                        _write_proposed_marks(db, school, assessment, questions, student, r, source_name)
+                        auto_resolved += 1
+            db.flush()
+            confirmed, skipped = _confirm_grid_rows(db, assessment, rows, by="auto", excuse_problems=True)
+            db.commit()
+            result.update({
+                "auto_resolved": auto_resolved, "auto_confirmed": len(confirmed),
+                "auto_skipped": skipped,
+            })
     except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
         _finish_gridsheet_job(
             job_id, status_value="failed", error_status=500,
@@ -886,10 +910,24 @@ def confirm_gridsheet(
     if not rows:
         raise HTTPException(404, "not found")
 
+    confirmed, skipped = _confirm_grid_rows(db, assessment, rows, by=body.by)
+    db.commit()
+    return {"confirmed": confirmed, "skipped": skipped, "confirmed_by": body.by}
+
+
+def _confirm_grid_rows(
+    db: Session, assessment: Assessment, rows: list, *, by: str, excuse_problems: bool = False,
+) -> tuple[list[str], list[dict]]:
+    """Turn every clean, resolved row's proposals into real marks. A cell the reading
+    could not make out blocks its row -- unless ``excuse_problems`` (the zero-touch
+    pipeline), where it is recorded as not offered, kept out of every denominator, so
+    the student's readable marks still count rather than the whole row waiting on a
+    person who is not coming."""
     questions = {
         q.address: q for q in db.scalars(select(Question).where(Question.assessment_id == assessment.id))
     }
-    confirmed, skipped = [], []
+    confirmed: list[str] = []
+    skipped: list[dict] = []
     for row in rows:
         if row.status != "clean" or row.student_id is None:
             skipped.append({"roll_no": row.roll_no, "reason": f"not resolved ({row.status})"})
@@ -901,7 +939,7 @@ def confirm_gridsheet(
             )
         ))
         blocked = [p for p in proposals if p.problem]
-        if blocked:
+        if blocked and not excuse_problems:
             skipped.append({
                 "roll_no": row.roll_no,
                 "reason": f"{len(blocked)} row(s) still have a problem",
@@ -915,25 +953,28 @@ def confirm_gridsheet(
             question = questions.get(p.address)
             if question is None:
                 continue
+            excused = bool(p.problem)
             db.add(MarkEvent(
                 assessment_id=assessment.id, student_id=row.student_id, question_id=question.id,
-                state=p.state,
-                marks=float(p.marks) if p.state == "awarded" and p.marks is not None else None,
-                source="teacher", confidence=1.0, actor_id=body.by[:36],
+                state="not_offered" if excused else p.state,
+                marks=(
+                    None if excused
+                    else float(p.marks) if p.state == "awarded" and p.marks is not None else None
+                ),
+                source="teacher" if by != "auto" else "auto", confidence=1.0, actor_id=by[:36],
                 provenance={
-                    "confirmed_by": body.by,
+                    "confirmed_by": by,
                     "read_from": p.source_name or p.source_kind,
                     "origin": p.origin,
                     "raw_value": p.raw_value,
                     "edited_by": p.edited_by,
+                    **({"problem": p.problem, "excused": True} if excused else {}),
                 },
             ))
         for p in proposals:
             db.delete(p)
         confirmed.append(row.roll_no)
-
-    db.commit()
-    return {"confirmed": confirmed, "skipped": skipped, "confirmed_by": body.by}
+    return confirmed, skipped
 
 
 @router.post("/{assessment_id}/sections/{section_id}/gridsheet/file", status_code=201)
