@@ -1540,6 +1540,19 @@ def map_paper_to_book(
     """
     assessment = _get_assessment(db, school, assessment_id)
     _map_inputs(db, assessment)
+    # One map job per paper at a time. A second one queued while the first still runs
+    # (a double click, or the browser's resume-on-return firing beside a fresh click)
+    # promoted the same staged rows in two transactions and deadlocked Postgres on
+    # scanned_question. The caller gets the running job to poll, not a new one.
+    running = running_job(db, assessment.id, "map")
+    if running is not None:
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": running.id, "status": "pending", "already_running": True,
+                "next": f"Poll GET /assessments/{assessment.id}/map/jobs/{running.id} for the result.",
+            },
+        )
     job = PlacementJob(school_id=school.id, assessment_id=assessment.id, kind="map")
     db.add(job)
     db.commit()
@@ -1551,6 +1564,37 @@ def map_paper_to_book(
             "next": f"Poll GET /assessments/{assessment.id}/map/jobs/{job.id} for the result.",
         },
     )
+
+
+#: A map/classify job still "pending" this long after it was queued did not survive its
+#: process (a redeploy mid-run): it is failed rather than left blocking every later run.
+PLACEMENT_JOB_STALE_AFTER = timedelta(minutes=45)
+
+
+def running_job(db: Session, assessment_id: str, kind: str) -> PlacementJob | None:
+    """The pending job of this kind on this paper, or None. A stale one is marked failed
+    on the way, so a crashed run cannot hold a paper hostage."""
+    pending = list(db.scalars(
+        select(PlacementJob).where(
+            PlacementJob.assessment_id == assessment_id, PlacementJob.kind == kind,
+            PlacementJob.status == "pending",
+        ).order_by(PlacementJob.created_at.desc())
+    ))
+    live: PlacementJob | None = None
+    for job in pending:
+        created = job.created_at
+        if created is not None and created.tzinfo is None:
+            created = created.replace(tzinfo=UTC)
+        if created is not None and datetime.now(UTC) - created > PLACEMENT_JOB_STALE_AFTER:
+            job.status = "failed"
+            job.error_status = 500
+            job.error_detail = "the job did not finish; the service restarted while it ran"
+            continue
+        if live is None:
+            live = job
+    if pending:
+        db.commit()
+    return live
 
 
 @router.get("/{assessment_id}/map/jobs/{job_id}")

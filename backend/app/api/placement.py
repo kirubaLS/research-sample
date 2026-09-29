@@ -715,6 +715,18 @@ def place(
     if not has_book:
         raise HTTPException(409, f"no book loaded for {a.subject_code}")
 
+    # One classify job per paper at a time -- see marks.running_job for why.
+    from app.api.marks import running_job
+
+    running = running_job(db, a.id, "place")
+    if running is not None:
+        return JSONResponse(
+            status_code=status.HTTP_202_ACCEPTED,
+            content={
+                "job_id": running.id, "status": "pending", "already_running": True,
+                "next": f"Poll GET /assessments/{a.id}/place/jobs/{running.id} for the result.",
+            },
+        )
     job = PlacementJob(school_id=school.id, assessment_id=a.id)
     db.add(job)
     db.commit()

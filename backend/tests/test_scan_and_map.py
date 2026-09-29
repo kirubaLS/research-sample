@@ -2518,3 +2518,76 @@ def _map(client, url: str, headers: dict):
     if out.status_code != 202:
         return out
     return client.get(f"{url}/jobs/{out.json()['job_id']}", headers=headers)
+
+
+# --- one map job per paper at a time -------------------------------------------------
+
+def test_queuing_map_while_a_map_job_is_pending_returns_that_job_not_a_second_one(
+    client, school, book,
+):
+    """Two map jobs on one paper promoted the same staged rows in two transactions and
+    deadlocked Postgres on scanned_question. The second request now gets the running job."""
+    from app.db import SessionLocal
+    from app.models import PlacementJob
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Double click", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+
+    db = SessionLocal()
+    try:
+        pending = PlacementJob(school_id=school["school_id"], assessment_id=aid, kind="map")
+        db.add(pending)
+        db.commit()
+        pending_id = pending.id
+    finally:
+        db.close()
+
+    out = client.post(f"/assessments/{aid}/map", headers=h)
+    assert out.status_code == 202, out.text
+    assert out.json()["job_id"] == pending_id
+    assert out.json()["already_running"] is True
+
+    db = SessionLocal()
+    try:
+        jobs = db.query(PlacementJob).filter_by(assessment_id=aid, kind="map").all()
+        assert len(jobs) == 1, "no second job was queued"
+    finally:
+        db.close()
+
+
+def test_a_stale_pending_map_job_is_failed_and_a_fresh_one_queued(client, school, book):
+    from datetime import UTC, datetime, timedelta
+
+    from app.db import SessionLocal
+    from app.models import PlacementJob
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Stale job", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+
+    db = SessionLocal()
+    try:
+        stale = PlacementJob(school_id=school["school_id"], assessment_id=aid, kind="map")
+        db.add(stale)
+        db.flush()
+        stale.created_at = datetime.now(UTC) - timedelta(hours=2)
+        db.commit()
+        stale_id = stale.id
+    finally:
+        db.close()
+
+    out = client.post(f"/assessments/{aid}/map", headers=h)
+    assert out.status_code == 202, out.text
+    assert out.json()["job_id"] != stale_id
+    db = SessionLocal()
+    try:
+        assert db.get(PlacementJob, stale_id).status == "failed"
+    finally:
+        db.close()
