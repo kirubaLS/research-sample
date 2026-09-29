@@ -500,9 +500,12 @@ table { border-collapse: collapse; width: 100%; }
    view no matter how many questions the paper has. */
 .marks-grid td:last-child { position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -2px 0 4px -2px rgba(21,37,46,.15); }
 .marks-grid th:last-child { position: sticky; right: 0; z-index: 3; background: var(--th-bg); box-shadow: -2px 0 4px -2px rgba(21,37,46,.15); }
-.marks-grid__legend { display: flex; flex-wrap: wrap; gap: 10px; padding: 10px 22px 0; }
-.marks-grid__legend-item { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
-.marks-grid__legend-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+.marks-grid__legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 22px 0; }
+.marks-grid__legend-item {
+  display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--brand-ink-soft);
+  padding: 4px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line);
+}
+.marks-grid__legend-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 2px rgba(255,255,255,.6); }
 .table th {
   text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--brand-ink-soft);
   padding: 11px 14px; border-bottom: 1px solid var(--line-strong); font-weight: 700; white-space: nowrap;
@@ -515,6 +518,18 @@ table { border-collapse: collapse; width: 100%; }
 .table--hover tbody tr:hover td { background: color-mix(in srgb, var(--brand-teal) 7%, #ffffff); }
 .table--hover tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--brand-teal); }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
+/* Denser rows for a compact status table (e.g. the exam-day subject list) --
+   a scoped modifier rather than touching .table th/.table td themselves,
+   which every roster/ops table in the app also renders with. */
+.table--dense th { padding: 8px 14px; }
+.table--dense td { padding: 8px 14px; }
+
+/* The marks grid's frozen Total column: a visible tint + a stronger left
+   seam (on top of the plain box-shadow every sticky column already gets),
+   so it reads as "pinned" rather than just the table's last column. */
+.marks-grid td:last-child { background: var(--surface-2); font-weight: 600; }
+.marks-grid th:last-child { background: color-mix(in srgb, var(--th-bg) 100%, var(--surface-2)); border-left: 1px solid var(--line-strong); }
+.marks-grid td:last-child { border-left: 1px solid var(--line); }
 
 /* Movement against the previous analysed test. Green up / amber down -
    deliberately quieter than the attention pill so it reads as context,
@@ -1382,16 +1397,21 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
 .ops-step--done .ops-step__dot { background: var(--brand-green); color: #fff; }
 @media (max-width: 600px) { .ops-steps li { min-width: 44px; flex: 0 0 auto; } .ops-step__label { display: none; } .ops-step--current .ops-step__label { display: inline; } }
 
+/* Renamed from a former bare ".chip" (it collided with the selectable
+   .chipset .chip/.chip--on pill above -- same specificity, later in the
+   cascade, so it silently overrode chip--on's background/border/color the
+   whole time a chip was supposed to look "selected". This one is the
+   admin-onboarding "chip with a remove button" shape and is unrelated. */
 .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
-.chip {
+.chip-tag {
   display: inline-flex; align-items: center; gap: 6px; padding: 6px 8px 6px 12px; border-radius: 999px;
   background: color-mix(in srgb, var(--brand-blue) 10%, #fff); border: 1px solid color-mix(in srgb, var(--brand-blue) 28%, var(--line));
   font-size: 13px; font-weight: 650; color: var(--brand-ink);
 }
-.chip button { border: none; background: none; padding: 2px; display: inline-flex; color: var(--muted); cursor: pointer; border-radius: 50%; }
-.chip button:hover { background: rgba(0,0,0,.06); color: var(--text); }
-.chip--input { background: #fff; border-style: dashed; }
-.chip--input input { width: 30px; border: none; outline: none; font: inherit; text-transform: uppercase; background: none; padding: 0; }
+.chip-tag button { border: none; background: none; padding: 2px; display: inline-flex; color: var(--muted); cursor: pointer; border-radius: 50%; }
+.chip-tag button:hover { background: rgba(0,0,0,.06); color: var(--text); }
+.chip-tag--input { background: #fff; border-style: dashed; }
+.chip-tag--input input { width: 30px; border: none; outline: none; font: inherit; text-transform: uppercase; background: none; padding: 0; }
 
 .access-matrix { border: 1px solid var(--line); border-radius: 12px; overflow: auto; }
 .access-matrix__row { display: grid; align-items: center; border-top: 1px solid var(--line); min-width: max-content; }

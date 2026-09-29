@@ -417,7 +417,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
 
       {!scan.assessmentId ? (
         <>
-          <Stagger style={{ display: "grid", gap: 14 }}>
+          <Stagger style={{ display: "grid", gap: 16 }}>
             {examsLoading && <p className="small muted">Loading tests…</p>}
 
             {tests.map((t) => {
@@ -464,7 +464,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                           <p className="small muted">No papers attached to this test yet.</p>
                         ) : (
                           <div className="table-wrap">
-                            <table className="table table--hover">
+                            <table className="table table--hover table--dense">
                               <thead>
                                 <tr>
                                   <th>Subject</th>
@@ -495,11 +495,15 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                           )}
                                         </div>
                                       </td>
-                                      <td style={{ minWidth: 160 }}>
-                                        <div className="small muted" style={{ marginBottom: 4 }}>
-                                          {pct}%
+                                      <td style={{ minWidth: 170 }}>
+                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                                          <div style={{ flex: 1 }}>
+                                            <AnimatedBar value={pct} accent={pct === 100 ? "var(--brand-green)" : "var(--brand-teal)"} height={7} />
+                                          </div>
+                                          <span className="small mono muted" style={{ minWidth: 30, textAlign: "right" }}>
+                                            {pct}%
+                                          </span>
                                         </div>
-                                        <AnimatedBar value={pct} accent={pct === 100 ? "var(--brand-green)" : "var(--brand-teal)"} height={7} />
                                       </td>
                                       <td>
                                         <span className={`tag ${st.cls}`}>{st.label}</span>
@@ -539,7 +543,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
           </Stagger>
 
           <Reveal delay={0.1}>
-            <div className="section" style={{ marginTop: 22 }}>
+            <div className="section" style={{ marginTop: 32 }}>
               <div className="section__head">
                 <h2 className="section-q">Standalone papers</h2>
               </div>
@@ -617,7 +621,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
               </div>
 
               {standalonePapers.length > 0 && (
-                <div style={{ display: "grid", gap: 14, marginTop: 14 }}>
+                <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
                   {standalonePapers.map((p) => (
                     <div className="card card--hover" key={p.id}>
                       <button

@@ -416,14 +416,14 @@ function SchoolStep(props: {
           <label>Classes</label>
           <div className="chip-row">
             {sections.map((sec, i) => (
-              <span key={sectionKey(sec)} className="chip">
+              <span key={sectionKey(sec)} className="chip-tag">
                 Class {sectionLabel(sec)}
                 <button type="button" onClick={() => removeSection(i)} aria-label={`Remove class ${sectionLabel(sec)}`}>
                   <X size={12} />
                 </button>
               </span>
             ))}
-            <span className="chip chip--input">
+            <span className="chip-tag chip-tag--input">
               <input
                 value={newSectionSpec}
                 placeholder="10-C"

@@ -284,7 +284,7 @@ export default function ExamsPage() {
                         {u.paper_count > 0 && ` · ${u.paper_count} paper${u.paper_count === 1 ? "" : "s"} attached`}
                       </div>
                     </div>
-                    <span className="chip">{u.status}</span>
+                    <span className="chip-tag">{u.status}</span>
                   </div>
                 </div>
               );
