@@ -433,7 +433,12 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
               const open = expanded.has(t.id);
               return (
                 <StaggerItem key={t.id}>
-                  <div className="card card--hover">
+                  {/* card--hover's perspective/preserve-3d only applies while collapsed --
+                     the header is a single clickable target then, but once expanded this
+                     card holds real per-subject action buttons, and that same 3D
+                     transform is what silently ate clicks on the Standalone papers form
+                     above (see the note there). */}
+                  <div className={`card ${open ? "" : "card--hover"}`}>
                     <button
                       type="button"
                       onClick={() => toggle(t.id)}
@@ -545,7 +550,14 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
               <div className="section__head">
                 <h2 className="section-q">Standalone papers</h2>
               </div>
-              <div className="card card--hover">
+              {/* Plain .card, deliberately no --hover: this card holds a native <select>
+                 and a hidden file input the "Upload paper file" button programmatically
+                 clicks -- card--hover's perspective/preserve-3d transform put those
+                 interactive children in a 3D rendering context where clicks silently
+                 stopped reaching them in the browser (no console error, no dialog). A
+                 card whose whole job is to be clicked (the exam-day cards) is fine with
+                 it; a card that's mostly a form is not. */}
+              <div className="card">
                 <div className="card__body" style={{ display: "grid", gap: 14 }}>
                   <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
                     <div className="field" style={{ minWidth: 220 }}>
