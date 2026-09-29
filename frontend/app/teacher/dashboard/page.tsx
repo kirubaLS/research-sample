@@ -545,10 +545,10 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
               <div className="section__head">
                 <h2 className="section-q">Standalone papers</h2>
               </div>
-              <div className="card">
-                <div className="card__body" style={{ display: "grid", gap: 12 }}>
-                  <div className="filterbar">
-                    <div className="filter">
+              <div className="card card--hover">
+                <div className="card__body" style={{ display: "grid", gap: 14 }}>
+                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                    <div className="field" style={{ minWidth: 220 }}>
                       <label htmlFor="new-subject">Subject</label>
                       <select id="new-subject" className="select" value={scan.subject} onChange={(e) => scan.setSubject(e.target.value)}>
                         {pickableSubjects.map((s) => (
@@ -558,7 +558,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
                         ))}
                       </select>
                     </div>
-                    <div className="field">
+                    <div className="field" style={{ minWidth: 220, flex: 1 }}>
                       <label htmlFor="new-title">Title</label>
                       <input id="new-title" className="input" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
                     </div>
