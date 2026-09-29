@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
+import logging
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
+
+from app.config import get_settings
+from app.integrations.whatsapp import WhatsAppAPIError, WhatsAppClient
 
 from app.analysis.diagnostics import (
     MarkRow,
@@ -48,9 +55,12 @@ from app.models import (
     StudentReport,
     TaxonomyNode,
     TestSession,
+    WhatsAppSend,
 )
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/reports", tags=["reports"])
+webhook_router = APIRouter(tags=["whatsapp-webhook"])
 
 
 def _current_marks(db: Session, assessment_id: str) -> dict[tuple[str, str], MarkEvent]:
@@ -859,6 +869,22 @@ def read_issued_report(
     return _issued_view(record, full=True)
 
 
+def _report_pdf_bytes(record: StudentReport, student: StudentProfile, school: School) -> bytes:
+    """The one real PDF generator for an issued report, shared by the HTTP download route
+    and the WhatsApp send path below -- so a report a parent gets over WhatsApp is byte-
+    for-byte the same PDF the download button would have handed a principal, never a
+    second, drifting rendering of the same payload.
+    """
+    try:
+        return render_student_report_pdf(
+            record, student_name=student.name, roll_no=student.roll_no, school_name=school.name,
+        )
+    except ModuleNotFoundError as exc:
+        raise HTTPException(
+            501, "PDF generation is not available on this deployment (fpdf2 is not installed)",
+        ) from exc
+
+
 @router.get("/issued/{report_id}/pdf")
 def download_issued_report_pdf(
     report_id: str,
@@ -877,14 +903,7 @@ def download_issued_report_pdf(
     if student is None:
         raise HTTPException(404, "the student this report was issued for no longer exists")
 
-    try:
-        pdf_bytes = render_student_report_pdf(
-            record, student_name=student.name, roll_no=student.roll_no, school_name=school.name,
-        )
-    except ModuleNotFoundError as exc:
-        raise HTTPException(
-            501, "PDF generation is not available on this deployment (fpdf2 is not installed)",
-        ) from exc
+    pdf_bytes = _report_pdf_bytes(record, student, school)
 
     return Response(
         content=pdf_bytes,
@@ -894,6 +913,246 @@ def download_issued_report_pdf(
             "Cache-Control": "private, max-age=3600",
         },
     )
+
+
+def _run_whatsapp_send(send_id: str) -> None:
+    """The slow part of a WhatsApp send, run after the request that queued it has
+    already returned -- same shape as _run_gridsheet_job: two short-lived sessions, never
+    one held open across the network calls, and every failure caught and written to the
+    row rather than allowed to strand it at 'pending' forever.
+
+    Never fabricates a result: whatever Meta's real API genuinely returns -- a message id
+    on success, or a real structured error -- is what this writes. With placeholder
+    credentials this will genuinely call Meta and genuinely fail with Meta's own error
+    (e.g. an invalid access token), which is correct, not a bug, until Meta Business
+    verification and a real WhatsApp Business number exist.
+    """
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        send = db.get(WhatsAppSend, send_id)
+        if send is None:
+            return
+        record = db.get(StudentReport, send.report_id)
+        if record is None:
+            send.status, send.error_detail = "failed", "the report this send was for no longer exists"
+            send.status_updated_at = datetime.now(UTC)
+            db.commit()
+            return
+        student = db.get(StudentProfile, record.student_id)
+        school = db.get(School, record.school_id)
+        if student is None or school is None:
+            send.status = "failed"
+            send.error_detail = "the student or school this report belonged to no longer exists"
+            send.status_updated_at = datetime.now(UTC)
+            db.commit()
+            return
+        pdf_bytes = _report_pdf_bytes(record, student, school)
+        assessment = db.get(Assessment, record.assessment_id)
+        test_title = record.payload.get("assessment_title") or (assessment.title if assessment else "test")
+        to = send.parent_whatsapp
+        settings = get_settings()
+        template_name, language = settings.whatsapp_template_name, settings.whatsapp_template_language
+    finally:
+        db.close()  # released before the slow HTTP calls below, not held across them
+
+    try:
+        client = WhatsAppClient(
+            phone_number_id=settings.whatsapp_phone_number_id or "",
+            access_token=settings.whatsapp_access_token or "",
+        )
+        media_id = client.upload_media(pdf_bytes, f"report-{student.roll_no}.pdf")
+        response = client.send_document_template(
+            to=to, media_id=media_id, template_name=template_name, language=language,
+            params={
+                "parent_name": "Parent/Guardian",
+                "school_name": school.name,
+                "student_name": student.name,
+                "test_title": test_title,
+            },
+        )
+        message_id = (response.get("messages") or [{}])[0].get("id")
+        if not message_id:
+            raise WhatsAppAPIError(f"Meta accepted the send but returned no message id: {response!r}")
+    except (WhatsAppAPIError, ValueError, Exception) as exc:  # noqa: BLE001 -- never strand at pending
+        logger.exception("whatsapp send %s: failed", send_id)
+        db = SessionLocal()
+        try:
+            send = db.get(WhatsAppSend, send_id)
+            if send is not None:
+                send.status = "failed"
+                send.error_detail = str(exc)
+                send.status_updated_at = datetime.now(UTC)
+                db.commit()
+        finally:
+            db.close()
+        return
+
+    db = SessionLocal()
+    try:
+        send = db.get(WhatsAppSend, send_id)
+        if send is not None:
+            send.status = "sent"
+            send.meta_message_id = message_id
+            send.sent_at = datetime.now(UTC)
+            send.status_updated_at = datetime.now(UTC)
+            db.commit()
+    finally:
+        db.close()
+
+
+def _whatsapp_send_view(send: WhatsAppSend) -> dict:
+    return {
+        "send_id": send.id,
+        "report_id": send.report_id,
+        "status": send.status,
+        "meta_message_id": send.meta_message_id,
+        "error_detail": send.error_detail,
+        "sent_at": send.sent_at.isoformat() if send.sent_at else None,
+        "status_updated_at": send.status_updated_at.isoformat() if send.status_updated_at else None,
+    }
+
+
+@router.post("/issued/{report_id}/whatsapp", status_code=202)
+def send_issued_report_whatsapp(
+    report_id: str,
+    background_tasks: BackgroundTasks,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Send this issued report's PDF to the student's parent over WhatsApp, via Meta's
+    Cloud API direct (no BSP -- see app.integrations.whatsapp). Additive to, and separate
+    from, share_pin_hash's student-facing sharing above: this is a parent notification.
+
+    Real, not simulated: this queues a background task that genuinely calls Meta's Media
+    Upload and Messages APIs and genuinely surfaces whatever Meta's own API returns --
+    including a real, honest failure if this deployment's Meta credentials are still
+    placeholder (pre Business-verification). Never a fabricated 'sent'.
+
+    422s, rather than queuing a job that will predictably fail later, when there is no
+    parent WhatsApp number on file at all -- the one condition this endpoint can already
+    know is hopeless before ever calling Meta.
+    """
+    record = db.get(StudentReport, report_id)
+    if record is None or record.school_id != school.id:
+        raise HTTPException(404, "not found")
+    student = db.get(StudentProfile, record.student_id)
+    if student is None:
+        raise HTTPException(404, "the student this report was issued for no longer exists")
+    if not student.parent_whatsapp:
+        raise HTTPException(
+            422, "no parent WhatsApp number is on file for this student -- add one first",
+        )
+
+    send = WhatsAppSend(
+        school_id=school.id, report_id=record.id, parent_whatsapp=student.parent_whatsapp,
+        status="pending",
+    )
+    db.add(send)
+    db.commit()
+    db.refresh(send)
+    background_tasks.add_task(_run_whatsapp_send, send.id)
+    return {
+        **_whatsapp_send_view(send),
+        "next": f"Poll GET /reports/issued/{report_id}/whatsapp for the result.",
+    }
+
+
+@router.get("/issued/{report_id}/whatsapp")
+def get_issued_report_whatsapp_status(
+    report_id: str,
+    school: School = Depends(require_reader),
+    db: Session = Depends(get_session),
+) -> dict:
+    """The most recent WhatsApp send attempted for this report -- what the frontend polls
+    after send_issued_report_whatsapp queues one."""
+    record = db.get(StudentReport, report_id)
+    if record is None or record.school_id != school.id:
+        raise HTTPException(404, "not found")
+    send = db.scalar(
+        select(WhatsAppSend)
+        .where(WhatsAppSend.report_id == report_id, WhatsAppSend.school_id == school.id)
+        .order_by(WhatsAppSend.created_at.desc())
+    )
+    if send is None:
+        raise HTTPException(404, "no WhatsApp send has been attempted for this report yet")
+    return _whatsapp_send_view(send)
+
+
+@webhook_router.get("/webhooks/whatsapp")
+def verify_whatsapp_webhook(
+    hub_mode: str = Query(alias="hub.mode", default=""),
+    hub_verify_token: str = Query(alias="hub.verify_token", default=""),
+    hub_challenge: str = Query(alias="hub.challenge", default=""),
+) -> PlainTextResponse:
+    """Meta's own one-time verification handshake, required when this URL is first
+    registered as a webhook in the Meta App Dashboard: Meta calls this with a random
+    challenge and a verify token, and expects the challenge echoed back verbatim, but
+    only if the token matches what this deployment configured (YAADHUM_WHATSAPP_
+    WEBHOOK_VERIFY_TOKEN) -- otherwise anyone could point Meta's own webhook registration
+    at a URL of their choosing.
+    """
+    settings = get_settings()
+    expected = settings.whatsapp_webhook_verify_token
+    if hub_mode != "subscribe" or not expected or hub_verify_token != expected:
+        raise HTTPException(403, "verification token mismatch")
+    return PlainTextResponse(hub_challenge)
+
+
+def _verify_whatsapp_signature(body: bytes, header_signature: str, app_secret: str) -> bool:
+    """Real HMAC-SHA256 verification of Meta's X-Hub-Signature-256 header -- Meta signs
+    every webhook delivery with the app secret so a receiver can tell a real Meta call
+    from anyone else's forged POST to the same public URL. hmac.compare_digest, not `==`,
+    so this cannot be timed to leak the correct signature byte by byte.
+    """
+    if not header_signature.startswith("sha256="):
+        return False
+    expected = hmac.new(app_secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, header_signature[len("sha256="):])
+
+
+@webhook_router.post("/webhooks/whatsapp")
+async def receive_whatsapp_webhook(request: Request, db: Session = Depends(get_session)) -> dict:
+    """Meta's delivery/read-status callback for a message this deployment sent. Updates
+    the matching WhatsAppSend row (by meta_message_id) to 'delivered' or 'read' -- never
+    forward-guessed, only ever what Meta's own payload actually claims.
+
+    Rejects (401) any payload whose signature does not verify -- an unverified webhook
+    would let anyone forge a delivery-status update for any message id they could guess
+    or observe, which is exactly the kind of ungrounded status this codebase's zero-
+    fabrication rule exists to prevent.
+    """
+    settings = get_settings()
+    body = await request.body()
+    signature = request.headers.get("x-hub-signature-256", "")
+    if not settings.whatsapp_app_secret or not _verify_whatsapp_signature(
+        body, signature, settings.whatsapp_app_secret,
+    ):
+        raise HTTPException(401, "signature verification failed")
+
+    payload = json.loads(body)
+    updated = 0
+    for entry in payload.get("entry", []):
+        for change in entry.get("changes", []):
+            for status_update in change.get("value", {}).get("statuses", []):
+                message_id = status_update.get("id")
+                meta_status = status_update.get("status")  # sent/delivered/read/failed
+                if not message_id or meta_status not in ("delivered", "read", "failed"):
+                    continue
+                send = db.scalar(select(WhatsAppSend).where(WhatsAppSend.meta_message_id == message_id))
+                if send is None:
+                    continue
+                send.status = meta_status
+                if meta_status == "failed":
+                    errors = status_update.get("errors") or []
+                    send.error_detail = "; ".join(
+                        e.get("title", "") for e in errors
+                    ) or "Meta reported this message failed to deliver"
+                send.status_updated_at = datetime.now(UTC)
+                updated += 1
+    db.commit()
+    return {"updated": updated}
 
 
 @router.get("/paper/{assessment_id}")

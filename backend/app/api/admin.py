@@ -10,7 +10,7 @@ import hashlib
 import secrets
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -915,6 +915,72 @@ def share_report_with_student(
         "share again to issue a new one."
     )
     return view
+
+
+@router.post("/teacher/reports/{report_id}/whatsapp", status_code=202)
+def teacher_send_report_whatsapp(
+    report_id: str,
+    background_tasks: BackgroundTasks,
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    """The teacher-scoped equivalent of reports.send_issued_report_whatsapp -- same real
+    Meta Cloud API send, same WhatsAppSend row, scoped to a teacher's own students the
+    same way share_report_with_student above is, since a plain /reports/... route
+    refuses a teacher key outright (require_reader)."""
+    from app.api.reports import _run_whatsapp_send, _whatsapp_send_view
+    from app.models import School, WhatsAppSend
+
+    record = db.get(StudentReport, report_id)
+    if record is None:
+        raise HTTPException(404, "no such report")
+    student = db.get(StudentProfile, record.student_id)
+    if student is None or not _teacher_report_scope_ok(staff, db, student):
+        raise HTTPException(404, "no such report")
+    if not student.parent_whatsapp:
+        raise HTTPException(
+            422, "no parent WhatsApp number is on file for this student -- add one first",
+        )
+    school = db.get(School, record.school_id)
+
+    send = WhatsAppSend(
+        school_id=school.id, report_id=record.id, parent_whatsapp=student.parent_whatsapp,
+        status="pending",
+    )
+    db.add(send)
+    db.commit()
+    db.refresh(send)
+    background_tasks.add_task(_run_whatsapp_send, send.id)
+    return {
+        **_whatsapp_send_view(send),
+        "next": f"Poll GET /admin/teacher/reports/{report_id}/whatsapp for the result.",
+    }
+
+
+@router.get("/teacher/reports/{report_id}/whatsapp")
+def teacher_get_report_whatsapp_status(
+    report_id: str,
+    staff: Staff = Depends(current_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    """Poll the most recent WhatsApp send attempted for this report -- teacher-scoped."""
+    from app.api.reports import _whatsapp_send_view
+    from app.models import WhatsAppSend
+
+    record = db.get(StudentReport, report_id)
+    if record is None:
+        raise HTTPException(404, "no such report")
+    student = db.get(StudentProfile, record.student_id)
+    if student is None or not _teacher_report_scope_ok(staff, db, student):
+        raise HTTPException(404, "no such report")
+    send = db.scalar(
+        select(WhatsAppSend)
+        .where(WhatsAppSend.report_id == report_id, WhatsAppSend.school_id == student.school_id)
+        .order_by(WhatsAppSend.created_at.desc())
+    )
+    if send is None:
+        raise HTTPException(404, "no WhatsApp send has been attempted for this report yet")
+    return _whatsapp_send_view(send)
 
 
 @router.post("/teacher/reports/{report_id}/unshare")

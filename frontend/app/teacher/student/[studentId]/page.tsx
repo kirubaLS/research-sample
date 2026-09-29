@@ -1,9 +1,9 @@
 "use client";
 
 import { useParams } from "next/navigation";
-import { useEffect, useState, type CSSProperties } from "react";
-import { Check, Send, Share2 } from "lucide-react";
-import { api, IssuedReportRow, StudentAcademicsOverview, StudentSubjectBreakdown } from "@/lib/api";
+import { useEffect, useRef, useState, type CSSProperties } from "react";
+import { Check, MessageCircle, Send, Share2 } from "lucide-react";
+import { api, IssuedReportRow, StudentAcademicsOverview, StudentSubjectBreakdown, WhatsAppSendStatus } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
 import { usePageHeader } from "@/lib/pageHeader";
 import { useAuth } from "@/lib/auth";
@@ -26,6 +26,13 @@ export default function StudentReportPage() {
   const [issued, setIssued] = useState<IssuedReportRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // One WhatsApp send status per report, polled a few times right after queuing -- a
+  // single Meta API round trip is seconds, not minutes, so this is a short-lived poll
+  // rather than the resumable jobStore pattern usePaperScan/useGridSheet need for a
+  // vision call that can run for minutes across a page reload.
+  const [waStatus, setWaStatus] = useState<Record<string, WhatsAppSendStatus>>({});
+  const [waBusy, setWaBusy] = useState<string | null>(null);
+  const pollTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   // Real, not a step a teacher should have to type through every time -- attributed to
   // whoever is actually signed in, the same fix already made on the principal Share
   // reports page.
@@ -69,6 +76,50 @@ export default function StudentReportPage() {
       setError("Could not issue this report.");
     } finally {
       setBusy(null);
+    }
+  }
+
+  function pollWhatsAppStatus(reportId: string, attemptsLeft: number) {
+    const key = getApiKey();
+    if (!key) return;
+    api
+      .getWhatsAppSendStatus(key, reportId)
+      .then((s) => {
+        setWaStatus((prev) => ({ ...prev, [reportId]: s }));
+        if ((s.status === "pending" || s.status === "sent") && attemptsLeft > 0) {
+          pollTimers.current[reportId] = setTimeout(() => pollWhatsAppStatus(reportId, attemptsLeft - 1), 2500);
+        }
+      })
+      .catch(() => {
+        /* nothing to show yet -- leave whatever waStatus already has */
+      });
+  }
+
+  useEffect(() => {
+    return () => {
+      Object.values(pollTimers.current).forEach(clearTimeout);
+    };
+  }, []);
+
+  async function sendWhatsApp(row: IssuedReportRow) {
+    const key = getApiKey();
+    if (!key) return;
+    setWaBusy(row.report_id);
+    try {
+      const queued = await api.sendReportWhatsApp(key, row.report_id);
+      setWaStatus((prev) => ({ ...prev, [row.report_id]: queued }));
+      pollWhatsAppStatus(row.report_id, 6);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Could not send this report over WhatsApp.";
+      setWaStatus((prev) => ({
+        ...prev,
+        [row.report_id]: {
+          send_id: "", report_id: row.report_id, status: "failed",
+          meta_message_id: null, error_detail: message, sent_at: null, status_updated_at: null,
+        },
+      }));
+    } finally {
+      setWaBusy(null);
     }
   }
 
@@ -131,6 +182,37 @@ export default function StudentReportPage() {
                   </div>
                 </div>
               </div>
+              {existingReport && (() => {
+                const wa = waStatus[existingReport.report_id];
+                const hasParentNumber = !!overview.student.parent_whatsapp;
+                const waLabel =
+                  waBusy === existingReport.report_id ? "Sending…"
+                  : wa?.status === "pending" ? "Sending…"
+                  : wa?.status === "sent" ? "Sent"
+                  : wa?.status === "delivered" ? "Delivered"
+                  : wa?.status === "read" ? "Read"
+                  : wa?.status === "failed" ? "Failed — retry"
+                  : "Send to parent's WhatsApp";
+                return (
+                  <div className="card__foot" style={{ justifyContent: "space-between", borderTop: "1px dashed var(--border)" }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <span className="small muted">
+                        {hasParentNumber ? "Sends the issued PDF via WhatsApp" : "No parent WhatsApp number on file"}
+                      </span>
+                      {wa?.error_detail && <span className="small" style={{ color: "var(--risk)" }}>{wa.error_detail}</span>}
+                    </div>
+                    <button
+                      type="button"
+                      className="btn btn--sm"
+                      title={hasParentNumber ? undefined : "Add a parent WhatsApp number for this student first"}
+                      disabled={!hasParentNumber || waBusy === existingReport.report_id || wa?.status === "pending"}
+                      onClick={() => sendWhatsApp(existingReport)}
+                    >
+                      <MessageCircle size={12} /> {waLabel}
+                    </button>
+                  </div>
+                );
+              })()}
               <div className="card__foot" style={{ justifyContent: "space-between" }}>
                 <div style={{ display: "flex", gap: 8 }}>
                   {existingReport ? <span className="tag tag--green"><Check size={12} /> Issued</span> : <span className="tag">Draft</span>}

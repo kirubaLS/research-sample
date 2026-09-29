@@ -210,7 +210,12 @@ export interface StudentSubjectRow {
 }
 
 export interface StudentAcademicsOverview {
-  student: { id: string; name: string; roll_no: string; section_id: string; section_label: string | null };
+  student: {
+    id: string; name: string; roll_no: string; section_id: string; section_label: string | null;
+    /** Real, on-file parent WhatsApp number, or null -- disables the "Send to parent's
+     * WhatsApp" button honestly rather than always showing it enabled. */
+    parent_whatsapp: string | null;
+  };
   overall: {
     avg_score_pct: number | null; status: AcademicStatus; tests_taken: number;
     /** Every classmate's marks in the same section, rolled up the same way. */
@@ -481,6 +486,19 @@ export interface SharedReportView extends IssuedReportRow {
   class_code: string;
   roll_no: string;
   pin_notice: string;
+}
+
+/** GET/POST .../teacher/reports/{id}/whatsapp -- a real WhatsAppSend row's status.
+ * "pending"/"sent" come from the immediate Meta API call outcome; "delivered"/"read"
+ * arrive later, only once Meta's own delivery-status webhook says so. */
+export interface WhatsAppSendStatus {
+  send_id: string;
+  report_id: string;
+  status: "pending" | "sent" | "delivered" | "read" | "failed";
+  meta_message_id: string | null;
+  error_detail: string | null;
+  sent_at: string | null;
+  status_updated_at: string | null;
 }
 
 /** POST /student/{classCode}/login */
@@ -1994,6 +2012,19 @@ export const api = {
   unshareReport: (key: string, reportId: string) =>
     authed<IssuedReportRow>(`/admin/teacher/reports/${reportId}/unshare`, key, { method: "POST" }),
 
+  // --- sending a report to the parent's WhatsApp (real Meta Cloud API send) ---
+
+  /** Queue a real WhatsApp send of this report's PDF to the parent number on file.
+   * 202 with a send_id to poll -- never a fabricated "sent". A student with no
+   * parent WhatsApp on file gets a real 422, not a queued job. */
+  sendReportWhatsApp: (key: string, reportId: string) =>
+    authed<WhatsAppSendStatus>(`/admin/teacher/reports/${reportId}/whatsapp`, key, { method: "POST" }),
+
+  /** Poll the most recent WhatsApp send attempted for this report. 404 if none has been
+   * attempted yet. */
+  getWhatsAppSendStatus: (key: string, reportId: string) =>
+    authed<WhatsAppSendStatus>(`/admin/teacher/reports/${reportId}/whatsapp`, key),
+
   // --- the student portal itself (no staff key; a session token instead) ---
 
   /** Roll number + PIN, traded for a session token. `classCode` is the same code the
@@ -2157,7 +2188,7 @@ export const api = {
    * platform key was quietly locked out of by an unrelated fix, breaking that route for
    * this exact screen. */
   platformSubjects: (key: string) =>
-    operator<{ subjects: Subject[] }>("/platform/books", key),
+    operator<{ subjects: Subject[] }>("/platform/subjects", key),
 
   bookStatus: (key: string, subject: string) =>
     operator<BookStatus>(`/platform/books/${subject}`, key),

@@ -168,6 +168,36 @@ class Settings(BaseSettings):
     #: comparable, so changing either requires re-embedding the whole corpus.
     embedding_dimensions: int = 512
 
+    # --- WhatsApp (Meta Cloud API, direct -- no BSP) ---
+    #: Meta's own phone-number identifier for the school's WhatsApp Business number,
+    #: assigned once Meta Business verification is complete and a number is registered.
+    #: Unset means every send genuinely attempts the real Meta API call and honestly
+    #: surfaces Meta's own "you have not verified..." style error -- never a fabricated
+    #: success. See app.integrations.whatsapp.WhatsAppClient.
+    whatsapp_phone_number_id: str | None = None
+    #: A permanent (System User) access token once Meta issues one. A short-lived token
+    #: from the App Dashboard's own "Try the API" panel works too but expires in hours --
+    #: fine for a first real test, not for anything left running.
+    whatsapp_access_token: str | None = None
+    #: The name of the message template Meta has approved for this use (a report card
+    #: notification cannot be sent as free-form text -- WhatsApp's business-initiated
+    #: rule requires an approved template). This is a placeholder until the user submits
+    #: a real template to Meta for approval; changing it is a config edit, not a code
+    #: change. See WHATSAPP_TEMPLATE_PARAMS in app.integrations.whatsapp for the body
+    #: variable shape the template is expected to have.
+    whatsapp_template_name: str = "student_report"
+    #: BCP-47/Meta's own template-language code (their catalogue uses "en", "en_US" etc --
+    #: whatever the approved template was actually submitted under).
+    whatsapp_template_language: str = "en"
+    #: Meta signs every webhook delivery with the app secret (X-Hub-Signature-256); kept
+    #: separate from whatsapp_access_token because it verifies inbound calls FROM Meta,
+    #: not calls this app makes TO Meta.
+    whatsapp_app_secret: str | None = None
+    #: The shared secret Meta's own webhook verification handshake (GET .../webhooks/
+    #: whatsapp?hub.verify_token=...) is checked against when the URL is first registered
+    #: in the Meta App Dashboard.
+    whatsapp_webhook_verify_token: str | None = None
+
     # --- accuracy posture ---
     auto_accept_threshold: float = 0.97
     conformal_alpha: float = 0.05

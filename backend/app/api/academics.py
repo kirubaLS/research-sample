@@ -610,6 +610,9 @@ def _student_overview(
             "id": student.id, "name": student.name, "roll_no": student.roll_no,
             "section_id": student.section_id,
             "section_label": f"Class {section.grade}-{section.name}" if section else None,
+            #: real, on-file parent contact -- so the "send to parent's WhatsApp" button
+            #: can be honestly disabled when there is none, rather than always shown enabled.
+            "parent_whatsapp": student.parent_whatsapp,
         },
         "overall": {
             "avg_score_pct": own_avg,

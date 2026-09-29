@@ -45,6 +45,8 @@ from app.models.documents import (
     ScanDocument,
     ScanPage,
     StudentReport,
+    WHATSAPP_SEND_STATUSES,
+    WhatsAppSend,
 )
 from app.models.marks import MARK_STATES, SOURCE_PRECEDENCE, MarkEvent
 from app.models.remediation import RemediationRow
@@ -86,6 +88,7 @@ __all__ = [
     "DOCUMENT_KINDS", "ScanDocument", "ScanPage", "StudentReport", "ProposedMark",
     "GRID_ROW_STATUSES", "GridSheetRow", "GridSheetJob", "GRID_JOB_KINDS", "PaperScanJob",
     "PlacementJob",
+    "WHATSAPP_SEND_STATUSES", "WhatsAppSend",
     "TestSession", "ItemResponse", "ScaleScore", "ProfileResult",
     "CaptureAsset", "Crop", "Prediction", "HumanLabel", "Disagreement",
     "RemediationRow",

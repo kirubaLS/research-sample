@@ -132,6 +132,45 @@ class StudentReport(Base, PkMixin, TimestampMixin):
     share_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
 
+#: pending -- queued, the background task has not yet finished the Meta calls;
+#: sent -- Meta's own /messages call returned a message id; delivered/read -- Meta's own
+#: webhook later said so (never inferred, never assumed just because sent); failed --
+#: either Meta call (upload or send) genuinely returned an error.
+WHATSAPP_SEND_STATUSES = ("pending", "sent", "delivered", "read", "failed")
+
+
+class WhatsAppSend(Base, PkMixin, TimestampMixin):
+    """One attempt to put an issued report's PDF into a parent's WhatsApp, via Meta's
+    Cloud API direct (app.integrations.whatsapp.WhatsAppClient) -- a durable job row,
+    the same pattern GridSheetJob/PaperScanJob/PlacementJob already use for a slow
+    external network call this app cannot finish inside one HTTP request.
+
+    Additive to, and unrelated to, StudentReport.share_pin_hash above: that is a
+    student-facing "read your own report" mechanism; this is a parent-facing WhatsApp
+    notification. A report can be shared with the student, sent to a parent's WhatsApp,
+    both, or neither, independently.
+    """
+
+    __tablename__ = "whatsapp_send"
+
+    school_id: Mapped[str] = mapped_column(ForeignKey("school.id"), index=True)
+    report_id: Mapped[str] = mapped_column(ForeignKey("student_report.id"), index=True)
+    #: captured at send time, not read live off StudentProfile.parent_whatsapp -- a later
+    #: correction to the number on file must not retroactively change what a historical
+    #: send row claims was actually messaged.
+    parent_whatsapp: Mapped[str] = mapped_column(String(32))
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    #: Meta's own id for the sent message, once the /messages call returns one -- the
+    #: correlation key a delivery/read webhook refers back to. Null until sent.
+    meta_message_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    #: Meta's own real error text (upload or send), never a generic "failed". Null unless
+    #: status is "failed".
+    error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: last time a webhook moved this row to delivered/read
+    status_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
 class ProposedMark(Base, PkMixin, TimestampMixin):
     """A mark read out of a file, waiting for a person to confirm it.
 
