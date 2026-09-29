@@ -10,6 +10,17 @@ chunks, and the two either agree or they do not. Disagreement is the review flag
 signal about this one question, rather than a property of the chapter's family data
 that flags most of a paper regardless of whether anything is wrong.
 
+Whole chapter, not sampled passages. Every miss so far had one shape: the judge was never
+shown the sentence that settles the question, because passages were sampled from the
+chapter by word overlap and the settling sentence lost that contest. A Class X chapter is
+at most ten thousand words, so nothing needs sampling: the judge reads the ENTIRE chapter,
+laid out section by section, quotes the sentence that holds what the question tests, and
+the section that sentence sits in is the answer. The chapter text is sent as a cached
+prompt prefix, so a paper's fifteen questions on one chapter pay for its text once.
+Retrieval and the question's own terms remain as independent cross-checks that decide
+whether a row is settled or flagged. The sampled mode below is kept for a chapter too
+large to send whole, and for a judge that does not read documents.
+
 Before this existed the topic was chosen by retrieval alone at map time and never revised:
 the judge named the right section in its reasoning and the Topic column showed the
 retrieval guess. On a Political Science chapter whose every section says "party" and
@@ -137,6 +148,50 @@ def normalise_section(answer: str, headings: dict[str, str]) -> str | None:
     return None
 
 
+#: chapters up to this many characters are sent whole (about 60k tokens); a larger one
+#: falls back to the sampled mode
+FULL_CHAPTER_MAX_CHARS = 250_000
+
+_DOCUMENT_SYSTEM = """You place one CBSE Class X exam question under the ONE section of its
+NCERT textbook chapter that it tests. The chapter has already been decided; do not question
+it. The COMPLETE text of the chapter follows, laid out section by section under numbered
+headings. Read it. Then answer with the number of the section whose text contains what the
+question tests, and copy that sentence, verbatim, into `quote`.
+
+Rules:
+- The section is where the fact, example or argument the question tests is WRITTEN, not
+  the heading that sounds most like the question. If the question names a thing (a book,
+  a law, a person, a place, a year), find where the chapter names it.
+- A sub-question of a passage-based (source-based) question is about the passage's
+  subject: place it where the chapter discusses what the passage discusses.
+- A map-skill or locate-and-label item belongs to the section that teaches the thing
+  being located.
+- Prefer the most specific section: a sub-section (2.2) beats its parent (2) when the
+  sentence you quote is under the sub-section's heading.
+- Answer 'none' only when no section of the chapter contains what the question tests."""
+
+
+def chapter_document(chapter_chunks: list, headings: dict[str, str]) -> str:
+    """The whole chapter as one document, section by section in book order, each chunk's
+    text under its section heading. Deterministic for a given chapter, so it caches."""
+    by_section: dict[str, list] = {n: [] for n in headings}
+    for c in chapter_chunks:
+        if c.section_number in by_section and (c.text or "").strip():
+            by_section[c.section_number].append(c)
+    parts: list[str] = []
+    for number, heading in headings.items():
+        chunks = sorted(
+            by_section[number], key=lambda c: (len(c.reference or ""), c.reference or "", c.id),
+        )
+        if not chunks:
+            continue
+        titled = heading and heading != number
+        parts.append(f"## SECTION {number}  {heading}" if titled else f"## SECTION {number}")
+        parts.extend(c.text.strip() for c in chunks)
+        parts.append("")
+    return "\n".join(parts)
+
+
 class TopicJudge:
     """One structured call per question, answering from a closed list."""
 
@@ -153,6 +208,61 @@ class TopicJudge:
         self.calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
+        self.cache_read_tokens = 0
+
+    def _count(self, response) -> None:
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self.input_tokens += getattr(usage, "input_tokens", 0) or 0
+            self.output_tokens += getattr(usage, "output_tokens", 0) or 0
+            self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
+        self.calls += 1
+
+    def pick_from_document(
+        self, stem: str, chapter_label: str, headings: dict[str, str], document: str,
+        candidates: dict[str, str] | None = None,
+    ) -> _TopicChoice:
+        """Read the whole chapter (a cached prefix shared by every question on it) and
+        name the section whose text holds what the question tests. ``candidates``
+        narrows the answer to a few sections for a confirm pass; the document is the
+        same, so the cache still hits."""
+        extra = {"output_config": self.output_config} if self.output_config else {}
+        section_list = "\n".join(
+            f"- {n}  {h}" if h and h != n else f"- {n}" for n, h in headings.items()
+        )
+        ask = (
+            "Which section number does this question belong to? Copy the sentence that "
+            "contains what it tests into `quote`, verbatim from the chapter above."
+        )
+        if candidates:
+            ask = (
+                "Earlier readings disagreed. Decide between ONLY these sections: "
+                + ", ".join(f"{n} ({h})" for n, h in candidates.items())
+                + ". Which one's text contains what the question tests? Copy that "
+                "sentence into `quote`, verbatim from the chapter above."
+            )
+        response = self.client.messages.parse(
+            model=self.model,
+            max_tokens=8000,
+            system=[
+                {"type": "text", "text": _DOCUMENT_SYSTEM},
+                {
+                    "type": "text",
+                    "text": (
+                        f"CHAPTER: {chapter_label}\n\nSECTIONS\n{section_list}\n\n"
+                        f"FULL TEXT OF THE CHAPTER\n\n{document}"
+                    ),
+                    # the chapter is identical for every question on it: written to the
+                    # cache once, read back at a fraction of the price for the rest
+                    "cache_control": {"type": "ephemeral"},
+                },
+            ],
+            messages=[{"role": "user", "content": f"QUESTION\n{stem.strip()[:3000]}\n\n{ask}"}],
+            output_format=_TopicChoice,
+            **extra,
+        )
+        self._count(response)
+        return response.parsed_output
 
     def pick(
         self, stem: str, chapter_label: str, headings: dict[str, str],
@@ -170,11 +280,7 @@ class TopicJudge:
             output_format=_TopicChoice,
             **extra,
         )
-        usage = getattr(response, "usage", None)
-        if usage is not None:
-            self.input_tokens += getattr(usage, "input_tokens", 0) or 0
-            self.output_tokens += getattr(usage, "output_tokens", 0) or 0
-        self.calls += 1
+        self._count(response)
         return response.parsed_output
 
 
@@ -374,6 +480,14 @@ def choose_topic(
     if judge is None:
         return fall_back("no topic judge available")
 
+    document = chapter_document(chapter_chunks, headings) if hasattr(judge, "pick_from_document") else ""
+    if document and len(document) <= FULL_CHAPTER_MAX_CHARS:
+        return _choose_from_whole_chapter(
+            stem, chapter_label, chapter_chunks, headings, judge, document,
+            retrieval_section=retrieval_section, named=named, votes=votes,
+            fallback=fall_back,
+        )
+
     shown = [
         Candidate(c.chunk_id, c.reference, c.node_id, c.bucket, c.score, c.section,
                   c.text[:budget])
@@ -471,3 +585,102 @@ def choose_topic(
             f"{retrieval_section} ({headings.get(retrieval_section, '')}) instead."
         ).strip()
     return TopicPick(section, headings.get(section), "judge", agreed, retrieval_section, note)
+
+
+def _section_texts(chapter_chunks: list, headings: dict[str, str]) -> dict[str, str]:
+    out: dict[str, str] = {n: "" for n in headings}
+    for c in chapter_chunks:
+        if c.section_number in out:
+            out[c.section_number] += " " + _normalise(c.text or "")
+    return out
+
+
+def _choose_from_whole_chapter(
+    stem: str, chapter_label: str, chapter_chunks: list, headings: dict[str, str],
+    judge, document: str, *, retrieval_section: str | None, named: str | None,
+    votes: dict[str, list[str]], fallback,
+) -> TopicPick:
+    """The judge reads the entire chapter. Its quote, not its number, is the answer; the
+    independent votes (retrieval within the chapter, the book's own use of the
+    question's terms) decide whether the row is settled, and a disagreement is decided
+    by one more read of the same cached chapter restricted to the sections that claim
+    the question."""
+    texts = _section_texts(chapter_chunks, headings)
+
+    def quoted_in(quote: str) -> list[str]:
+        q = _normalise(quote)
+        if len(q) < 12:
+            return []
+        return [n for n, t in texts.items() if q in t]
+
+    def anchor(choice, candidates: dict[str, str]) -> tuple[str | None, str, str | None]:
+        """(section, rationale, note) -- the quote's section outranks the named one."""
+        section = normalise_section(getattr(choice, "section", ""), candidates)
+        rationale = str(getattr(choice, "rationale", "") or "")
+        evidence = quoted_in(str(getattr(choice, "quote", "") or ""))
+        if not evidence:
+            return section, rationale, None
+        # the deepest section containing the quote (a parent's text may include a
+        # child's) that is also compatible with what the judge named, else the deepest
+        compatible = [e for e in evidence if section is not None and _related(e, section)]
+        chosen = max(compatible or evidence, key=lambda n: (n.count("."), n))
+        if section is not None and _related(chosen, section):
+            return chosen if chosen.count(".") >= section.count(".") else section, rationale, None
+        return chosen, rationale, (
+            f"the judge named section {section} ({candidates.get(section, '')}) but the "
+            f"sentence it quoted is in section {chosen} ({headings.get(chosen, '')}), "
+            "which was taken"
+        )
+
+    try:
+        choice = judge.pick_from_document(stem, chapter_label, headings, document)
+        section, rationale, note = anchor(choice, headings)
+    except Exception:  # noqa: BLE001 -- one question's topic must never sink the paper
+        logger.exception("topic judge (whole chapter) failed for %s; falling back", chapter_label)
+        return fallback("the topic judge could not be asked")
+    if section is None:
+        return fallback(
+            "the topic judge found no section of the chapter containing what the "
+            "question tests" + (f" ({rationale})" if rationale else "")
+        )
+    notes: list[str] = [note] if note else []
+
+    claimants: list[str] = [section]
+    for other in (named, retrieval_section):
+        if other is not None and not any(_related(other, c) for c in claimants):
+            claimants.append(other)
+    if named is not None and not _related(section, named):
+        notes.append(
+            "the question's own terms ("
+            + ", ".join(t for t, secs in votes.items() if len(secs) == 1 and _related(secs[0], named))
+            + f") appear in the book only under section {named} ({headings.get(named, '')})"
+        )
+    if len(claimants) > 1:
+        candidates = {n: headings.get(n, "") for n in claimants}
+        try:
+            second = judge.pick_from_document(stem, chapter_label, headings, document, candidates)
+            confirmed, why, _ = anchor(second, candidates)
+            if confirmed is not None and confirmed != section:
+                notes.append(
+                    f"re-read against sections {' and '.join(claimants)}, the judge "
+                    f"switched to {confirmed} ({headings.get(confirmed, '')}): {why}"
+                )
+                section = confirmed
+            elif confirmed == section:
+                notes.append(f"confirmed against sections {' and '.join(claimants)}")
+        except Exception:  # noqa: BLE001 -- the first answer stands, flagged below
+            logger.exception("topic confirm (whole chapter) failed for %s", chapter_label)
+
+    if named is not None:
+        agreed = _related(section, named)
+    else:
+        agreed = retrieval_section is None or _related(section, retrieval_section)
+    text = rationale
+    if notes:
+        text = " ".join([rationale, *[n[0].upper() + n[1:] + "." for n in notes]]).strip()
+    if not agreed and retrieval_section is not None and not _related(section, retrieval_section):
+        text = (
+            f"{text} Retrieval within the chapter pointed at section {retrieval_section} "
+            f"({headings.get(retrieval_section, '')}) instead."
+        ).strip()
+    return TopicPick(section, headings.get(section), "judge", agreed, retrieval_section, text)

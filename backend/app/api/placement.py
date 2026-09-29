@@ -631,6 +631,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 "output_tokens": (
                     getattr(judge, "output_tokens", 0) + getattr(topic_judge, "output_tokens", 0)
                 ),
+                #: chapter text served from the prompt cache rather than paid for again
+                "cache_read_tokens": getattr(topic_judge, "cache_read_tokens", 0),
                 "passages_shown": settings.classifier_evidence_passages,
                 "chapters_shown": evidence_chapters,
             },

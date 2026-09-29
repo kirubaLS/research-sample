@@ -572,3 +572,74 @@ def test_a_judge_that_still_contradicts_the_books_own_term_is_flagged():
     chunks = [FEAR, DISSENT, CHUNKS[4]]
     pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
     assert pick.section == "3.2" and not pick.agreed
+
+
+# --- whole chapter: the judge reads everything, the quote's location is the answer -----
+
+class _DocumentJudge:
+    """A judge that reads documents. Answers consumed in order as (section, quote)."""
+
+    def __init__(self, answers):
+        self.answers, self.calls = list(answers), []
+
+    def pick_from_document(self, stem, chapter_label, headings, document, candidates=None):
+        self.calls.append((dict(headings), document, candidates))
+        section, quote = self.answers.pop(0)
+
+        class _Choice:
+            pass
+
+        c = _Choice()
+        c.section, c.quote, c.rationale = section, quote, "read the chapter"
+        return c
+
+
+def test_the_chapter_document_is_every_section_in_book_order_with_headings():
+    from app.classify.topic import chapter_document
+
+    doc = chapter_document([FEAR, DISSENT], PRINT_HEADINGS)
+    assert doc.index("## SECTION 3.2  Religious Debates") < doc.index("## SECTION 3.3  Print and Dissent")
+    assert "Index of Prohibited Books" in doc and "The Church feared" in doc
+
+
+def test_a_document_judge_is_given_the_whole_chapter_and_its_quote_decides():
+    """The judge writes 3.2 but quotes the Index sentence, which is only under 3.3: the
+    section is 3.3, the term vote agrees, nothing is flagged, and the judge was shown
+    every section's text rather than a sampled passage."""
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    judge = _DocumentJudge([("3.2", "maintained an Index of Prohibited Books from 1558")])
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
+    assert pick.section == "3.3" and pick.agreed and pick.source == "judge"
+    headings, document, candidates = judge.calls[0]
+    assert candidates is None and headings == PRINT_HEADINGS
+    assert "## SECTION 3.2" in document and "## SECTION 3.3" in document
+    assert "named section 3.2" in pick.rationale
+
+
+def test_a_document_judge_that_contradicts_the_books_own_term_is_re_read_on_those_sections():
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    judge = _DocumentJudge([
+        ("3.2", "The Church feared that printed books would spread rebellious ideas"),
+        ("3.3", "maintained an Index of Prohibited Books from 1558"),
+    ])
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
+    assert len(judge.calls) == 2
+    assert set(judge.calls[1][2]) == {"3.2", "3.3"}, "the confirm pass is restricted to the claimants"
+    assert judge.calls[1][1] == judge.calls[0][1], "the same document, so the cache hits"
+    assert pick.section == "3.3" and pick.agreed
+    assert "switched to 3.3" in pick.rationale
+
+
+def test_a_document_judge_that_abstains_falls_back_like_the_sampled_mode():
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    judge = _DocumentJudge([("none", "")])
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge,
+                        fallback_section="3.3")
+    assert pick.section == "3.3" and pick.source == "chapter_judge"
+
+
+def test_a_sampled_judge_without_document_reading_still_uses_the_sampled_mode():
+    judge = _QuotingJudge([("3.3", "maintained an Index of Prohibited Books from 1558")])
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", [FEAR, DISSENT, CHUNKS[4]],
+                        PRINT_HEADINGS, judge)
+    assert pick.section == "3.3" and pick.agreed
