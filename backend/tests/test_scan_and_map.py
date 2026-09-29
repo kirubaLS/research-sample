@@ -1312,6 +1312,50 @@ def test_a_mapped_question_gets_a_chapter_a_topic_and_a_sub_topic(client, school
     assert placed["mapped_to"]["board_unit"] == "Statistics & Probability"
 
 
+def test_map_lets_the_topic_judge_choose_the_section_within_the_retrieved_chapter(
+    client, school, book, monkeypatch
+):
+    """Chapter retrieval is unchanged; the topic within it is the judge's. Retrieval
+    reads 'mean' and says 13.2, the judge (stubbed) says 13.3: the judge's section and
+    heading land on the question, the family follows, and the disagreement is flagged."""
+    h = _auth(school)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+
+    class StubTopicJudge:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def pick(self, stem, chapter_label, headings, passages):
+            assert chapter_label == "Statistics"
+            assert set(headings) >= {"13.2", "13.3"}
+
+            class _Choice:
+                section = "13.3"
+                rationale = "the question is really about the mode"
+
+            return _Choice()
+
+    monkeypatch.setattr("app.classify.topic.TopicJudge", StubTopicJudge)
+
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Judged topic", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    out = client.post(f"/assessments/{aid}/map", headers=h)
+    assert out.status_code == 200, out.text
+    assert out.json()["mapped"] == 1
+
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert placed["mapped_to"]["chapter"] == "Statistics"
+    assert placed["mapped_to"]["curriculum_section"] == "13.3"
+    assert placed["mapped_to"]["topic"] == "Mode of Grouped Data"
+    assert placed["mapped_to"]["needs_review"] is True
+    assert "Topic 13.3 (Mode of Grouped Data)" in placed["mapped_to"]["review_reason"]
+    assert "pointed at section 13.2" in placed["mapped_to"]["review_reason"]
+
+
 def test_the_topic_is_recorded_as_a_skill_so_the_report_can_group_by_it(
     client, school, book
 ):

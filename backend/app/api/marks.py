@@ -39,6 +39,7 @@ from app.mapping.solver import Constraint, QuestionDist, solve
 from app.mapping.topic_node import (
     BOOK_MAP_SUBJECTS,
     book_map_topic_label,
+    section_headings,
     section_number,
     topic_node,
 )
@@ -1638,6 +1639,51 @@ def map_paper_to_book(
     }
 
     context = context_addresses(staged)
+    # The topic within the chapter is decided by the closed-set topic judge (see
+    # app.classify.topic) rather than by which passage happened to score highest: the
+    # chapter's own section headings, every one of them, with the judge choosing among
+    # them and retrieval within the chapter as the check. Without a classifier key the
+    # judge cannot be asked and the retrieval section stands, as it always did.
+    from app.classify.topic import TopicJudge, choose_topic
+
+    topic_judge = None
+    if settings.anthropic_api_key:
+        try:
+            topic_judge = TopicJudge(
+                settings.anthropic_api_key, settings.model_classifier,
+                effort=settings.model_effort, passage_chars=settings.classifier_passage_chars,
+            )
+        except Exception:  # noqa: BLE001 -- the retrieval section then stands
+            topic_judge = None
+    topic_embedder = None
+    if settings.jina_api_key and any(c.embedding for c in retrieval_chunks):
+        from app.ingest.jina import JinaEmbedder
+
+        topic_embedder = JinaEmbedder(
+            settings.jina_api_key, model=settings.embedding_model,
+            dimensions=settings.embedding_dimensions,
+        )
+    headings_of: dict[str, dict[str, str]] = {}
+    passage_of: dict[tuple[str | None, str], str] = {
+        (r.section, r.question_no): (r.stem_text or "").strip()
+        for r in staged if r.address in context and (r.stem_text or "").strip()
+    }
+
+    def decide_topic(row, chapter: TaxonomyNode, section: str | None):
+        """The section this question tests within ``chapter``, and its heading. A
+        sub-part of a source-based question is judged together with its passage."""
+        if chapter.id not in headings_of:
+            headings_of[chapter.id] = section_headings(chunks, chapter, nodes)
+        text = row.stem_text or ""
+        passage = passage_of.get((row.section, row.question_no)) if row.sub_part else None
+        if passage and passage not in text:
+            text = f"{passage}\n\nQUESTION ON THE PASSAGE ABOVE:\n{text}"
+        return choose_topic(
+            text, chapter.id, chapter.label, retrieval_chunks, headings_of[chapter.id],
+            topic_judge, fallback_section=section, embedder=topic_embedder,
+            evidence_passages=settings.classifier_evidence_passages,
+            passage_chars=settings.classifier_passage_chars,
+        )
     # A case study's sub-parts all read the same source passage, which is not in the book
     # at all (an unseen extract, invented for this paper) -- so raw retrieval can easily
     # find real evidence for one sub-part (a shared word with some unrelated chapter) and
@@ -1702,10 +1748,17 @@ def map_paper_to_book(
 
         landed = nodes.get(verdict.node_id or "")
         # The section the winning passages came from, and only then the code of whatever
-        # the retrieval landed on. Both are the book's, never a guess.
+        # the retrieval landed on. Both are the book's, never a guess -- and both are only
+        # the fallback: the topic judge reads the question against every section of the
+        # chapter and its answer, when it gives one, is the section.
         section = verdict.section or (_section_number(landed.code) if landed else None)
+        pick = decide_topic(row, chapter, section)
+        if pick.section:
+            section = pick.section
         topic = None
-        if section and is_book_map_subject:
+        if section and pick.section == section and pick.heading and pick.heading != section:
+            topic = _book_map_topic_node(db, chapter, section, pick.heading)
+        if topic is None and section and is_book_map_subject:
             book_map_label = _book_map_topic_label(chunks, chapter.id, section)
             if book_map_label:
                 topic = _book_map_topic_node(db, chapter, section, book_map_label)
@@ -1726,7 +1779,10 @@ def map_paper_to_book(
             )
             blocked.append(row.address)
             continue
-        choice = choose_family(candidates, sections_of, section, chapter.label)
+        choice = choose_family(
+            candidates, sections_of, section, chapter.label,
+            prefer_label=pick.heading if pick.section else None,
+        )
         family, ambiguous = choice.family, choice.unsettled
         auto_resolved: str | None = None
         if family is None and choice.blocked is not None:
@@ -1776,9 +1832,19 @@ def map_paper_to_book(
             # An auto-resolved one gets the same flag: the classifier read the book and
             # made a real choice, not a guess, but it is still a machine's first answer
             # rather than a person's, on a family this chapter never claimed before.
-            source="model", needs_review=not verdict.agreed or ambiguous is not None or auto_resolved is not None,
+            source="model",
+            needs_review=(
+                not verdict.agreed
+                or (pick.section is not None and not pick.agreed)
+                or ambiguous is not None
+                or auto_resolved is not None
+            ),
             reasoning=(
                 f"{row_mode} retrieval, margin {verdict.margin:.3f}"
+                + (
+                    f". Topic {pick.section} ({pick.heading}): {pick.rationale}"
+                    if pick.section else ""
+                )
                 + (f". {ambiguous}" if ambiguous else "")
                 + (f". Auto-resolved: {auto_resolved}" if auto_resolved else "")
             ),
@@ -1818,8 +1884,20 @@ def map_paper_to_book(
         chapter, unit_id, section, topic = (
             borrowed["chapter"], borrowed["unit_id"], borrowed["section"], borrowed["topic"],
         )
+        pick = decide_topic(row, chapter, section)
+        if pick.section:
+            section = pick.section
+            if pick.heading and pick.heading != section:
+                topic = _book_map_topic_node(db, chapter, section, pick.heading)
+            elif is_book_map_subject and (label := _book_map_topic_label(chunks, chapter.id, section)):
+                topic = _book_map_topic_node(db, chapter, section, label)
+            else:
+                topic = topics.get((chapter.id, section))
         candidates = families.get(chapter.id, [])
-        choice = choose_family(candidates, sections_of, section, chapter.label)
+        choice = choose_family(
+            candidates, sections_of, section, chapter.label,
+            prefer_label=pick.heading if pick.section else None,
+        )
         family = choice.family
         if family is None:
             row.blocked_reason = choice.blocked or (

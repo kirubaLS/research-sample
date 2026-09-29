@@ -77,12 +77,22 @@ def section_headings(
     place in the book, and the number alone is enough to file under.
     """
     out: dict[str, str] = {}
+    from_book_map = False
     for c in chunks:
         if c.node_id != chapter.id or not c.section_number:
             continue
         out.setdefault(c.section_number, "")
+        if getattr(c, "subject_code", None) in BOOK_MAP_SUBJECTS:
+            from_book_map = True
     if not out:
         return out
+    # A book_map subject's chunk references ARE the headings, and its subtopic nodes are
+    # the stale, differently-numbered rows the importer left alone (see BOOK_MAP_SUBJECTS)
+    # -- so for those the reference wins, and the node label is never consulted.
+    if from_book_map:
+        for number in out:
+            out[number] = book_map_topic_label(chunks, chapter.id, number) or number
+        return dict(sorted(out.items(), key=_section_order))
     if nodes:
         for node in nodes.values():
             if node.kind != "subtopic" or node.parent_id != chapter.id:
@@ -93,7 +103,11 @@ def section_headings(
     for number, heading in out.items():
         if not heading:
             out[number] = book_map_topic_label(chunks, chapter.id, number) or number
-    return dict(sorted(out.items(), key=lambda kv: [int(p) for p in kv[0].split(".") if p.isdigit()]))
+    return dict(sorted(out.items(), key=_section_order))
+
+
+def _section_order(item: tuple[str, str]) -> list[int]:
+    return [int(p) for p in item[0].split(".") if p.isdigit()]
 
 
 def topic_node(db: Session, chapter: TaxonomyNode, section: str, label: str) -> TaxonomyNode:
