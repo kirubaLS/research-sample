@@ -485,27 +485,6 @@ table { border-collapse: collapse; width: 100%; }
    that block once both are stuck, rather than being covered by it. */
 .table-wrap--stack thead th { position: sticky; top: calc(var(--page-header-h, 0px) + var(--sticky-offset, 0px)); background: var(--th-bg); z-index: 14; box-shadow: 0 1px 0 var(--line-strong), 0 8px 16px -16px rgba(21,37,46,.8); }
 
-/* Marks entry: many question columns scroll horizontally, so Roll and
-   Student freeze on the left the same way the header row freezes on top -
-   a paper with 30+ questions stays navigable instead of losing the
-   student's identity off-screen. */
-.marks-grid td:nth-child(1), .marks-grid td:nth-child(2) { position: sticky; z-index: 1; background: var(--surface); }
-.marks-grid td:nth-child(1) { left: 0; }
-.marks-grid td:nth-child(2) { left: 52px; box-shadow: 2px 0 4px -2px rgba(21,37,46,.15); }
-.marks-grid th:nth-child(1), .marks-grid th:nth-child(2) { position: sticky; z-index: 3; background: var(--th-bg); }
-.marks-grid th:nth-child(1) { left: 0; }
-.marks-grid th:nth-child(2) { left: 52px; box-shadow: 2px 0 4px -2px rgba(21,37,46,.15); }
-/* The Total column freezes on the right too, only the question columns
-   between the two frozen edges scroll, so the running total stays in
-   view no matter how many questions the paper has. */
-.marks-grid td:last-child { position: sticky; right: 0; z-index: 1; background: var(--surface); box-shadow: -2px 0 4px -2px rgba(21,37,46,.15); }
-.marks-grid th:last-child { position: sticky; right: 0; z-index: 3; background: var(--th-bg); box-shadow: -2px 0 4px -2px rgba(21,37,46,.15); }
-.marks-grid__legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 22px 0; }
-.marks-grid__legend-item {
-  display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--brand-ink-soft);
-  padding: 4px 10px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line);
-}
-.marks-grid__legend-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 2px rgba(255,255,255,.6); }
 .table th {
   text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .08em; color: var(--brand-ink-soft);
   padding: 11px 14px; border-bottom: 1px solid var(--line-strong); font-weight: 700; white-space: nowrap;
@@ -523,13 +502,6 @@ table { border-collapse: collapse; width: 100%; }
    which every roster/ops table in the app also renders with. */
 .table--dense th { padding: 8px 14px; }
 .table--dense td { padding: 8px 14px; }
-
-/* The marks grid's frozen Total column: a visible tint + a stronger left
-   seam (on top of the plain box-shadow every sticky column already gets),
-   so it reads as "pinned" rather than just the table's last column. */
-.marks-grid td:last-child { background: var(--surface-2); font-weight: 600; }
-.marks-grid th:last-child { background: color-mix(in srgb, var(--th-bg) 100%, var(--surface-2)); border-left: 1px solid var(--line-strong); }
-.marks-grid td:last-child { border-left: 1px solid var(--line); }
 
 /* Movement against the previous analysed test. Green up / amber down -
    deliberately quieter than the attention pill so it reads as context,
@@ -1282,7 +1254,7 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
   .marks-desktop { display: none; }
   .marks-mobile { display: grid; gap: 10px; padding: 12px 14px 4px; }
   .marks-head__upload { width: 100%; }
-  .marks-grid__legend { padding: 10px 14px 0; }
+  .pm-legend { padding: 10px 14px 0; }
   .flagbar, .scanned { margin: 12px 14px 0; }
   .marks-foot { position: sticky; bottom: calc(58px + env(safe-area-inset-bottom)); background: var(--surface); z-index: 5; border-radius: 0 0 var(--radius-lg) var(--radius-lg); }
   .marks-foot { flex-wrap: nowrap; gap: 10px; }
@@ -1536,4 +1508,128 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
 @media (prefers-reduced-motion: reduce) {
   .intel-band__seg:hover:not(:disabled), .intel-band__seg:hover .intel-band__icon, .donut-card:hover, .donut-card:hover .donut,
   .donut-legend__row:hover, .bx-block:hover, .bx-block:hover .bx-block__num, .bx-card:hover, .bx-action:hover { transform: none; }
+}
+
+/* =====================================================================================
+   Papers & Marks screen -- dedicated, scoped styling ("pm-" prefix)
+   -------------------------------------------------------------------------------------
+   Everything below is used ONLY by frontend/app/teacher/dashboard/page.tsx's
+   PapersTab/MarksTab and by frontend/components/MarksEntryGrid.tsx /
+   ConfirmedMarksGrid.tsx. It reuses the app's real design tokens (--brand-*,
+   --radius-*, --shadow-*, --surface*, --line*, --font-sans) so it still looks like
+   the same product, but every shape/spacing/pill/border rule here is this screen's
+   own -- nothing else in the app reads a "pm-" class, so nothing else can be broken
+   by tuning these. Grepped before landing on this prefix: no existing class in the
+   codebase starts with "pm-", so there is no collision risk the way bare ".chip" once
+   silently collided with an unrelated ".chip" rule (see the fix earlier in this file).
+
+   3D-hover safety: .pm-examcard--hover is the ONLY rule below with perspective/
+   preserve-3d, and it is applied only to the collapsed exam-day card, whose entire
+   clickable surface is the single header button (see PapersTab). Nothing else here
+   uses perspective or preserve-3d, since every other scoped element on this screen
+   holds real, separately-interactive children (buttons, selects, file inputs). */
+
+.pm-examcard {
+  border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface);
+  box-shadow: var(--shadow-sm); overflow: hidden;
+}
+.pm-examcard--hover { perspective: 1200px; }
+.pm-examcard--hover:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 34px -18px color-mix(in srgb, var(--brand-teal) 45%, transparent), var(--shadow-md);
+}
+.pm-examcard { transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s cubic-bezier(.22,1,.36,1); }
+.pm-examcard__head {
+  width: 100%; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  padding: 16px 20px; background: none; border: 0; text-align: left; cursor: pointer; font: inherit; color: inherit;
+}
+.pm-examcard__title { font-size: 15px; font-weight: 650; color: var(--brand-ink); }
+.pm-examcard__meta { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--muted); margin-top: 3px; }
+.pm-examcard__body { padding: 0 20px 18px; display: grid; gap: 10px; }
+
+/* Subject table inside an expanded exam-day card. */
+.pm-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius-md); }
+.pm-table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.pm-table thead th {
+  background: var(--surface-2); text-align: left; font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .06em; color: var(--brand-ink-soft);
+  padding: 10px 14px; border-bottom: 1px solid var(--line-strong);
+}
+.pm-table tbody td { padding: 11px 14px; border-bottom: 1px solid var(--line); vertical-align: middle; }
+.pm-table tbody tr:last-child td { border-bottom: none; }
+.pm-table tbody tr { transition: background .16s ease; }
+.pm-table tbody tr:hover td { background: color-mix(in srgb, var(--brand-teal) 6%, var(--surface)); }
+.pm-table tbody tr:hover td:first-child { box-shadow: inset 3px 0 0 var(--brand-teal); }
+.pm-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Status pills -- Mapped / Needs mapping / Not uploaded. */
+.pm-pill {
+  display: inline-flex; align-items: center; gap: 5px; padding: 3px 10px; border-radius: 999px;
+  font-size: 11.5px; font-weight: 650; letter-spacing: .01em; line-height: 1.5; border: 1px solid transparent;
+}
+.pm-pill--mapped { background: var(--brand-green-soft); color: #24714a; }
+.pm-pill--needs { background: var(--brand-gold-soft); color: #8a6410; }
+.pm-pill--not { background: var(--surface-2); color: var(--muted); border-color: var(--line); }
+
+/* Blueprint coverage bar: track + fill + percentage beside it. */
+.pm-coverage { display: flex; align-items: center; gap: 8px; min-width: 170px; }
+.pm-coverage__track { flex: 1; height: 7px; border-radius: 999px; background: var(--surface-2); overflow: hidden; }
+.pm-coverage__fill { height: 100%; border-radius: 999px; transition: width .4s cubic-bezier(.22,1,.36,1); }
+.pm-coverage__pct { font-size: 11.5px; color: var(--muted); min-width: 30px; text-align: right; font-variant-numeric: tabular-nums; }
+
+/* Standalone-papers form: an unboxed panel, not a card look-alike. */
+.pm-standalone { display: grid; gap: 16px; }
+.pm-standalone__fields { display: flex; gap: 14px; flex-wrap: wrap; }
+.pm-standalone-card {
+  border: 1px solid var(--line); border-radius: var(--radius-lg); background: var(--surface);
+  box-shadow: var(--shadow-sm); padding: 16px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  cursor: pointer; transition: transform .28s cubic-bezier(.22,1,.36,1), box-shadow .28s cubic-bezier(.22,1,.36,1);
+}
+.pm-standalone-card:hover { transform: translateY(-2px); box-shadow: 0 16px 28px -18px color-mix(in srgb, var(--brand-teal) 40%, transparent), var(--shadow-md); }
+
+/* Create Test modal -- its own padding rhythm and subject chips. */
+.pm-modal__body { padding: 20px; display: grid; gap: 16px; }
+.pm-modal__label { font-size: 12.5px; color: var(--muted); display: block; margin-bottom: 8px; font-weight: 600; }
+.pm-chipset { display: flex; flex-wrap: wrap; gap: 8px; }
+.pm-chip {
+  padding: 7px 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: var(--surface);
+  font-size: 13px; font-weight: 600; color: var(--brand-ink-soft); cursor: pointer; transition: all .15s ease;
+}
+.pm-chip:hover { border-color: var(--brand-teal); color: var(--brand-ink); }
+.pm-chip--on {
+  background: var(--brand-teal); border-color: var(--brand-teal); color: #fff;
+  box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--brand-teal) 60%, transparent);
+}
+
+/* Enter Marks tab: dropdown row / banner / legend / grid with a pinned Total column. */
+.pm-marks-head { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; padding: 16px 20px; }
+.pm-legend { display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 20px 0; }
+.pm-legend-item {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px 3px 8px; border-radius: 999px;
+  background: var(--surface-2); font-size: 12px; color: var(--brand-ink-soft);
+}
+.pm-legend-dot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; box-shadow: 0 0 0 2px rgba(255,255,255,.7); }
+
+.pm-grid td:nth-child(1), .pm-grid td:nth-child(2) { position: sticky; z-index: 1; background: var(--surface); }
+.pm-grid td:nth-child(1) { left: 0; }
+.pm-grid td:nth-child(2) { left: 52px; box-shadow: 2px 0 4px -2px rgba(21,37,46,.15); }
+.pm-grid th:nth-child(1), .pm-grid th:nth-child(2) { position: sticky; z-index: 3; background: var(--th-bg); }
+.pm-grid th:nth-child(1) { left: 0; }
+.pm-grid th:nth-child(2) { left: 52px; box-shadow: 2px 0 4px -2px rgba(21,37,46,.15); }
+/* Frozen Total column: tinted + a left seam, so it reads as pinned, not just "last". */
+.pm-grid td:last-child {
+  position: sticky; right: 0; z-index: 1; background: var(--surface-2); font-weight: 600;
+  box-shadow: -2px 0 4px -2px rgba(21,37,46,.15); border-left: 1px solid var(--line);
+}
+.pm-grid th:last-child {
+  position: sticky; right: 0; z-index: 3; background: color-mix(in srgb, var(--th-bg) 100%, var(--surface-2));
+  box-shadow: -2px 0 4px -2px rgba(21,37,46,.15); border-left: 1px solid var(--line-strong);
+}
+
+@media (max-width: 720px) {
+  .pm-legend { padding: 10px 14px 0; }
+  .pm-marks-head { padding: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pm-examcard--hover:hover, .pm-standalone-card:hover { transform: none; }
 }

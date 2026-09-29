@@ -57,7 +57,7 @@ import { EvidenceState } from "@/components/EvidenceState";
 import { LoadingScreen } from "@/components/Shell";
 import { DeltaCell } from "@/components/StudentRosterTable";
 import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
-import { AnimatedBar, Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { getApiKey } from "@/lib/session";
 
 /** The one common teacher dashboard, every teacher key lands on -- exam-cell or a plain
@@ -385,9 +385,9 @@ function PapersTab({ examCell }: { examCell: boolean }) {
   }
 
   function statusTag(p: PaperSummary): { label: string; cls: string } {
-    if (p.stage === "mapped") return { label: "Mapped", cls: "tag--green" };
-    if (p.stage === "confirmed" || p.stage === "scanned") return { label: "Needs mapping", cls: "tag--gold" };
-    return { label: "Not uploaded", cls: "" };
+    if (p.stage === "mapped") return { label: "Mapped", cls: "pm-pill--mapped" };
+    if (p.stage === "confirmed" || p.stage === "scanned") return { label: "Needs mapping", cls: "pm-pill--needs" };
+    return { label: "Not uploaded", cls: "pm-pill--not" };
   }
   function coveragePct(p: PaperSummary): number {
     return p.questions > 0 ? Math.round((p.mapped_questions / p.questions) * 100) : 0;
@@ -426,18 +426,17 @@ function PapersTab({ examCell }: { examCell: boolean }) {
               const open = expanded.has(t.id);
               return (
                 <StaggerItem key={t.id}>
-                  {/* card--hover's perspective/preserve-3d only applies while collapsed --
-                     the header is a single clickable target then, but once expanded this
-                     card holds real per-subject action buttons, and that same 3D
-                     transform is what silently ate clicks on the Standalone papers form
-                     above (see the note there). */}
-                  <div className={`card ${open ? "" : "card--hover"}`}>
+                  {/* .pm-examcard--hover's perspective/preserve-3d only applies while
+                     collapsed -- the header is a single clickable target then, but once
+                     expanded this card holds real per-subject action buttons, and that
+                     same 3D transform is what silently ate clicks on the Standalone
+                     papers form above (see the note there). */}
+                  <div className={`pm-examcard ${open ? "" : "pm-examcard--hover"}`}>
                     <button
                       type="button"
                       onClick={() => toggle(t.id)}
                       aria-expanded={open}
-                      className="card__head"
-                      style={{ width: "100%", background: "none", border: 0, textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit" }}
+                      className="pm-examcard__head"
                     >
                       <div style={{ display: "flex", gap: 10, alignItems: "flex-start" }}>
                         <motion.span
@@ -448,8 +447,8 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                           <ChevronRight size={18} />
                         </motion.span>
                         <div>
-                          <div className="strong" style={{ fontSize: 15, fontWeight: 650 }}>{t.name}</div>
-                          <div className="small muted" style={{ marginTop: 2, display: "flex", alignItems: "center", gap: 6 }}>
+                          <div className="pm-examcard__title">{t.name}</div>
+                          <div className="pm-examcard__meta">
                             <Calendar size={12} /> {t.date ?? "no date"} · {papers.length} subject{papers.length === 1 ? "" : "s"} ·{" "}
                             {mappedCount} of {papers.length} mapped
                           </div>
@@ -459,12 +458,12 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                     </button>
 
                     {open && (
-                      <div className="card__body" style={{ paddingTop: 0, display: "grid", gap: 10 }}>
+                      <div className="pm-examcard__body">
                         {papers.length === 0 ? (
                           <p className="small muted">No papers attached to this test yet.</p>
                         ) : (
-                          <div className="table-wrap">
-                            <table className="table table--hover table--dense">
+                          <div className="pm-table-wrap">
+                            <table className="pm-table">
                               <thead>
                                 <tr>
                                   <th>Subject</th>
@@ -495,18 +494,19 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                           )}
                                         </div>
                                       </td>
-                                      <td style={{ minWidth: 170 }}>
-                                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                          <div style={{ flex: 1 }}>
-                                            <AnimatedBar value={pct} accent={pct === 100 ? "var(--brand-green)" : "var(--brand-teal)"} height={7} />
+                                      <td>
+                                        <div className="pm-coverage">
+                                          <div className="pm-coverage__track">
+                                            <div
+                                              className="pm-coverage__fill"
+                                              style={{ width: `${pct}%`, background: pct === 100 ? "var(--brand-green)" : "var(--brand-teal)" }}
+                                            />
                                           </div>
-                                          <span className="small mono muted" style={{ minWidth: 30, textAlign: "right" }}>
-                                            {pct}%
-                                          </span>
+                                          <span className="pm-coverage__pct">{pct}%</span>
                                         </div>
                                       </td>
                                       <td>
-                                        <span className={`tag ${st.cls}`}>{st.label}</span>
+                                        <span className={`pm-pill ${st.cls}`}>{st.label}</span>
                                       </td>
                                       <td style={{ textAlign: "right" }}>
                                         <button className="btn btn--sm" onClick={() => void scan.openPaper(p)}>
@@ -547,16 +547,15 @@ function PapersTab({ examCell }: { examCell: boolean }) {
               <div className="section__head">
                 <h2 className="section-q">Standalone papers</h2>
               </div>
-              {/* Plain .card, deliberately no --hover: this card holds a native <select>
-                 and a hidden file input the "Upload paper file" button programmatically
-                 clicks -- card--hover's perspective/preserve-3d transform put those
+              {/* .pm-standalone is a plain, unboxed panel -- deliberately no 3D hover:
+                 this holds a native <select> and a hidden file input the "Upload paper
+                 file" button programmatically clicks, and perspective/preserve-3d puts
                  interactive children in a 3D rendering context where clicks silently
                  stopped reaching them in the browser (no console error, no dialog). A
-                 card whose whole job is to be clicked (the exam-day cards) is fine with
-                 it; a card that's mostly a form is not. */}
-              <div className="card">
-                <div className="card__body" style={{ display: "grid", gap: 14 }}>
-                  <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+                 surface whose whole job is to be clicked (the exam-day cards, collapsed)
+                 is fine with it; a form is not. */}
+              <div className="pm-standalone">
+                <div className="pm-standalone__fields">
                     <div className="field" style={{ minWidth: 220 }}>
                       <label htmlFor="new-subject">Subject</label>
                       <select id="new-subject" className="select" value={scan.subject} onChange={(e) => scan.setSubject(e.target.value)}>
@@ -618,33 +617,30 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                     />
                   )}
                 </div>
-              </div>
 
               {standalonePapers.length > 0 && (
                 <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
                   {standalonePapers.map((p) => (
-                    <div className="card card--hover" key={p.id}>
-                      <button
-                        onClick={() => scan.openPaper(p)}
-                        style={{ width: "100%", textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}
-                      >
-                        <div className="card__head">
-                          <div>
-                            <div className="strong" style={{ fontSize: 15 }}>
-                              {p.title}
-                            </div>
-                            <div className="small muted" style={{ marginTop: 2 }}>
-                              {p.subject_label} · {p.questions} question{p.questions === 1 ? "" : "s"} · {p.mapped_questions} mapped ·{" "}
-                              {p.students_with_marks} student{p.students_with_marks === 1 ? "" : "s"} marked
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span className={`tag ${p.stage === "mapped" ? "tag--green" : p.stage === "confirmed" ? "tag--gold" : ""}`}>{p.stage}</span>
-                            <ChevronDown size={16} className="muted" />
-                          </div>
+                    <button
+                      key={p.id}
+                      onClick={() => scan.openPaper(p)}
+                      className="pm-standalone-card"
+                      style={{ width: "100%", textAlign: "left", font: "inherit", color: "inherit" }}
+                    >
+                      <div>
+                        <div className="strong" style={{ fontSize: 15 }}>
+                          {p.title}
                         </div>
-                      </button>
-                    </div>
+                        <div className="small muted" style={{ marginTop: 2 }}>
+                          {p.subject_label} · {p.questions} question{p.questions === 1 ? "" : "s"} · {p.mapped_questions} mapped ·{" "}
+                          {p.students_with_marks} student{p.students_with_marks === 1 ? "" : "s"} marked
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span className={`tag ${p.stage === "mapped" ? "tag--green" : p.stage === "confirmed" ? "tag--gold" : ""}`}>{p.stage}</span>
+                        <ChevronDown size={16} className="muted" />
+                      </div>
+                    </button>
                   ))}
                 </div>
               )}
@@ -1013,7 +1009,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
               </button>
             </div>
             <form onSubmit={createTest}>
-              <div className="modal__body">
+              <div className="pm-modal__body">
                 <div className="field">
                   <label htmlFor="test-name">Test name</label>
                   <input
@@ -1030,15 +1026,13 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                   <input id="test-date" className="input" type="date" value={examDate} onChange={(e) => setExamDate(e.target.value)} />
                 </div>
                 <div>
-                  <label className="small muted" style={{ display: "block", marginBottom: 8 }}>
-                    Subjects for this test
-                  </label>
-                  <div className="chipset">
+                  <label className="pm-modal__label">Subjects for this test</label>
+                  <div className="pm-chipset">
                     {pickableSubjects.map((s) => (
                       <button
                         type="button"
                         key={s.subject_code}
-                        className={`chip ${pickedSubjects.has(s.subject_code) ? "chip--on" : ""}`}
+                        className={`pm-chip ${pickedSubjects.has(s.subject_code) ? "pm-chip--on" : ""}`}
                         onClick={() => toggleSubject(s.subject_code)}
                       >
                         {s.label}

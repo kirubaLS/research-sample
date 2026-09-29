@@ -97,7 +97,7 @@ export function MarksEntryGrid({
 
   return (
     <div className="card" style={{ marginTop: 16 }}>
-      <div className="card__head marks-head">
+      <div className="card__head pm-marks-head">
         <div className="small muted">
           {grid.ready.length === 0 ? "No papers ready for answer sheets yet." : "Photograph or upload the filled answer card, or a spreadsheet, to read marks."}
         </div>
@@ -210,13 +210,13 @@ export function MarksEntryGrid({
 
           {cleanRows.length > 0 && (
             <>
-              <div className="marks-grid__legend">
-                <span className="marks-grid__legend-item">
-                  <span className="marks-grid__legend-dot" style={{ background: "var(--risk)" }} /> flagged by the reading -- needs a look
+              <div className="pm-legend">
+                <span className="pm-legend-item">
+                  <span className="pm-legend-dot" style={{ background: "var(--risk)" }} /> flagged by the reading -- needs a look
                 </span>
               </div>
               <div className="table-wrap table-wrap--scroll">
-                <table className="table marks-grid">
+                <table className="table pm-grid">
                   <thead>
                     <tr>
                       <th>Roll</th>
@@ -276,7 +276,7 @@ export function MarksEntryGrid({
                         {/* Read-only cross-check: what the sheet's own TOTAL column
                             claims, never a mark against any question -- see
                             gridsheets.py's _extract_sheet_total. Sits last so the
-                            existing .marks-grid td:last-child / th:last-child sticky
+                            existing .pm-grid td:last-child / th:last-child sticky
                             rule (app/globals.css) already keeps it frozen on scroll,
                             same as ConfirmedMarksGrid's own last column. */}
                         <td className="num muted" title="As printed on the sheet">

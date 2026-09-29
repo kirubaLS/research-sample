@@ -84,16 +84,16 @@ export function ConfirmedMarksGrid({
           <span className="tag tag--green">Mapped, view only</span>
         </div>
 
-        <div className="marks-grid__legend">
+        <div className="pm-legend">
           {groups.map((g) => (
-            <span className="marks-grid__legend-item" key={g}>
-              <span className="marks-grid__legend-dot" style={{ background: colorFor(g) }} /> {g}
+            <span className="pm-legend-item" key={g}>
+              <span className="pm-legend-dot" style={{ background: colorFor(g) }} /> {g}
             </span>
           ))}
         </div>
 
         <div className="table-wrap table-wrap--scroll">
-          <table className="table marks-grid">
+          <table className="table pm-grid">
             <thead>
               <tr>
                 <th>Roll</th>
@@ -101,7 +101,7 @@ export function ConfirmedMarksGrid({
                 {report.questions.map((q) => (
                   <th key={q.address} className="num" title={q.group}>
                     <span style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
-                      <span className="marks-grid__legend-dot" style={{ background: colorFor(q.group) }} />
+                      <span className="pm-legend-dot" style={{ background: colorFor(q.group) }} />
                       {q.label}../{q.max_marks}
                     </span>
                   </th>
