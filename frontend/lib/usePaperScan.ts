@@ -6,6 +6,7 @@ import {
   ApiError,
   ApiUnreachable,
   ConfirmResult,
+  JobProgress,
   MapResult,
   PaperSummary,
   PlaceResult,
@@ -71,6 +72,10 @@ export function usePaperScan(opts: {
   const [mapped, setMapped] = useState<MapResult | null>(null);
   const [placed, setPlaced] = useState<PlaceResult | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Real progress from the job row this session is currently polling (a page-scan read
+  // or a placement run) -- null/null until the server has something to report, never
+  // fabricated in between. Cleared whenever busy is cleared, alongside it.
+  const [progress, setProgress] = useState<JobProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<"all" | "mapped" | "blocked">("all");
   const [confirmedBy, setConfirmedBy] = useState("");
@@ -368,10 +373,11 @@ export function usePaperScan(opts: {
     }
     setError(null);
     setBusy(sessionId && pendingResume ? "Retrying…" : "Reading the paper…");
+    setProgress(null);
     let id = existingId;
     try {
       if (resumeJobId && id) {
-        setScan(await api.resumeScanJob(key, id, resumeJobId));
+        setScan(await api.resumeScanJob(key, id, resumeJobId, setProgress));
       } else {
         if (!id) {
           const created = await api.createAssessment(key, { subject_code: scanSubject, title: scanTitle });
@@ -389,7 +395,7 @@ export function usePaperScan(opts: {
               prev && prev.sessionId === sessionId ? { ...prev, assessmentId: capturedId, jobId } : prev,
             );
           }
-        }));
+        }, setProgress));
       }
       setMapped(null);
       setConfirmation(null);
@@ -417,6 +423,7 @@ export function usePaperScan(opts: {
       }
     } finally {
       setBusy(null);
+      setProgress(null);
       if (fileInput.current) fileInput.current.value = "";
     }
   }
@@ -566,16 +573,18 @@ export function usePaperScan(opts: {
     if (!key || !assessmentId) return;
     setError(null);
     setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
+    setProgress(null);
     try {
       setPlaced(await api.placePaper(key, assessmentId, (jobId) => {
         setJob("paper-place", assessmentId, jobId);
-      }));
+      }, setProgress));
       clearJob("paper-place", assessmentId);
       await refresh(assessmentId);
     } catch (err) {
       setError(explain(err));
     } finally {
       setBusy(null);
+      setProgress(null);
     }
   }
 
@@ -589,9 +598,12 @@ export function usePaperScan(opts: {
     if (!key) return;
     let cancelled = false;
     setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
+    setProgress(null);
     (async () => {
       try {
-        const result = await api.resumePlacementJob(key, assessmentId, jobId);
+        const result = await api.resumePlacementJob(key, assessmentId, jobId, (p) => {
+          if (!cancelled) setProgress(p);
+        });
         if (cancelled) return;
         setPlaced(result);
         clearJob("paper-place", assessmentId);
@@ -601,7 +613,10 @@ export function usePaperScan(opts: {
         clearJob("paper-place", assessmentId);
         setError(explain(err));
       } finally {
-        if (!cancelled) setBusy(null);
+        if (!cancelled) {
+          setBusy(null);
+          setProgress(null);
+        }
       }
     })();
     return () => {
@@ -619,10 +634,19 @@ export function usePaperScan(opts: {
   );
   const blockedCount = (review?.questions ?? []).filter((q) => !q.mapped_to && !q.is_context).length;
 
+  // The generic busy label, with real "X of Y" progress appended whenever the job
+  // currently running has reported any -- falls back to the plain label whenever it
+  // hasn't (an old job, or a moment before the first commit lands), never showing a
+  // broken "undefined of undefined". Whether this reads as pages or questions follows
+  // from which action set `busy`: a scan reports pages, a classify run reports questions.
+  const busyLabel = busy && progress?.progress_total != null
+    ? `${busy} (${progress.progress_done ?? 0} of ${progress.progress_total})`
+    : busy;
+
   return {
     // data
     subjects, subject, setSubject, title, setTitle, assessmentId,
-    scan, review, mapped, placed, busy, error, setError, filter, setFilter,
+    scan, review, mapped, placed, busy, progress, busyLabel, error, setError, filter, setFilter,
     confirmedBy, setConfirmedBy, confirmation, renaming, deleted,
     documentId, removingScan, papers, alreadyClassified, fileInput, showCamera, setShowCamera,
     scanSessionId, pendingResume, pendingPageCount, retrying,

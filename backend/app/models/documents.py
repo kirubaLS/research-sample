@@ -266,6 +266,13 @@ class GridSheetJob(Base, PkMixin, TimestampMixin):
     error_status: Mapped[int | None] = mapped_column(nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: how far this read has gotten, in pages -- null on an old or not-yet-started job,
+    #: never "0 of 0". The sheet's own vision read is one blocking multi-page call with no
+    #: per-page signal (see AnthropicGridReader), so progress_done only ever moves from
+    #: null straight to progress_total once the call returns; progress_total itself is
+    #: known and set as soon as the page count is, before the call is made.
+    progress_done: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    progress_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class PaperScanJob(Base, PkMixin, TimestampMixin):
@@ -290,6 +297,13 @@ class PaperScanJob(Base, PkMixin, TimestampMixin):
     error_status: Mapped[int | None] = mapped_column(nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: pages read out of the paper's total, committed after each page's vision call
+    #: actually completes (pages are read concurrently -- see
+    #: AnthropicPaperVisionReader._read_all's as_completed loop -- so this only ever
+    #: increases, never in page order). Null on an old or not-yet-started job, never
+    #: "0 of 0".
+    progress_done: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    progress_total: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class PlacementJob(Base, PkMixin, TimestampMixin):
@@ -317,3 +331,10 @@ class PlacementJob(Base, PkMixin, TimestampMixin):
     error_status: Mapped[int | None] = mapped_column(nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: questions classified out of the paper's total, committed after each judge.classify()
+    #: call returns (the loop in app.classify.pipeline._pass is strictly sequential, one
+    #: question at a time). Null on an old or not-yet-started job, never "0 of 0". A paper
+    #: whose scope gets inferred runs a second full pass (see place_paper), so this can
+    #: restart from 0/total partway through a job that is still, honestly, working.
+    progress_done: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    progress_total: Mapped[int | None] = mapped_column(Integer, nullable=True)

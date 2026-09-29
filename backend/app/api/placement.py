@@ -125,6 +125,34 @@ def _finish_placement_job(
         db.close()
 
 
+def _report_placement_progress(job_id: str, done: int, total: int) -> None:
+    """Commit one question's worth of real progress -- called from inside place_paper's
+    (really _pass's) sequential per-question loop, after each judge.classify() call
+    returns. A short-lived session of its own, opened and closed just for this write, the
+    same discipline _run_placement_job's own docstring gives for the read and write
+    phases either side of the classifier calls -- this fires *during* those calls,
+    potentially forty times, not just once after them.
+
+    Never raises: a failure writing progress is not a failure of the classification
+    itself, and must not abort a run that is otherwise succeeding just because one
+    progress commit could not land.
+    """
+    from app.db import SessionLocal
+
+    try:
+        db = SessionLocal()
+        try:
+            job = db.get(PlacementJob, job_id)
+            if job is not None:
+                job.progress_done = done
+                job.progress_total = total
+                db.commit()
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 -- a progress write must never sink the real run
+        pass
+
+
 def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run, not worth splitting
     """The slow part of placement, run after the request that queued it has already
     returned.
@@ -274,6 +302,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     finally:
         db.close()  # released BEFORE the slow classifier calls below, not held across it
 
+    _report_placement_progress(job_id, 0, len(stems))
+
     # A group paper's retrieval pool is every book in the group at once (X.SST's four
     # books together), not one -- so the fixed per-book candidate count starves a question
     # whose true chapter is a weak lexical/semantic match (a short factual stem like "An
@@ -299,6 +329,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             section_of=lambda ref: None,
             declared=declared,
             scope=scope,
+            on_progress=lambda done, total: _report_placement_progress(job_id, done, total),
         )
     except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
         _finish_placement_job(
@@ -595,8 +626,15 @@ def get_placement_job(
     if job.status == "failed":
         raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
     if job.status != "succeeded":
-        return {"job_id": job.id, "status": job.status}
-    return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
+        return {
+            "job_id": job.id, "status": job.status,
+            "progress_done": job.progress_done, "progress_total": job.progress_total,
+        }
+    return {
+        "job_id": job.id, "status": "succeeded",
+        "progress_done": job.progress_done, "progress_total": job.progress_total,
+        **(job.result or {}),
+    }
 
 
 def _chapters_in_subjects(nodes: dict, subject_codes: list[str]) -> set[str]:

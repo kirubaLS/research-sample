@@ -331,6 +331,32 @@ def _supersede_pending_gridsheet_jobs(
         stale.finished_at = datetime.now(UTC)
 
 
+def _report_gridsheet_progress(job_id: str, done: int | None, total: int) -> None:
+    """Commit whatever progress is honestly known so far. ``done=None`` records only the
+    total (the page count, known before the vision call starts) without claiming any
+    pages are done yet -- see _run_gridsheet_job's own comment on why there is no real
+    per-page signal for this reader, unlike a paper scan's.
+
+    A short-lived session of its own, opened and closed just for this write -- never
+    raises: a failure writing progress must not sink an otherwise-succeeding read.
+    """
+    from app.db import SessionLocal
+
+    try:
+        db = SessionLocal()
+        try:
+            job = db.get(GridSheetJob, job_id)
+            if job is not None:
+                if done is not None:
+                    job.progress_done = done
+                job.progress_total = total
+                db.commit()
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 -- a progress write must never sink the real read
+        logger.exception("gridsheet job %s: failed to write progress", job_id)
+
+
 def _finish_gridsheet_job(
     job_id: str, *, status_value: str, result: dict | None = None,
     error_status: int | None = None, error_detail: str | None = None,
@@ -406,6 +432,14 @@ def _run_gridsheet_job(job_id: str) -> None:
     finally:
         db.close()  # released BEFORE the slow vision call below, not held across it
 
+    # The page count is known before the vision call is ever made, so it is worth
+    # recording as progress_total right away -- but AnthropicGridReader.read() is one
+    # single blocking call over every page at once (a stream, not a per-page loop; see
+    # its own docstring), so there is no real per-page signal to hook a callback on the
+    # way read_paper_vision's as_completed loop does. progress_done stays null, honestly,
+    # until the one call actually returns -- see _finish_gridsheet_job's own write below.
+    _report_gridsheet_progress(job_id, None, len(pages))
+
     settings = get_settings()
     api_key = settings.anthropic_api_key
     try:
@@ -436,6 +470,11 @@ def _run_gridsheet_job(job_id: str) -> None:
             ),
         )
         return
+    # The call returned -- whatever it found, the read itself is done. Not written by
+    # _finish_gridsheet_job's own "failed" paths below (a refusal or a shape mismatch is
+    # a real outcome of a completed read, not a read that never finished), so this is the
+    # one place both the "succeeded" and those "failed after a completed read" paths share.
+    _report_gridsheet_progress(job_id, len(pages), len(pages))
     if reading.refused:
         _finish_gridsheet_job(job_id, status_value="failed", error_status=422, error_detail=reading.refused)
         return
@@ -652,8 +691,15 @@ def get_gridsheet_job(
     if job.status == "failed":
         raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
     if job.status != "succeeded":
-        return {"job_id": job.id, "status": job.status}
-    return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
+        return {
+            "job_id": job.id, "status": job.status,
+            "progress_done": job.progress_done, "progress_total": job.progress_total,
+        }
+    return {
+        "job_id": job.id, "status": "succeeded",
+        "progress_done": job.progress_done, "progress_total": job.progress_total,
+        **(job.result or {}),
+    }
 
 
 @router.get("/{assessment_id}/gridsheet/{document_id}")

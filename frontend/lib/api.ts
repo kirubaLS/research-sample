@@ -1252,9 +1252,23 @@ export interface BookStatus {
 // resume watching it directly, without re-uploading anything. Skipping straight to a
 // poll here is what stops a lost connection from turning into a second, costly vision
 // call for work the server already has queued or finished.
+/** How far a job has gotten -- pages read, questions classified -- alongside its
+ * status. Both null on an old job written before progress tracking existed, or one
+ * whose reader genuinely has no per-unit signal to report yet (see GridSheetJob):
+ * null means "not known", never "0 of 0", which would read as already finished. */
+export interface JobProgress {
+  progress_done: number | null;
+  progress_total: number | null;
+}
+
 export async function pollJob<T>(
   jobsBase: string, key: string, jobId: string,
   header: "X-Platform-Key" | "X-API-Key",
+  // Called on every poll tick with whatever progress the job row carries, even before
+  // it succeeds -- a caller with somewhere to show it (see usePaperScan/useGridSheet's
+  // own progress state) updates a real "page 3 of 8" label as the job actually runs,
+  // rather than only finding out once it is already done.
+  onProgress?: (progress: JobProgress) => void,
 ): Promise<T> {
   const deadline = Date.now() + 10 * 60 * 1000;
   while (true) {
@@ -1270,7 +1284,11 @@ export async function pollJob<T>(
       // the job failed -- the same status/detail a synchronous upload would have thrown
       throw new ApiError(res.status, await res.text());
     }
-    const body = (await res.json()) as { status: string };
+    const body = (await res.json()) as { status: string } & Partial<JobProgress>;
+    onProgress?.({
+      progress_done: body.progress_done ?? null,
+      progress_total: body.progress_total ?? null,
+    });
     if (body.status === "succeeded") return body as T;
     if (Date.now() > deadline) {
       throw new ApiError(504, `job ${jobId} did not finish within 10 minutes`);
@@ -1314,6 +1332,7 @@ function waitOrUntilVisible(ms: number): Promise<void> {
  */
 async function postAndPoll<T>(
   path: string, key: string, onJobQueued?: (jobId: string) => void,
+  onProgress?: (progress: JobProgress) => void,
 ): Promise<T> {
   let res: Response;
   try {
@@ -1328,7 +1347,7 @@ async function postAndPoll<T>(
   const data = (await res.json()) as Record<string, unknown>;
   if (data.status === "pending" && typeof data.job_id === "string") {
     onJobQueued?.(data.job_id);
-    return pollJob<T>(path, key, data.job_id, "X-API-Key");
+    return pollJob<T>(path, key, data.job_id, "X-API-Key", onProgress);
   }
   return data as T;
 }
@@ -1374,6 +1393,7 @@ async function uploadMany<T>(
   // right away, so a connection lost partway through polling resumes by watching that
   // same job instead of resubmitting the files as a brand new one.
   onJobQueued?: (jobId: string) => void,
+  onProgress?: (progress: JobProgress) => void,
 ): Promise<T> {
   const body = new FormData();
   // The field name repeats rather than being indexed: that is what FastAPI reads as a
@@ -1393,7 +1413,7 @@ async function uploadMany<T>(
   const data = (await res.json()) as Record<string, unknown>;
   if (jobsBase && data.status === "pending" && typeof data.job_id === "string") {
     onJobQueued?.(data.job_id);
-    return pollJob<T>(jobsBase, key, data.job_id, header);
+    return pollJob<T>(jobsBase, key, data.job_id, header, onProgress);
   }
   return data as T;
 }
@@ -2232,22 +2252,29 @@ export const api = {
    * instant a vision read is queued (202 + job_id) -- pass it to persist the id
    * somewhere durable before polling starts, so a lost connection can resume watching
    * that job instead of resubmitting the pages as a second, separately-billed read. */
-  scanPaper: (key: string, assessmentId: string, files: File[], onJobQueued?: (jobId: string) => void) =>
+  scanPaper: (
+    key: string, assessmentId: string, files: File[],
+    onJobQueued?: (jobId: string) => void,
+    onProgress?: (progress: JobProgress) => void,
+  ) =>
     uploadMany<ScanResult>(
       `/assessments/${assessmentId}/scan`, key, files, "X-API-Key",
       // A scanned/photographed paper (no text layer) needs a vision call and can run
       // past Render's request timeout, so that case answers 202 with a job to poll --
       // a text-layer PDF still returns its result directly, no polling.
       `/assessments/${assessmentId}/scan`,
-      onJobQueued,
+      onJobQueued, onProgress,
     ),
 
   /** Resume watching a scan job already queued on the server -- no files to send, it
    * already has them. Use this instead of scanPaper() whenever a job_id from an earlier
    * onJobQueued is on hand: re-uploading would queue a second, wasted vision read for
    * work the server is already doing or has already finished. */
-  resumeScanJob: (key: string, assessmentId: string, jobId: string) =>
-    pollJob<ScanResult>(`/assessments/${assessmentId}/scan`, key, jobId, "X-API-Key"),
+  resumeScanJob: (
+    key: string, assessmentId: string, jobId: string,
+    onProgress?: (progress: JobProgress) => void,
+  ) =>
+    pollJob<ScanResult>(`/assessments/${assessmentId}/scan`, key, jobId, "X-API-Key", onProgress),
 
   readScan: (key: string, assessmentId: string) =>
     authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),
@@ -2303,12 +2330,19 @@ export const api = {
    *  the instant it's queued, for the same reason scanPaper's does: so a lost connection
    *  resumes watching the job already running server-side, rather than reclassifying the
    *  whole paper a second time. */
-  placePaper: (key: string, assessmentId: string, onJobQueued?: (jobId: string) => void) =>
-    postAndPoll<PlaceResult>(`/assessments/${assessmentId}/place`, key, onJobQueued),
+  placePaper: (
+    key: string, assessmentId: string,
+    onJobQueued?: (jobId: string) => void,
+    onProgress?: (progress: JobProgress) => void,
+  ) =>
+    postAndPoll<PlaceResult>(`/assessments/${assessmentId}/place`, key, onJobQueued, onProgress),
 
   /** Resume watching a placement job already queued on the server -- see resumeScanJob. */
-  resumePlacementJob: (key: string, assessmentId: string, jobId: string) =>
-    pollJob<PlaceResult>(`/assessments/${assessmentId}/place`, key, jobId, "X-API-Key"),
+  resumePlacementJob: (
+    key: string, assessmentId: string, jobId: string,
+    onProgress?: (progress: JobProgress) => void,
+  ) =>
+    pollJob<PlaceResult>(`/assessments/${assessmentId}/place`, key, jobId, "X-API-Key", onProgress),
 
   uploadContents: (key: string, subject: string, file: File, edition: string) =>
     upload<{ chapters_expected: number; sections_expected: number; next: string }>(
@@ -2436,25 +2470,27 @@ export const api = {
   uploadGridSheet: (
     key: string, assessmentId: string, sectionId: string, files: File[],
     onJobQueued?: (jobId: string) => void,
+    onProgress?: (progress: JobProgress) => void,
   ) =>
     uploadMany<GridUploadResult>(
       `/assessments/${assessmentId}/sections/${sectionId}/gridsheet`, key, files, "X-API-Key",
       // Reading a photo calls a vision model and can run past Render's request timeout,
       // so this endpoint always answers 202 with a job to poll -- never the result directly.
       `/assessments/${assessmentId}/gridsheet`,
-      onJobQueued,
+      onJobQueued, onProgress,
     ),
 
   uploadSingleScript: (
     key: string, assessmentId: string, sectionId: string, files: File[],
     onJobQueued?: (jobId: string) => void,
+    onProgress?: (progress: JobProgress) => void,
   ) =>
     uploadMany<GridUploadResult>(
       `/assessments/${assessmentId}/sections/${sectionId}/script`, key, files, "X-API-Key",
       // Same reason as the class photo: a vision call can run past Render's request
       // timeout, so this always answers 202 with a job to poll.
       `/assessments/${assessmentId}/gridsheet`,
-      onJobQueued,
+      onJobQueued, onProgress,
     ),
 
   /** Resume watching a grid-sheet read already queued on the server (GET
@@ -2462,8 +2498,11 @@ export const api = {
    *  poll internally) -- for a page reload or a lost connection partway through polling,
    *  so it watches the job already running server-side instead of re-uploading the photo
    *  as a second, separately-billed vision read. */
-  resumeGridSheetJob: (key: string, assessmentId: string, jobId: string) =>
-    pollJob<GridUploadResult>(`/assessments/${assessmentId}/gridsheet`, key, jobId, "X-API-Key"),
+  resumeGridSheetJob: (
+    key: string, assessmentId: string, jobId: string,
+    onProgress?: (progress: JobProgress) => void,
+  ) =>
+    pollJob<GridUploadResult>(`/assessments/${assessmentId}/gridsheet`, key, jobId, "X-API-Key", onProgress),
 
   uploadGridSheetFile: (key: string, assessmentId: string, sectionId: string, files: File[]) =>
     uploadMany<GridUploadResult>(

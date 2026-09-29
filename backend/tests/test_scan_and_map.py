@@ -168,7 +168,7 @@ def test_two_context_rows_reading_the_same_question_are_merged_not_a_crash(
         def __init__(self, *a, **kw) -> None:
             pass
 
-        def read(self, pages):
+        def read(self, pages, on_progress=None):
             return PaperVisionReading(questions=[
                 ExtractedQuestion(
                     section="A", question_no="1", sub_part=None, choice_alt=None,
@@ -236,7 +236,7 @@ def test_a_scanned_papers_vision_read_stages_questions_the_same_way_text_does(
         def __init__(self, *a, **kw) -> None:
             pass
 
-        def read(self, pages):
+        def read(self, pages, on_progress=None):
             return PaperVisionReading(questions=[
                 ExtractedQuestion(
                     section="A", question_no="1", sub_part=None, choice_alt=None,
@@ -304,7 +304,7 @@ def test_a_vision_read_that_falls_short_of_the_papers_own_declared_total_is_bloc
         def __init__(self, *a, **kw) -> None:
             pass
 
-        def read(self, pages):
+        def read(self, pages, on_progress=None):
             return PaperVisionReading(
                 questions=[
                     ExtractedQuestion(
@@ -394,7 +394,7 @@ def test_a_text_extraction_that_looks_unreliable_falls_back_to_vision(
         def __init__(self, *a, **kw) -> None:
             pass
 
-        def read(self, pages):
+        def read(self, pages, on_progress=None):
             # The vision route recovers the question the text route's parser dropped.
             return PaperVisionReading(
                 questions=[

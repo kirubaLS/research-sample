@@ -16,6 +16,7 @@ mark or a question directly.
 from __future__ import annotations
 
 import base64
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 
@@ -267,7 +268,11 @@ class AnthropicPaperVisionReader:
             raise RuntimeError(f"({exc.status_code}) {exc.message}") from exc
         return response.parsed_output
 
-    def _read_all(self, pages: list[tuple[bytes, str]]) -> list[_PaperOut | RuntimeError]:
+    def _read_all(
+        self,
+        pages: list[tuple[bytes, str]],
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> list[_PaperOut | RuntimeError]:
         """Every page's Claude call fired concurrently, not one after another.
 
         A page does not need any other page's *content* to be read -- the ordering
@@ -308,15 +313,28 @@ class AnthropicPaperVisionReader:
                 ): i
                 for i, (data, content_type) in enumerate(pages)
             }
+            done = 0
             for future in as_completed(future_to_index):
                 i = future_to_index[future]
                 try:
                     results[i] = future.result()
                 except RuntimeError as exc:
                     results[i] = exc
+                # as_completed hands futures back one at a time on this same (calling)
+                # thread -- never from inside a worker -- so this increment needs no lock:
+                # there is exactly one thread ever touching `done`. A page's outcome
+                # counts as progress whether it succeeded or failed; a failed page is
+                # still a page this job is done trying to read, not one still pending.
+                done += 1
+                if on_progress is not None:
+                    on_progress(done, len(pages))
         return results
 
-    def read(self, pages: list[tuple[bytes, str]]) -> PaperVisionReading:
+    def read(
+        self,
+        pages: list[tuple[bytes, str]],
+        on_progress: Callable[[int, int], None] | None = None,
+    ) -> PaperVisionReading:
         out = PaperVisionReading()
         # Carried across pages, not reset per page: a section header is often printed
         # once and left implicit on every page after it, and a page read on its own (no
@@ -346,7 +364,7 @@ class AnthropicPaperVisionReader:
         # the same as a row that was never part of a group at all.
         last_attempt_required: int | None = None
         last_group_marks: float | None = None
-        results = self._read_all(pages)
+        results = self._read_all(pages, on_progress)
 
         for index in range(1, len(pages) + 1):
             outcome = results[index - 1]
@@ -460,8 +478,15 @@ def read_paper_vision(
     api_key: str | None,
     model: str = "claude-opus-5",
     page_concurrency: int = 4,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> PaperVisionReading:
-    """Dispatch to the vision reader, or refuse by name when there is none configured."""
+    """Dispatch to the vision reader, or refuse by name when there is none configured.
+
+    ``on_progress(done, total)``, when given, is called after each page's vision call
+    completes (see AnthropicPaperVisionReader._read_all) -- the real unit of progress a
+    multi-page scan has, since pages are read concurrently rather than in one blocking
+    call.
+    """
     if not api_key:
         out = PaperVisionReading()
         out.refused = (
@@ -471,4 +496,4 @@ def read_paper_vision(
         return out
     return AnthropicPaperVisionReader(
         api_key, model, page_concurrency=page_concurrency
-    ).read(pages)
+    ).read(pages, on_progress)

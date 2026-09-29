@@ -665,7 +665,7 @@ function PapersTab({ examCell, heldSubjectCodes }: { examCell: boolean; heldSubj
           <div className="card__body" style={{ display: "grid", gap: 14 }}>
             {scan.busy && (
               <div className="small muted" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                <Loader2 size={14} className="spin" /> {scan.busy}
+                <Loader2 size={14} className="spin" /> {scan.busyLabel}
               </div>
             )}
             {!scan.scan && !scan.documentId && (

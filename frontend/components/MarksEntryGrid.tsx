@@ -155,7 +155,7 @@ export function MarksEntryGrid({
             </div>
           )}
 
-          {grid.busy && <BusyBanner label={grid.busy} />}
+          {grid.busy && <BusyBanner label={grid.busyLabel ?? grid.busy} />}
 
           {/* Once a sheet is read, "Remove scan" is the only way to start over on a
               mis-scanned or wrong-class upload -- picking a different paper and back did

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import UTC, datetime, timedelta
 
@@ -69,6 +70,7 @@ from app.models.assessment import TIER_ALIASES
 from app.taxonomy.variants import ServedVariant, VariantReuseError, enforce, variant_hash
 
 router = APIRouter(prefix="/assessments", tags=["marks-engine"])
+logger = logging.getLogger(__name__)
 
 
 def _get_assessment(db: Session, school: School, assessment_id: str) -> Assessment:
@@ -826,6 +828,34 @@ def _finish_paper_scan_job(
         db.close()
 
 
+def _report_paper_scan_progress(job_id: str, done: int, total: int) -> None:
+    """Commit one page's worth of real progress -- called from inside
+    ``read_paper_vision``'s as_completed loop, after each page's own vision call
+    completes (see AnthropicPaperVisionReader._read_all). A short-lived session of its
+    own, opened and closed just for this write, the same "never one held open across the
+    slow call" discipline _run_paper_scan_job's own docstring gives -- this fires *during*
+    that call, potentially many times, not just once after it.
+
+    Never raises: a failure writing progress is not a failure of the scan itself, and
+    must not abort a read that is otherwise succeeding just because one progress commit
+    could not land.
+    """
+    from app.db import SessionLocal
+
+    try:
+        db = SessionLocal()
+        try:
+            job = db.get(PaperScanJob, job_id)
+            if job is not None:
+                job.progress_done = done
+                job.progress_total = total
+                db.commit()
+        finally:
+            db.close()
+    except Exception:  # noqa: BLE001 -- a progress write must never sink the real read
+        logger.exception("paper scan job %s: failed to write progress %s/%s", job_id, done, total)
+
+
 def _run_paper_scan_job(job_id: str) -> None:
     """The slow part of reading a scanned question paper, run after the request that
     queued it has already returned.
@@ -866,9 +896,11 @@ def _run_paper_scan_job(job_id: str) -> None:
             path.unlink(missing_ok=True)
 
         settings = get_settings()
+        _report_paper_scan_progress(job_id, 0, len(pages))
         reading = read_paper_vision(
             pages, api_key=settings.anthropic_api_key, model=settings.model_high_stakes,
             page_concurrency=settings.vision_page_concurrency,
+            on_progress=lambda done, total: _report_paper_scan_progress(job_id, done, total),
         )
         if reading.refused:
             _finish_paper_scan_job(
@@ -1053,8 +1085,15 @@ def get_paper_scan_job(
     if job.status == "failed":
         raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
     if job.status != "succeeded":
-        return {"job_id": job.id, "status": job.status}
-    return {"job_id": job.id, "status": "succeeded", **(job.result or {})}
+        return {
+            "job_id": job.id, "status": job.status,
+            "progress_done": job.progress_done, "progress_total": job.progress_total,
+        }
+    return {
+        "job_id": job.id, "status": "succeeded",
+        "progress_done": job.progress_done, "progress_total": job.progress_total,
+        **(job.result or {}),
+    }
 
 
 #: A sub-part's own printed letter, in the order CBSE actually uses it: lowercase roman

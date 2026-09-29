@@ -9,6 +9,7 @@ import {
   ApiUnreachable,
   GridSheetReview,
   GridSheetRowView,
+  JobProgress,
   PaperSummary,
   RosterRow,
 } from "@/lib/api";
@@ -59,6 +60,12 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
   const [by, setBy] = useState("");
   const [confirmResult, setConfirmResult] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // Real progress from the GridSheetJob this session is currently polling. Its reader
+  // is one blocking call over every page at once (see backend/app/extraction/gridsheet.py),
+  // not a per-page loop -- so progress_total shows up as soon as the page count is known,
+  // but progress_done stays null until the whole call returns, honestly, never a fake
+  // per-page tick.
+  const [progress, setProgress] = useState<JobProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCamera, setShowCamera] = useState(false);
   const [photoMode, setPhotoMode] = useState<PhotoMode>("class");
@@ -154,6 +161,7 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
     if (!key || !paperId || !sectionId || files.length === 0) return;
     setShowCamera(false);
     setBusy(photoMode === "class" ? "Reading the sheet" : "Reading the script");
+    setProgress(null);
     setError(null);
     setUploadSummary(null);
     setConfirmResult(null);
@@ -166,8 +174,8 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
     };
     try {
       const out = photoMode === "class"
-        ? await api.uploadGridSheet(key, paperId, sectionId, files, onJobQueued)
-        : await api.uploadSingleScript(key, paperId, sectionId, files, onJobQueued);
+        ? await api.uploadGridSheet(key, paperId, sectionId, files, onJobQueued, setProgress)
+        : await api.uploadSingleScript(key, paperId, sectionId, files, onJobQueued, setProgress);
       clearJob("gridsheet", scope);
       setDocumentId(out.document_id);
       setUploadSummary(
@@ -179,6 +187,7 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
       setError(explain(err));
     } finally {
       setBusy(null);
+      setProgress(null);
     }
   }
 
@@ -192,10 +201,13 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
     if (!jobId) return;
     let cancelled = false;
     setBusy("Reading the sheet");
+    setProgress(null);
     setError(null);
     (async () => {
       try {
-        const out = await api.resumeGridSheetJob(key, paperId, jobId);
+        const out = await api.resumeGridSheetJob(key, paperId, jobId, (p) => {
+          if (!cancelled) setProgress(p);
+        });
         if (cancelled) return;
         clearJob("gridsheet", scope);
         setDocumentId(out.document_id);
@@ -209,7 +221,10 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
         clearJob("gridsheet", scope);
         setError(explain(err));
       } finally {
-        if (!cancelled) setBusy(null);
+        if (!cancelled) {
+          setBusy(null);
+          setProgress(null);
+        }
       }
     })();
     return () => {
@@ -380,6 +395,15 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
 
   const ready = papers.filter((p) => p.ready_for_answer_sheets && (!subjectCode || p.subject_code === subjectCode));
 
+  // See usePaperScan's own busyLabel: the plain label with real "X of Y" appended
+  // whenever the job currently running has reported any, falling back to the plain
+  // label otherwise -- never a broken "undefined of undefined". This reader has no
+  // real per-page signal (see the `progress` state's own comment above), so in
+  // practice this only ever shows the page count once known, not an incrementing count.
+  const busyLabel = busy && progress?.progress_total != null
+    ? `${busy} (${progress.progress_done ?? "reading"} of ${progress.progress_total} page${progress.progress_total === 1 ? "" : "s"})`
+    : busy;
+
   return {
     papers,
     ready,
@@ -394,6 +418,8 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
     setBy,
     confirmResult,
     busy,
+    progress,
+    busyLabel,
     error,
     showCamera,
     setShowCamera,

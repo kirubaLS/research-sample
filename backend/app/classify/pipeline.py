@@ -16,6 +16,7 @@ paper, not once per student.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from app.classify.judge import Classification, Evidence
@@ -123,13 +124,15 @@ def _pass(
     evidence_passages: int,
     evidence_chapters: int,
     passage_chars: int = DEFAULT_PASSAGE_CHARS,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> tuple[list[QuestionSlot], dict[str, Classification]]:
     """One classification pass over every question."""
     slots: list[QuestionSlot] = []
     judged: dict[str, Classification] = {}
     pool = _full_pool(indexes)
+    total = len(questions)
 
-    for question_id, stem, marks in questions:
+    for done, (question_id, stem, marks) in enumerate(questions, start=1):
         # Retrieval only -- the judge below still reads the real, untouched stem.
         query = retrieval_query_text(stem)
         verdict = locate(
@@ -178,6 +181,8 @@ def _pass(
             for c in candidates
         ]
         if not evidence:
+            if on_progress is not None:
+                on_progress(done, total)
             continue
 
         try:
@@ -204,6 +209,8 @@ def _pass(
                 alternative_chapter=None,
             )
             slots.append(QuestionSlot(question_id, marks, [Option(None, None, 0.0)]))
+            if on_progress is not None:
+                on_progress(done, total)
             continue
 
         # a question whose evidence all fell outside the scope cannot be trusted to the
@@ -251,6 +258,8 @@ def _pass(
                     )
 
         slots.append(QuestionSlot(question_id, marks, options))
+        if on_progress is not None:
+            on_progress(done, total)
 
     return slots, judged
 
@@ -269,6 +278,7 @@ def place_paper(
     evidence_passages: int = EVIDENCE_DEPTH,
     evidence_chapters: int = 1,
     passage_chars: int = DEFAULT_PASSAGE_CHARS,
+    on_progress: Callable[[int, int], None] | None = None,
 ) -> PaperPlacement:
     """Place every question in a paper.
 
@@ -282,13 +292,19 @@ def place_paper(
     an easier problem than any single placement, because a chapter twelve questions agree
     on is nearly certain while one question alone in a chapter is more likely an error.
     A second pass then runs with the outliers ruled out.
+
+    ``on_progress(done, total)``, when given, is called after each question in
+    ``questions`` is classified against the CURRENT pass (see _pass) -- ``done`` counts
+    within that pass, not across both, so a paper whose scope gets inferred and runs a
+    second pass reports progress that restarts from 1 partway through the job. That is
+    the honest shape of the work: the second pass genuinely re-classifies every question.
     """
     inferred: InferredScope | None = None
     scope_source = "declared" if scope is not None else "none"
 
     slots, judged = _pass(
         questions, indexes, judge, chapter_of, unit_of, section_of, scope,
-        evidence_passages, evidence_chapters, passage_chars,
+        evidence_passages, evidence_chapters, passage_chars, on_progress,
     )
 
     if scope is None and infer_scope_when_undeclared and slots:
@@ -313,6 +329,7 @@ def place_paper(
             slots, judged = _pass(
                 questions, indexes, judge, chapter_of, unit_of, section_of,
                 inferred.chapters, evidence_passages, evidence_chapters, passage_chars,
+                on_progress,
             )
             scope_source = "inferred"
 
