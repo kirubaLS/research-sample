@@ -196,6 +196,90 @@ def quoted_sections(quote: str, passages: list[Candidate]) -> list[str]:
     return out
 
 
+_LINK_WORDS = {"of", "the", "and", "for", "in", "on", "to", "de", "&"}
+_TERM_RE = re.compile(
+    r"(?<![\w'])((?:[A-Z][\w'’-]+)(?:\s+(?:(?:of|the|and|for|in|on|to|de|&)\s+)?[A-Z][\w'’-]+)+)"
+)
+_YEAR_RE = re.compile(r"\b(1[4-9]\d\d|20\d\d)\b")
+#: a single capitalised word counts only mid-sentence (after a list marker, a dash, a
+#: comma), never as a sentence opener, and never one of the exam's own stock words
+_SINGLE_RE = re.compile(r"(?<=[)\-–—,;] )([A-Z][a-z][\w'’-]{3,})")
+_STOCK_WORDS = {
+    "assertion", "reason", "options", "option", "column", "match", "choose", "explain",
+    "which", "state", "read", "both", "only", "section", "question", "suggest", "analyse",
+    "justify", "examine", "mention", "name", "describe", "write", "given", "answer",
+    "following", "correct", "statement", "statements", "true", "false", "arrange", "person",
+}
+_QUOTED_RE = re.compile(r"[‘'\"“]([^’'\"”]{6,80})[’'\"”]")
+
+
+def distinctive_terms(stem: str) -> list[str]:
+    """Names, titles and years the question itself uses: multi-word capitalised phrases
+    ("Index of Prohibited Books", "Vernacular Press Act"), quoted titles, four-digit
+    years. Single capitalised words are left out -- too many are just sentence starts."""
+    out: list[str] = []
+    for m in _TERM_RE.finditer(stem):
+        term = re.sub(r"^(The|A|An)\s+", "", m.group(1).strip())
+        words = [w for w in term.split() if w.lower() not in _LINK_WORDS]
+        if len(words) >= 2 and term not in out:
+            out.append(term)
+        elif len(words) == 1 and words[0].lower() not in _STOCK_WORDS and words[0] not in out:
+            out.append(words[0])
+    for m in _SINGLE_RE.finditer(stem):
+        word = m.group(1)
+        if word.lower() not in _STOCK_WORDS and word not in out:
+            out.append(word)
+    for m in _QUOTED_RE.finditer(stem):
+        term = m.group(1).strip()
+        if term not in out:
+            out.append(term)
+    for m in _YEAR_RE.finditer(stem):
+        if m.group(1) not in out:
+            out.append(m.group(1))
+    return out
+
+
+def term_evidence(stem: str, chapter_chunks: list) -> tuple[dict[str, list[str]], list]:
+    """Which sections of the chapter use each of the question's distinctive terms, and
+    the one best chunk per term to show the judge.
+
+    A term the book uses in exactly one section is evidence that depends on neither the
+    judge's reading nor retrieval's ranking: the question names a thing, and the book
+    names it in one place. A term used in three or more sections (a chapter's own
+    subject, "India", the year the whole chapter is about) says nothing and is dropped.
+    """
+    votes: dict[str, list[str]] = {}
+    chunks_to_show: list = []
+    seen: set[str] = set()
+    for term in distinctive_terms(stem):
+        needle = _normalise(term)
+        hits = [c for c in chapter_chunks if c.section_number and needle in _normalise(c.text or "")]
+        sections: list[str] = []
+        for c in hits:
+            if c.section_number not in sections:
+                sections.append(c.section_number)
+        if not sections or len(sections) > 2:
+            continue
+        votes[term] = sections
+        # the shortest chunk mentioning it is the most quotable; one per term
+        best = min(hits, key=lambda c: len(c.text or ""))
+        if best.id not in seen:
+            seen.add(best.id)
+            chunks_to_show.append(best)
+    return votes, chunks_to_show
+
+
+def term_vote(votes: dict[str, list[str]]) -> str | None:
+    """The one section the question's single-section terms point at, or None when they
+    point at different places (or there are none)."""
+    single = [secs[0] for secs in votes.values() if len(secs) == 1]
+    if not single:
+        return None
+    top = max(set(single), key=single.count)
+    others = [s for s in single if not _related(s, top)]
+    return top if not others else None
+
+
 def _related(a: str | None, b: str | None) -> bool:
     """Same section, or one is the other's parent ('2' and '2.2'): the same place in the
     book at two levels of detail, not a disagreement."""
@@ -258,9 +342,14 @@ def choose_topic(
     # What the judge reads: the passages that scored best, then one representative of
     # every other section so no section is absent from the picture -- inclusion earned
     # by being a real section, not by winning a word-overlap contest.
+    votes, term_chunks = term_evidence(stem, chapter_chunks)
+    named = term_vote(votes)
     passages: list[Candidate] = []
     seen: set[str] = set()
-    for c in list(verdict.evidence) + full_chapter_evidence(chapter_id, chapter_chunks, query):
+    for c in list(verdict.evidence) + [
+        Candidate(c.id, c.reference, c.node_id, c.bucket, 0.0, c.section_number, c.text or "")
+        for c in term_chunks
+    ] + full_chapter_evidence(chapter_id, chapter_chunks, query):
         if c.chunk_id in seen or not c.text:
             continue
         seen.add(c.chunk_id)
@@ -316,11 +405,18 @@ def choose_topic(
     # one representative passage each: the passage that settles it (the sentence naming
     # the Index of Prohibited Books, say) is often not the one word overlap ranked first
     # for its section. One more call, only on the rows that would be flagged anyway.
-    if (
-        section is not None and retrieval_section is not None
-        and not _related(section, retrieval_section)
-    ):
-        pair = {s: headings.get(s, "") for s in (section, retrieval_section)}
+    claimants: list[str] = [section] if section is not None else []
+    for other in (retrieval_section, named):
+        if other is not None and not any(_related(other, c) for c in claimants):
+            claimants.append(other)
+    if section is not None and len(claimants) > 1:
+        if named is not None and not _related(section, named):
+            notes.append(
+                "the question's own terms ("
+                + ", ".join(t for t, secs in votes.items() if len(secs) == 1 and _related(secs[0], named))
+                + f") appear in the book only under section {named} ({headings.get(named, '')})"
+            )
+        pair = {s: headings.get(s, "") for s in claimants}
         by_section: dict[str, list] = {s: [] for s in pair}
         for c in chapter_chunks:
             if c.section_number in by_section:
@@ -340,19 +436,16 @@ def choose_topic(
             evidence = quoted_sections(str(getattr(second, "quote", "") or ""), full)
             if evidence and confirmed not in evidence:
                 confirmed = evidence[0]
+            listed = " and ".join(claimants)
             if confirmed is not None and confirmed != section:
                 notes.append(
-                    f"re-read against the full text of sections {section} and "
-                    f"{retrieval_section}, the judge switched to {confirmed} "
-                    f"({headings.get(confirmed, '')}): "
+                    f"re-read against the full text of sections {listed}, the judge "
+                    f"switched to {confirmed} ({headings.get(confirmed, '')}): "
                     + str(getattr(second, "rationale", "") or "")
                 )
                 section = confirmed
             elif confirmed == section:
-                notes.append(
-                    f"confirmed against the full text of sections {section} and "
-                    f"{retrieval_section}"
-                )
+                notes.append(f"confirmed against the full text of sections {listed}")
         except Exception:  # noqa: BLE001 -- the first answer stands, flagged below
             logger.exception("topic confirm pass failed for chapter %s", chapter_label)
 
@@ -363,7 +456,9 @@ def choose_topic(
         ) + (f" ({rationale})" if rationale else "")
         return fall_back(why)
 
-    agreed = retrieval_section is None or _related(section, retrieval_section)
+    agreed = (retrieval_section is None or _related(section, retrieval_section)) and (
+        named is None or _related(section, named)
+    )
     note = rationale
     if notes:
         note = " ".join([rationale, *[n[0].upper() + n[1:] + "." for n in notes]]).strip()

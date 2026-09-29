@@ -512,3 +512,62 @@ def test_a_quote_that_is_not_in_any_passage_is_not_evidence():
     assert quoted_sections("The modal class is the class with the greatest", shown) == ["13.3"]
     assert quoted_sections("the mode is the most common value", shown) == []
     assert quoted_sections("modal", shown) == [], "a fragment this short proves nothing"
+
+
+# --- the question's own terms are evidence the judge cannot talk past ---------------
+
+def test_distinctive_terms_are_names_titles_and_years_not_exam_boilerplate():
+    from app.classify.topic import distinctive_terms
+
+    terms = distinctive_terms(
+        "Assertion (A) : The Roman Catholic Church began keeping an Index of Prohibited "
+        "Books from the middle of the sixteenth century. Reason (R) : The Church feared"
+    )
+    assert "Index of Prohibited Books" in terms and "Roman Catholic Church" in terms
+    assert "Assertion" not in terms and "Reason" not in terms
+    assert distinctive_terms("Explain any three functions performed by political parties.") == []
+    assert "1878" in distinctive_terms("It was passed in 1878.")
+
+
+FEAR = _Chunk("f", "3.2 Religious Debates and the Fear of Print", STATS,
+              "Print created the possibility of wide circulation of ideas. The Church feared "
+              "that printed books would spread rebellious ideas.", "3.2")
+DISSENT = _Chunk("d", "3.3 Print and Dissent", STATS,
+                 "Menocchio reinterpreted the Bible. When the Roman Church began its inquisition "
+                 "it imposed severe controls and maintained an Index of Prohibited Books from "
+                 "1558.", "3.3")
+PRINT_HEADINGS = {"3.2": "Religious Debates and the Fear of Print", "3.3": "Print and Dissent"}
+INDEX_STEM = ("Assertion (A) : The Roman Catholic Church began keeping an Index of Prohibited "
+              "Books from the middle of the sixteenth century. Reason (R) : The Church feared "
+              "that the wide circulation of printed books would spread ideas.")
+
+
+def test_a_term_the_book_uses_in_one_section_forces_a_re_read_even_when_retrieval_agrees():
+    """The judge and retrieval both say 3.2 ("fear", "Church", "circulation" all score
+    there); the question names the Index of Prohibited Books, which the chapter mentions
+    only under 3.3. That chunk is shown to the judge, the disagreement is re-read on full
+    text, and the quoted answer lands on 3.3."""
+    from app.classify.topic import term_evidence, term_vote
+
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    votes, shown = term_evidence(INDEX_STEM, chunks)
+    assert votes["Index of Prohibited Books"] == ["3.3"]
+    assert term_vote(votes) == "3.3"
+    assert [c.id for c in shown] == ["d", "f"], "the Index chunk first; Church is in both sections, shown but no vote"
+
+    judge = _QuotingJudge([
+        ("3.2", "The Church feared that printed books would spread rebellious ideas"),
+        ("3.3", "maintained an Index of Prohibited Books from 1558"),
+    ])
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
+    assert len(judge.calls) == 2
+    assert set(judge.calls[1][0]) == {"3.2", "3.3"}
+    assert pick.section == "3.3" and pick.agreed
+    assert "Index of Prohibited Books" in pick.rationale and "only under section 3.3" in pick.rationale
+
+
+def test_a_judge_that_still_contradicts_the_books_own_term_is_flagged():
+    judge = _QuotingJudge([("3.2", ""), ("3.2", "The Church feared that printed books")])
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
+    assert pick.section == "3.2" and not pick.agreed
