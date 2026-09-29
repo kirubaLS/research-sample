@@ -566,7 +566,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     or (pick is not None and pick.section is not None and not pick.agreed)
                     or choice.unsettled is not None
                     or choice.blocked is not None
-                    or auto_resolved is not None
+                    # a family auto-resolved from a section the topic judge settled is
+                    # not a doubt about the topic; only an unsettled section still is
+                    or (auto_resolved is not None and not (pick is not None and pick.agreed))
                 ),
                 reasoning=" ".join(filter(None, [
                     placed.reasoning,

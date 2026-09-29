@@ -582,8 +582,8 @@ class _DocumentJudge:
     def __init__(self, answers):
         self.answers, self.calls = list(answers), []
 
-    def pick_from_document(self, stem, chapter_label, headings, document, candidates=None):
-        self.calls.append((dict(headings), document, candidates))
+    def pick_from_document(self, stem, chapter_label, headings, document, candidates=None, mode="answer"):
+        self.calls.append((dict(headings), document, candidates, mode))
         section, quote = self.answers.pop(0)
 
         class _Choice:
@@ -591,6 +591,7 @@ class _DocumentJudge:
 
         c = _Choice()
         c.section, c.quote, c.rationale = section, quote, "read the chapter"
+        c.answer, c.quotes = "", [quote] if quote else []
         return c
 
 
@@ -607,10 +608,14 @@ def test_a_document_judge_is_given_the_whole_chapter_and_its_quote_decides():
     section is 3.3, the term vote agrees, nothing is flagged, and the judge was shown
     every section's text rather than a sampled passage."""
     chunks = [FEAR, DISSENT, CHUNKS[4]]
-    judge = _DocumentJudge([("3.2", "maintained an Index of Prohibited Books from 1558")])
+    judge = _DocumentJudge([
+        ("3.2", "maintained an Index of Prohibited Books from 1558"),   # answer read
+        ("3.3", "maintained an Index of Prohibited Books from 1558"),   # taught read
+    ])
     pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
     assert pick.section == "3.3" and pick.agreed and pick.source == "judge"
-    headings, document, candidates = judge.calls[0]
+    assert [c[3] for c in judge.calls] == ["answer", "taught"], "two independent reads, no confirm needed"
+    headings, document, candidates, _ = judge.calls[0]
     assert candidates is None and headings == PRINT_HEADINGS
     assert "## SECTION 3.2" in document and "## SECTION 3.3" in document
     assert "named section 3.2" in pick.rationale
@@ -619,20 +624,21 @@ def test_a_document_judge_is_given_the_whole_chapter_and_its_quote_decides():
 def test_a_document_judge_that_contradicts_the_books_own_term_is_re_read_on_those_sections():
     chunks = [FEAR, DISSENT, CHUNKS[4]]
     judge = _DocumentJudge([
-        ("3.2", "The Church feared that printed books would spread rebellious ideas"),
-        ("3.3", "maintained an Index of Prohibited Books from 1558"),
+        ("3.2", "The Church feared that printed books would spread rebellious ideas"),  # answer
+        ("3.2", "The Church feared that printed books would spread rebellious ideas"),  # taught
+        ("3.3", "maintained an Index of Prohibited Books from 1558"),                   # confirm
     ])
     pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
-    assert len(judge.calls) == 2
-    assert set(judge.calls[1][2]) == {"3.2", "3.3"}, "the confirm pass is restricted to the claimants"
-    assert judge.calls[1][1] == judge.calls[0][1], "the same document, so the cache hits"
+    assert len(judge.calls) == 3
+    assert set(judge.calls[2][2]) == {"3.2", "3.3"}, "the confirm pass is restricted to the claimants"
+    assert judge.calls[2][1] == judge.calls[0][1], "the same document, so the cache hits"
     assert pick.section == "3.3" and pick.agreed
     assert "switched to 3.3" in pick.rationale
 
 
 def test_a_document_judge_that_abstains_falls_back_like_the_sampled_mode():
     chunks = [FEAR, DISSENT, CHUNKS[4]]
-    judge = _DocumentJudge([("none", "")])
+    judge = _DocumentJudge([("none", ""), ("none", "")])
     pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge,
                         fallback_section="3.3")
     assert pick.section == "3.3" and pick.source == "chapter_judge"
@@ -643,3 +649,46 @@ def test_a_sampled_judge_without_document_reading_still_uses_the_sampled_mode():
     pick = choose_topic(INDEX_STEM, STATS, "Print Culture", [FEAR, DISSENT, CHUNKS[4]],
                         PRINT_HEADINGS, judge)
     assert pick.section == "3.3" and pick.agreed
+
+
+
+# --- answered, not mentioned -----------------------------------------------------------
+
+CHALLENGE = _Chunk("ch5", "5 Challenges to political parties", STATS,
+                   "The third challenge is about the growing role of money and muscle power "
+                   "in parties, especially during elections.", "5")
+REFORM = _Chunk("ch6", "6 How can parties be reformed?", STATS,
+                "It should be made mandatory for parties to maintain a register of members. "
+                "There should be state funding of elections to reduce the role of money.", "6")
+POL_HEADINGS = {"5": "Challenges to political parties", "6": "How can parties be reformed?"}
+MEASURES_STEM = (
+    "Suggest any two measures that can be taken to reduce the influence of money and "
+    "muscle power in political parties."
+)
+
+
+def test_the_section_that_answers_beats_the_section_that_mentions_the_subject():
+    """The taught read quotes where money and muscle power is NAMED (5); the answer read
+    quotes the measures (6). The answer read leads, the re-read sides with it, settled."""
+    judge = _DocumentJudge([
+        ("6", "There should be state funding of elections to reduce the role of money"),   # answer
+        ("5", "growing role of money and muscle power in parties"),                        # taught
+        ("6", "It should be made mandatory for parties to maintain a register of members"), # confirm
+    ])
+    pick = choose_topic(MEASURES_STEM, STATS, "Political Parties", [CHALLENGE, REFORM, CHUNKS[4]],
+                        POL_HEADINGS, judge)
+    assert pick.section == "6" and pick.agreed
+    assert "answers the question (6" in pick.rationale
+    assert [c[3] for c in judge.calls] == ["answer", "taught", "answer"]
+
+
+def test_a_re_read_that_sides_with_the_taught_read_switches_and_stays_settled():
+    judge = _DocumentJudge([
+        ("6", "There should be state funding of elections to reduce the role of money"),
+        ("5", "growing role of money and muscle power in parties"),
+        ("5", "growing role of money and muscle power in parties"),
+    ])
+    pick = choose_topic(MEASURES_STEM, STATS, "Political Parties", [CHALLENGE, REFORM, CHUNKS[4]],
+                        POL_HEADINGS, judge)
+    assert pick.section == "5" and pick.agreed
+    assert "switched to 5" in pick.rationale

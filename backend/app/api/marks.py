@@ -2026,7 +2026,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
                 not verdict.agreed
                 or (pick.section is not None and not pick.agreed)
                 or ambiguous is not None
-                or auto_resolved is not None
+                or (auto_resolved is not None and not pick.agreed)
             ),
             reasoning=(
                 f"{row_mode} retrieval, margin {verdict.margin:.3f}"

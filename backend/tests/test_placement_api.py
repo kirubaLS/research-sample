@@ -394,7 +394,10 @@ def test_classify_auto_resolves_instead_of_overwriting_a_good_placement_with_blo
         .order_by(QuestionPlacement.created_at.desc())
     ).first()
     assert placement is not None
-    assert placement.needs_review, "auto-resolved is still a machine's first read"
+    # An auto-resolved family used to flag the row on its own. It no longer does once
+    # the topic judge has settled the section it was resolved from: the family follows
+    # a section nobody doubts, so there is nothing for a person to look at.
+    assert not placement.needs_review, "a settled topic is not re-flagged for its family"
     assert "Auto-resolved" in placement.reasoning
     assert "families exist" not in placement.reasoning, (
         "a resolved placement must not also carry the raw blocked-message text"

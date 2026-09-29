@@ -80,6 +80,18 @@ class _TopicChoice(BaseModel):
         description="exact words copied from the one passage that contains what the "
         "question tests; empty only if no passage shown contains it",
     )
+    #: the answer a student would write, drawn only from the chapter -- asked for first
+    #: so that the sentences quoted next are the ones that ANSWER the question, not the
+    #: ones that merely mention its subject
+    answer: str = Field(
+        default="", max_length=600,
+        description="the model answer, in 1-3 sentences, from the chapter text only",
+    )
+    #: up to three verbatim sentences of the chapter the answer is drawn from
+    quotes: list[str] = Field(
+        default_factory=list,
+        description="verbatim sentences of the chapter the answer is drawn from",
+    )
 
 
 _SYSTEM = """You place one CBSE Class X exam question under the ONE section of its NCERT
@@ -159,9 +171,11 @@ headings. Read it. Then answer with the number of the section whose text contain
 question tests, and copy that sentence, verbatim, into `quote`.
 
 Rules:
-- The section is where the fact, example or argument the question tests is WRITTEN, not
-  the heading that sounds most like the question. If the question names a thing (a book,
-  a law, a person, a place, a year), find where the chapter names it.
+- The section is where the question is ANSWERED, not where its subject is mentioned. A
+  question that names a thing (a nuclear plant, a law, a book) but asks what, where, why
+  or how belongs where the chapter teaches that answer -- a nuclear plant's location is
+  taught where nuclear energy is taught, measures against a problem are taught where the
+  remedies are listed, not where the problem is named. Quote the sentence that answers.
 - A sub-question of a passage-based (source-based) question is about the passage's
   subject: place it where the chapter discusses what the passage discusses.
 - A map-skill or locate-and-label item belongs to the section that teaches the thing
@@ -220,26 +234,40 @@ class TopicJudge:
 
     def pick_from_document(
         self, stem: str, chapter_label: str, headings: dict[str, str], document: str,
-        candidates: dict[str, str] | None = None,
+        candidates: dict[str, str] | None = None, mode: str = "answer",
     ) -> _TopicChoice:
         """Read the whole chapter (a cached prefix shared by every question on it) and
-        name the section whose text holds what the question tests. ``candidates``
-        narrows the answer to a few sections for a confirm pass; the document is the
-        same, so the cache still hits."""
+        name the section whose text holds what the question tests.
+
+        ``mode`` "answer": write the model answer first, from the chapter only, and quote
+        the sentences it is drawn from -- the section is where the question is answered.
+        ``mode`` "taught": the plainer reading, where is this taught. The two are asked
+        independently and compared. ``candidates`` narrows the answer to a few sections
+        for a confirm pass; the document is the same, so the cache still hits."""
         extra = {"output_config": self.output_config} if self.output_config else {}
         section_list = "\n".join(
             f"- {n}  {h}" if h and h != n else f"- {n}" for n, h in headings.items()
         )
-        ask = (
-            "Which section number does this question belong to? Copy the sentence that "
-            "contains what it tests into `quote`, verbatim from the chapter above."
-        )
+        if mode == "answer":
+            ask = (
+                "First write, in `answer`, the answer a student would give to this "
+                "question using only the chapter above (one to three sentences). Then copy "
+                "into `quotes`, verbatim, the sentence or sentences of the chapter your "
+                "answer is drawn from (up to three). `section` is the section those "
+                "sentences are in."
+            )
+        else:
+            ask = (
+                "Which section number does this question belong to? Copy the sentence that "
+                "contains what it tests into `quote`, verbatim from the chapter above."
+            )
         if candidates:
             ask = (
                 "Earlier readings disagreed. Decide between ONLY these sections: "
                 + ", ".join(f"{n} ({h})" for n, h in candidates.items())
-                + ". Which one's text contains what the question tests? Copy that "
-                "sentence into `quote`, verbatim from the chapter above."
+                + ". Which one's text ANSWERS the question, not merely mentions its "
+                "subject? Write the answer in `answer`, and copy the sentence(s) it is "
+                "drawn from into `quotes`, verbatim from the chapter above."
             )
         response = self.client.messages.parse(
             model=self.model,
@@ -613,40 +641,75 @@ def _choose_from_whole_chapter(
             return []
         return [n for n, t in texts.items() if q in t]
 
+    def quote_sections(choice) -> list[str]:
+        """Sections the choice's quoted sentences sit in, most-quoted first. A parent's
+        text contains its children's, so the deepest section wins a tie."""
+        weight: dict[str, int] = {}
+        quotes = [str(q) for q in (getattr(choice, "quotes", None) or [])]
+        single = str(getattr(choice, "quote", "") or "")
+        if single:
+            quotes.append(single)
+        for q in quotes:
+            for sec in quoted_in(q):
+                weight[sec] = weight.get(sec, 0) + len(q)
+        return sorted(weight, key=lambda n: (-weight[n], -n.count("."), n))
+
     def anchor(choice, candidates: dict[str, str]) -> tuple[str | None, str, str | None]:
-        """(section, rationale, note) -- the quote's section outranks the named one."""
+        """(section, rationale, note) -- the quoted sentences' section outranks the
+        number the judge wrote."""
         section = normalise_section(getattr(choice, "section", ""), candidates)
         rationale = str(getattr(choice, "rationale", "") or "")
-        evidence = quoted_in(str(getattr(choice, "quote", "") or ""))
+        evidence = quote_sections(choice)
         if not evidence:
             return section, rationale, None
-        # the deepest section containing the quote (a parent's text may include a
-        # child's) that is also compatible with what the judge named, else the deepest
         compatible = [e for e in evidence if section is not None and _related(e, section)]
-        chosen = max(compatible or evidence, key=lambda n: (n.count("."), n))
-        if section is not None and _related(chosen, section):
-            return chosen if chosen.count(".") >= section.count(".") else section, rationale, None
-        return chosen, rationale, (
+        pool = compatible or evidence
+        top = max(pool, key=lambda n: (n.count("."), n)) if pool is compatible else pool[0]
+        if section is not None and _related(top, section):
+            return (top if top.count(".") >= section.count(".") else section), rationale, None
+        return top, rationale, (
             f"the judge named section {section} ({candidates.get(section, '')}) but the "
-            f"sentence it quoted is in section {chosen} ({headings.get(chosen, '')}), "
+            f"sentences it quoted are in section {top} ({headings.get(top, '')}), "
             "which was taken"
         )
 
-    try:
-        choice = judge.pick_from_document(stem, chapter_label, headings, document)
-        section, rationale, note = anchor(choice, headings)
-    except Exception:  # noqa: BLE001 -- one question's topic must never sink the paper
-        logger.exception("topic judge (whole chapter) failed for %s; falling back", chapter_label)
-        return fallback("the topic judge could not be asked")
+    # Read 1: answer-grounded -- where the question is ANSWERED. Read 2: where its subject
+    # is taught. Independent reads of the same cached chapter; they usually agree, and
+    # when they do not, the difference is exactly the mention-versus-answer trap.
+    reads: dict[str, tuple[str | None, str]] = {}
+    notes: list[str] = []
+    for mode in ("answer", "taught"):
+        try:
+            choice = judge.pick_from_document(stem, chapter_label, headings, document, mode=mode)
+            sec, why, note = anchor(choice, headings)
+            reads[mode] = (sec, why)
+            if note:
+                notes.append(note)
+        except Exception:  # noqa: BLE001 -- one question's topic must never sink the paper
+            logger.exception("topic judge (%s read) failed for %s", mode, chapter_label)
+            reads[mode] = (None, "")
+    answer_sec, answer_why = reads["answer"]
+    taught_sec, taught_why = reads["taught"]
+    section = answer_sec if answer_sec is not None else taught_sec
+    rationale = answer_why if answer_sec is not None else taught_why
     if section is None:
+        if not any(v[1] for v in reads.values()) and all(v[0] is None for v in reads.values()):
+            return fallback("the topic judge could not be asked")
         return fallback(
             "the topic judge found no section of the chapter containing what the "
             "question tests" + (f" ({rationale})" if rationale else "")
         )
-    notes: list[str] = [note] if note else []
+    if taught_sec is not None and answer_sec is not None and not _related(answer_sec, taught_sec):
+        notes.append(
+            f"the section that answers the question ({answer_sec}, "
+            f"{headings.get(answer_sec, '')}) differs from the one that teaches its subject "
+            f"({taught_sec}, {headings.get(taught_sec, '')})"
+        )
 
+    # Every signal with a claim: the two reads, the book's own use of the question's
+    # terms, and -- only when the terms say nothing -- retrieval within the chapter.
     claimants: list[str] = [section]
-    for other in (named, retrieval_section):
+    for other in (taught_sec, named, retrieval_section if named is None else None):
         if other is not None and not any(_related(other, c) for c in claimants):
             claimants.append(other)
     if named is not None and not _related(section, named):
@@ -655,11 +718,12 @@ def _choose_from_whole_chapter(
             + ", ".join(t for t, secs in votes.items() if len(secs) == 1 and _related(secs[0], named))
             + f") appear in the book only under section {named} ({headings.get(named, '')})"
         )
+    confirmed: str | None = None
     if len(claimants) > 1:
         candidates = {n: headings.get(n, "") for n in claimants}
         try:
-            second = judge.pick_from_document(stem, chapter_label, headings, document, candidates)
-            confirmed, why, _ = anchor(second, candidates)
+            third = judge.pick_from_document(stem, chapter_label, headings, document, candidates)
+            confirmed, why, _ = anchor(third, candidates)
             if confirmed is not None and confirmed != section:
                 notes.append(
                     f"re-read against sections {' and '.join(claimants)}, the judge "
@@ -671,10 +735,14 @@ def _choose_from_whole_chapter(
         except Exception:  # noqa: BLE001 -- the first answer stands, flagged below
             logger.exception("topic confirm (whole chapter) failed for %s", chapter_label)
 
-    if named is not None:
-        agreed = _related(section, named)
+    # Settled when nothing with a claim disagrees, or when the re-read sided with the
+    # answer read and the book's own terms do not contradict it.
+    if len(claimants) == 1:
+        agreed = True
     else:
-        agreed = retrieval_section is None or _related(section, retrieval_section)
+        agreed = confirmed is not None and _related(confirmed, section) and (
+            named is None or _related(section, named)
+        )
     text = rationale
     if notes:
         text = " ".join([rationale, *[n[0].upper() + n[1:] + "." for n in notes]]).strip()
