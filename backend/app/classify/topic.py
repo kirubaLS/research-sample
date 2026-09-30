@@ -21,6 +21,14 @@ Retrieval and the question's own terms remain as independent cross-checks that d
 whether a row is settled or flagged. The sampled mode below is kept for a chapter too
 large to send whole, and for a judge that does not read documents.
 
+Answered, not mentioned -- and verified. Two reads of the same chapter share one bias: when
+the answer is never stated in prose (a place shown only on a map, a fact in a caption)
+both quote the sentence that names the question's subject, and agreement between them is
+worth nothing. So the chosen section is checked on its own -- can this section's text,
+alone, answer the question, quoting the sentence that does -- then every other claimant,
+and then the judge is re-asked with the failures ruled out. A multi-part question also
+names the other sections its parts are answered in, kept as secondary topics.
+
 Before this existed the topic was chosen by retrieval alone at map time and never revised:
 the judge named the right section in its reasoning and the Topic column showed the
 retrieval guess. On a Political Science chapter whose every section says "party" and
@@ -63,6 +71,14 @@ class TopicPick:
     agreed: bool
     retrieval_section: str | None
     rationale: str
+    #: other sections a PART of the question is answered in -- (number, heading) pairs,
+    #: never the primary or one of its relatives. A chronology, a match-the-columns or a
+    #: set of statements to judge tests several places in the chapter at once, and a
+    #: report that credits only one of them is wrong about the rest.
+    secondaries: tuple[tuple[str, str], ...] = ()
+    #: True when the chosen section's own text was checked to answer the question by
+    #: itself, False when no section of the chapter could, None when never checked
+    verified: bool | None = None
 
 
 class _TopicChoice(BaseModel):
@@ -92,6 +108,31 @@ class _TopicChoice(BaseModel):
         default_factory=list,
         description="verbatim sentences of the chapter the answer is drawn from",
     )
+    #: the other sections a PART of a multi-part question is answered in, when its parts
+    #: are answered in different places (a chronology, a match-the-columns, a set of
+    #: statements to judge). Only sections a part is actually answered in -- never one
+    #: that merely mentions the subject.
+    also: list[str] = Field(
+        default_factory=list,
+        description="other section numbers from the list, if a part of the question is "
+        "answered in a different section from `section` (up to three); empty otherwise",
+    )
+
+
+class _Answerability(BaseModel):
+    """Can ONE section's text, alone, answer the question -- the check that separates the
+    section that answers a question from the one that merely mentions its subject."""
+
+    answerable: bool = Field(
+        description="true only if the named section's own text states what the question "
+        "asks for; naming the same subject is not enough"
+    )
+    quotes: list[str] = Field(
+        default_factory=list,
+        description="verbatim sentences from that section that answer the question; "
+        "empty when not answerable",
+    )
+    reason: str = Field(max_length=300, description="one sentence")
 
 
 _SYSTEM = """You place one CBSE Class X exam question under the ONE section of its NCERT
@@ -182,6 +223,15 @@ Rules:
   being located.
 - Prefer the most specific section: a sub-section (2.2) beats its parent (2) when the
   sentence you quote is under the sub-section's heading.
+- A question with several parts answered in different places (a chronology to arrange,
+  columns to match, statements to judge true or false, a source with sub-questions on
+  different things) belongs to the section that answers MOST of it. When its parts fall
+  under different sub-sections of ONE parent section, answer with that parent. List every
+  other section a part is answered in under `also` -- only sections a part is actually
+  answered in, never one that merely mentions the subject. A single-part question leaves
+  `also` empty.
+- Map work, figures, tables and captions are part of a section's text. A place shown
+  only on the map for a section is answered by that section.
 - Answer 'none' only when no section of the chapter contains what the question tests."""
 
 
@@ -232,9 +282,30 @@ class TopicJudge:
             self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
         self.calls += 1
 
+    def _document_system(self, chapter_label: str, headings: dict[str, str], document: str) -> list:
+        """The cached prefix every read of one chapter shares: identical bytes for every
+        question, every mode and every check, so it is written to the cache once."""
+        section_list = "\n".join(
+            f"- {n}  {h}" if h and h != n else f"- {n}" for n, h in headings.items()
+        )
+        return [
+            {"type": "text", "text": _DOCUMENT_SYSTEM},
+            {
+                "type": "text",
+                "text": (
+                    f"CHAPTER: {chapter_label}\n\nSECTIONS\n{section_list}\n\n"
+                    f"FULL TEXT OF THE CHAPTER\n\n{document}"
+                ),
+                # the chapter is identical for every question on it: written to the
+                # cache once, read back at a fraction of the price for the rest
+                "cache_control": {"type": "ephemeral"},
+            },
+        ]
+
     def pick_from_document(
         self, stem: str, chapter_label: str, headings: dict[str, str], document: str,
         candidates: dict[str, str] | None = None, mode: str = "answer",
+        exclude: dict[str, str] | None = None,
     ) -> _TopicChoice:
         """Read the whole chapter (a cached prefix shared by every question on it) and
         name the section whose text holds what the question tests.
@@ -243,18 +314,18 @@ class TopicJudge:
         the sentences it is drawn from -- the section is where the question is answered.
         ``mode`` "taught": the plainer reading, where is this taught. The two are asked
         independently and compared. ``candidates`` narrows the answer to a few sections
-        for a confirm pass; the document is the same, so the cache still hits."""
+        for a confirm pass; ``exclude`` names sections already checked and found NOT to
+        answer the question, for a relocating read. The document is the same in every
+        case, so the cache still hits."""
         extra = {"output_config": self.output_config} if self.output_config else {}
-        section_list = "\n".join(
-            f"- {n}  {h}" if h and h != n else f"- {n}" for n, h in headings.items()
-        )
         if mode == "answer":
             ask = (
                 "First write, in `answer`, the answer a student would give to this "
                 "question using only the chapter above (one to three sentences). Then copy "
                 "into `quotes`, verbatim, the sentence or sentences of the chapter your "
                 "answer is drawn from (up to three). `section` is the section those "
-                "sentences are in."
+                "sentences are in. If a part of the question is answered in a different "
+                "section, list that section in `also`."
             )
         else:
             ask = (
@@ -269,24 +340,52 @@ class TopicJudge:
                 "subject? Write the answer in `answer`, and copy the sentence(s) it is "
                 "drawn from into `quotes`, verbatim from the chapter above."
             )
+        if exclude:
+            ask = (
+                "The text of "
+                + ", ".join(f"section {n} ({h})" for n, h in exclude.items())
+                + " was checked and does NOT answer this question. Which OTHER section's "
+                "text does -- including its map work, figures, tables and captions? Write "
+                "the answer in `answer`, copy the sentence(s) it is drawn from into "
+                "`quotes`, verbatim from the chapter above, and answer 'none' if no other "
+                "section answers it."
+            )
         response = self.client.messages.parse(
             model=self.model,
             max_tokens=8000,
-            system=[
-                {"type": "text", "text": _DOCUMENT_SYSTEM},
-                {
-                    "type": "text",
-                    "text": (
-                        f"CHAPTER: {chapter_label}\n\nSECTIONS\n{section_list}\n\n"
-                        f"FULL TEXT OF THE CHAPTER\n\n{document}"
-                    ),
-                    # the chapter is identical for every question on it: written to the
-                    # cache once, read back at a fraction of the price for the rest
-                    "cache_control": {"type": "ephemeral"},
-                },
-            ],
+            system=self._document_system(chapter_label, headings, document),
             messages=[{"role": "user", "content": f"QUESTION\n{stem.strip()[:3000]}\n\n{ask}"}],
             output_format=_TopicChoice,
+            **extra,
+        )
+        self._count(response)
+        return response.parsed_output
+
+    def answerable(
+        self, stem: str, chapter_label: str, headings: dict[str, str], document: str,
+        section: str, sub_sections: list[str] | None = None,
+    ) -> _Answerability:
+        """Can ``section``'s text, read alone, answer the question? The verification that
+        catches a section which names the question's subject without answering it --
+        the same cached chapter, one short answer."""
+        extra = {"output_config": self.output_config} if self.output_config else {}
+        heading = headings.get(section, "")
+        where = f"SECTION {section}" + (f" ({heading})" if heading and heading != section else "")
+        if sub_sections:
+            where += " together with its sub-sections " + ", ".join(sub_sections)
+        ask = (
+            f"Read ONLY the text under {where} in the chapter above -- its body, boxes, "
+            "map work, figures, tables and captions. Could a student answer this question "
+            "fully from that text alone? Set `answerable` true only if that text itself "
+            "states what the question asks for; naming the same subject is not enough. If "
+            "true, copy the sentence(s) that answer it into `quotes`, verbatim."
+        )
+        response = self.client.messages.parse(
+            model=self.model,
+            max_tokens=2000,
+            system=self._document_system(chapter_label, headings, document),
+            messages=[{"role": "user", "content": f"QUESTION\n{stem.strip()[:3000]}\n\n{ask}"}],
+            output_format=_Answerability,
             **extra,
         )
         self._count(response)
@@ -678,6 +777,7 @@ def _choose_from_whole_chapter(
     # when they do not, the difference is exactly the mention-versus-answer trap.
     reads: dict[str, tuple[str | None, str]] = {}
     notes: list[str] = []
+    also: list[str] = []
     for mode in ("answer", "taught"):
         try:
             choice = judge.pick_from_document(stem, chapter_label, headings, document, mode=mode)
@@ -685,6 +785,13 @@ def _choose_from_whole_chapter(
             reads[mode] = (sec, why)
             if note:
                 notes.append(note)
+            if mode == "answer":
+                also = [
+                    s for s in (
+                        normalise_section(str(a), headings)
+                        for a in (getattr(choice, "also", None) or [])
+                    ) if s is not None
+                ]
         except Exception:  # noqa: BLE001 -- one question's topic must never sink the paper
             logger.exception("topic judge (%s read) failed for %s", mode, chapter_label)
             reads[mode] = (None, "")
@@ -743,6 +850,25 @@ def _choose_from_whole_chapter(
         agreed = confirmed is not None and _related(confirmed, section) and (
             named is None or _related(section, named)
         )
+
+    # Verification: the section chosen must be able to ANSWER the question from its own
+    # text. Two independent reads share one bias -- both quote the sentence that names
+    # the question's subject when the chapter never states the answer in prose (a place
+    # shown only on a map, a fact in a caption) -- and agreement between them is then
+    # worthless. So the chosen section is checked alone, then every other claimant, and
+    # when none passes the judge is asked, with those ruled out, where else the answer
+    # is. A question no section can answer on its own is kept where it was and flagged.
+    verified: bool | None = None
+    if hasattr(judge, "answerable"):
+        section, verified, agreed = _verify(
+            stem, chapter_label, headings, judge, document, texts, section,
+            [c for c in claimants if not _related(c, section)], named, agreed, notes,
+            anchor,
+        )
+    secondaries = tuple(
+        (s, headings.get(s, s)) for s in dict.fromkeys(also)
+        if not _related(s, section)
+    )[:3]
     text = rationale
     if notes:
         text = " ".join([rationale, *[n[0].upper() + n[1:] + "." for n in notes]]).strip()
@@ -751,4 +877,92 @@ def _choose_from_whole_chapter(
             f"{text} Retrieval within the chapter pointed at section {retrieval_section} "
             f"({headings.get(retrieval_section, '')}) instead."
         ).strip()
-    return TopicPick(section, headings.get(section), "judge", agreed, retrieval_section, text)
+    return TopicPick(
+        section, headings.get(section), "judge", agreed, retrieval_section, text,
+        secondaries=secondaries, verified=verified,
+    )
+
+
+def _sub_sections(section: str, headings: dict[str, str]) -> list[str]:
+    return [n for n in headings if n.startswith(section + ".")]
+
+
+def _verify(
+    stem: str, chapter_label: str, headings: dict[str, str], judge, document: str,
+    texts: dict[str, str], section: str, others: list[str], named: str | None,
+    agreed: bool, notes: list[str], anchor,
+) -> tuple[str, bool | None, bool]:
+    """(section, verified, agreed) after checking that the section can answer the
+    question by itself -- see the caller. A section that passes is settled unless the
+    book's own use of the question's terms contradicts it: answerability is the direct
+    evidence the two reads' agreement only approximates."""
+    checked: dict[str, str] = {}
+
+    def can_answer(sec: str) -> bool | None:
+        """True/False, or None when the judge could not be asked."""
+        try:
+            verdict = judge.answerable(
+                stem, chapter_label, headings, document, sec, _sub_sections(sec, headings),
+            )
+        except Exception:  # noqa: BLE001 -- the unverified answer stands, as before
+            logger.exception("topic answerability check failed for %s", chapter_label)
+            return None
+        answer = getattr(verdict, "answerable", None)
+        if not isinstance(answer, bool):
+            # not a verdict at all (a malformed or foreign response): not asked
+            return None
+        if not answer:
+            return False
+        # The quoted sentence has to sit under that section (or one of its
+        # sub-sections), or the "yes" is a paraphrase from somewhere else.
+        for q in getattr(verdict, "quotes", None) or []:
+            q = _normalise(str(q))
+            if len(q) < 12:
+                continue
+            for n, t in texts.items():
+                if q in t and (n == sec or n.startswith(sec + ".")):
+                    return True
+        return False
+
+    outcome = can_answer(section)
+    if outcome is None:
+        return section, None, agreed
+    if outcome:
+        return section, True, named is None or _related(section, named)
+    checked[section] = headings.get(section, "")
+    for other in others:
+        if other in checked:
+            continue
+        outcome = can_answer(other)
+        if outcome is None:
+            return section, None, agreed
+        if outcome:
+            notes.append(
+                f"section {section} ({headings.get(section, '')}) cannot answer the "
+                f"question on its own; section {other} ({headings.get(other, '')}) can, "
+                "and was taken"
+            )
+            return other, True, named is None or _related(other, named)
+        checked[other] = headings.get(other, "")
+    # Nothing with a claim can answer it. One relocating read, with the checked sections
+    # ruled out, and its answer is verified the same way before it is believed.
+    try:
+        choice = judge.pick_from_document(
+            stem, chapter_label, headings, document, mode="answer", exclude=dict(checked),
+        )
+        found, why, _ = anchor(choice, headings)
+    except Exception:  # noqa: BLE001
+        logger.exception("topic relocating read failed for %s", chapter_label)
+        found, why = None, ""
+    if found is not None and found not in checked and can_answer(found):
+        notes.append(
+            f"no section first named answers the question on its own; re-read with "
+            f"{', '.join(checked)} ruled out, the judge found it answered in section "
+            f"{found} ({headings.get(found, '')}): {why}"
+        )
+        return found, True, named is None or _related(found, named)
+    notes.append(
+        "no section of the chapter answers this question from its own text; the section "
+        "that comes closest was kept"
+    )
+    return section, False, False

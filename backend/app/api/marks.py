@@ -39,6 +39,7 @@ from app.mapping.family import Choice
 from app.mapping.solver import Constraint, QuestionDist, solve
 from app.mapping.topic_node import (
     BOOK_MAP_SUBJECTS,
+    SECONDARY_WEIGHT,
     book_map_topic_label,
     section_headings,
     section_number,
@@ -1225,9 +1226,14 @@ def read_scan(
     nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
 
     skills: dict[str, list[str]] = {}
-    for link in db.scalars(select(QuestionSkill).where(
-        QuestionSkill.question_id.in_([r.question_id for r in rows if r.question_id] or [""])
-    )):
+    # heaviest first: the Topic column shows the primary, a secondary (the other section
+    # a part of a multi-part question is answered in) never displaces it
+    for link in sorted(
+        db.scalars(select(QuestionSkill).where(
+            QuestionSkill.question_id.in_([r.question_id for r in rows if r.question_id] or [""])
+        )),
+        key=lambda link: -(link.weight if link.weight is not None else 1.0),
+    ):
         node = nodes.get(link.node_id)
         if node is not None:
             skills.setdefault(link.question_id, []).append(node.label)
@@ -1971,6 +1977,23 @@ def _run_map_job(job_id: str) -> None:
     finish("succeeded", result=result)
 
 
+def _add_secondary_topics(db: Session, question_id: str, chapter: TaxonomyNode, section, pick) -> None:
+    """The other sections a PART of a multi-part question is answered in, beside the
+    primary topic at SECONDARY_WEIGHT -- see app.mapping.topic_node.set_question_topic.
+    Only when the pick's primary is the section written, so a secondary never rides
+    along with a fallback the judge did not make."""
+    if pick is None or pick.section is None or pick.section != section:
+        return
+    for other, label in pick.secondaries:
+        if other == section:
+            continue
+        node = topic_node(db, chapter, other, label or other)
+        db.add(QuestionSkill(
+            question_id=question_id, node_id=node.id, source="retrieval",
+            weight=SECONDARY_WEIGHT,
+        ))
+
+
 def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     """Place every staged question against the book, and promote what can be placed.
 
@@ -2333,6 +2356,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             db.add(QuestionSkill(
                 question_id=question.id, node_id=topic.id, source="retrieval",
             ))
+            _add_secondary_topics(db, question.id, chapter, section, pick)
             with_topic += 1
         row.question_id = question.id
         row.blocked_reason = None
@@ -2411,6 +2435,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             db.add(QuestionSkill(
                 question_id=question.id, node_id=topic.id, source="retrieval",
             ))
+            _add_secondary_topics(db, question.id, chapter, section, pick)
             with_topic += 1
         row.question_id = question.id
         row.blocked_reason = None

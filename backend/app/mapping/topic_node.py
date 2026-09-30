@@ -34,8 +34,13 @@ BOOK_MAP_SUBJECTS = {"X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI"}
 #: suffixes appended for a glossary/box/source/activity/caption chunk (see _text_chunks).
 #: Strip it so the topic is the section's own heading, not one incidental passage's label.
 BOOK_MAP_SUFFIX = re.compile(
-    r"\s*\((?:activity|caption|box|source|glossary)[^)]*\)$"
+    r"\s*\((?:activity|caption|box|source|glossary|map)[^)]*\)$"
 )
+
+#: QuestionSkill.weight of a secondary topic: a section a PART of the question is
+#: answered in, beside the primary (weight 1.0). Reports read both; the Topic column
+#: shows the heaviest.
+SECONDARY_WEIGHT = 0.5
 
 #: QuestionSkill rows a machine wrote. A person's ("import", "human") are never replaced
 #: by a later automated pass.
@@ -135,15 +140,25 @@ def topic_node(db: Session, chapter: TaxonomyNode, section: str, label: str) -> 
 def set_question_topic(
     db: Session, question_id: str, chapter: TaxonomyNode, section: str, label: str,
     *, source: str, confidence: float | None = None,
+    secondaries: tuple[tuple[str, str], ...] | list[tuple[str, str]] = (),
 ) -> TaxonomyNode:
     """Make ``section`` the question's topic, replacing whatever a machine wrote before.
 
     QuestionSkill is the Q-matrix every report groups sub-topics by, and it is what the
     Topic column shows. Any earlier automated row is removed rather than kept beside the
-    new one: two topics for one question would read as a multi-skill question, which
-    this is not -- it is one question whose section was decided twice.
+    new one: the same question's section decided twice is one topic, not two.
+
+    ``secondaries`` are the other (section, label) pairs a PART of a multi-part question
+    is answered in -- a chronology, a match-the-columns, statements to judge. Those ARE
+    a multi-skill question, and they are written beside the primary at
+    ``SECONDARY_WEIGHT`` so a report on either section sees the marks.
     """
     node = topic_node(db, chapter, section, label)
+    wanted: dict[str, float] = {node.id: 1.0}
+    for other, other_label in secondaries:
+        if other == section:
+            continue
+        wanted.setdefault(topic_node(db, chapter, other, other_label or other).id, SECONDARY_WEIGHT)
     rows = list(db.scalars(
         select(QuestionSkill).where(QuestionSkill.question_id == question_id)
     ))
@@ -151,15 +166,18 @@ def set_question_topic(
         # A person already chose this question's topic; a later machine pass does not
         # overrule them.
         return node
-    kept = False
+    kept: set[str] = set()
     for row in rows:
-        if row.node_id == node.id:
-            row.source, row.confidence, kept = source, confidence, True
+        if row.node_id in wanted and row.node_id not in kept:
+            row.source, row.confidence, row.weight = source, confidence, wanted[row.node_id]
+            kept.add(row.node_id)
         elif row.source in MACHINE_TOPIC_SOURCES or source == "human":
             db.delete(row)
-    if not kept:
-        db.add(QuestionSkill(
-            question_id=question_id, node_id=node.id, source=source, confidence=confidence,
-        ))
+    for node_id, weight in wanted.items():
+        if node_id not in kept:
+            db.add(QuestionSkill(
+                question_id=question_id, node_id=node_id, source=source,
+                confidence=confidence, weight=weight,
+            ))
     db.flush()
     return node

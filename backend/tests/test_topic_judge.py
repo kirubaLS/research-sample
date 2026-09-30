@@ -582,9 +582,10 @@ class _DocumentJudge:
     def __init__(self, answers):
         self.answers, self.calls = list(answers), []
 
-    def pick_from_document(self, stem, chapter_label, headings, document, candidates=None, mode="answer"):
-        self.calls.append((dict(headings), document, candidates, mode))
-        section, quote = self.answers.pop(0)
+    def pick_from_document(self, stem, chapter_label, headings, document, candidates=None,
+                           mode="answer", exclude=None):
+        self.calls.append((dict(headings), document, candidates, mode, exclude))
+        section, quote, *rest = self.answers.pop(0)
 
         class _Choice:
             pass
@@ -592,7 +593,28 @@ class _DocumentJudge:
         c = _Choice()
         c.section, c.quote, c.rationale = section, quote, "read the chapter"
         c.answer, c.quotes = "", [quote] if quote else []
+        c.also = list(rest[0]) if rest else []
         return c
+
+
+class _VerifyingJudge(_DocumentJudge):
+    """A document judge that can also be asked whether one section answers the question
+    by itself: ``verdicts`` maps a section to (answerable, quote)."""
+
+    def __init__(self, answers, verdicts):
+        super().__init__(answers)
+        self.verdicts, self.checked = dict(verdicts), []
+
+    def answerable(self, stem, chapter_label, headings, document, section, sub_sections=None):
+        self.checked.append((section, list(sub_sections or [])))
+        ok, quote = self.verdicts.get(section, (False, ""))
+
+        class _Verdict:
+            pass
+
+        v = _Verdict()
+        v.answerable, v.quotes, v.reason = ok, [quote] if quote else [], "checked"
+        return v
 
 
 def test_the_chapter_document_is_every_section_in_book_order_with_headings():
@@ -615,7 +637,7 @@ def test_a_document_judge_is_given_the_whole_chapter_and_its_quote_decides():
     pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
     assert pick.section == "3.3" and pick.agreed and pick.source == "judge"
     assert [c[3] for c in judge.calls] == ["answer", "taught"], "two independent reads, no confirm needed"
-    headings, document, candidates, _ = judge.calls[0]
+    headings, document, candidates, _, _ = judge.calls[0]
     assert candidates is None and headings == PRINT_HEADINGS
     assert "## SECTION 3.2" in document and "## SECTION 3.3" in document
     assert "named section 3.2" in pick.rationale
@@ -692,3 +714,222 @@ def test_a_re_read_that_sides_with_the_taught_read_switches_and_stays_settled():
                         POL_HEADINGS, judge)
     assert pick.section == "5" and pick.agreed
     assert "switched to 5" in pick.rationale
+
+
+# --- multi-part questions: the other sections a part is answered in ---------------------
+
+def test_the_other_sections_a_part_of_the_question_is_answered_in_are_secondaries():
+    """A chronology answered across 3.2 and 3.3: the primary is where most of it is, the
+    rest ride along as secondaries -- never the primary itself or one of its relatives."""
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    judge = _DocumentJudge([
+        ("3.2", "The Church feared that printed books would spread rebellious ideas", ["3.3", "3.2", "9.9"]),
+        ("3.2", "The Church feared that printed books would spread rebellious ideas"),
+    ])
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
+    assert pick.section == "3.2"
+    assert pick.secondaries == (("3.3", "Print and Dissent"),), (
+        "3.2 is the primary, 9.9 is not a section of this chapter"
+    )
+    assert pick.verified is None, "a judge that cannot be asked to verify leaves it unchecked"
+
+
+def test_a_single_part_question_has_no_secondaries():
+    judge = _DocumentJudge([("3.3", "maintained an Index of Prohibited Books from 1558"),
+                            ("3.3", "maintained an Index of Prohibited Books from 1558")])
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", [FEAR, DISSENT, CHUNKS[4]],
+                        PRINT_HEADINGS, judge)
+    assert pick.secondaries == ()
+
+
+# --- verification: the section must ANSWER the question from its own text ---------------
+
+def test_a_section_that_only_mentions_the_subject_fails_verification_and_the_answering_claimant_is_taken():
+    """Both the answer read and the confirm pass pick 5, where money and muscle power is
+    NAMED; only 6 lists the measures. Asked whether 5 alone answers the question the
+    judge says no, 6 yes with a real sentence of 6 -- so 6 is the topic, verified."""
+    judge = _VerifyingJudge(
+        [
+            ("5", "growing role of money and muscle power in parties"),                        # answer
+            ("6", "There should be state funding of elections to reduce the role of money"),   # taught
+            ("5", "growing role of money and muscle power in parties"),                        # confirm
+        ],
+        {"5": (False, ""), "6": (True, "state funding of elections to reduce the role of money")},
+    )
+    pick = choose_topic(MEASURES_STEM, STATS, "Political Parties", [CHALLENGE, REFORM, CHUNKS[4]],
+                        POL_HEADINGS, judge)
+    assert [c[0] for c in judge.checked] == ["5", "6"]
+    assert pick.section == "6" and pick.verified is True and pick.agreed
+    assert "cannot answer the question on its own; section 6" in pick.rationale
+
+
+def test_when_every_read_agrees_on_a_section_that_cannot_answer_the_judge_is_asked_where_else():
+    """Both reads quote the activity that says 'locate the nuclear power stations'; the
+    plant's name is only in the map work of another section. Agreement is worthless
+    here: the check fails, the judge is re-asked with 5 ruled out, and its new answer is
+    verified before it is believed."""
+    judge = _VerifyingJudge(
+        [
+            ("5", "growing role of money and muscle power in parties"),                        # answer
+            ("5", "growing role of money and muscle power in parties"),                        # taught
+            ("6", "It should be made mandatory for parties to maintain a register of members"), # relocate
+        ],
+        {"5": (False, ""), "6": (True, "mandatory for parties to maintain a register of members")},
+    )
+    pick = choose_topic(MEASURES_STEM, STATS, "Political Parties", [CHALLENGE, REFORM, CHUNKS[4]],
+                        POL_HEADINGS, judge)
+    relocate = judge.calls[2]
+    assert relocate[3] == "answer" and relocate[4] == {"5": "Challenges to political parties"}
+    assert [c[0] for c in judge.checked] == ["5", "6"]
+    assert pick.section == "6" and pick.verified is True and pick.agreed
+    assert "ruled out, the judge found it answered in section 6" in pick.rationale
+
+
+def test_a_yes_that_quotes_nothing_from_that_section_is_not_a_yes():
+    """The judge says 6 answers it but quotes a sentence of 5: a paraphrase from
+    elsewhere, not evidence. Nothing passes, the first answer is kept and flagged."""
+    judge = _VerifyingJudge(
+        [
+            ("5", "growing role of money and muscle power in parties"),
+            ("5", "growing role of money and muscle power in parties"),
+            ("none", ""),
+        ],
+        {"5": (False, ""), "6": (True, "growing role of money and muscle power in parties")},
+    )
+    pick = choose_topic(MEASURES_STEM, STATS, "Political Parties", [CHALLENGE, REFORM, CHUNKS[4]],
+                        POL_HEADINGS, judge)
+    assert pick.section == "5" and pick.verified is False and not pick.agreed
+    assert "answers this question from its own text" in pick.rationale
+
+
+def test_a_verified_section_is_settled_and_a_parent_is_checked_with_its_sub_sections():
+    judge = _VerifyingJudge(
+        [("3", "maintained an Index of Prohibited Books from 1558"),
+         ("3.3", "maintained an Index of Prohibited Books from 1558")],
+        {"3.3": (True, "maintained an Index of Prohibited Books from 1558")},
+    )
+    headings = {"3": "The Print Revolution and its Impact", **PRINT_HEADINGS}
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", [FEAR, DISSENT, CHUNKS[4]],
+                        headings, judge)
+    assert pick.section == "3.3", "the quoted sentence sits under 3.3, the deepest match"
+    assert judge.checked == [("3.3", [])]
+    assert pick.verified is True and pick.agreed
+
+
+def test_a_parent_section_is_verified_together_with_its_sub_sections():
+    parent = _Chunk("p3", "3 The Print Revolution and its Impact", STATS,
+                    "The print revolution transformed the lives of people, changing their "
+                    "relationship to information and knowledge.", "3")
+    judge = _VerifyingJudge(
+        [("3", "changing their relationship to information and knowledge"),
+         ("3", "changing their relationship to information and knowledge")],
+        {"3": (True, "maintained an Index of Prohibited Books from 1558")},
+    )
+    headings = {"3": "The Print Revolution and its Impact", **PRINT_HEADINGS}
+    pick = choose_topic("Explain the impact of the print revolution.", STATS, "Print Culture",
+                        [parent, FEAR, DISSENT, CHUNKS[4]], headings, judge)
+    assert judge.checked == [("3", ["3.2", "3.3"])]
+    assert pick.section == "3" and pick.verified is True, (
+        "a sentence of a sub-section counts as the parent's own text"
+    )
+
+
+# --- the rows: a secondary topic is written beside the primary ---------------------------
+
+def test_secondary_topics_are_written_beside_the_primary_at_half_weight_and_replaced_with_it(
+    client, school, book,
+):
+    from app.db import SessionLocal
+    from app.mapping.topic_node import SECONDARY_WEIGHT, set_question_topic
+    from app.models import Question, QuestionSkill, TaxonomyNode
+
+    created = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Secondary topics", "total_marks": 3},
+    )
+    aid = created.json()["assessment_id"]
+    added = client.post(
+        f"/assessments/{aid}/questions", headers=_auth(school),
+        json={"questions": [{
+            "section": "A", "question_no": "1", "max_marks": 3,
+            "stem_text": "Find the mean, and the mode, of the frequency distribution",
+            "board_unit": "X.MATH.U.MENSURATION", "concept_family": "X.MATH.CF.VOLUME",
+            "concept_variant": "secondary fixture",
+        }]},
+    )
+    assert added.status_code == 200, added.json()
+    db = SessionLocal()
+    try:
+        qid = db.scalars(select(Question).where(Question.assessment_id == aid)).first().id
+        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+
+        def rows():
+            out = []
+            for r in db.scalars(select(QuestionSkill).where(QuestionSkill.question_id == qid)):
+                out.append((db.get(TaxonomyNode, r.node_id).label, r.source, r.weight))
+            return sorted(out, key=lambda t: -t[2])
+
+        set_question_topic(
+            db, qid, chapter, "13.2", "Mean of Grouped Data", source="classify",
+            secondaries=(("13.3", "Mode of Grouped Data"), ("13.2", "Mean of Grouped Data")),
+        )
+        assert rows() == [("Mean of Grouped Data", "classify", 1.0),
+                          ("Mode of Grouped Data", "classify", SECONDARY_WEIGHT)]
+        # decided again, this time as a single-part question: the secondary goes
+        set_question_topic(db, qid, chapter, "13.2", "Mean of Grouped Data", source="classify")
+        assert rows() == [("Mean of Grouped Data", "classify", 1.0)]
+        # a person's choice is one topic, and a later machine pass never adds to it
+        set_question_topic(db, qid, chapter, "13.3", "Mode of Grouped Data", source="human")
+        set_question_topic(
+            db, qid, chapter, "13.2", "Mean of Grouped Data", source="classify",
+            secondaries=(("13.4", "Median of Grouped Data"),),
+        )
+        assert rows() == [("Mode of Grouped Data", "human", 1.0)]
+    finally:
+        db.rollback()
+        db.close()
+
+
+# --- the book map's map-only places reach the knowledge base -----------------------------
+
+def test_map_items_are_read_from_the_markdown_beside_the_units_json(tmp_path):
+    from scripts.import_book_map import _text_chunks, map_items_from_markdown
+
+    (tmp_path / "5_minerals.md").write_text(
+        "### 4.1.4 Electricity\n"
+        "unit: X.GEO.MINERALSENERGY.4.1.4 | kind: subsection | parent: X.GEO.MINERALSENERGY.4.1\n"
+        "\nElectricity is generated mainly in two ways.\n"
+        "\n**CBSE map items linked to this unit** · Thermal power plant: Namrup (shown on the "
+        "map only, not named in the text); Thermal power plant: Ramagundam\n"
+        "\n### 4.2.1 Nuclear or Atomic Energy\n"
+        "unit: X.GEO.MINERALSENERGY.4.2.1 | kind: subsection | parent: X.GEO.MINERALSENERGY.4.2\n"
+        "\nIt is obtained by altering the structure of atoms.\n"
+        "\n**CBSE map items linked to this unit** · Nuclear power plant: Kalpakkam (shown on the "
+        "map only, not named in the text); Nuclear power plant: Tarapur (shown on the map only, "
+        "not named in the text)\n"
+        "\n### 4.2.2 Solar Energy\nunit: X.GEO.MINERALSENERGY.4.2.2 | kind: subsection\n"
+    )
+    items = map_items_from_markdown(tmp_path)
+    assert items == {
+        "X.GEO.MINERALSENERGY.4.1.4": ["Thermal power plant: Namrup", "Thermal power plant: Ramagundam"],
+        "X.GEO.MINERALSENERGY.4.2.1": ["Nuclear power plant: Kalpakkam", "Nuclear power plant: Tarapur"],
+    }
+    unit = {"id": "X.GEO.MINERALSENERGY.4.2.1", "number": "4.2.1", "title": "Nuclear or Atomic Energy",
+            "body": [{"text": "It is obtained by altering the structure of atoms."}]}
+    chunks = _text_chunks("X.GEO.MINERALSENERGY", unit, items[unit["id"]])
+    assert chunks[0] == ("4.2.1 Nuclear or Atomic Energy", "4.2.1",
+                         "It is obtained by altering the structure of atoms.")
+    reference, section, text = chunks[-1]
+    assert reference == "4.2.1 Nuclear or Atomic Energy (map)" and section == "4.2.1"
+    assert "Kalpakkam" in text and "Tarapur" in text and "shown on the map only" not in text
+    assert _text_chunks("X.GEO.MINERALSENERGY", unit, None) == chunks[:1]
+
+
+def test_a_map_chunks_reference_is_not_the_sections_heading():
+    from app.mapping.topic_node import book_map_topic_label
+
+    body = _Chunk("m1", "4.2.1 Nuclear or Atomic Energy (map)", "geo",
+                  "Map work for this section. Shown on the map of India under this topic: "
+                  "Nuclear power plant: Kalpakkam.", "4.2.1")
+    body.subject_code = "X.GEO"
+    assert book_map_topic_label([body], "geo", "4.2.1") == "4.2.1 Nuclear or Atomic Energy"

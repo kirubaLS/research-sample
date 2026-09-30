@@ -529,6 +529,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                             db, question.id, chapter, placed.curriculum_section,
                             heading or placed.curriculum_section,
                             source="classify", confidence=placed.confidence,
+                            secondaries=(
+                                pick.secondaries
+                                if pick is not None and pick.section == placed.curriculum_section
+                                else ()
+                            ),
                         )
                     settled += 1
                     if choice.unsettled:

@@ -100,6 +100,26 @@ student had it on the page. On a Social Science paper each section is restricted
 own subject's chapters by board convention (A History, B Geography, C Political Science,
 D Economics), so a Geography question is never offered a Political Science chapter.
 
+The section must answer the question, not just mention it. Two independent reads of the
+same chapter share one bias: when the chapter never states the answer in prose (a place
+shown only on a map, a fact in a caption) both quote the sentence that names the
+question's subject, and their agreement is then worth nothing. So the section chosen is
+verified: the judge is asked whether that section's own text, read alone, answers the
+question, and must quote the answering sentence from it. When it cannot, every other
+section with a claim is checked the same way, and then the judge is re-asked with the
+failed sections ruled out; a new answer is verified before it is believed. A question no
+section can answer on its own is kept where it came closest and flagged. Map work,
+figures, tables and captions count as a section's text -- which is why the book map's
+"CBSE map items linked to this unit" lines are imported as a chunk of their section
+(`scripts/import_book_map.py`), so that Kalpakkam is under Nuclear Energy in the
+knowledge base and not only on a printed map.
+
+A multi-part question (a chronology, columns to match, statements to judge) is filed
+under the section that answers most of it, or the parent section when its parts fall
+under sibling sub-sections, and the other sections a part is answered in are written as
+secondary topics at half weight (`QuestionSkill.weight`). The Topic column shows the
+primary; a report on either section sees the marks.
+
 Whatever decides the section last -- the map step, classify, or a person settling the row
 in review -- writes the topic the Topic column reads (`app.mapping.topic_node`). The
 concept family follows the section too: of several families claiming one section, the one

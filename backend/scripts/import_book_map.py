@@ -44,6 +44,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 import uuid
 from pathlib import Path
 
@@ -64,11 +65,61 @@ SUBJECT_FILES = {
 RUN_ID = "book_map_import_v1"
 
 
-def _text_chunks(chapter_code: str, unit: dict) -> list[tuple[str, str, str]]:
+#: A unit header line in a chapter's Markdown: `unit: X.GEO.MINERALSENERGY.4.2.1 | ...`
+_MD_UNIT_RE = re.compile(r"^unit:\s*(\S+)\s*\|")
+#: The map list line under a unit, Geography only so far (see the book map's README:
+#: "Geography units also list the CBSE map items linked to them, marking places that
+#: appear only on maps").
+_MD_MAP_ITEMS_RE = re.compile(r"^\*\*CBSE map items linked to this unit\*\*\s*[·:]\s*(.+)$")
+_MD_MAP_ONLY_NOTE = re.compile(r"\s*\(shown on the map only[^)]*\)")
+
+
+def map_items_from_markdown(folder: Path) -> dict[str, list[str]]:
+    """unit id -> the CBSE map items the book map links to it, read from the chapter
+    Markdown files beside the units JSON.
+
+    These exist only in the Markdown: the JSON has no field for them. Without them the
+    knowledge base never contains a place that appears on a map but not in the running
+    text (Kalpakkam, Talcher, Namrup ...), so a question about such a place could only
+    ever be filed where its SUBJECT is mentioned -- a nuclear plant under Electricity's
+    "locate the nuclear power stations" activity, not under Nuclear Energy where the
+    board's own map work puts it. Every other subject's folder simply has no such lines.
+    """
+    out: dict[str, list[str]] = {}
+    for md in sorted(folder.glob("*.md")):
+        current: str | None = None
+        for line in md.read_text().splitlines():
+            unit = _MD_UNIT_RE.match(line)
+            if unit:
+                current = unit.group(1)
+                continue
+            items = _MD_MAP_ITEMS_RE.match(line)
+            if items and current:
+                for raw in items.group(1).split(";"):
+                    item = _MD_MAP_ONLY_NOTE.sub("", raw).strip().rstrip(".")
+                    if item and item not in out.setdefault(current, []):
+                        out[current].append(item)
+    return out
+
+
+def _map_chunk_text(items: list[str]) -> str:
+    """One chunk per unit, phrased as the book's own map work so retrieval, the
+    question's terms and the topic judge all see the place under its section."""
+    return (
+        "Map work for this section. Shown on the map of India under this topic: "
+        + "; ".join(items) + "."
+    )
+
+
+def _text_chunks(
+    chapter_code: str, unit: dict, map_items: list[str] | None = None,
+) -> list[tuple[str, str, str]]:
     """Every (reference, section_number, text) triple this unit contributes, primary and
     supporting evidence alike -- this book map's own README says activities and captions
     ARE searched when locating a topic, just not the first thing offered, and this
-    retrieval has no tiering mechanism to prefer one bucket over another anyway."""
+    retrieval has no tiering mechanism to prefer one bucket over another anyway.
+    ``map_items`` are the CBSE map items the Markdown links to this unit (see
+    ``map_items_from_markdown``)."""
     number = unit.get("number")
     title = unit.get("title") or unit["id"]
     label = f"{number} {title}" if number else title
@@ -105,6 +156,9 @@ def _text_chunks(chapter_code: str, unit: dict) -> list[tuple[str, str, str]]:
         text = (cap.get("text") or "").strip()
         if text:
             out.append((f"{label} (caption)", number, text))
+
+    if map_items:
+        out.append((f"{label} (map)", number, _map_chunk_text(map_items)))
 
     return out
 
@@ -176,6 +230,7 @@ def _plan_subject(db, subject_code: str, path: Path) -> dict:
         "old_chunk_count": old_chunks,
         "old_proposal_count": old_proposals,
         "data": data,
+        "map_items": map_items_from_markdown(path.parent),
     }
 
 
@@ -203,6 +258,7 @@ def _apply_subject(db, subject_code: str, plan: dict) -> None:
         )
     }
 
+    map_items = plan["map_items"]
     for chapter_json in plan["data"]:
         chapter = chapters[chapter_json["code"]]
         family_sections: dict[str, set[str]] = {}
@@ -216,7 +272,9 @@ def _apply_subject(db, subject_code: str, plan: dict) -> None:
             if unit.get("number"):
                 family_sections.setdefault(catalog, set()).add(str(unit["number"]))
 
-            for reference, section, text in _text_chunks(chapter_json["code"], unit):
+            for reference, section, text in _text_chunks(
+                chapter_json["code"], unit, map_items.get(unit["id"]),
+            ):
                 db.add(BookChunk(
                     curriculum_version=chapter.curriculum_version, subject_code=subject_code,
                     node_id=chapter.id, bucket="T", reference=reference[:80],
@@ -280,6 +338,7 @@ def main() -> None:
             print(f"\n=== {subject_code} ===")
             print(f"Chapters matched: {len(plan['chapters'])}")
             print(f"Concept families in the new map: {len(plan['new_family_codes'])}")
+            print(f"Units with CBSE map items (from the Markdown): {len(plan['map_items'])}")
             print(f"Old BookChunk rows to delete: {plan['old_chunk_count']}")
             print(f"Old ConceptFamilyProposal rows to delete: {plan['old_proposal_count']}")
             print(f"Old concept families with no questions filed (deleted): {len(plan['stale_deletable'])}")
