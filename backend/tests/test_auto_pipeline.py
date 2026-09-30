@@ -273,3 +273,67 @@ def test_another_subjects_paper_is_refused_before_anything_is_stored(client, sch
             db.commit()
         finally:
             db.close()
+
+
+def test_the_confirm_button_fills_missing_marks_instead_of_refusing_under_zero_touch(
+    client, school, monkeypatch,
+):
+    """The scan job reports success a moment before the server's own confirmation
+    lands, so the button is pressable for a few seconds. Pressed then, on a paper whose
+    Assertion-Reason rows lost their mark labels, it used to refuse with "set them" --
+    a job nobody has in a zero-touch pipeline. It now does what the automatic
+    confirmation does."""
+    from app.config import get_settings
+    from app.db import SessionLocal
+    from app.models import ScannedQuestion
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Pressed too early", "total_marks": 9,
+    }).json()["assessment_id"]
+    db = SessionLocal()
+    try:
+        db.add_all([
+            ScannedQuestion(assessment_id=aid, address="A/7", section="A", question_no="7",
+                            max_marks=1, stem_text="an MCQ"),
+            ScannedQuestion(assessment_id=aid, address="A/8", section="A", question_no="8",
+                            max_marks=None, stem_text="Assertion (A): ... Reason (R): ..."),
+            # an internal choice: (a) was priced, (b)'s three parts were not
+            ScannedQuestion(assessment_id=aid, address="B/26/a/", section="B", question_no="26",
+                            sub_part="a", max_marks=3, stem_text="name the process"),
+            ScannedQuestion(assessment_id=aid, address="B/26/b(i)/b", section="B", question_no="26",
+                            sub_part="b(i)", choice_alt="b", max_marks=None, stem_text="reason one"),
+            ScannedQuestion(assessment_id=aid, address="B/26/b(ii)/b", section="B", question_no="26",
+                            sub_part="b(ii)", choice_alt="b", max_marks=None, stem_text="reason two"),
+            ScannedQuestion(assessment_id=aid, address="B/26/b(iii)/b", section="B", question_no="26",
+                            sub_part="b(iii)", choice_alt="b", max_marks=None, stem_text="reason three"),
+        ])
+        db.commit()
+    finally:
+        db.close()
+
+    monkeypatch.setattr(get_settings(), "auto_pipeline", False)
+    refused = client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={"by": "Mrs Rani"})
+    assert refused.status_code == 422 and "carry no marks" in refused.json()["detail"]
+
+    monkeypatch.setattr(get_settings(), "auto_pipeline", True)
+    ok = client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={"by": "Mrs Rani"})
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["confirmed_by"] == "Mrs Rani"
+    assert set(body["marks_filled"]) == {"A/8", "B/26/b(i)/b", "B/26/b(ii)/b", "B/26/b(iii)/b"}
+    db = SessionLocal()
+    try:
+        got = {r.address: float(r.max_marks) for r in db.scalars(
+            select(ScannedQuestion).where(ScannedQuestion.assessment_id == aid)
+        )}
+    finally:
+        db.close()
+    assert got["A/8"] == 1.0, "the section's usual mark"
+    assert (got["B/26/b(i)/b"], got["B/26/b(ii)/b"], got["B/26/b(iii)/b"]) == (1.0, 1.0, 1.0), (
+        "the other half of the choice is worth the same 3, spread over its three parts"
+    )
+    assert body["total_marks"] == 5.0, "only one half of a choice counts: 1 + 1 + 3"
+    assert body["declared_total"] == 9.0 and body["total_difference"] == 4.0, (
+        "the shortfall is reported, not refused"
+    )

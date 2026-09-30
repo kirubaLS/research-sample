@@ -646,8 +646,10 @@ def _scanned_effective_total(rows, context: set[str]) -> float:
     grouped = [r for r in countable if r.attempt_required]
     ungrouped = [r for r in countable if not r.attempt_required]
 
+    # float() per row: a row read back from the database carries a Decimal, a row just
+    # filled in this session a float, and the two do not add
     total = float(sum(
-        r.max_marks or 0 for r in ungrouped if r.choice_alt in (None, "a")
+        float(r.max_marks or 0) for r in ungrouped if r.choice_alt in (None, "a")
     ))
 
     if grouped:
@@ -1547,23 +1549,19 @@ def check_paper_subject(db: Session, assessment: Assessment, extract) -> str | N
     return None
 
 
-def auto_confirm_scan(db: Session, assessment: Assessment) -> dict:
-    """Confirm the extraction without a person, filling what a person would have typed.
+def _fill_missing_marks(rows: list, context: set[str]) -> list[str]:
+    """Give every question row whose mark label was not read the mark its own paper
+    implies, and return the addresses filled. Each fill is recorded on the row
+    (edited_by "auto").
 
-    A row whose mark label was not read gets the mark its own paper implies: the marks of
-    a sibling sub-part of the same question, else the most common mark among the rows of
-    its section, else 1. Each fill is recorded on the row (edited_by "auto"). The paper's
-    declared total is compared and the difference reported, never used to refuse -- the
-    marks that were read still teach more than a paper nobody could get past this step.
+    In order: the other half of an internal choice ("attempt either (a) or (b)") is
+    worth the same, so a half whose marks were all read prices the half whose were
+    not, spread evenly over its unmarked parts; else the marks of a sibling sub-part
+    of the same question; else the most common mark among the rows of its section;
+    else 1.
     """
     from collections import Counter
 
-    from app.extraction.paper import context_addresses
-
-    rows = list(db.scalars(
-        select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
-    ))
-    context = context_addresses(rows)
     filled: list[str] = []
     by_question: dict[tuple[str | None, str], list] = {}
     by_section: dict[str | None, Counter] = {}
@@ -1573,6 +1571,39 @@ def auto_confirm_scan(db: Session, assessment: Assessment) -> dict:
         by_question.setdefault((r.section, r.question_no), []).append(r)
         if r.max_marks is not None:
             by_section.setdefault(r.section, Counter())[float(r.max_marks)] += 1
+
+    def fill(r, marks: float) -> None:
+        r.max_marks = marks
+        r.edited_at = datetime.now(UTC).isoformat()
+        r.edited_by = "auto"
+        filled.append(r.address)
+
+    # 1. The halves of an internal choice are worth the same.
+    for group in by_question.values():
+        halves: dict[str | None, list] = {}
+        for r in group:
+            halves.setdefault(r.choice_alt, []).append(r)
+        if len(halves) < 2:
+            continue
+        priced = [
+            sum(float(r.max_marks) for r in half)
+            for half in halves.values() if all(r.max_marks is not None for r in half)
+        ]
+        if not priced:
+            continue
+        worth = Counter(priced).most_common(1)[0][0]
+        for half in halves.values():
+            unmarked = [r for r in half if r.max_marks is None]
+            if not unmarked:
+                continue
+            left = worth - sum(float(r.max_marks) for r in half if r.max_marks is not None)
+            if left <= 0:
+                continue
+            each = round(left / len(unmarked), 2)
+            for r in unmarked:
+                fill(r, each)
+
+    # 2. A sibling sub-part's marks; 3. the section's usual mark; 4. one.
     for r in rows:
         if r.address in context or r.max_marks is not None:
             continue
@@ -1586,10 +1617,26 @@ def auto_confirm_scan(db: Session, assessment: Assessment) -> dict:
             guess = by_section[r.section].most_common(1)[0][0]
         else:
             guess = 1.0
-        r.max_marks = guess
-        r.edited_at = datetime.now(UTC).isoformat()
-        r.edited_by = "auto"
-        filled.append(r.address)
+        fill(r, guess)
+    return filled
+
+
+def auto_confirm_scan(db: Session, assessment: Assessment) -> dict:
+    """Confirm the extraction without a person, filling what a person would have typed.
+
+    A row whose mark label was not read gets the mark its own paper implies: the marks of
+    a sibling sub-part of the same question, else the most common mark among the rows of
+    its section, else 1. Each fill is recorded on the row (edited_by "auto"). The paper's
+    declared total is compared and the difference reported, never used to refuse -- the
+    marks that were read still teach more than a paper nobody could get past this step.
+    """
+    from app.extraction.paper import context_addresses
+
+    rows = list(db.scalars(
+        select(ScannedQuestion).where(ScannedQuestion.assessment_id == assessment.id)
+    ))
+    context = context_addresses(rows)
+    filled = _fill_missing_marks(rows, context)
 
     read_total = _scanned_effective_total(rows, set(context))
     declared_total = (assessment.declared or {}).get("total_marks")
@@ -1696,6 +1743,14 @@ def confirm_scan(
     # A case study's opening paragraph is the stem its sub-parts share. It is worth
     # nothing on its own and is not a gap.
     context = context_addresses(rows)
+    # Zero-touch: nobody is going to type the missing marks in, and this button is only
+    # ever pressed in the moments before the server's own confirmation lands (or after
+    # it failed). It then does exactly what the automatic confirmation does -- fills the
+    # marks the paper implies, reports the total rather than refusing over it -- so a
+    # teacher who presses it is never told to do a job that is not theirs.
+    filled: list[str] = []
+    if get_settings().auto_pipeline:
+        filled = _fill_missing_marks(rows, set(context))
     missing = [
         r.address for r in rows if r.max_marks is None and r.address not in context
     ]
@@ -1711,7 +1766,10 @@ def confirm_scan(
     declared_total = (assessment.declared or {}).get("total_marks")
     if declared_total is None and assessment.total_marks is not None:
         declared_total = float(assessment.total_marks)
-    if declared_total is not None and abs(float(declared_total) - read_total) > 0.01:
+    if (
+        declared_total is not None and abs(float(declared_total) - read_total) > 0.01
+        and not get_settings().auto_pipeline
+    ):
         short = float(declared_total) - read_total
         raise HTTPException(
             422,
@@ -1740,7 +1798,12 @@ def confirm_scan(
         "confirmed_by": assessment.scan_confirmed_by,
         "questions": len(rows),
         "edited": sum(1 for r in rows if r.edited_at),
+        "marks_filled": filled,
         "total_marks": read_total,
+        "declared_total": declared_total,
+        "total_difference": (
+            round(float(declared_total) - read_total, 2) if declared_total is not None else None
+        ),
         "next": f"POST /assessments/{assessment.id}/map",
     }
 

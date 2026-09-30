@@ -745,7 +745,9 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                 />
               </div>
             )}
-            {scan.documentId && !scan.confirmed && (
+            {/* Hidden while the server is still confirming, mapping and classifying the
+                upload by itself: pressing it then only raced the automatic confirmation. */}
+            {scan.documentId && !scan.confirmed && !scan.busy && (
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                 <input
                   className="input"

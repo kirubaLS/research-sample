@@ -1589,7 +1589,11 @@ export interface ConfirmResult {
   confirmed_by: string;
   questions: number;
   edited: number;
+  /** rows whose mark label was not read and were priced from the paper's own pattern */
+  marks_filled: string[];
   total_marks: number;
+  declared_total: number | null;
+  total_difference: number | null;
 }
 
 export interface MapResult {
