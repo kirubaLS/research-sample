@@ -590,6 +590,12 @@ export interface PaperSummary {
   scanned_questions: number;
   /** The question paper's own upload, newest first, or null before any upload. */
   document: { id: string; kind: string; page_count: number; uploaded_at: string | null } | null;
+  /** model calls across the latest map and classify runs, with an estimate of what
+   *  they cost at list price; null before either has run */
+  spend: {
+    calls: number; input_tokens: number; output_tokens: number; cache_read_tokens: number;
+    estimated_usd: number;
+  } | null;
   questions: number;
   mapped_questions: number;
   students_with_marks: number;
@@ -1281,6 +1287,11 @@ export interface JobProgress {
   progress_total: number | null;
 }
 
+/** The map and classify jobs are served from the Batches API (half price, usually within
+ *  the hour, up to a few hours) -- see the API's app.llm_batch. Waiting on them is a
+ *  long, slow poll, not the ten-minute one a scan gets. */
+export const BACKGROUND_JOB_WAIT_MS = 4 * 60 * 60 * 1000;
+
 export async function pollJob<T>(
   jobsBase: string, key: string, jobId: string,
   header: "X-Platform-Key" | "X-API-Key",
@@ -1289,8 +1300,10 @@ export async function pollJob<T>(
   // own progress state) updates a real "page 3 of 8" label as the job actually runs,
   // rather than only finding out once it is already done.
   onProgress?: (progress: JobProgress) => void,
+  maxWaitMs: number = 10 * 60 * 1000,
 ): Promise<T> {
-  const deadline = Date.now() + 10 * 60 * 1000;
+  const started = Date.now();
+  const deadline = started + maxWaitMs;
   while (true) {
     let res: Response;
     try {
@@ -1311,9 +1324,11 @@ export async function pollJob<T>(
     });
     if (body.status === "succeeded") return body as T;
     if (Date.now() > deadline) {
-      throw new ApiError(504, `job ${jobId} did not finish within 10 minutes`);
+      throw new ApiError(504, `job ${jobId} did not finish within ${Math.round(maxWaitMs / 60000)} minutes`);
     }
-    await waitOrUntilVisible(2000);
+    // every 2s for the first ten minutes, then every 15s: a batch-served job changes
+    // state rarely, and a tab left open should not hammer the API for an hour
+    await waitOrUntilVisible(Date.now() - started < 10 * 60 * 1000 ? 2000 : 15000);
   }
 }
 
@@ -1353,6 +1368,7 @@ function waitOrUntilVisible(ms: number): Promise<void> {
 async function postAndPoll<T>(
   path: string, key: string, onJobQueued?: (jobId: string) => void,
   onProgress?: (progress: JobProgress) => void,
+  maxWaitMs?: number,
 ): Promise<T> {
   let res: Response;
   try {
@@ -1367,7 +1383,7 @@ async function postAndPoll<T>(
   const data = (await res.json()) as Record<string, unknown>;
   if (data.status === "pending" && typeof data.job_id === "string") {
     onJobQueued?.(data.job_id);
-    return pollJob<T>(path, key, data.job_id, "X-API-Key", onProgress);
+    return pollJob<T>(path, key, data.job_id, "X-API-Key", onProgress, maxWaitMs);
   }
   return data as T;
 }
@@ -2369,14 +2385,14 @@ export const api = {
     onJobQueued?: (jobId: string) => void,
     onProgress?: (progress: JobProgress) => void,
   ) =>
-    postAndPoll<MapResult>(`/assessments/${assessmentId}/map`, key, onJobQueued, onProgress),
+    postAndPoll<MapResult>(`/assessments/${assessmentId}/map`, key, onJobQueued, onProgress, BACKGROUND_JOB_WAIT_MS),
 
   /** Resume watching a map job already queued on the server -- see resumePlacementJob. */
   resumeMapJob: (
     key: string, assessmentId: string, jobId: string,
     onProgress?: (progress: JobProgress) => void,
   ) =>
-    pollJob<MapResult>(`/assessments/${assessmentId}/map`, key, jobId, "X-API-Key", onProgress),
+    pollJob<MapResult>(`/assessments/${assessmentId}/map`, key, jobId, "X-API-Key", onProgress, BACKGROUND_JOB_WAIT_MS),
 
   /** The judge reads the passages retrieval found and settles chapter, topic, sub-topic
    *  and the cognitive category. Needs the classifier key on the API service.
@@ -2393,14 +2409,14 @@ export const api = {
     onJobQueued?: (jobId: string) => void,
     onProgress?: (progress: JobProgress) => void,
   ) =>
-    postAndPoll<PlaceResult>(`/assessments/${assessmentId}/place`, key, onJobQueued, onProgress),
+    postAndPoll<PlaceResult>(`/assessments/${assessmentId}/place`, key, onJobQueued, onProgress, BACKGROUND_JOB_WAIT_MS),
 
   /** Resume watching a placement job already queued on the server -- see resumeScanJob. */
   resumePlacementJob: (
     key: string, assessmentId: string, jobId: string,
     onProgress?: (progress: JobProgress) => void,
   ) =>
-    pollJob<PlaceResult>(`/assessments/${assessmentId}/place`, key, jobId, "X-API-Key", onProgress),
+    pollJob<PlaceResult>(`/assessments/${assessmentId}/place`, key, jobId, "X-API-Key", onProgress, BACKGROUND_JOB_WAIT_MS),
 
   uploadContents: (key: string, subject: string, file: File, edition: string) =>
     upload<{ chapters_expected: number; sections_expected: number; next: string }>(

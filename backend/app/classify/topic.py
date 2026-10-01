@@ -261,11 +261,17 @@ class TopicJudge:
 
     def __init__(
         self, api_key: str, model: str, *, effort: str | None = None,
-        passage_chars: int = 1200,
+        passage_chars: int = 1200, batched: bool = False, batch_options: dict | None = None,
     ) -> None:
         import anthropic
 
         self.client = anthropic.Anthropic(api_key=api_key)
+        #: served from the Message Batches API at half price (see app.llm_batch)
+        self.batched = batched
+        if batched:
+            from app.llm_batch import BatchedClient
+
+            self.client = BatchedClient(self.client, **(batch_options or {}))
         self.model = model
         self.output_config = output_config(model, effort)
         self.passage_chars = passage_chars

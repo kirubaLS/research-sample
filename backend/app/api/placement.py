@@ -22,6 +22,7 @@ from app.classify.pipeline import place_paper
 from app.curriculum import group_subjects
 from app.mapping.auto_resolve import record_family_section, resolve_blocked_family
 from app.mapping.family import Choice, choose_family
+from app.llm import estimate_usd
 from app.mapping.topic_node import section_headings, set_question_topic
 from app.config import get_settings
 from app.db import get_session
@@ -301,12 +302,17 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
         from app.classify.anthropic_judge import AnthropicJudge
 
+        batch_options = {
+            "linger": settings.batch_linger_seconds, "poll": settings.batch_poll_seconds,
+            "max_wait": settings.batch_max_wait_seconds,
+        }
         judge = AnthropicJudge(
             settings.anthropic_api_key,
             model=settings.model_classifier,
             known_sections=known_sections or None,
             effort=settings.model_effort,
             passage_chars=settings.classifier_passage_chars,
+            batched=settings.batch_classify, batch_options=batch_options,
         )
 
         scope = None
@@ -354,6 +360,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             topic_judge = TopicJudge(
                 settings.anthropic_api_key, settings.model_classifier,
                 effort=settings.model_effort, passage_chars=settings.classifier_passage_chars,
+                batched=settings.batch_classify, batch_options=batch_options,
             )
         except Exception:  # noqa: BLE001 -- retrieval within the chapter still decides
             topic_judge = None
@@ -428,11 +435,10 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     # from the closed set of that chapter's own sections. Still outside any database
     # session: this is one more model call per question.
     topic_picks: dict[str, object] = {}
-    for placed in result.questions:
-        chapter_node = by_label.get(placed.chapter) if placed.chapter is not None else None
-        if chapter_node is None:
-            continue
-        topic_picks[placed.question_id] = choose_topic(
+
+    def pick_topic(placed):
+        chapter_node = by_label.get(placed.chapter)
+        return choose_topic(
             stem_by_id.get(placed.question_id, ""), chapter_node.id, chapter_node.label,
             retrieval_chunks, headings_of.get(chapter_node.id, {}), topic_judge,
             fallback_section=placed.curriculum_section,
@@ -440,6 +446,23 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             evidence_passages=settings.classifier_evidence_passages,
             passage_chars=settings.classifier_passage_chars,
         )
+
+    to_pick = [
+        placed for placed in result.questions
+        if placed.chapter is not None and by_label.get(placed.chapter) is not None
+    ]
+    if getattr(topic_judge, "batched", False) and len(to_pick) > 1:
+        # One thread per question so every question's read joins the same batch, and
+        # the chapter's reads, confirms and checks become one batch per round rather
+        # than one live call each -- see app.llm_batch.
+        from concurrent.futures import ThreadPoolExecutor
+
+        with ThreadPoolExecutor(max_workers=min(64, len(to_pick))) as pool:
+            for placed, pick in zip(to_pick, pool.map(pick_topic, to_pick), strict=True):
+                topic_picks[placed.question_id] = pick
+    else:
+        for placed in to_pick:
+            topic_picks[placed.question_id] = pick_topic(placed)
 
     db = SessionLocal()
     try:
@@ -667,9 +690,22 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     getattr(judge, "output_tokens", 0) + getattr(topic_judge, "output_tokens", 0)
                 ),
                 #: chapter text served from the prompt cache rather than paid for again
-                "cache_read_tokens": getattr(topic_judge, "cache_read_tokens", 0),
+                "cache_read_tokens": (
+                    getattr(judge, "cache_read_tokens", 0)
+                    + getattr(topic_judge, "cache_read_tokens", 0)
+                ),
                 "passages_shown": settings.classifier_evidence_passages,
                 "chapters_shown": evidence_chapters,
+                "batched": settings.batch_classify,
+                #: from the token counts above and the model's list price -- an estimate
+                #: of the bill, not the bill
+                "estimated_usd": estimate_usd(
+                    settings.model_classifier,
+                    getattr(judge, "input_tokens", 0) + getattr(topic_judge, "input_tokens", 0),
+                    getattr(judge, "output_tokens", 0) + getattr(topic_judge, "output_tokens", 0),
+                    getattr(judge, "cache_read_tokens", 0) + getattr(topic_judge, "cache_read_tokens", 0),
+                    batched=settings.batch_classify,
+                ),
             },
             "settled": result.settled,
             "needs_review": result.reviewed_count,

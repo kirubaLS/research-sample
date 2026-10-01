@@ -106,6 +106,15 @@ class Settings(BaseSettings):
     #: larger half of what a paper costs, so this is the strongest price lever here, and
     #: the one most worth measuring before moving.
     model_effort: str = "medium"
+    #: The classify step's model calls go through the Message Batches API at half price
+    #: (see app.llm_batch): nobody waits on this step, so the live API's speed was paid
+    #: for and thrown away. Off, the live API is used as before. YAADHUM_BATCH_CLASSIFY.
+    batch_classify: bool = True
+    #: How long a batch waits for more calls to join it, how often it is polled, and how
+    #: long it may run before every caller gives up on it.
+    batch_linger_seconds: float = 3.0
+    batch_poll_seconds: float = 15.0
+    batch_max_wait_seconds: float = 3 * 3600
 
     #: Zero-touch: a question paper runs scan -> confirm -> map -> classify by itself the
     #: moment its upload is read, and an answer sheet's rows are resolved and its marks

@@ -29,6 +29,8 @@ class AnthropicJudge:
         known_sections: dict[str, set[str]] | None = None,
         effort: str | None = None,
         passage_chars: int = 1200,
+        batched: bool = False,
+        batch_options: dict | None = None,
     ) -> None:
         if not api_key:
             raise ValueError(
@@ -39,6 +41,13 @@ class AnthropicJudge:
         import anthropic
 
         self.client = anthropic.Anthropic(api_key=api_key)
+        #: served from the Message Batches API at half price (see app.llm_batch); a
+        #: caller that asks its questions concurrently gets one batch per round
+        self.batched = batched
+        if batched:
+            from app.llm_batch import BatchedClient
+
+            self.client = BatchedClient(self.client, **(batch_options or {}))
         self.model = model
         #: None on a model that does not take an effort parameter, and then the keyword is
         #: dropped from the request rather than sent empty
@@ -54,6 +63,7 @@ class AnthropicJudge:
         #: was arithmetic on a guess about the prompt.
         self.input_tokens = 0
         self.output_tokens = 0
+        self.cache_read_tokens = 0
         self.calls = 0
 
     def classify(self, question: str, evidence: list[Evidence]) -> Classification:
@@ -77,6 +87,7 @@ class AnthropicJudge:
         if usage is not None:
             self.input_tokens += getattr(usage, "input_tokens", 0) or 0
             self.output_tokens += getattr(usage, "output_tokens", 0) or 0
+            self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
         self.calls += 1
         checked: Grounded = ground(
             response.parsed_output, evidence, known_sections=self.known_sections

@@ -125,6 +125,23 @@ in review -- writes the topic the Topic column reads (`app.mapping.topic_node`).
 concept family follows the section too: of several families claiming one section, the one
 named after the section's heading wins.
 
+### What a paper costs, and how it is kept down
+
+Nobody waits on the classify step: a paper is uploaded, the tab is closed, and the server
+works through it. So its model calls go through the Message Batches API at half price
+(`app.llm_batch`): a judge written against the live `messages.parse` runs unchanged, every
+call that arrives while a batch is gathering joins it, and a stage that asks its questions
+from one thread each turns into one batch per round -- the chapter judge's single round,
+then the topic judge's read, confirm and verification rounds. A batch usually ends within
+the hour; the job's stale window and the screen's poll allow for a few. `YAADHUM_BATCH_CLASSIFY=false`
+restores the live API.
+
+The topic judge runs once per paper, not twice: when a classify job is already queued
+behind a map (the zero-touch chain always queues both), the map step leaves the judge to
+it and retrieval's section stands in the meantime. Each paper's listing carries the token
+counts and an estimated cost of its latest map and classify runs (`spend`), so a re-run is
+a decision with a price on it.
+
 ## 3. Answer script to report
 
 ```

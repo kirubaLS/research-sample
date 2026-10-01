@@ -50,3 +50,34 @@ def output_config(model: str, effort: str | None) -> dict | None:
     if model in _NO_TOP_LEVELS and effort in ("xhigh", "max"):
         raise ValueError(f"{model} does not accept effort {effort!r}")
     return {"effort": effort}
+
+
+#: USD per million tokens: (input, output, cache read). First-party API rates as of
+#: 2026-09; the Batches API halves all three. An unknown model estimates as Sonnet.
+PRICES_PER_MTOK: dict[str, tuple[float, float, float]] = {
+    "claude-fable-5-1": (10.0, 50.0, 0.25),
+    "claude-fable-5": (10.0, 50.0, 1.0),
+    "claude-opus-5-5": (4.0, 20.0, 0.20),
+    "claude-opus-5": (5.0, 25.0, 0.50),
+    "claude-opus-4-8": (5.0, 25.0, 0.50),
+    "claude-opus-4-7": (5.0, 25.0, 0.50),
+    "claude-opus-4-6": (5.0, 25.0, 0.50),
+    "claude-sonnet-5-5": (2.0, 10.0, 0.20),
+    "claude-sonnet-5": (2.0, 10.0, 0.20),
+    "claude-sonnet-4-6": (3.0, 15.0, 0.30),
+    "claude-haiku-4-5": (1.0, 5.0, 0.10),
+}
+
+
+def estimate_usd(
+    model: str, input_tokens: int, output_tokens: int, cache_read_tokens: int = 0,
+    *, batched: bool = False,
+) -> float:
+    """What a run cost, from the token counts the responses reported. ``input_tokens``
+    is the uncached input the API bills at full rate (the usage field of that name);
+    cache reads are counted separately at their own rate."""
+    price_in, price_out, price_cache = PRICES_PER_MTOK.get(model, PRICES_PER_MTOK["claude-sonnet-5"])
+    usd = (
+        input_tokens * price_in + output_tokens * price_out + cache_read_tokens * price_cache
+    ) / 1_000_000
+    return round(usd * (0.5 if batched else 1.0), 4)

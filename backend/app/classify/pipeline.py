@@ -145,7 +145,9 @@ def _pass(
     failed: set[str] = set()
     pool = _full_pool(indexes)
     total = len(questions)
+    prepared: list[tuple] = []
 
+    # Phase 1: retrieval and evidence for every question, no model call yet.
     for done, (question_id, stem, marks) in enumerate(questions, start=1):
         own_scope = scope_of(question_id) if scope_of is not None else None
         q_scope = scope
@@ -202,9 +204,33 @@ def _pass(
             if on_progress is not None:
                 on_progress(done, total)
             continue
+        prepared.append((done, question_id, stem, marks, evidence, verdict, q_scope, out_of_scope))
 
+    # Phase 2: the judge. A batched judge (see app.llm_batch) is asked every question at
+    # once, from one thread each, so the whole paper becomes one batch; a live judge is
+    # asked one at a time as before. Either way each answer is handled below in paper
+    # order, and one question's failure never sinks the rest.
+    calls: dict[str, object] = {}
+    if getattr(judge, "batched", False) and len(prepared) > 1:
+        from concurrent.futures import ThreadPoolExecutor
+
+        def ask(item):
+            try:
+                return judge.classify(item[2], item[4])
+            except Exception as exc:  # noqa: BLE001
+                return exc
+
+        with ThreadPoolExecutor(max_workers=min(64, len(prepared))) as pool_:
+            for item, outcome in zip(prepared, pool_.map(ask, prepared), strict=True):
+                calls[item[1]] = outcome
+
+    for done, question_id, stem, marks, evidence, verdict, q_scope, out_of_scope in prepared:
         try:
-            call = judge.classify(stem, evidence)
+            call = calls.get(question_id)
+            if call is None:
+                call = judge.classify(stem, evidence)
+            elif isinstance(call, Exception):
+                raise call
         except Exception as exc:  # noqa: BLE001 -- one bad question must not sink the paper
             # The judge can fail for reasons that have nothing to do with whether this
             # question has a real chapter: the model's own reply can violate a field

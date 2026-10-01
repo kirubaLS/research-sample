@@ -35,6 +35,7 @@ from app.extraction.address import Address, AddressResolver
 from app.extraction.choice import group_choices
 from app.extraction.verification import verify_paper
 from app.ingest.book import stem_hash
+from app.llm import estimate_usd
 from app.mapping.family import Choice
 from app.mapping.solver import Constraint, QuestionDist, solve
 from app.mapping.topic_node import (
@@ -185,10 +186,31 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
                 "uploaded_at": doc.created_at.isoformat() if doc.created_at else None,
             })
 
+    # What the model calls on this paper cost, from the latest succeeded map and
+    # classify jobs' own token counts (see placement.py's "spend"): the papers screen
+    # shows it beside the counts, so a re-run is a decision with a price on it.
+    spend: dict[str, dict] = {}
+    if ids:
+        for job in db.scalars(
+            select(PlacementJob).where(
+                PlacementJob.assessment_id.in_(ids), PlacementJob.status == "succeeded",
+            ).order_by(PlacementJob.created_at.desc())
+        ):
+            kind = job.kind or "place"
+            entry = spend.setdefault(a_id := job.assessment_id, {"seen": set()})
+            if kind in entry["seen"] or not isinstance(job.result, dict):
+                continue
+            entry["seen"].add(kind)
+            part = job.result.get("spend") or {}
+            for key in ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "estimated_usd"):
+                entry[key] = round(entry.get(key, 0) + (part.get(key) or 0), 4)
+            del a_id
+
     rows = []
     for a in assessments:
         n_questions = questions.get(a.id, 0)
         n_mapped = mapped.get(a.id, 0)
+        paper_spend = spend.get(a.id)
         if n_mapped:
             stage = "mapped"
         elif n_questions:
@@ -212,6 +234,11 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
             "stage": stage,
             "scanned_questions": scanned.get(a.id, 0),
             "document": documents.get(a.id),
+            #: model calls and their estimated cost across the latest map and classify
+            #: runs; None before either has run
+            "spend": (
+                {k: v for k, v in paper_spend.items() if k != "seen"} if paper_spend else None
+            ),
             "questions": n_questions,
             "mapped_questions": n_mapped,
             "students_with_marks": marked.get(a.id, 0),
@@ -1927,6 +1954,13 @@ def map_paper_to_book(
 #: A map/classify job still "pending" this long after it was queued did not survive its
 #: process (a redeploy mid-run): it is failed rather than left blocking every later run.
 PLACEMENT_JOB_STALE_AFTER = timedelta(minutes=45)
+#: a classify job served by the Batches API (app.llm_batch) can legitimately run for
+#: hours; its stale window is the batch's own deadline plus a margin
+PLACEMENT_JOB_STALE_AFTER_BATCHED = timedelta(hours=4)
+
+
+def _stale_after() -> timedelta:
+    return PLACEMENT_JOB_STALE_AFTER_BATCHED if get_settings().batch_classify else PLACEMENT_JOB_STALE_AFTER
 
 
 def running_job(db: Session, assessment_id: str, kind: str) -> PlacementJob | None:
@@ -1943,7 +1977,7 @@ def running_job(db: Session, assessment_id: str, kind: str) -> PlacementJob | No
         created = job.created_at
         if created is not None and created.tzinfo is None:
             created = created.replace(tzinfo=UTC)
-        if created is not None and datetime.now(UTC) - created > PLACEMENT_JOB_STALE_AFTER:
+        if created is not None and datetime.now(UTC) - created > _stale_after():
             job.status = "failed"
             job.error_status = 500
             job.error_detail = "the job did not finish; the service restarted while it ran"
@@ -2193,8 +2227,15 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     # judge cannot be asked and the retrieval section stands, as it always did.
     from app.classify.topic import TopicJudge, choose_topic
 
+    # Once, not twice. The classify step that follows a zero-touch upload decides the
+    # topic again from scratch (placement.py's topic_picks), so a map step that runs
+    # the whole-chapter judge too pays for every question's reads twice and keeps the
+    # second answer. When a classify job is already queued behind this map, the judge
+    # is left to it and retrieval's section stands in the meantime; a map run on its
+    # own (the manual button, no classify queued) still judges, as before.
+    deferred_to_classify = running_job(db, assessment.id, "place") is not None
     topic_judge = None
-    if settings.anthropic_api_key:
+    if settings.anthropic_api_key and not deferred_to_classify:
         try:
             topic_judge = TopicJudge(
                 settings.anthropic_api_key, settings.model_classifier,
@@ -2529,6 +2570,21 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         "context_stems": context_kept,
         #: placed, with a topic from the book. The rest sit in a chapter and no finer.
         "with_topic": with_topic,
+        #: the topic judge was left to the classify job queued behind this map
+        "topics_deferred_to_classify": deferred_to_classify,
+        "spend": {
+            "model": settings.model_classifier,
+            "calls": getattr(topic_judge, "calls", 0),
+            "input_tokens": getattr(topic_judge, "input_tokens", 0),
+            "output_tokens": getattr(topic_judge, "output_tokens", 0),
+            "cache_read_tokens": getattr(topic_judge, "cache_read_tokens", 0),
+            "estimated_usd": estimate_usd(
+                settings.model_classifier,
+                getattr(topic_judge, "input_tokens", 0),
+                getattr(topic_judge, "output_tokens", 0),
+                getattr(topic_judge, "cache_read_tokens", 0),
+            ),
+        },
         "blocked_addresses": blocked[:20],
         "needs_review": db.scalar(select(func.count(QuestionPlacement.id)).where(
             QuestionPlacement.needs_review.is_(True),

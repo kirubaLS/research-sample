@@ -392,6 +392,11 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     }
   }
 
+  /** "180 model calls · ≈ $0.42": what the latest map and classify runs cost. */
+  function spendLabel(spend: NonNullable<PaperSummary["spend"]>): string {
+    return `${spend.calls} model call${spend.calls === 1 ? "" : "s"} · ≈ $${spend.estimated_usd.toFixed(2)}`;
+  }
+
   function statusTag(p: PaperSummary): { label: string; cls: string } {
     if (p.stage === "mapped") return { label: "Mapped", cls: "pm-pill--mapped" };
     if (p.stage === "confirmed" || p.stage === "scanned") return { label: "Needs mapping", cls: "pm-pill--needs" };
@@ -527,7 +532,10 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                             {p.document ? (
                                               <span
                                                 className="pm-file"
-                                                title={p.scanned_questions > 0 ? `${p.scanned_questions} questions read` : undefined}
+                                                title={[
+                                                  p.scanned_questions > 0 ? `${p.scanned_questions} questions read` : null,
+                                                  p.spend && p.spend.calls > 0 ? spendLabel(p.spend) : null,
+                                                ].filter(Boolean).join(" · ") || undefined}
                                               >
                                                 <FileText size={14} /> {fileLabel(p)}
                                               </span>
@@ -682,6 +690,9 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                         <div className="small muted" style={{ marginTop: 2 }}>
                           {p.subject_label} · {p.questions} question{p.questions === 1 ? "" : "s"} · {p.mapped_questions} mapped ·{" "}
                           {p.students_with_marks} student{p.students_with_marks === 1 ? "" : "s"} marked
+                          {p.spend && p.spend.calls > 0 && (
+                            <> · {spendLabel(p.spend)}</>
+                          )}
                         </div>
                       </div>
                       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>

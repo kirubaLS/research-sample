@@ -1383,6 +1383,63 @@ def test_map_lets_the_topic_judge_choose_the_section_within_the_retrieved_chapte
     assert "pointed at section 13.2" in placed["mapped_to"]["review_reason"]
 
 
+def test_map_leaves_the_topic_judge_to_a_classify_job_already_queued_behind_it(
+    client, school, book, monkeypatch
+):
+    """Zero-touch queues map and classify together, and classify decides every topic
+    again from scratch -- so a map that also ran the whole-chapter judge paid for every
+    question's reads twice. With a classify job pending, map does not ask the judge;
+    retrieval's section stands until classify replaces it. The paper's own listing then
+    carries what the run cost."""
+    from app.db import SessionLocal
+    from app.models import PlacementJob
+
+    h = _auth(school)
+    settings = get_settings()
+    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
+    asked: list[str] = []
+
+    class StubTopicJudge:
+        def __init__(self, *a, **kw) -> None:
+            pass
+
+        def pick(self, stem, chapter_label, headings, passages):
+            asked.append(stem)
+
+            class _Choice:
+                section = "13.3"
+                rationale = "would have said mode"
+
+            return _Choice()
+
+    monkeypatch.setattr("app.classify.topic.TopicJudge", StubTopicJudge)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Deferred topic", "total_marks": 3,
+    }).json()["assessment_id"]
+    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
+    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
+    db = SessionLocal()
+    try:
+        db.add(PlacementJob(school_id=school["school_id"], assessment_id=aid, kind="place"))
+        db.commit()
+    finally:
+        db.close()
+
+    out = _map(client, f"/assessments/{aid}/map", headers=h)
+    assert out.status_code == 200, out.text
+    body = out.json()
+    assert body["mapped"] == 1 and body["topics_deferred_to_classify"] is True
+    assert asked == [], "the judge was not asked: the classify job behind this map will be"
+    assert body["spend"]["calls"] == 0 and body["spend"]["estimated_usd"] == 0
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert placed["mapped_to"]["curriculum_section"] == "13.2", "retrieval's section stands"
+
+    listed = next(p for p in client.get("/assessments", headers=h).json()["assessments"] if p["id"] == aid)
+    assert listed["spend"] == {
+        "calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "estimated_usd": 0,
+    }
+
+
 def test_the_topic_is_recorded_as_a_skill_so_the_report_can_group_by_it(
     client, school, book
 ):

@@ -564,7 +564,7 @@ export function usePaperScan(opts: {
         await refresh(id);
       }
       if (placeJob) {
-        setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
+        setBusy("Reading each question against the book. This runs in the background and can take up to an hour; you can close this tab…");
         setProgress(null);
         setPlaced(await api.resumePlacementJob(key, id, placeJob, setProgress));
         clearJob("paper-place", id);
@@ -621,7 +621,7 @@ export function usePaperScan(opts: {
     const key = getApiKey();
     if (!key || !assessmentId) return;
     setError(null);
-    setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
+    setBusy("Reading each question against the book. This runs in the background and can take up to an hour; you can close this tab…");
     setProgress(null);
     try {
       setPlaced(await api.placePaper(key, assessmentId, (jobId) => {
@@ -690,7 +690,7 @@ export function usePaperScan(opts: {
     const key = getApiKey();
     if (!key) return;
     let cancelled = false;
-    setBusy("Reading each question against the passages it matched (this can take a minute or two)…");
+    setBusy("Reading each question against the book. This runs in the background and can take up to an hour; you can close this tab…");
     setProgress(null);
     (async () => {
       try {
