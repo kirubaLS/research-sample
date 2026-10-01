@@ -410,6 +410,20 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         )
         return
 
+    # The judge could not be asked for ANY question: not a judgment about the paper but
+    # an outage (an API refusal, exhausted credit, a dead network), and writing it as
+    # seventy "no chapter" placements would erase every chapter the map step found.
+    # The job fails instead, naming the cause, and the paper stays as mapped.
+    if result.questions and all(q.judge_failed for q in result.questions):
+        _finish_placement_job(
+            job_id, status_value="failed", error_status=502,
+            error_detail=(
+                "the reading model could not be asked for any question, so nothing was "
+                f"changed: {result.questions[0].reasoning}"
+            ),
+        )
+        return
+
     # The topic, decided once the chapter is final (the blueprint may have moved it),
     # from the closed set of that chapter's own sections. Still outside any database
     # session: this is one more model call per question.
@@ -448,7 +462,21 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 import dataclasses
 
                 placed = dataclasses.replace(placed, curriculum_section=pick.section)
-            if question is not None and placed.chapter is None:
+            if question is not None and placed.judge_failed:
+                # The judge could not be asked for this one question. That is not a
+                # finding about the question, so what the map step decided -- chapter,
+                # section, topic, family -- stays exactly as it is; only a placement row
+                # records the failure, flagged, so a person can re-run or settle it.
+                import dataclasses
+
+                kept = nodes.get(question.chapter_id) if question.chapter_id else None
+                chapter = kept
+                placed = dataclasses.replace(
+                    placed, chapter=kept.label if kept else None,
+                    curriculum_section=question.curriculum_section,
+                    needs_review=True,
+                )
+            elif question is not None and placed.chapter is None:
                 # Skill-anchored: the judge confidently said this question has no chapter,
                 # and the question record should say the same rather than keep whatever
                 # placeholder chapter it was seeded with. concept_family_id and

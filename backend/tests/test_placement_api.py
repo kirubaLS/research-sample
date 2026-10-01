@@ -667,3 +667,140 @@ def test_review_queue_offers_the_chapters_own_candidate_families(client, school,
     codes = {f["code"] for f in row["candidate_families"]}
     assert "TEST.CONFIRMFAMILY.CF.A" in codes
     assert "TEST.CONFIRMFAMILY.CF.B" in codes
+
+
+# --- an outage is not a judgment -----------------------------------------------------------
+
+def _mapped_question(client, school, title, stem):
+    """A question the map step has already placed under Statistics 13.3."""
+    from app.db import SessionLocal
+    from app.models import Question, TaxonomyNode
+
+    h = _auth(school)
+    aid = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": title, "total_marks": 3,
+    }).json()["assessment_id"]
+    added = client.post(f"/assessments/{aid}/questions", headers=h, json={"questions": [{
+        "section": "A", "question_no": "1", "max_marks": 3, "stem_text": stem,
+        "board_unit": "X.MATH.U.MENSURATION", "concept_family": "X.MATH.CF.VOLUME",
+        "concept_variant": f"outage fixture {title}",
+    }]})
+    assert added.status_code == 200, added.json()
+    db = SessionLocal()
+    try:
+        q = db.scalars(select(Question).where(Question.assessment_id == aid)).first()
+        stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
+        q.chapter_id, q.curriculum_section = stats.id, "13.3"
+        db.commit()
+        return aid, q.id, stats.id
+    finally:
+        db.close()
+
+
+def _run_with_judge(school, aid, judge_factory, monkeypatch):
+    from app.api.placement import _run_placement_job
+    from app.classify import anthropic_judge as anthropic_judge_module
+    from app.config import get_settings
+    from app.db import SessionLocal
+    from app.models import PlacementJob
+
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "test-key")
+    monkeypatch.setattr(anthropic_judge_module, "AnthropicJudge", judge_factory)
+    db = SessionLocal()
+    try:
+        job = PlacementJob(school_id=school["school_id"], assessment_id=aid)
+        db.add(job)
+        db.commit()
+        job_id = job.id
+    finally:
+        db.close()
+    _run_placement_job(job_id)
+    db = SessionLocal()
+    try:
+        return db.get(PlacementJob, job_id)
+    finally:
+        db.close()
+
+
+def test_a_classifier_outage_fails_the_job_and_leaves_every_mapped_chapter_alone(
+    client, school, book, monkeypatch,
+):
+    """Seen in production: the API refused every call (credit exhausted) and the classify
+    step wrote seventy 'no chapter' placements, wiping the chapter the map step had found
+    for every question. An outage is not a finding: the job fails, naming the cause, and
+    the paper stays as mapped."""
+    from app.db import SessionLocal
+    from app.models import Question, QuestionPlacement
+
+    aid, qid, stats_id = _mapped_question(client, school, "Outage", "Find the mode of the data")
+
+    class Refusing:
+        def __init__(self, *a, **kw):
+            pass
+
+        def classify(self, question, evidence):
+            raise RuntimeError("Error code: 400 - credit balance is too low")
+
+    job = _run_with_judge(school, aid, Refusing, monkeypatch)
+    assert job.status == "failed" and job.error_status == 502
+    assert "could not be asked for any question" in job.error_detail
+    assert "credit balance" in job.error_detail
+    db = SessionLocal()
+    try:
+        q = db.get(Question, qid)
+        assert (q.chapter_id, q.curriculum_section) == (stats_id, "13.3"), "the map step's chapter stands"
+        assert db.scalar(select(QuestionPlacement).where(QuestionPlacement.question_id == qid)) is None
+    finally:
+        db.close()
+
+
+def test_one_question_the_judge_could_not_read_keeps_its_mapped_chapter_and_is_flagged(
+    client, school, book, monkeypatch,
+):
+    from app.classify.judge import Classification
+    from app.db import SessionLocal
+    from app.models import Question, QuestionPlacement
+
+    aid, qid, stats_id = _mapped_question(
+        client, school, "One failure", "Find the mode of the frequency distribution of shoe sizes",
+    )
+    h = _auth(school)
+    added = client.post(f"/assessments/{aid}/questions", headers=h, json={"questions": [{
+        "section": "A", "question_no": "2", "max_marks": 3,
+        "stem_text": "Find the mean of the grouped data of daily wages by the step-deviation method",
+        "board_unit": "X.MATH.U.MENSURATION", "concept_family": "X.MATH.CF.VOLUME",
+        "concept_variant": "outage fixture 2",
+    }]})
+    assert added.status_code == 200, added.json()
+
+    class Flaky:
+        def __init__(self, *a, **kw):
+            pass
+
+        def classify(self, question, evidence):
+            if "mode" in question:
+                raise RuntimeError("Error code: 529 - overloaded")
+            return Classification(
+                chapter="Statistics", curriculum_section="13.2", tier="Applying",
+                skill_required="compute a mean", reasoning="asks for the mean", confidence=0.9,
+            )
+
+    job = _run_with_judge(school, aid, Flaky, monkeypatch)
+    assert job.status == "succeeded", job.error_detail
+    db = SessionLocal()
+    try:
+        q = db.get(Question, qid)
+        assert (q.chapter_id, q.curriculum_section) == (stats_id, "13.3"), "untouched, not wiped"
+        placement = db.scalars(
+            select(QuestionPlacement).where(QuestionPlacement.question_id == qid)
+            .order_by(QuestionPlacement.created_at.desc())
+        ).first()
+        assert placement is not None and placement.needs_review
+        assert placement.chapter_id == stats_id and placement.curriculum_section == "13.3"
+        assert "invalid" in placement.reasoning and "overloaded" in placement.reasoning
+        other = db.scalars(select(Question).where(
+            Question.assessment_id == aid, Question.question_no == "2",
+        )).first()
+        assert other.curriculum_section == "13.2", "the question the judge did read was settled"
+    finally:
+        db.close()

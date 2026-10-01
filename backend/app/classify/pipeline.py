@@ -95,6 +95,9 @@ class PlacedQuestion:
     #: True when the blueprint moved it away from the judge's own first choice
     overruled: bool = False
     needs_review: bool = False
+    #: True when the judge could not be asked at all (an API refusal, a rate limit, a
+    #: reply the SDK rejected). Not a judgment: the question's earlier placement stands.
+    judge_failed: bool = False
 
 
 @dataclass
@@ -126,8 +129,9 @@ def _pass(
     passage_chars: int = DEFAULT_PASSAGE_CHARS,
     on_progress: Callable[[int, int], None] | None = None,
     scope_of: Callable[[str], set[str] | None] | None = None,
-) -> tuple[list[QuestionSlot], dict[str, Classification]]:
-    """One classification pass over every question.
+) -> tuple[list[QuestionSlot], dict[str, Classification], set[str]]:
+    """One classification pass over every question. Returns the slots, the judgments,
+    and the ids of the questions the judge could not be asked about at all.
 
     ``scope_of(question_id)``, when given, narrows one question to its own set of chapter
     names -- a Social Science paper's Section B is Geography by board convention, so a
@@ -138,6 +142,7 @@ def _pass(
     """
     slots: list[QuestionSlot] = []
     judged: dict[str, Classification] = {}
+    failed: set[str] = set()
     pool = _full_pool(indexes)
     total = len(questions)
 
@@ -221,6 +226,7 @@ def _pass(
                 confidence=0.0,
                 alternative_chapter=None,
             )
+            failed.add(question_id)
             slots.append(QuestionSlot(question_id, marks, [Option(None, None, 0.0)]))
             if on_progress is not None:
                 on_progress(done, total)
@@ -274,7 +280,7 @@ def _pass(
         if on_progress is not None:
             on_progress(done, total)
 
-    return slots, judged
+    return slots, judged, failed
 
 
 def place_paper(
@@ -316,7 +322,7 @@ def place_paper(
     inferred: InferredScope | None = None
     scope_source = "declared" if scope is not None else "none"
 
-    slots, judged = _pass(
+    slots, judged, failed = _pass(
         questions, indexes, judge, chapter_of, unit_of, section_of, scope,
         evidence_passages, evidence_chapters, passage_chars, on_progress, scope_of,
     )
@@ -340,7 +346,7 @@ def place_paper(
         # deleted question is worse than a misplaced one -- it vanishes from the report
         # instead of being wrong in it.
         if inferred.confident:
-            slots, judged = _pass(
+            slots, judged, failed = _pass(
                 questions, indexes, judge, chapter_of, unit_of, section_of,
                 inferred.chapters, evidence_passages, evidence_chapters, passage_chars,
                 on_progress, scope_of,
@@ -364,6 +370,7 @@ def place_paper(
             evidence=judged[slot.question_id].evidence,
             overruled=slot.question_id in result.overruled,
             needs_review=slot.question_id in flagged,
+            judge_failed=slot.question_id in failed,
         )
         for slot in slots
     ]
