@@ -131,10 +131,12 @@ Nobody waits on the classify step: a paper is uploaded, the tab is closed, and t
 works through it. So its model calls go through the Message Batches API at half price
 (`app.llm_batch`): a judge written against the live `messages.parse` runs unchanged, every
 call that arrives while a batch is gathering joins it, and a stage that asks its questions
-from one thread each turns into one batch per round -- the chapter judge's single round,
-then the topic judge's read, confirm and verification rounds. A batch usually ends within
-the hour; the job's stale window and the screen's poll allow for a few. `YAADHUM_BATCH_CLASSIFY=false`
-restores the live API.
+from one thread each turns into one batch per round. The topic judge's read, confirm and
+verification rounds go this way; the chapter judge, a single round of one call per
+question, stays on the live API by default (`YAADHUM_BATCH_CHAPTER_JUDGE=true` batches it
+too) because its wait would buy a quarter of the saving at the price of a whole extra
+batch. A batch usually ends within the hour; the job's stale window and the screen's poll
+allow for a few. `YAADHUM_BATCH_CLASSIFY=false` restores the live API throughout.
 
 The topic judge runs once per paper, not twice: when a classify job is already queued
 behind a map (the zero-touch chain always queues both), the map step leaves the judge to

@@ -110,6 +110,10 @@ class Settings(BaseSettings):
     #: (see app.llm_batch): nobody waits on this step, so the live API's speed was paid
     #: for and thrown away. Off, the live API is used as before. YAADHUM_BATCH_CLASSIFY.
     batch_classify: bool = True
+    #: The chapter judge is one round of one call per question; live it finishes in
+    #: minutes, batched it adds a whole batch wait for a quarter of the saving. Off by
+    #: default: the topic judge's three to five rounds are where batching pays.
+    batch_chapter_judge: bool = False
     #: How long a batch waits for more calls to join it, how often it is polled, and how
     #: long it may run before every caller gives up on it.
     batch_linger_seconds: float = 3.0

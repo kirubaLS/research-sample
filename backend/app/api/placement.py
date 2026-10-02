@@ -312,7 +312,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             known_sections=known_sections or None,
             effort=settings.model_effort,
             passage_chars=settings.classifier_passage_chars,
-            batched=settings.batch_classify, batch_options=batch_options,
+            batched=settings.batch_classify and settings.batch_chapter_judge,
+            batch_options=batch_options,
         )
 
         scope = None
@@ -698,13 +699,21 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 "chapters_shown": evidence_chapters,
                 "batched": settings.batch_classify,
                 #: from the token counts above and the model's list price -- an estimate
-                #: of the bill, not the bill
-                "estimated_usd": estimate_usd(
-                    settings.model_classifier,
-                    getattr(judge, "input_tokens", 0) + getattr(topic_judge, "input_tokens", 0),
-                    getattr(judge, "output_tokens", 0) + getattr(topic_judge, "output_tokens", 0),
-                    getattr(judge, "cache_read_tokens", 0) + getattr(topic_judge, "cache_read_tokens", 0),
-                    batched=settings.batch_classify,
+                #: of the bill, not the bill; each judge at the rate it actually ran at
+                "estimated_usd": round(
+                    estimate_usd(
+                        settings.model_classifier,
+                        getattr(judge, "input_tokens", 0), getattr(judge, "output_tokens", 0),
+                        getattr(judge, "cache_read_tokens", 0),
+                        batched=bool(getattr(judge, "batched", False)),
+                    )
+                    + estimate_usd(
+                        settings.model_classifier,
+                        getattr(topic_judge, "input_tokens", 0), getattr(topic_judge, "output_tokens", 0),
+                        getattr(topic_judge, "cache_read_tokens", 0),
+                        batched=bool(getattr(topic_judge, "batched", False)),
+                    ),
+                    4,
                 ),
             },
             "settled": result.settled,
