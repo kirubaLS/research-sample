@@ -360,6 +360,53 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     });
   }
 
+  // Filling a scheduled test after the fact, and joining a standalone paper to one:
+  // the server has always allowed both (POST /assessments with exam_id, POST
+  // /admin/exams/{id}/papers), but no screen called either, so an exam scheduled from
+  // the principal's page sat at "0 subjects" forever and a paper uploaded below could
+  // never be grouped under a test. Both are one request plus a reload.
+  const [addingSubjectFor, setAddingSubjectFor] = useState<string | null>(null);
+  const [addSubjectCode, setAddSubjectCode] = useState("");
+  const [movingPaper, setMovingPaper] = useState<string | null>(null);
+  const [moveTarget, setMoveTarget] = useState("");
+  const [linkBusy, setLinkBusy] = useState(false);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  async function addSubjectToTest(test: TestRow, subjectCode: string) {
+    const key = getApiKey();
+    if (!key || !subjectCode) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await api.createAssessment(key, { subject_code: subjectCode, title: test.name, exam_id: test.id });
+      setAddingSubjectFor(null);
+      setAddSubjectCode("");
+      await Promise.all([loadExams(), scan.loadPapers()]);
+    } catch (err) {
+      setLinkError(err instanceof ApiError ? `Could not add the subject: ${err.message}` : "Could not reach the API.");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
+  async function movePaperIntoTest(paperId: string, examId: string) {
+    const key = getApiKey();
+    if (!key || !examId) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await api.attachExamPaper(key, examId, paperId);
+      setMovingPaper(null);
+      setMoveTarget("");
+      setExpanded((prev) => new Set(prev).add(examId));
+      await Promise.all([loadExams(), scan.loadPapers()]);
+    } catch (err) {
+      setLinkError(err instanceof ApiError ? `Could not move the paper: ${err.message}` : "Could not reach the API.");
+    } finally {
+      setLinkBusy(false);
+    }
+  }
+
   async function createTest(e: FormEvent) {
     e.preventDefault();
     const key = getApiKey();
@@ -503,7 +550,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                         >
                           <div className="pm-examcard__body">
                             {papers.length === 0 ? (
-                              <p className="small muted">No papers attached to this test yet.</p>
+                              <p className="small muted">No papers attached to this test yet. Add a subject below, or move a standalone paper into it.</p>
                             ) : (
                               <div className="pm-table-wrap">
                                 <table className="pm-table">
@@ -582,6 +629,49 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                 </table>
                               </div>
                             )}
+                            {(() => {
+                              const present = new Set(papers.map((p) => p.subject_code));
+                              const addable = pickableSubjects.filter((s) => !present.has(s.subject_code));
+                              if (addable.length === 0) return null;
+                              const adding = addingSubjectFor === t.id;
+                              return (
+                                <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                                  {adding ? (
+                                    <>
+                                      <select
+                                        className="select"
+                                        style={{ maxWidth: 260 }}
+                                        value={addSubjectCode}
+                                        onChange={(e) => setAddSubjectCode(e.target.value)}
+                                        aria-label="Subject to add"
+                                      >
+                                        <option value="">Choose a subject…</option>
+                                        {addable.map((s) => (
+                                          <option key={s.subject_code} value={s.subject_code}>
+                                            {s.label}
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        className="btn btn--primary btn--sm"
+                                        disabled={!addSubjectCode || linkBusy}
+                                        onClick={() => void addSubjectToTest(t, addSubjectCode)}
+                                      >
+                                        {linkBusy ? <Loader2 size={13} className="spin" /> : <Plus size={13} />} Add
+                                      </button>
+                                      <button className="btn btn--sm" disabled={linkBusy} onClick={() => { setAddingSubjectFor(null); setAddSubjectCode(""); }}>
+                                        Cancel
+                                      </button>
+                                    </>
+                                  ) : (
+                                    <button className="btn btn--sm" onClick={() => { setAddingSubjectFor(t.id); setAddSubjectCode(""); setLinkError(null); }}>
+                                      <Plus size={13} /> Add subject
+                                    </button>
+                                  )}
+                                  {adding && linkError && <span className="small" style={{ color: "#c2410c" }}>{linkError}</span>}
+                                </div>
+                              );
+                            })()}
                           </div>
                         </motion.div>
                       )}
@@ -676,31 +766,74 @@ function PapersTab({ examCell }: { examCell: boolean }) {
 
               {standalonePapers.length > 0 && (
                 <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-                  {standalonePapers.map((p) => (
-                    <button
-                      key={p.id}
-                      onClick={() => scan.openPaper(p)}
-                      className="pm-standalone-card"
-                      style={{ width: "100%", textAlign: "left", font: "inherit", color: "inherit" }}
-                    >
-                      <div>
-                        <div className="strong" style={{ fontSize: 15 }}>
-                          {p.title}
-                        </div>
-                        <div className="small muted" style={{ marginTop: 2 }}>
-                          {p.subject_label} · {p.questions} question{p.questions === 1 ? "" : "s"} · {p.mapped_questions} mapped ·{" "}
-                          {p.students_with_marks} student{p.students_with_marks === 1 ? "" : "s"} marked
-                          {p.spend && p.spend.calls > 0 && (
-                            <> · {spendLabel(p.spend)}</>
-                          )}
-                        </div>
+                  {standalonePapers.map((p) => {
+                    // a test that already holds this subject cannot take a second paper of it
+                    const targets = tests.filter((t) => !(papersByExam.get(t.id) ?? []).some((q) => q.subject_code === p.subject_code));
+                    const moving = movingPaper === p.id;
+                    return (
+                      <div key={p.id} style={{ display: "grid", gap: 8 }}>
+                        <button
+                          onClick={() => scan.openPaper(p)}
+                          className="pm-standalone-card"
+                          style={{ width: "100%", textAlign: "left", font: "inherit", color: "inherit" }}
+                        >
+                          <div>
+                            <div className="strong" style={{ fontSize: 15 }}>
+                              {p.title}
+                            </div>
+                            <div className="small muted" style={{ marginTop: 2 }}>
+                              {p.subject_label} · {p.questions} question{p.questions === 1 ? "" : "s"} · {p.mapped_questions} mapped ·{" "}
+                              {p.students_with_marks} student{p.students_with_marks === 1 ? "" : "s"} marked
+                              {p.spend && p.spend.calls > 0 && (
+                                <> · {spendLabel(p.spend)}</>
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                            <span className={`tag ${p.stage === "mapped" ? "tag--green" : p.stage === "confirmed" ? "tag--gold" : ""}`}>{p.stage}</span>
+                            <ChevronDown size={16} className="muted" />
+                          </div>
+                        </button>
+                        {targets.length > 0 && (
+                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingLeft: 4 }}>
+                            {moving ? (
+                              <>
+                                <select
+                                  className="select"
+                                  style={{ maxWidth: 300 }}
+                                  value={moveTarget}
+                                  onChange={(e) => setMoveTarget(e.target.value)}
+                                  aria-label="Test to move this paper into"
+                                >
+                                  <option value="">Choose a test…</option>
+                                  {targets.map((t) => (
+                                    <option key={t.id} value={t.id}>
+                                      {t.name}{t.date ? ` · ${t.date}` : ""}
+                                    </option>
+                                  ))}
+                                </select>
+                                <button
+                                  className="btn btn--primary btn--sm"
+                                  disabled={!moveTarget || linkBusy}
+                                  onClick={() => void movePaperIntoTest(p.id, moveTarget)}
+                                >
+                                  {linkBusy ? <Loader2 size={13} className="spin" /> : <ArrowRight size={13} />} Move
+                                </button>
+                                <button className="btn btn--sm" disabled={linkBusy} onClick={() => { setMovingPaper(null); setMoveTarget(""); }}>
+                                  Cancel
+                                </button>
+                                {linkError && <span className="small" style={{ color: "#c2410c" }}>{linkError}</span>}
+                              </>
+                            ) : (
+                              <button className="btn btn--sm" onClick={() => { setMovingPaper(p.id); setMoveTarget(""); setLinkError(null); }}>
+                                <ArrowRight size={13} /> Move into test
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <span className={`tag ${p.stage === "mapped" ? "tag--green" : p.stage === "confirmed" ? "tag--gold" : ""}`}>{p.stage}</span>
-                        <ChevronDown size={16} className="muted" />
-                      </div>
-                    </button>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
