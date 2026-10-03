@@ -24,7 +24,10 @@ from app.mapping.auto_resolve import record_family_section, resolve_blocked_fami
 from app.mapping.family import Choice, choose_family
 from app.llm import estimate_usd
 from app.mapping.topic_node import (
+    assert_topic_matches_section,
+    clear_machine_topic,
     major_view,
+    person_set_topic,
     set_question_topic,
     topic_headings,
 )
@@ -623,6 +626,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     db = SessionLocal()
     try:
         settled, unsettled, refused = 0, 0, []
+        #: questions whose section and topic this run wrote -- checked to agree before commit
+        topic_written: list[str] = []
         for placed in result.questions:
             chapter = by_label.get(placed.chapter) if placed.chapter is not None else None
             unit_id = _unit_node_id(db, nodes, placed.board_unit) if placed.board_unit else None
@@ -636,6 +641,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             # mapping step's attempt stays in the placement history.
             choice = Choice(None)
             auto_resolved: str | None = None
+            held: str | None = None
             pick = topic_picks.get(placed.question_id)
             if pick is not None and pick.section is not None:
                 import dataclasses
@@ -671,6 +677,12 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     ),
                     needs_review=True,
                 )
+            elif question is not None and person_set_topic(db, question.id):
+                # A person settled this question's topic (a review, an imported
+                # Q-matrix). A machine pass never overrules them: changing the chapter or
+                # section here while their topic stays would make the question and its
+                # Topic column disagree. The judge's answer is still recorded below.
+                held = "Not applied: a person settled this question."
             elif question is not None and placed.chapter is None:
                 # Skill-anchored: the judge confidently said this question has no chapter,
                 # and the question record should say the same rather than keep whatever
@@ -681,6 +693,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 # nothing here that would improve on the placeholder.
                 question.chapter_id = None
                 question.curriculum_section = None
+                # ...and no topic either: the map step's guess must not stay in the column
+                clear_machine_topic(db, question.id)
+                topic_written.append(question.id)
                 if placed.skill_required:
                     question.skill_required = placed.skill_required
                 settled += 1
@@ -767,6 +782,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                                 else ()
                             ),
                         )
+                        topic_written.append(question.id)
                     settled += 1
                     if choice.unsettled:
                         unsettled += 1
@@ -805,7 +821,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 ),
                 cross_scope=True if getattr(placed, "cross_scope", False) else None,
                 review_reason="cross_scope" if getattr(placed, "cross_scope", False) else None,
-                needs_review=(
+                needs_review=held is None and (
                     placed.needs_review
                     or getattr(placed, "cross_scope", False)
                     or (pick is not None and pick.section is not None and not pick.agreed)
@@ -816,6 +832,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     or (auto_resolved is not None and not (pick is not None and pick.agreed))
                 ),
                 reasoning=" ".join(filter(None, [
+                    held,
                     placed.reasoning,
                     (
                         f"Topic {pick.section} ({pick.heading}): {pick.rationale}"
@@ -838,6 +855,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 model_version=settings.model_classifier,
                 rationale=placed.reasoning,
             ))
+        # the Topic column always shows the section the question carries
+        db.flush()
+        assert_topic_matches_section(db, topic_written)
         db.commit()
 
         # The judge may have moved questions between families, and on a board paper that
@@ -1278,6 +1298,7 @@ def confirm(
             headings.get(resolved_section) or resolved_section,
             source="human", confidence=1.0,
         )
+        assert_topic_matches_section(db, [question.id])
     if family is not None:
         question.concept_family_id = family.id
         if resolved_section:

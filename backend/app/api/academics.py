@@ -28,7 +28,6 @@ from app.models import (
     Assessment,
     MarkEvent,
     Question,
-    QuestionTier,
     School,
     Section,
     StudentProfile,
@@ -138,10 +137,9 @@ def resolved_rows(
     }
     if not questions:
         return []
-    tiers = {
-        t.question_id: t.tier
-        for t in db.scalars(select(QuestionTier).where(QuestionTier.question_id.in_(list(questions))))
-    }
+    from app.classify.current_tier import current_tiers
+
+    tiers, _ = current_tiers(db, list(questions))      # the newest row naming a tier
     chapter_ids = {q.chapter_id for q in questions.values() if q.chapter_id}
     chapter_codes = {
         n.id: n.code for n in db.scalars(select(TaxonomyNode).where(TaxonomyNode.id.in_(chapter_ids)))

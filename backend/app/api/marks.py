@@ -40,10 +40,12 @@ from app.mapping.family import Choice
 from app.mapping.solver import Constraint, QuestionDist, solve
 from app.mapping.topic_node import (
     BOOK_MAP_SUBJECTS,
-    SECONDARY_WEIGHT,
+    assert_topic_matches_section,
     book_map_topic_label,
     major_view,
+    primary_order,
     section_number,
+    set_question_topic,
     topic_headings,
     topic_node,
 )
@@ -1288,28 +1290,25 @@ def read_scan(
 
     skills: dict[str, list[str]] = {}
     # heaviest first: the Topic column shows the primary, a secondary (the other section
-    # a part of a multi-part question is answered in) never displaces it
+    # a part of a multi-part question is answered in) never displaces it; equal weights
+    # by id, so the column never depends on the database's row order
     for link in sorted(
         db.scalars(select(QuestionSkill).where(
             QuestionSkill.question_id.in_([r.question_id for r in rows if r.question_id] or [""])
         )),
-        key=lambda link: -(link.weight if link.weight is not None else 1.0),
+        key=primary_order,
     ):
         node = nodes.get(link.node_id)
         if node is not None:
             skills.setdefault(link.question_id, []).append(node.label)
-    tiers: dict[str, str] = {}
-    #: every question a classify pass actually looked at, whether or not it settled on a
-    #: tier -- place() writes one QuestionTier row per question it processes even when
-    #: the tier itself comes back None (an abstain is still a verdict), so this is the
-    #: honest signal for "has classify run on this paper", not "did it agree every time".
-    classified_question_ids: set[str] = set()
-    for row_tier in db.scalars(select(QuestionTier).where(
-        QuestionTier.question_id.in_([r.question_id for r in rows if r.question_id] or [""])
-    )):
-        classified_question_ids.add(row_tier.question_id)
-        if row_tier.tier:
-            tiers[row_tier.question_id] = row_tier.tier
+    from app.classify.current_tier import current_tiers
+
+    # the newest row that names a tier wins. classified_question_ids is every question a
+    # classify pass actually looked at, whether or not it settled on a tier -- place()
+    # writes one QuestionTier row per question it processes even when the tier itself
+    # comes back None (an abstain is still a verdict), so this is the honest signal for
+    # "has classify run on this paper", not "did it agree every time".
+    tiers, classified_question_ids = current_tiers(db, [r.question_id for r in rows])
 
     # QuestionPlacement is append-only, so the newest row per question is the current
     # verdict and its reasoning -- including a family the judge could not settle, which
@@ -2127,22 +2126,21 @@ def capped_pick(pick, cap, headings):
     return capped(pick, cap, headings)
 
 
-def _add_secondary_topics(db: Session, question_id: str, chapter: TaxonomyNode, section, pick) -> None:
-    """The other sections a PART of a multi-part question is answered in, beside the
-    primary topic at SECONDARY_WEIGHT -- see app.mapping.topic_node.set_question_topic.
-    Only when the pick's primary is the section written, so a secondary never rides
-    along with a fallback the judge did not make."""
-    if pick is None or pick.section is None or pick.section != section:
-        return
-    for other, label in pick.secondaries:
-        if other == section:
-            continue
-        node = topic_node(db, chapter, other, label or other)
-        db.add(QuestionSkill(
-            question_id=question_id, node_id=node.id, source="retrieval",
-            weight=SECONDARY_WEIGHT,
-        ))
-
+def _write_topic(db: Session, question_id: str, chapter: TaxonomyNode, topic: TaxonomyNode,
+                 section, pick) -> None:
+    """The map step's topic: ``topic`` (the node for ``section``) at weight 1.0, and the
+    judge's other sections at SECONDARY_WEIGHT -- through set_question_topic, the one
+    writer every step uses, so earlier machine rows are replaced the same way everywhere.
+    A secondary rides along only when the pick's primary is the section written, never
+    with a fallback the judge did not make."""
+    secondaries = (
+        pick.secondaries if pick is not None and pick.section is not None and pick.section == section
+        else ()
+    )
+    set_question_topic(
+        db, question_id, chapter, section, topic.label, source="retrieval",
+        secondaries=secondaries, node=topic,
+    )
 
 def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     """Place every staged question against the book, and promote what can be placed.
@@ -2408,6 +2406,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     group_placement: dict[str, dict] = {}
     deferred: list = []
     mapped, blocked, context_kept, with_topic = 0, [], 0, 0
+    topic_written: list[str] = []
     for done, row in enumerate(staged, start=1):
         if on_progress is not None:
             on_progress(done, len(staged))
@@ -2609,10 +2608,8 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         # findings by sub-topic. Without this row a mapped question contributed to no topic
         # at all and the report fell back to the chapter.
         if topic is not None:
-            db.add(QuestionSkill(
-                question_id=question.id, node_id=topic.id, source="retrieval",
-            ))
-            _add_secondary_topics(db, question.id, chapter, section, pick)
+            _write_topic(db, question.id, chapter, topic, section, pick)
+            topic_written.append(question.id)
             with_topic += 1
         row.question_id = question.id
         row.blocked_reason = None
@@ -2640,6 +2637,9 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         if cap is not _no_cap:
             pick = capped_pick(pick, cap, headings_of.get(chapter.id))
         if pick.section:
+            if pick.section != section:
+                # the borrowed topic is the sibling's section, not this one's
+                topic = None
             section = pick.section
             if pick.heading and pick.heading != section:
                 topic = _book_map_topic_node(db, chapter, section, pick.heading)
@@ -2694,15 +2694,16 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             candidates=[],
         ))
         if topic is not None:
-            db.add(QuestionSkill(
-                question_id=question.id, node_id=topic.id, source="retrieval",
-            ))
-            _add_secondary_topics(db, question.id, chapter, section, pick)
+            _write_topic(db, question.id, chapter, topic, section, pick)
+            topic_written.append(question.id)
             with_topic += 1
         row.question_id = question.id
         row.blocked_reason = None
         mapped += 1
 
+    # the Topic column always shows the section the question carries
+    db.flush()
+    assert_topic_matches_section(db, topic_written)
     db.commit()
 
     # A mapped board paper is new evidence about the exam, so the frequency table for

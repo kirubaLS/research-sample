@@ -424,6 +424,52 @@ Where the new title shows up:
 
 An introduction titled this way also stops matching the "not a learning area" rule ("Introduction"). That is intended: these introductions carry content a student can be weak at.
 
+## Phase 3: the Topic column always shows the final decision
+
+The Topic column shows a question's primary `question_skill` node. Reports read `question.curriculum_section`. Phase 3 makes the two always agree, and makes each reader's choice deterministic. There are no new settings and no migration.
+
+### 3.1 One writer for topics
+- **Map step.** It no longer inserts `question_skill` rows directly. It writes through `set_question_topic`, the same writer the place run and the review settle use:
+  - the primary topic at weight 1.0;
+  - the judge's collapsed `also` sections at 0.5;
+  - every earlier machine row (`retrieval`, `model`, `classify`) replaced.
+- **Case-study sub-part (map step).** A sub-part that borrows a sibling's chapter no longer keeps the sibling's topic once the topic judge gives it a different section of its own.
+- **Skill-anchored question (place).** When the judge says a question has no chapter, its machine topic rows are removed together with its section. Before, the map step's topic stayed in the column.
+- **A person's settle is final.** If a person chose the question's topic (a review settle, or an imported Q-matrix), a later place run changes nothing on the question: not the chapter, section, family or topic.
+  - The run still appends its placement row, prefixed "Not applied: a person settled this question." and not flagged for review.
+  - Before, the place run rewrote the question's chapter and section while the person's topic stayed. That is exactly the disagreement 3.2 forbids.
+  - `set_question_topic` now checks for a person's row before it touches any node, so a refused machine call no longer relabels nodes either.
+
+### 3.2 Section and topic agree
+- **Write-phase guard.** `topic_mismatches` / `assert_topic_matches_section` (in `app/mapping/topic_node.py`) run before each write phase commits: the map step, the place run and the review settle.
+  - Every question whose topic the phase wrote must show its stored section as its primary subtopic.
+  - A mismatch raises `TopicSectionMismatch`. The job then fails without committing anything (the review settle returns 500).
+  - Only questions written in that phase are checked, so older rows can't fail a new run.
+- **Read-only listing.** `scripts/list_topic_mismatches.py` lists existing mismatches (`--assessment`, `--subject`).
+  - It has no `--apply`: a mismatch is fixed by re-running place or by settling the question in review.
+  - On the scratch database it finds the synthetic B/19/19.7 row (section 4.2.1, topic 4.1.4).
+
+### 3.3 Deterministic Topic tie-break
+`primary_order` sorts topic rows by weight, heaviest first, then by id. The scan screen and the reports both use it. `question_skill` has no creation time, so the id is the stable tie-break; adding a `created_at` would need a migration.
+
+### 3.4 Tiers: the newest named tier wins
+- `app/classify/current_tier.current_tiers` reads `question_tier` ordered by `created_at` then id. The newest row that names a tier wins, so an abstain (tier None) never erases a tier.
+- All three readers use it: `marks.read_scan`, `reports._rows` and `academics.resolved_rows`.
+- Before, none of them ordered the rows, and `academics` let a later abstain blank the tier.
+
+### Tests (11 new, `tests/test_topic_column.py`)
+- Machine rows replaced, with primary 1.0 and secondaries 0.5.
+- A secondary that collapses onto the primary keeps 1.0.
+- A machine call never overrules or relabels a person's topic.
+- A place run leaves no stale retrieval row.
+- A place run after a person's settle changes nothing on the question.
+- A skill-anchored question keeps no topic.
+- The guard refuses a mismatch.
+- The listing script is read-only.
+- The tie-break is deterministic.
+- The newest named tier wins.
+- All three readers use the one tier rule.
+
 ## Follow-ups (not done)
 
 - **Show GEO, POL and ECO topic labels in the teacher UI without the number prefix.** Their numbers are reading order, not printed in the books. Keep the numbers in stored codes, and keep them for History, where they are printed. This is not a one-line change: the label reaches the teacher through several API fields and the xlsx and PDF exports, so it needs one display helper used at each of those places.

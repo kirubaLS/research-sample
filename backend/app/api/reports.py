@@ -47,7 +47,6 @@ from app.models import (
     Question,
     QuestionPlacement,
     QuestionSkill,
-    QuestionTier,
     ScaleScore,
     School,
     Section,
@@ -134,19 +133,21 @@ def _rows(db: Session, assessment: Assessment) -> list[MarkRow]:
         q.id: q for q in db.scalars(select(Question).where(Question.assessment_id == assessment.id))
     }
     skills: dict[str, list[str]] = {}
-    for qs in db.scalars(
+    from app.mapping.topic_node import primary_order
+
+    # primary first, equal weights by id: a question's topics come out in one fixed order
+    for qs in sorted(db.scalars(
         select(QuestionSkill).where(QuestionSkill.question_id.in_(list(questions)))
-    ):
+    ), key=primary_order):
         node = db.get(TaxonomyNode, qs.node_id)
         if node:
             code = _capped_skill_code(node.code)
             held = skills.setdefault(qs.question_id, [])
             if code not in held:
                 held.append(code)
-    tiers: dict[str, str] = {}
-    for t in db.scalars(select(QuestionTier).where(QuestionTier.question_id.in_(list(questions)))):
-        if t.tier:
-            tiers[t.question_id] = t.tier
+    from app.classify.current_tier import current_tiers
+
+    tiers, _ = current_tiers(db, list(questions))      # the newest row naming a tier
 
     placements = _latest_placements(db, list(questions))
     wanted: set[str] = set()

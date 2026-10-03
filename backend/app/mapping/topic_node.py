@@ -205,10 +205,96 @@ def topic_node(db: Session, chapter: TaxonomyNode, section: str, label: str) -> 
     return node
 
 
+def primary_order(link: QuestionSkill) -> tuple[float, str]:
+    """The Topic column's order for a question's QuestionSkill rows: heaviest first, then
+    by id, so two rows of equal weight always resolve the same way (the database's own
+    row order is not an order). The table carries no creation time; the id is the
+    stable tie-break."""
+    return (-(link.weight if link.weight is not None else 1.0), link.id or "")
+
+
+def person_set_topic(db: Session, question_id: str) -> bool:
+    """Whether a person chose this question's topic (a review settle or an imported
+    Q-matrix): a later machine pass then changes nothing on the question."""
+    return db.scalar(
+        select(QuestionSkill.id).where(
+            QuestionSkill.question_id == question_id,
+            QuestionSkill.source.not_in(MACHINE_TOPIC_SOURCES),
+        ).limit(1)
+    ) is not None
+
+
+def clear_machine_topic(db: Session, question_id: str) -> int:
+    """Remove every topic a machine wrote for this question -- for a question the final
+    decision leaves with no section (skill-anchored), so no earlier guess stays in the
+    Topic column. A person's rows are never touched."""
+    rows = list(db.scalars(select(QuestionSkill).where(
+        QuestionSkill.question_id == question_id,
+        QuestionSkill.source.in_(MACHINE_TOPIC_SOURCES),
+    )))
+    for row in rows:
+        db.delete(row)
+    db.flush()
+    return len(rows)
+
+
+class TopicSectionMismatch(AssertionError):
+    """A question whose Topic column (its primary QuestionSkill) names a different section
+    than ``question.curriculum_section``. Raised by the write phases before they commit:
+    the two are written together and can only disagree through a bug."""
+
+
+def topic_mismatches(db: Session, question_ids) -> list[dict]:
+    """Questions among ``question_ids`` whose primary QuestionSkill node is a subtopic of
+    a different section than ``question.curriculum_section`` (including a question with
+    no section that still shows a subtopic). A question with no topic row, or whose
+    primary node is not a numbered subtopic, has nothing to disagree with."""
+    from app.models import Question
+
+    ids = [i for i in dict.fromkeys(question_ids) if i]
+    if not ids:
+        return []
+    links: dict[str, list[QuestionSkill]] = {}
+    for link in db.scalars(select(QuestionSkill).where(QuestionSkill.question_id.in_(ids))):
+        links.setdefault(link.question_id, []).append(link)
+    out = []
+    for question in db.scalars(select(Question).where(Question.id.in_(ids))):
+        own = links.get(question.id)
+        if not own:
+            continue
+        primary = min(own, key=primary_order)
+        node = db.get(TaxonomyNode, primary.node_id)
+        if node is None or node.kind != "subtopic":
+            continue
+        shown = section_number(node.code)
+        if shown is None or shown == question.curriculum_section:
+            continue
+        out.append({
+            "question_id": question.id, "address": question.address,
+            "assessment_id": question.assessment_id,
+            "curriculum_section": question.curriculum_section,
+            "topic_section": shown, "topic_node": node.code, "topic_source": primary.source,
+        })
+    return out
+
+
+def assert_topic_matches_section(db: Session, question_ids) -> None:
+    """The write phases' guard: every question written in this phase shows, in its Topic
+    column, the section stored on it."""
+    bad = topic_mismatches(db, question_ids)
+    if bad:
+        shown = "; ".join(
+            f"{b['address']}: section {b['curriculum_section']} but topic {b['topic_section']}"
+            for b in bad[:5]
+        )
+        raise TopicSectionMismatch(f"{len(bad)} question(s) disagree with their topic: {shown}")
+
+
 def set_question_topic(
     db: Session, question_id: str, chapter: TaxonomyNode, section: str, label: str,
     *, source: str, confidence: float | None = None,
     secondaries: tuple[tuple[str, str], ...] | list[tuple[str, str]] = (),
+    node: TaxonomyNode | None = None,
 ) -> TaxonomyNode:
     """Make ``section`` the question's topic, replacing whatever a machine wrote before.
 
@@ -220,21 +306,25 @@ def set_question_topic(
     is answered in -- a chronology, a match-the-columns, statements to judge. Those ARE
     a multi-skill question, and they are written beside the primary at
     ``SECONDARY_WEIGHT`` so a report on either section sees the marks.
+
+    ``node`` is the primary's node when the caller already holds it (the map step's
+    lookup); otherwise it is found or created from ``section`` and ``label``.
     """
-    node = topic_node(db, chapter, section, label)
+    rows = list(db.scalars(
+        select(QuestionSkill).where(QuestionSkill.question_id == question_id)
+    ))
+    if source != "human" and any(r.source not in MACHINE_TOPIC_SOURCES for r in rows):
+        # A person already chose this question's topic; a later machine pass does not
+        # overrule them -- and touches no node either (no get-or-create, no relabel).
+        return db.get(TaxonomyNode, min(rows, key=primary_order).node_id)
+    if node is None:
+        node = topic_node(db, chapter, section, label)
     wanted: dict[str, float] = {node.id: 1.0}
     for other, other_label in secondaries:
         if other == section:
             continue
         # a secondary that collapses onto the primary (topic_depth_cap) is the primary
         wanted.setdefault(topic_node(db, chapter, other, other_label or other).id, SECONDARY_WEIGHT)
-    rows = list(db.scalars(
-        select(QuestionSkill).where(QuestionSkill.question_id == question_id)
-    ))
-    if source != "human" and any(r.source not in MACHINE_TOPIC_SOURCES for r in rows):
-        # A person already chose this question's topic; a later machine pass does not
-        # overrule them.
-        return node
     kept: set[str] = set()
     for row in rows:
         if row.node_id in wanted and row.node_id not in kept:
