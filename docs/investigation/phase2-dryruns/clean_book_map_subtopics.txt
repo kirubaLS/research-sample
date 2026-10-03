@@ -139,9 +139,9 @@ X.GEO.FORESTWILDLIFE  Forest and Wildlife Resources  (cap 2)  KEEP 0, RELABEL 2,
   ORPHAN  X.GEO.FORESTWILDLIFE.S9              'Protected Forests'  [no book-map unit numbered 9; label names 'Protected Forests'] -> 3.2
   ORPHAN  X.GEO.FORESTWILDLIFE.S10             'Unclassed Forests'  [no book-map unit numbered 10; label names 'Unclassed Forests'] -> 3.3
 
-X.GEO.WATER  Water Resources  (cap 2)  KEEP 0, RELABEL 2, ORPHAN 3, DEEP 0
+X.GEO.WATER  Water Resources  (cap 2)  KEEP 0, RELABEL 1, ORPHAN 4, DEEP 0
   RELABEL X.GEO.WATER.S1                       'Water Scarcity and the Need for Water Conservation and Management' -> '1 Water Scarcity and the Need for Water Conservation and Management'
-  RELABEL X.GEO.WATER.S2                       'Water Resources' -> '2 Multi-purpose River Projects and Integrated Water Resources Management'
+  ORPHAN  X.GEO.WATER.S2                       'Water Resources'  [reading-order duplicate: 'Water Resources' is 'Water Resources' in the book map, under 0] -> 0
   ORPHAN  X.GEO.WATER.S3                       'Hydraulic Structures in Ancient India'  [label 'Hydraulic Structures in Ancient India' names no book-map unit; the code belongs to '3 Rainwater Harvesting'] -> per question
   ORPHAN  X.GEO.WATER.S4                       'Rainwater Harvesting'  [reading-order duplicate: 'Rainwater Harvesting' is 'Rainwater Harvesting' in the book map, under 3] -> 3
   ORPHAN  X.GEO.WATER.S5                       'Bamboo Drip Irrigation System'  [no book-map unit numbered 5; label names 'Bamboo Drip Irrigation System'] -> 4
@@ -400,9 +400,9 @@ X.ECO.MONEYCREDIT  Money and Credit  (cap 2)  KEEP 0, RELABEL 1, ORPHAN 18, DEEP
   ORPHAN  X.ECO.MONEYCREDIT.S18                'Grameen Bank of Bangladesh'  [no book-map unit numbered 18] -> per question
   ORPHAN  X.ECO.MONEYCREDIT.S19                'SUMMING UP'  [no book-map unit numbered 19; label names 'SUMMING UP'] -> 8
 
-X.ECO.GLOBALISATION  Globalisation and the Indian Economy  (cap 2)  KEEP 0, RELABEL 1, ORPHAN 20, DEEP 0
+X.ECO.GLOBALISATION  Globalisation and the Indian Economy  (cap 2)  KEEP 0, RELABEL 0, ORPHAN 21, DEEP 0
   ORPHAN  X.ECO.GLOBALISATION.S1               'Spreading  of Production by an MNC'  [label 'Spreading  of Production by an MNC' names no book-map unit; the code belongs to '1 PRODUCTION ACROSS COUNTRIES'] -> per question
-  RELABEL X.ECO.GLOBALISATION.S2               'PRODUCTION ACROSS COUNTRIES' -> '2 INTERLINKING PRODUCTION ACROSS COUNTRIES'
+  ORPHAN  X.ECO.GLOBALISATION.S2               'PRODUCTION ACROSS COUNTRIES'  [reading-order duplicate: 'PRODUCTION ACROSS COUNTRIES' is 'PRODUCTION ACROSS COUNTRIES' in the book map, under 1] -> 1
   ORPHAN  X.ECO.GLOBALISATION.S3               'INTERLINKING PRODUCTION ACROSS COUNTRIES'  [reading-order duplicate: 'INTERLINKING PRODUCTION ACROSS COUNTRIES' is 'INTERLINKING PRODUCTION ACROSS COUNTRIES' in the book map, under 2] -> 2
   ORPHAN  X.ECO.GLOBALISATION.S4               'FOREIGN TRADE AND INTEGRATION OF MARKETS'  [reading-order duplicate: 'FOREIGN TRADE AND INTEGRATION OF MARKETS' is 'FOREIGN TRADE AND INTEGRATION OF MARKETS' in the book map, under 3] -> 3
   ORPHAN  X.ECO.GLOBALISATION.S5               'Chinese Toys in India'  [label 'Chinese Toys in India' names no book-map unit; the code belongs to '5 FACTORS THAT HAVE ENABLED GLOBALISATION'] -> per question
@@ -440,4 +440,4 @@ X.ECO.CONSUMERRIGHTS  Consumer Rights  (cap 2)  KEEP 0, RELABEL 2, ORPHAN 13, DE
   ORPHAN  X.ECO.CONSUMERRIGHTS.S14             'Books'  [no book-map unit numbered 14] -> per question
   ORPHAN  X.ECO.CONSUMERRIGHTS.S15             'Government Publications'  [no book-map unit numbered 15] -> per question
 
-TOTAL KEEP 0, RELABEL 102, ORPHAN 244, DEEP 44
+TOTAL KEEP 0, RELABEL 100, ORPHAN 246, DEEP 44

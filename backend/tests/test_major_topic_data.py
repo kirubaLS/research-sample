@@ -295,3 +295,16 @@ def test_major_topic_families_dry_run_then_apply_leaves_board_papers_alone(book_
     finally:
         db.close()
     assert json.loads(undo.read_text())["entries"]
+
+
+def test_a_label_merely_inside_a_longer_heading_is_not_that_heading():
+    """'Water Resources' (the chapter's own title, at reading-order S2) must not be read as
+    section 2 'Multi-purpose River Projects and Integrated Water Resources Management'."""
+    from scripts.clean_book_map_subtopics import _same
+
+    assert not _same("Water Resources",
+                     "2 Multi-purpose River Projects and Integrated Water Resources Management")
+    assert not _same("PRODUCTION ACROSS COUNTRIES", "2 INTERLINKING PRODUCTION ACROSS COUNTRIES")
+    assert _same("Post-war Settlement and the",
+                 "4.1 Post-war Settlement and the Bretton Woods Institutions")
+    assert _same("INCOME AND OTHER GOALS", "2 INCOME AND OTHER GOALS")

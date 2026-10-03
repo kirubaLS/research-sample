@@ -313,15 +313,15 @@ The chunk table cannot say that "2.1 Rat-Hole Mining" is a box, or that "4.1 Con
 
 `backend/tests/fixtures/sst_gold/unit_test_2026_09.json`: 55 questions, with B16 as corrected (exact 2.2 or 2.3, partial 2), and the new baseline (54 exact, 0 partial, 1 wrong) and targets. A test asserts that every exact and partial section in the key is one the topic judge is actually offered for its chapter.
 
-### Tests added in Phase 2 (32, all passing)
+### Tests added in Phase 2 (33, all passing)
 
 | File | What it covers |
 |---|---|
 | `backend/tests/test_major_topics.py` | `collapse_section` per subject, boxes, flag off, the per-subject map. `capped()` and dropped secondaries. Judge answer cut before grounding. One evidence passage per major topic. 4.1 selectable with no text of its own. 2.1 never selectable. "0 Introduction". The document renders Coal, Petroleum, Natural Gas and Electricity under `## SECTION 4.1  4.1 Conventional Sources of Energy`, and Rat-Hole Mining as a box under 2. A deeper quote lands on its major topic. A box or deeper number is not an answer. Answerability over the whole major topic. Major prompts. No gold-chapter examples. Live judge prompt switch. The gold fixture fits the headings. All built from the real Minerals and Energy Resources book map. |
-| `backend/tests/test_major_topic_data.py` | Union versus last-wins. Deep and box families marked. A new placement never picks a deep family. Candidates never empty. No relabel under the flag. Both scripts: dry run writes nothing, apply refuses without a backup, apply repoints and writes an undo file, board papers untouched. |
+| `backend/tests/test_major_topic_data.py` | A short label inside a longer heading is not that heading (the Water Resources case). Union versus last-wins. Deep and box families marked. A new placement never picks a deep family. Candidates never empty. No relabel under the flag. Both scripts: dry run writes nothing, apply refuses without a backup, apply repoints and writes an undo file, board papers untouched. |
 | `backend/tests/test_question_scope.py` | No three-level section from map, place or confirm. |
 
-Full suite after Phase 2: 1180 passed, 19 skipped, and only the 12 baseline failures.
+Full suite after Phase 2: 1181 passed, 19 skipped, and only the 12 baseline failures.
 
 ### Dry runs
 
@@ -337,7 +337,7 @@ A byte comparison confirmed that neither dry run changed the database. Full outp
 
 | Script | Summary line |
 |---|---|
-| `clean_book_map_subtopics` | KEEP 0, RELABEL 102, ORPHAN 244, DEEP 44 |
+| `clean_book_map_subtopics` | KEEP 0, RELABEL 100, ORPHAN 246, DEEP 44 |
 | `propose_major_topic_families` | REUSE 260, CREATE 3 (introductions of Making of a Global World, Sectors of the Indian Economy, Money and Credit, which the book map gives no family), deep families 49, REPOINT 2, board questions left alone 0 |
 
 An `--apply` of the cleanup script on a copy of the scratch database moved the synthetic questions to `1.2 Functions`, `4.1 Conventional Sources of Energy` and `2 Mode of Occurrence of Minerals`. Re-planning afterwards gave KEEP 177, RELABEL 0, ORPHAN 0, DEEP 44, so a second run changes nothing.

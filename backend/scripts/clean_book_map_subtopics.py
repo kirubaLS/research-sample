@@ -79,8 +79,17 @@ def _words(label: str | None) -> str:
 
 
 def _same(a: str | None, b: str | None) -> bool:
+    """The same heading, or one cut short of the other ('Post-war Settlement and the' for
+    '... and the Bretton Woods Institutions'). A short label merely contained in a long
+    one -- 'Water Resources' inside 'Multi-purpose River Projects and Integrated Water
+    Resources Management' -- is not the same heading."""
     x, y = _words(a), _words(b)
-    return bool(x) and bool(y) and (x == y or x in y or y in x)
+    if not x or not y:
+        return False
+    if x == y:
+        return True
+    short, long_ = sorted((x, y), key=len)
+    return long_.startswith(short) and len(short.split()) >= 0.6 * len(long_.split())
 
 
 @dataclass
@@ -150,12 +159,20 @@ def plan_chapter(db, chapter: TaxonomyNode, cap: int) -> list[Entry]:
         number = section_number(node.code)
         if number is not None and number in majors:
             expected = majors[number]
+            named = named_target(node.label)
+            exactly = named is not None and _words(named[1]) == _words(node.label)
             if node.label == expected:
                 entries.append(Entry(node, number, "KEEP"))
+            elif exactly and named[0] != number:
+                entries.append(Entry(
+                    node, number, "ORPHAN", target=named[0],
+                    reason=f"reading-order duplicate: {node.label!r} is "
+                           f"{named[1]!r} in the book map, under {named[0]}",
+                ))
             elif _same(node.label, expected):
                 entries.append(Entry(node, number, "RELABEL", new_label=expected,
                                      reason="label drifted from the book map's"))
-            elif (named := named_target(node.label)) is not None and named[0] != number:
+            elif named is not None and named[0] != number:
                 entries.append(Entry(
                     node, number, "ORPHAN", target=named[0],
                     reason=f"reading-order duplicate: {node.label!r} is "
