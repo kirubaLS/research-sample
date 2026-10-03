@@ -185,6 +185,10 @@ def _seed_book_maps(db, school):
         (a, "C/23//", parties, "4", "X.POL.PARTIES.S4", "X.POL.CF.FUNCTIONS"),
         (a, "B/19/19.3/", minerals, "4.1.2", "X.GEO.MINERALSENERGY.S4_1_2", "X.GEO.CF.PETROLEUM"),
         (board, "B/5//", minerals, "4.1.2", "X.GEO.MINERALSENERGY.S4_1_2", "X.GEO.CF.PETROLEUM"),
+        # on a deep family, but the question's own section is a different major topic
+        (a, "B/11//", minerals, "2.2.1", "X.GEO.MINERALSENERGY.S4_1_2", "X.GEO.CF.PETROLEUM"),
+        # on a deep family, with a section that is no topic at all: the family decides
+        (a, "B/12//", minerals, "9.9", "X.GEO.MINERALSENERGY.S4_1_2", "X.GEO.CF.COAL"),
     ]:
         text = f"{tag} {addr} {paper.paper_kind}"
         q = Question(assessment_id=paper.id, address=addr, section=addr[0],
@@ -273,6 +277,8 @@ def test_major_topic_families_dry_run_then_apply_leaves_board_papers_alone(book_
     assert "REUSE   4.1   X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY" in out
     assert "deep    X.GEO.CF.PETROLEUM" in out
     assert "(board paper, untouched)" in out
+    assert "B/11//       X.GEO.CF.PETROLEUM -> X.GEO.CF.FERROUS_MINERALS (section 2.2, by question section)" in out
+    assert "B/12//       X.GEO.CF.COAL -> X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY (section 4.1, by deep family's topic)" in out
     minerals = out[out.index("X.GEO.MINERALSENERGY "):out.index("X.GEO.MANUFACTURING ")]
     offered = [line.split()[1] for line in minerals.splitlines()
                if line.strip().startswith(("REUSE", "CREATE"))]
@@ -289,6 +295,10 @@ def test_major_topic_families_dry_run_then_apply_leaves_board_papers_alone(book_
             return db.get(TaxonomyNode, db.get(Question, qid).concept_family_id).code
 
         assert family(book_maps[("school", "B/19/19.3/")]) == "X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY"
+        # the question's own collapsed section wins over the deep family's topic ...
+        assert family(book_maps[("school", "B/11//")]) == "X.GEO.CF.FERROUS_MINERALS"
+        # ... and the deep family's topic stands in only when that section has none
+        assert family(book_maps[("school", "B/12//")]) == "X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY"
         assert family(book_maps[("board", "B/5//")]) == "X.GEO.CF.PETROLEUM"
         assert db.scalar(select(TaxonomyNode).where(
             TaxonomyNode.code == "X.GEO.CF.PETROLEUM")) is not None, "deep families stay"

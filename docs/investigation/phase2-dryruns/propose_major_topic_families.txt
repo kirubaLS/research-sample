@@ -196,8 +196,8 @@ X.GEO.MINERALSENERGY  Minerals and Energy Resources  (cap 2)  REUSE 12, CREATE 0
   deep    X.GEO.CF.SOLAR_ENERGY                                            -> major topic 4.2 (kept, unused)
   deep    X.GEO.CF.TIDAL_ENERGY                                            -> major topic 4.2 (kept, unused)
   deep    X.GEO.CF.WIND_POWER                                              -> major topic 4.2 (kept, unused)
-  REPOINT question B/19/19.3/   X.GEO.CF.PETROLEUM -> X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY (section 4.1)
-  REPOINT question B/16//       X.GEO.CF.RAT_HOLE_MINING -> X.GEO.CF.MODE_OCCURRENCE_MINERALS (section 2)
+  REPOINT question B/19/19.3/   X.GEO.CF.PETROLEUM -> X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY (section 4.1, by question section)
+  REPOINT question B/16//       X.GEO.CF.RAT_HOLE_MINING -> X.GEO.CF.MODE_OCCURRENCE_MINERALS (section 2, by question section)
 
 X.GEO.MANUFACTURING  Manufacturing Industries  (cap 2)  REUSE 15, CREATE 0, deep families 2, REPOINT 0
   REUSE   0     X.GEO.CF.MANUFACTURING_INTRODUCTION                        'Introduction'

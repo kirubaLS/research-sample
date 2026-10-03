@@ -298,7 +298,7 @@ The chunk table cannot say that "2.1 Rat-Hole Mining" is a box, or that "4.1 Con
 - **Script `backend/scripts/propose_major_topic_families.py`**, dry run by default:
   - REUSE an existing family that is the major topic
   - CREATE `{subject}.CF.{slug(heading)}` only where none exists
-  - REPOINT school-paper questions on deep families
+  - REPOINT school-paper questions on deep families: each question goes to the family of its own `curriculum_section` collapsed to its major topic when that topic has a family, and to the deep family's own major topic only when it has none. The reason is printed on each REPOINT line ("by question section" or "by deep family's topic").
   - list board-paper questions as untouched
   - with `--apply`: create the families, each with one `concept_family_proposal` row claiming exactly its section; repoint; write an undo file
 - **Consumers to know about:** remediation rows, reports, the insight rules and board-paper family frequencies are all keyed by family. Repointing school-paper questions changes past reports for those questions. Board papers are never repointed.

@@ -103,8 +103,15 @@ def plan_chapter(db, chapter: TaxonomyNode, subject: str, cap: int) -> dict:
         code_of_id = {f.id: f.code for f in families}
         for q in questions:
             family_code = code_of_id[q.concept_family_id]
-            section = deep.get(family_code) or major_of(chapter.code, q.curriculum_section, cap)
-            item = (q, family_code, section, target_code.get(section))
+            # The question's own section decides first: it is what the question was
+            # placed under, collapsed to its major topic. Only when that topic has no
+            # family does the deep family's own major topic stand in.
+            own = major_of(chapter.code, q.curriculum_section, cap) if q.curriculum_section else None
+            if own is not None and own in target_code:
+                section, why = own, "question section"
+            else:
+                section, why = deep.get(family_code), "deep family's topic"
+            item = (q, family_code, section, target_code.get(section), why)
             (board if kinds.get(q.assessment_id) == "board" else repoints).append(item)
     return {"rows": rows, "deep": deep, "repoints": repoints, "board": board, "by_code": by_code}
 
@@ -133,7 +140,7 @@ def apply_chapter(db, chapter: TaxonomyNode, subject: str, plan: dict, undo: Und
         undo.inserted("taxonomy_node", node.id, {"code": code, "label": label})
         undo.inserted("concept_family_proposal", proposal.id, {"code": code, "section": section})
         done["families_created"] += 1
-    for q, _, _, target in plan["repoints"]:
+    for q, _, _, target, _ in plan["repoints"]:
         if target is None or target not in by_code:
             done["repoints_unresolved"] += 1
             continue
@@ -178,10 +185,10 @@ def main(argv: list[str] | None = None) -> int:
                     print(f"  {action:<7} {section:<5} {code:<58} {label!r}")
                 for code, section in sorted(plan["deep"].items()):
                     print(f"  deep    {code:<64} -> major topic {section or '?'} (kept, unused)")
-                for q, family_code, section, target in plan["repoints"]:
+                for q, family_code, section, target, why in plan["repoints"]:
                     print(f"  REPOINT question {q.address:<12} {family_code} -> "
-                          f"{target or 'UNRESOLVED'} (section {section or '?'})")
-                for q, family_code, _, _ in plan["board"]:
+                          f"{target or 'UNRESOLVED'} (section {section or '?'}, by {why})")
+                for q, family_code, _, _, _ in plan["board"]:
                     print(f"  skip    question {q.address:<12} {family_code} (board paper, untouched)")
                 if args.apply:
                     done = apply_chapter(db, chapter, subject, plan, undo)
