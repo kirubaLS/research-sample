@@ -332,7 +332,25 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         subject_curriculum = CURRICULA.get(a.subject_code)
         group_code = subject_curriculum.group_code if subject_curriculum else a.subject_code
         own_scope: dict[str, set[str]] = {}
-        if group_code == "X.SST":
+        if settings.sst_unified_scope:
+            # One rule for map and place: teacher scope, then the section's printed title,
+            # then the paper's syllabus lines, then inference, then the whole group. A bare
+            # section letter carries no subject meaning (app.classify.question_scope).
+            from app.classify.question_scope import paper_scope_for
+
+            paper_scope = paper_scope_for(db, a, book_subject_codes)
+            label_of_code = {n.code: n.label for n in by_label.values()}
+
+            def _labels(codes) -> set[str]:
+                return {label_of_code[c] for c in codes if c in label_of_code}
+
+            paper_level = paper_scope.paper_level()
+            scope = (_labels(paper_level.chapter_codes) or None) if paper_level.chapter_codes else None
+            for q in questions:
+                decision = paper_scope.for_section(q.section)
+                if decision.chapter_codes is not None and _labels(decision.chapter_codes):
+                    own_scope[q.id] = _labels(decision.chapter_codes)
+        elif group_code == "X.SST":
             labels_of_subject = {
                 code: {nodes[i].label for i in _chapters_in_subjects(nodes, [code])}
                 for code in book_subject_codes
@@ -396,6 +414,26 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         3 * settings.classifier_evidence_chapters,
     )
 
+    # The sst-mapping-fix switches (all off by default), handed to the pass as options so
+    # the pipeline itself never reads settings.
+    from app.classify.pipeline import PassOptions
+
+    pass_options: dict = {}
+    if (
+        settings.balanced_group_candidates or settings.cross_scope_fallback
+        or settings.skip_single_chapter_judge
+    ):
+        book_of = {
+            nodes[i].label: code
+            for code in book_subject_codes for i in _chapters_in_subjects(nodes, [code])
+        }
+        pass_options["options"] = PassOptions(
+            book_of=book_of,
+            balanced=settings.balanced_group_candidates,
+            cross_scope=settings.cross_scope_fallback,
+            skip_single_chapter=settings.skip_single_chapter_judge,
+        )
+
     try:
         result = place_paper(
             stems, indexes, judge,
@@ -410,6 +448,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             scope=scope,
             on_progress=lambda done, total: _report_placement_progress(job_id, done, total),
             scope_of=own_scope.get,
+            **pass_options,
         )
     except Exception as exc:  # noqa: BLE001 -- see docstring: this must never escape
         _finish_placement_job(
@@ -443,6 +482,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
     def pick_topic(placed):
         chapter_node = by_label.get(placed.chapter)
+        # the chapter judge was skipped, so nothing else names the tier: the topic
+        # judge's answer read does (skip_single_chapter_judge)
+        tiered = {"want_tier": True} if getattr(placed, "chapter_judge_skipped", False) else {}
         return choose_topic(
             stem_by_id.get(placed.question_id, ""), chapter_node.id, chapter_node.label,
             retrieval_chunks, headings_of.get(chapter_node.id, {}), topic_judge,
@@ -451,6 +493,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             evidence_passages=settings.classifier_evidence_passages,
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
+            **tiered,
         )
 
     to_pick = [
@@ -477,6 +520,55 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         )
         return
 
+    # A question confined to one chapter skipped the chapter judge. If the topic judge
+    # then found that no section of that chapter can answer it, the chapter judge reads
+    # it once over the whole subject group (cross_scope_fallback); a different chapter
+    # there is a cross-scope placement, flagged, and its topic is decided afresh.
+    if settings.cross_scope_fallback:
+        import dataclasses
+
+        from app.classify.pipeline import reclassify_without_scope
+
+        replaced = []
+        for placed in result.questions:
+            pick = topic_picks.get(placed.question_id)
+            if not (getattr(placed, "chapter_judge_skipped", False)
+                    and pick is not None and pick.verified is False):
+                replaced.append(placed)
+                continue
+            try:
+                wide = reclassify_without_scope(
+                    placed.question_id, stem_by_id.get(placed.question_id, ""),
+                    placed.marks, indexes, judge,
+                    chapter_of=lambda nid: nodes[nid].label if nid in nodes else None,
+                    unit_of=lambda label: unit_by_chapter.get(label),
+                    section_of=lambda ref: None,
+                    evidence_passages=settings.classifier_evidence_passages,
+                    evidence_chapters=evidence_chapters,
+                    passage_chars=settings.classifier_passage_chars,
+                )
+            except Exception:  # noqa: BLE001 -- the in-scope placement stands
+                wide = None
+            if (wide is None or wide.chapter is None or wide.chapter == placed.chapter
+                    or by_label.get(wide.chapter) is None):
+                replaced.append(placed)
+                continue
+            moved = dataclasses.replace(
+                wide, cross_scope=True, needs_review=True,
+                reasoning=(
+                    f"no section of {placed.chapter}, the one chapter the paper declares "
+                    "for this question, can answer it; read over the whole subject group "
+                    "it belongs elsewhere, which needs a person to confirm. "
+                    + wide.reasoning
+                ),
+            )
+            try:
+                topic_picks[placed.question_id] = pick_topic(moved)
+            except Exception:  # noqa: BLE001 -- the chapter judge's own section stands
+                topic_picks.pop(placed.question_id, None)
+            replaced.append(moved)
+        result.questions = replaced
+
     db = SessionLocal()
     try:
         settled, unsettled, refused = 0, 0, []
@@ -498,6 +590,10 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 import dataclasses
 
                 placed = dataclasses.replace(placed, curriculum_section=pick.section)
+            if getattr(placed, "chapter_judge_skipped", False) and pick is not None:
+                import dataclasses
+
+                placed = dataclasses.replace(placed, tier=getattr(pick, "tier", None))
             if question is not None and placed.judge_failed:
                 # The judge could not be asked for this one question. That is not a
                 # finding about the question, so what the map step decided -- chapter,
@@ -629,9 +725,16 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 tier=placed.tier,
                 skill_required=placed.skill_required,
                 confidence=placed.confidence,
-                source="blueprint" if placed.overruled else "model",
+                source=(
+                    "blueprint" if placed.overruled
+                    else "scope" if getattr(placed, "chapter_judge_skipped", False)
+                    else "model"
+                ),
+                cross_scope=True if getattr(placed, "cross_scope", False) else None,
+                review_reason="cross_scope" if getattr(placed, "cross_scope", False) else None,
                 needs_review=(
                     placed.needs_review
+                    or getattr(placed, "cross_scope", False)
                     or (pick is not None and pick.section is not None and not pick.agreed)
                     or choice.unsettled is not None
                     or choice.blocked is not None

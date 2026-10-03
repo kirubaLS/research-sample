@@ -127,6 +127,28 @@ class Settings(BaseSettings):
     #: loop (and in the test suite, which exercises each step on its own).
     auto_pipeline: bool = True
 
+    # --- Social Science mapping (branch sst-mapping-fix); every flag OFF by default ------
+    #: The vision reader also copies each section header's printed title and any printed
+    #: syllabus lines, and both routes store them in assessment.declared as
+    #: "section_titles" and "syllabus_lines". Off: the reader's prompt and output format
+    #: are exactly as before and nothing new is stored. YAADHUM_PAPER_CAPTURE_STRUCTURE.
+    paper_capture_structure: bool = False
+    #: One scope function for map and place (app.classify.question_scope): teacher scope,
+    #: then the chapters a section title names, then the syllabus lines, then inferred
+    #: scope, then the whole subject group. A bare section letter carries no subject
+    #: meaning. Off: the fixed A/B/C/D -> History/Geography/Politics/Economics convention.
+    sst_unified_scope: bool = False
+    #: When a question's scope spans several books, the chapter judge always sees the best
+    #: retrieval candidate from each book, not only the global top chapters.
+    balanced_group_candidates: bool = False
+    #: When the chapter judge says no in-scope chapter can answer a question, one more
+    #: pass over the whole subject group may place it outside the declared scope; the
+    #: placement is marked cross_scope and flagged for review.
+    cross_scope_fallback: bool = False
+    #: A question whose scope is exactly one chapter skips the chapter judge and goes
+    #: straight to the topic judge, which then also returns the tier.
+    skip_single_chapter_judge: bool = False
+
     # --- what the classifier is shown, which is what it costs ---------------------------
     #: How many book passages go into one classification, and how many chapters they are
     #: drawn from. Both are the price of the call and the quality of the answer at once:

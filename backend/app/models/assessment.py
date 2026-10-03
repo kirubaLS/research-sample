@@ -351,6 +351,16 @@ class QuestionPlacement(Base, PkMixin, TimestampMixin):
     evidence: Mapped[list | None] = mapped_column(JSON, nullable=True)
     #: the chapters that were on the table, so a reviewer sees the real alternatives
     candidates: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    #: the section the topic judge actually named, before it was cut to the depth a
+    #: subject's report uses (topic_max_depth): "4.1.2" when curriculum_section is "4.1".
+    #: Null when nothing was cut, and on every row written before this column existed.
+    curriculum_section_fine: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: why this row needs a person, as a short code ('cross_scope', 'judge_failed', ...);
+    #: null when it does not, or when written before this column existed
+    review_reason: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: True when the question was placed in a chapter outside the scope the paper (or the
+    #: teacher) declared for it -- never silent, always also needs_review
+    cross_scope: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
 
 
 class QuestionJudgment(Base, PkMixin, TimestampMixin):

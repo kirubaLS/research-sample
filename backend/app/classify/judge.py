@@ -60,6 +60,37 @@ class Classification(BaseModel):
     alternative_chapter: str | None = None
 
 
+class ScopedClassification(Classification):
+    """``Classification`` plus one signal, asked for only when the question was confined
+    to a declared scope and ``cross_scope_fallback`` is on: none of the candidate chapters
+    can answer the question at all. A placement may then leave the declared scope -- in a
+    second pass, flagged, never silently."""
+
+    no_in_scope_chapter: bool = Field(
+        default=False,
+        description="true only if NONE of the candidate chapters can answer this question "
+        "-- not a weak fit, no fit at all; false otherwise",
+    )
+
+
+#: Appended to SYSTEM for a ScopedClassification call.
+SCOPE_NOTE = """
+
+The candidate chapters are the ones this paper says it covers for this question. If none
+of them can answer the question at all -- not a weak fit, no fit -- set
+no_in_scope_chapter to true, still pick the closest candidate, and give a confidence below
+0.3. Otherwise leave it false."""
+
+
+#: CBSE's three competency tiers, explained the same way to every judge that names one.
+TIER_GUIDE = """For the competency tier, use CBSE's own three:
+- "Remembering & Understanding" -- recall a fact, state a definition, apply a formula the
+  way it was taught
+- "Applying" -- use a taught method in a situation that needs setting up first
+- "Analysing, Evaluating & Creating" -- compare, justify, prove something not proved in the
+  book, or work backwards from a result"""
+
+
 @dataclass(frozen=True)
 class Evidence:
     chapter: str

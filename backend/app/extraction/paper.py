@@ -85,6 +85,25 @@ DECLARED_SECTION = re.compile(
     re.IGNORECASE,
 )
 DECLARED_COUNT = re.compile(r"contains?\s+(\d{1,3})\s+questions?", re.IGNORECASE)
+#: The same heading as SECTION, keeping what is printed after the letter:
+#: 'SECTION B (Geography : Minerals and Energy Resources)', 'Section A - MCQs'. SECTION
+#: itself is unchanged; this is read only to record the title verbatim.
+SECTION_TITLED = re.compile(
+    r"^\s*SECTION\s*[-–—·]?\s*([A-Z])\b\s*[:\-–—·]?\s*(.*)$", re.IGNORECASE
+)
+#: A line that says what the paper covers: 'Syllabus: History Ch 1-2', 'Portion: ...',
+#: 'Chapters covered: ...', or the Hindi 'पाठ्यक्रम'.
+SYLLABUS = re.compile(
+    r"(\bsyllabus\b|\bportions?\b|\bchapters?\s+(?:covered|included)\b|"
+    r"\btopics?\s+covered\b|पाठ्यक्रम)",
+    re.IGNORECASE,
+)
+#: An entry under a bare 'Syllabus:' line: names a subject, a chapter or a unit.
+SYLLABUS_ENTRY = re.compile(
+    r"\b(history|geography|political\s+science|civics|democratic\s+politics|economics|"
+    r"ch(?:apter)?s?\.?\s*\d|unit\s*\d|lesson\s*\d)",
+    re.IGNORECASE,
+)
 
 #: A scanned page yields at most a header and a stamped page number. Below this per page,
 #: with images present, the document is a picture of a paper rather than a paper.
@@ -178,6 +197,11 @@ class PaperExtract:
     declared_sections: dict[str, float] = field(default_factory=dict)
     declared_count: int | None = None
     problems: list[str] = field(default_factory=list)
+    #: {"B": "Geography : Minerals and Energy Resources"} -- header text after the letter,
+    #: verbatim; a heading that prints nothing after its letter is left out
+    section_titles: dict[str, str] = field(default_factory=dict)
+    #: printed lines saying what the paper covers, verbatim
+    syllabus_lines: list[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
@@ -470,6 +494,60 @@ def _declared(lines: list[Line]) -> tuple[dict[str, float], int | None, float | 
     )
 
 
+_INSTRUCTION_NOT_TITLE = re.compile(
+    r"(comprises|consists|contains|carries|has|have|is|are|of|will|should|must)\b",
+    re.IGNORECASE,
+)
+
+
+def _clean_title(text: str) -> str:
+    """'(Geography : Minerals and Energy Resources)' -> the words inside, whitespace
+    collapsed. Nothing else is changed: the title is stored as printed."""
+    text = " ".join(text.split()).strip(" :-–—·")
+    if text.startswith("(") and text.endswith(")"):
+        text = text[1:-1].strip()
+    return text
+
+
+def _structure(lines: list[Line]) -> tuple[dict[str, str], list[str]]:
+    """Section titles and syllabus lines, copied as printed and never inferred."""
+    titles: dict[str, str] = {}
+    texts = [line.text.strip() for line in lines]
+    for i, text in enumerate(texts):
+        heading = SECTION_TITLED.match(text)
+        if not heading:
+            continue
+        letter, rest = heading.group(1).upper(), _clean_title(heading.group(2))
+        if _INSTRUCTION_NOT_TITLE.match(rest):
+            # 'Section A comprises 20 questions ...' is an instruction about the section,
+            # not its printed title
+            continue
+        if not rest and i + 1 < len(texts):
+            # A title printed on the line under the heading, in brackets
+            following = texts[i + 1]
+            if following.startswith("(") and following.endswith(")") and len(following) <= 160:
+                rest = _clean_title(following)
+        if rest and letter not in titles:
+            titles[letter] = rest
+
+    syllabus: list[str] = []
+    head = texts[:220]
+    for i, text in enumerate(head):
+        if not SYLLABUS.search(text):
+            continue
+        if text not in syllabus:
+            syllabus.append(text)
+        # a bare label ('Syllabus:') introduces the list on the lines under it
+        label_only = len(SYLLABUS.sub("", text).strip(" :-–—")) < 3
+        if label_only:
+            for following in head[i + 1:i + 7]:
+                if SECTION.match(following) or not SYLLABUS_ENTRY.search(following):
+                    break
+                if following not in syllabus:
+                    syllabus.append(following)
+    return titles, syllabus
+
+
 def extract_paper(path: str | Path, *, subject_code: str | None = None) -> PaperExtract:
     """Read a question paper. The result is checkable, never merely plausible.
 
@@ -498,10 +576,12 @@ def extract_paper(path: str | Path, *, subject_code: str | None = None) -> Paper
 
     lines = _drop_furniture(lines, pages)
     declared_sections, declared_count, declared_total = _declared(lines)
+    section_titles, syllabus_lines = _structure(lines)
     out = PaperExtract(
         route="text", page_count=pages,
         declared_sections=declared_sections, declared_count=declared_count,
         declared_total=declared_total,
+        section_titles=section_titles, syllabus_lines=syllabus_lines,
     )
 
     section: str | None = None

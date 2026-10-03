@@ -28,7 +28,7 @@ from app.classify.reconcile import (
     reconcile,
 )
 from app.classify.scope import InferredScope, Vote, infer_scope
-from app.ingest.probe import full_chapter_evidence, locate, retrieval_query_text
+from app.ingest.probe import full_chapter_evidence, locate, retrieval_query_text, search_all
 
 #: how deep retrieval searches before the chapters are voted on. Not the number of
 #: passages the reader is shown -- that is a setting, because it is the price of the call.
@@ -98,6 +98,12 @@ class PlacedQuestion:
     #: True when the judge could not be asked at all (an API refusal, a rate limit, a
     #: reply the SDK rejected). Not a judgment: the question's earlier placement stands.
     judge_failed: bool = False
+    #: placed in a chapter outside the scope declared for it (cross_scope_fallback, or
+    #: nothing in scope retrieved at all) -- always also needs_review
+    cross_scope: bool = False
+    #: the scope named exactly one chapter, so the chapter judge was not asked
+    #: (skip_single_chapter_judge); the tier then comes from the topic judge
+    chapter_judge_skipped: bool = False
 
 
 @dataclass
@@ -116,6 +122,32 @@ class PaperPlacement:
         return sum(1 for q in self.questions if not q.needs_review)
 
 
+@dataclass(frozen=True)
+class PassOptions:
+    """Behaviour switches for one classification pass. All off reproduces the original
+    pass exactly. Settings decide them (app.api.placement); this module never reads
+    settings, so it stays testable without them."""
+
+    #: chapter label -> the book (subject code) it belongs to. With ``balanced`` on and a
+    #: question whose scope spans several books, the judge is shown each book's best
+    #: retrieval candidate, not only the global top chapters (balanced_group_candidates).
+    book_of: dict[str, str] | None = None
+    balanced: bool = False
+    #: ask the judge whether no in-scope chapter can answer, and if so re-ask over the
+    #: whole group; such a placement is cross_scope (cross_scope_fallback)
+    cross_scope: bool = False
+    #: a question whose declared scope is exactly one chapter is not sent to the chapter
+    #: judge (skip_single_chapter_judge)
+    skip_single_chapter: bool = False
+    #: the paper-wide ``scope`` passed to the pass was declared (teacher, syllabus), not
+    #: inferred -- only a declared single-chapter scope may skip the judge
+    scope_declared: bool = False
+
+
+#: passages each other book contributes when candidates are balanced across books
+BALANCED_PASSAGES_PER_BOOK = 2
+
+
 def _pass(
     questions: list[tuple[str, str, float]],
     indexes: list,
@@ -129,9 +161,11 @@ def _pass(
     passage_chars: int = DEFAULT_PASSAGE_CHARS,
     on_progress: Callable[[int, int], None] | None = None,
     scope_of: Callable[[str], set[str] | None] | None = None,
-) -> tuple[list[QuestionSlot], dict[str, Classification], set[str]]:
+    options: PassOptions | None = None,
+) -> tuple[list[QuestionSlot], dict[str, Classification], set[str], set[str], set[str]]:
     """One classification pass over every question. Returns the slots, the judgments,
-    and the ids of the questions the judge could not be asked about at all.
+    the ids of the questions the judge could not be asked about at all, the ids placed
+    outside their declared scope, and the ids whose chapter judge was skipped.
 
     ``scope_of(question_id)``, when given, narrows one question to its own set of chapter
     names -- a Social Science paper's Section B is Geography by board convention, so a
@@ -140,34 +174,30 @@ def _pass(
     the question's own scope wins outright when the two do not overlap, because it is
     the more certain fact of the two.
     """
+    options = options or PassOptions()
     slots: list[QuestionSlot] = []
     judged: dict[str, Classification] = {}
     failed: set[str] = set()
+    crossed: set[str] = set()
+    skipped: set[str] = set()
     pool = _full_pool(indexes)
     total = len(questions)
     prepared: list[tuple] = []
+    every_label = set(options.book_of or {})
+    #: questions whose scope was DECLARED (their own section title, or a declared
+    #: paper-wide scope) -- only these can be placed cross-scope; an inferred scope is a
+    #: guess about the paper, and leaving it is not leaving a declaration
+    declared: set[str] = set()
 
-    # Phase 1: retrieval and evidence for every question, no model call yet.
-    for done, (question_id, stem, marks) in enumerate(questions, start=1):
-        own_scope = scope_of(question_id) if scope_of is not None else None
-        q_scope = scope
-        if own_scope:
-            q_scope = (scope & own_scope or own_scope) if scope is not None else own_scope
-        # Retrieval only -- the judge below still reads the real, untouched stem.
-        query = retrieval_query_text(stem)
-        verdict = locate(
-            query, indexes, depth=EVIDENCE_DEPTH, scope=q_scope, chapter_of=chapter_of,
-            evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
-        )
-        # Retrieval applies the scope itself, so a question with nothing in scope comes
-        # back empty. Retry without it rather than lose the question: one missing from the
-        # report is worse than one visibly in the wrong place.
-        out_of_scope = q_scope is not None and not verdict.evidence
-        if out_of_scope:
-            verdict = locate(
-                query, indexes, depth=EVIDENCE_DEPTH,
-                evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
-            )
+    def books_in(labels: set[str] | None) -> dict[str, set[str]]:
+        """book -> its chapter labels, within ``labels`` (all of them when None)."""
+        out: dict[str, set[str]] = {}
+        for label, book in (options.book_of or {}).items():
+            if labels is None or label in labels:
+                out.setdefault(book, set()).add(label)
+        return out
+
+    def build_evidence(verdict, query: str, extra: list | None = None) -> list[Evidence]:
         # The structural fix: once a chapter is identified for this question, the judge
         # is shown one representative passage from EVERY real section of that chapter --
         # not locate()'s scored top-K, which is a guess at what is worth showing and can
@@ -190,8 +220,12 @@ def _pass(
         # untouched, this is section-level disambiguation within it.
         rival_evidence = [c for c in verdict.evidence if c.node_id != verdict.node_id]
         candidates = own_evidence + rival_evidence
+        shown_chapters = {c.node_id for c in candidates}
+        for c in extra or []:
+            if c.node_id not in shown_chapters or c.chunk_id not in {x.chunk_id for x in candidates}:
+                candidates.append(c)
         budget = _adaptive_passage_chars(passage_chars, len(candidates))
-        evidence = [
+        return [
             Evidence(
                 chapter=chapter_of(c.node_id) or "?",
                 reference=c.reference,
@@ -200,11 +234,99 @@ def _pass(
             )
             for c in candidates
         ]
+
+    def retrieve(query: str, q_scope: set[str] | None):
+        """(verdict, evidence, out_of_scope) for one question."""
+        books = books_in(q_scope) if options.balanced else {}
+        ranked = None
+        if len(books) > 1:
+            # one search serves the scoped verdict and every per-book verdict below
+            ranked = search_all(query, indexes, EVIDENCE_DEPTH * 3 * len(books))
+        verdict = locate(
+            query, indexes, depth=EVIDENCE_DEPTH, scope=q_scope, chapter_of=chapter_of,
+            evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
+            ranked=ranked,
+        )
+        # Retrieval applies the scope itself, so a question with nothing in scope comes
+        # back empty. Retry without it rather than lose the question: one missing from the
+        # report is worse than one visibly in the wrong place.
+        out_of_scope = q_scope is not None and not verdict.evidence
+        if out_of_scope:
+            verdict = locate(
+                query, indexes, depth=EVIDENCE_DEPTH,
+                evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
+                ranked=ranked,
+            )
+        extra: list = []
+        if len(books) > 1 and not out_of_scope:
+            # Balanced: every book in scope puts its own best chapter in front of the
+            # judge, so a weak lexical match in one book is never crowded out by three
+            # strong ones from another.
+            for _book, labels in sorted(books.items()):
+                best = locate(
+                    query, indexes, depth=EVIDENCE_DEPTH, scope=labels,
+                    chapter_of=chapter_of, evidence_passages=BALANCED_PASSAGES_PER_BOOK,
+                    evidence_chapters=1, ranked=ranked,
+                )
+                extra.extend(best.evidence[:BALANCED_PASSAGES_PER_BOOK])
+        return verdict, build_evidence(verdict, query, extra), out_of_scope
+
+    # Phase 1: retrieval and evidence for every question, no model call yet.
+    for done, (question_id, stem, marks) in enumerate(questions, start=1):
+        own_scope = scope_of(question_id) if scope_of is not None else None
+        q_scope = scope
+        if own_scope:
+            q_scope = (scope & own_scope or own_scope) if scope is not None else own_scope
+        if own_scope or (options.scope_declared and scope):
+            declared.add(question_id)
+
+        if options.skip_single_chapter:
+            single = None
+            if own_scope and len(own_scope) == 1:
+                single = next(iter(own_scope))
+            elif not own_scope and options.scope_declared and scope and len(scope) == 1:
+                single = next(iter(scope))
+            if single is not None and (not every_label or single in every_label or unit_of(single)):
+                # The paper names exactly one chapter for this question: nothing for the
+                # chapter judge to decide. The topic judge reads it next, and names the
+                # tier (see app.api.placement).
+                judged[question_id] = Classification(
+                    chapter=single, curriculum_section=None, tier=None, skill_required="",
+                    reasoning=(
+                        f"the paper's declared scope for this question is one chapter, "
+                        f"{single}, so the chapter judge was not asked"
+                    ),
+                    evidence=[], confidence=1.0, alternative_chapter=None,
+                )
+                skipped.add(question_id)
+                slots.append(QuestionSlot(question_id, marks, [
+                    Option(single, unit_of(single) or "?", 1.0),
+                ]))
+                if on_progress is not None:
+                    on_progress(done, total)
+                continue
+
+        # Retrieval only -- the judge below still reads the real, untouched stem.
+        query = retrieval_query_text(stem)
+        verdict, evidence, out_of_scope = retrieve(query, q_scope)
         if not evidence:
             if on_progress is not None:
                 on_progress(done, total)
             continue
         prepared.append((done, question_id, stem, marks, evidence, verdict, q_scope, out_of_scope))
+
+    def scoped_call(item) -> bool:
+        """Ask for ScopedClassification: a question confined to a declared scope whose
+        retrieval did find something in it."""
+        return (
+            options.cross_scope and item[1] in declared and item[6] is not None
+            and not item[7]
+        )
+
+    def classify(item):
+        if scoped_call(item):
+            return judge.classify(item[2], item[4], scoped=True)
+        return judge.classify(item[2], item[4])
 
     # Phase 2: the judge. A batched judge (see app.llm_batch) is asked every question at
     # once, from one thread each, so the whole paper becomes one batch; a live judge is
@@ -216,7 +338,7 @@ def _pass(
 
         def ask(item):
             try:
-                return judge.classify(item[2], item[4])
+                return classify(item)
             except Exception as exc:  # noqa: BLE001
                 return exc
 
@@ -224,11 +346,12 @@ def _pass(
             for item, outcome in zip(prepared, pool_.map(ask, prepared), strict=True):
                 calls[item[1]] = outcome
 
-    for done, question_id, stem, marks, evidence, verdict, q_scope, out_of_scope in prepared:
+    for item in prepared:
+        done, question_id, stem, marks, evidence, verdict, q_scope, out_of_scope = item
         try:
             call = calls.get(question_id)
             if call is None:
-                call = judge.classify(stem, evidence)
+                call = classify(item)
             elif isinstance(call, Exception):
                 raise call
         except Exception as exc:  # noqa: BLE001 -- one bad question must not sink the paper
@@ -258,6 +381,37 @@ def _pass(
                 on_progress(done, total)
             continue
 
+        crossing = options.cross_scope and out_of_scope and question_id in declared
+        if scoped_call(item) and getattr(call, "no_in_scope_chapter", False):
+            # The judge says no chapter in the declared scope can answer this question.
+            # One more read over the whole group (the indexes hold only this paper's own
+            # subject group) -- and if it lands outside the scope, the placement says so.
+            query = retrieval_query_text(stem)
+            wide = locate(
+                query, indexes, depth=EVIDENCE_DEPTH,
+                evidence_passages=evidence_passages, evidence_chapters=evidence_chapters,
+            )
+            wide_evidence = build_evidence(wide, query)
+            try:
+                second = judge.classify(stem, wide_evidence) if wide_evidence else None
+            except Exception:  # noqa: BLE001 -- the in-scope answer stands, flagged
+                second = None
+            if second is not None and second.chapter is not None and second.chapter not in q_scope:
+                call = second.model_copy(update={
+                    "reasoning": (
+                        "no chapter in the declared scope can answer this question, so it "
+                        "was placed outside it and needs a person to confirm. "
+                        + second.reasoning
+                    )[:600],
+                })
+                verdict, crossing = wide, True
+                q_scope = None
+            elif second is not None:
+                call = second if second.chapter in (q_scope or set()) else call
+
+        if crossing:
+            crossed.add(question_id)
+
         # a question whose evidence all fell outside the scope cannot be trusted to the
         # confidence the judge gave it, whatever that was
         confidence = 0.0 if out_of_scope else call.confidence
@@ -279,9 +433,9 @@ def _pass(
             # runners-up as fallbacks would let reconcile()'s marks arithmetic swap it into
             # a chapter it does not belong to -- exactly the force-fit this whole design
             # exists to prevent, just moved from the judge to the solver.
-            options = [Option(None, None, confidence)]
+            options_ = [Option(None, None, confidence)]
         else:
-            options = [Option(call.chapter, unit_of(call.chapter) or "?", confidence)]
+            options_ = [Option(call.chapter, unit_of(call.chapter) or "?", confidence)]
             seen = {call.chapter}
             for node, _ in verdict.runners_up:
                 name = chapter_of(node)
@@ -289,12 +443,12 @@ def _pass(
                     continue
                 if name and name not in seen:
                     seen.add(name)
-                    options.append(
+                    options_.append(
                         Option(name, unit_of(name) or "?", max(0.05, call.confidence * 0.4))
                     )
             if call.alternative_chapter and call.alternative_chapter not in seen:
                 if q_scope is None or out_of_scope or call.alternative_chapter in q_scope:
-                    options.append(
+                    options_.append(
                         Option(
                             call.alternative_chapter,
                             unit_of(call.alternative_chapter) or "?",
@@ -302,11 +456,11 @@ def _pass(
                         )
                     )
 
-        slots.append(QuestionSlot(question_id, marks, options))
+        slots.append(QuestionSlot(question_id, marks, options_))
         if on_progress is not None:
             on_progress(done, total)
 
-    return slots, judged, failed
+    return slots, judged, failed, crossed, skipped
 
 
 def place_paper(
@@ -325,6 +479,7 @@ def place_paper(
     passage_chars: int = DEFAULT_PASSAGE_CHARS,
     on_progress: Callable[[int, int], None] | None = None,
     scope_of: Callable[[str], set[str] | None] | None = None,
+    options: PassOptions | None = None,
 ) -> PaperPlacement:
     """Place every question in a paper.
 
@@ -348,9 +503,14 @@ def place_paper(
     inferred: InferredScope | None = None
     scope_source = "declared" if scope is not None else "none"
 
-    slots, judged, failed = _pass(
+    import dataclasses
+
+    options = options or PassOptions()
+    first_options = dataclasses.replace(options, scope_declared=scope is not None)
+    slots, judged, failed, crossed, skipped = _pass(
         questions, indexes, judge, chapter_of, unit_of, section_of, scope,
         evidence_passages, evidence_chapters, passage_chars, on_progress, scope_of,
+        first_options,
     )
 
     if scope is None and infer_scope_when_undeclared and slots:
@@ -372,10 +532,13 @@ def place_paper(
         # deleted question is worse than a misplaced one -- it vanishes from the report
         # instead of being wrong in it.
         if inferred.confident:
-            slots, judged, failed = _pass(
+            slots, judged, failed, crossed, skipped = _pass(
                 questions, indexes, judge, chapter_of, unit_of, section_of,
                 inferred.chapters, evidence_passages, evidence_chapters, passage_chars,
                 on_progress, scope_of,
+                # an inferred scope is not a declaration: only a question's own declared
+                # scope may skip the judge or make a placement cross-scope
+                dataclasses.replace(options, scope_declared=False),
             )
             scope_source = "inferred"
 
@@ -397,6 +560,8 @@ def place_paper(
             overruled=slot.question_id in result.overruled,
             needs_review=slot.question_id in flagged,
             judge_failed=slot.question_id in failed,
+            cross_scope=slot.question_id in crossed,
+            chapter_judge_skipped=slot.question_id in skipped,
         )
         for slot in slots
     ]
@@ -409,4 +574,40 @@ def place_paper(
         reviewed_count=len(flagged),
         scope=inferred,
         scope_source=scope_source,
+    )
+
+
+def reclassify_without_scope(
+    question_id: str,
+    stem: str,
+    marks: float,
+    indexes: list,
+    judge,
+    *,
+    chapter_of,
+    unit_of,
+    section_of,
+    evidence_passages: int = EVIDENCE_DEPTH,
+    evidence_chapters: int = 1,
+    passage_chars: int = DEFAULT_PASSAGE_CHARS,
+) -> PlacedQuestion | None:
+    """One question read by the chapter judge over every chapter ``indexes`` hold (the
+    paper's own subject group), with no declared scope. Used when a question was confined
+    to a single chapter, its chapter judge skipped, and the topic judge then found that no
+    section of that chapter can answer it (cross_scope_fallback). None when nothing was
+    retrieved or the judge could not be asked."""
+    slots, judged, failed, _, _ = _pass(
+        [(question_id, stem, marks)], indexes, judge, chapter_of, unit_of, section_of,
+        None, evidence_passages, evidence_chapters, passage_chars,
+    )
+    if not slots or question_id in failed:
+        return None
+    call = judged[question_id]
+    option = slots[0].options[0]
+    return PlacedQuestion(
+        question_id=question_id, marks=marks, chapter=call.chapter,
+        board_unit=option.board_unit if call.chapter is not None else None,
+        curriculum_section=call.curriculum_section, tier=call.tier,
+        skill_required=call.skill_required, confidence=call.confidence,
+        reasoning=call.reasoning, evidence=list(call.evidence),
     )

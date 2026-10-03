@@ -41,6 +41,13 @@ class PaperVisionReading:
     declared_sections: dict[str, float] = field(default_factory=dict)
     declared_count: int | None = None
     declared_total: float | None = None
+    #: {"B": "Geography : Minerals and Energy Resources"} -- the words printed in a section
+    #: header after its letter, verbatim. Read only when the reader was built with
+    #: ``capture_structure`` (setting ``paper_capture_structure``); empty otherwise.
+    section_titles: dict[str, str] = field(default_factory=dict)
+    #: any printed list of what the paper covers -- a cover line, an instruction, a
+    #: "Syllabus:" block -- one printed line per entry, verbatim. Same gate as above.
+    syllabus_lines: list[str] = field(default_factory=list)
 
 
 class _QuestionOut(BaseModel):
@@ -72,6 +79,24 @@ class _DeclaredOut(BaseModel):
 class _PaperOut(BaseModel):
     questions: list[_QuestionOut] = []
     declared: _DeclaredOut = _DeclaredOut()
+
+
+class _DeclaredStructureOut(_DeclaredOut):
+    """``_DeclaredOut`` plus what a paper prints about its own structure. Every new field
+    has a default, so a reply in the older shape still parses."""
+
+    #: {"B": "Geography : Minerals and Energy Resources"} -- the header text after the
+    #: section letter, exactly as printed; a section with no printed title is left out
+    section_titles: dict[str, str] = {}
+    #: each printed line saying what the paper covers, exactly as printed
+    syllabus_lines: list[str] = []
+
+
+class _PaperStructureOut(BaseModel):
+    """The output format when ``capture_structure`` is on."""
+
+    questions: list[_QuestionOut] = []
+    declared: _DeclaredStructureOut = _DeclaredStructureOut()
 
 
 SYSTEM = (
@@ -159,6 +184,27 @@ SYSTEM = (
     "questions you extracted; it must be a number the paper itself prints."
 )
 
+#: Appended to SYSTEM only when the reader is built with ``capture_structure`` (setting
+#: ``paper_capture_structure``). Copy, never infer: a title or a syllabus line that was
+#: not printed must stay blank, because what is stored here narrows which chapters a
+#: question can be placed in.
+STRUCTURE_RULES = (
+    "\n\n"
+    "Also record, under declared, two things the paper prints about its own structure. "
+    "First, section_titles: for every section header you can see, the words printed in "
+    "that header after the section letter, copied exactly as printed -- for example a "
+    "header 'SECTION B (Geography : Minerals and Energy Resources)' gives "
+    "{\"B\": \"Geography : Minerals and Energy Resources\"}, and a header 'SECTION A -- "
+    "Multiple Choice Questions' gives {\"A\": \"Multiple Choice Questions\"}. If the "
+    "header prints the title in two languages, copy both exactly as printed. If the "
+    "header prints nothing after the letter, leave that section out. Second, "
+    "syllabus_lines: every line the cover, the instructions or a 'Syllabus' / 'Portion' "
+    "block prints listing the subjects, chapters or units the paper covers, one printed "
+    "line per entry, copied exactly as printed. Leave syllabus_lines empty if the paper "
+    "prints no such list. Never infer a title or a syllabus line from the questions, "
+    "never complete a partial one, and never translate one: copy only what is printed."
+)
+
 
 #: Shown before the previous page's image, when one is included -- see _read_page and
 #: the comment on read() explaining why a one-page overlap replaced patching individual
@@ -201,6 +247,7 @@ class AnthropicPaperVisionReader:
 
     def __init__(
         self, api_key: str, model: str = "claude-opus-5", *, page_concurrency: int = 4,
+        capture_structure: bool = False,
     ) -> None:
         if not api_key:
             raise ValueError(
@@ -213,6 +260,8 @@ class AnthropicPaperVisionReader:
         self.client = anthropic.Anthropic(api_key=api_key)
         self.model = model
         self.page_concurrency = max(1, page_concurrency)
+        #: also read section titles and syllabus lines (STRUCTURE_RULES)
+        self.capture_structure = capture_structure
 
     def _read_page(
         self,
@@ -250,12 +299,13 @@ class AnthropicPaperVisionReader:
         })
         content.append({"type": "text", "text": prompt})
         try:
+            structure = getattr(self, "capture_structure", False)
             response = self.client.messages.parse(
                 model=self.model,
                 max_tokens=16000,
-                system=SYSTEM,
+                system=SYSTEM + STRUCTURE_RULES if structure else SYSTEM,
                 messages=[{"role": "user", "content": content}],
-                output_format=_PaperOut,
+                output_format=_PaperStructureOut if structure else _PaperOut,
             )
         except anthropic.APIStatusError as exc:
             # Caught here, by name, rather than left to _run_paper_scan_job's own
@@ -379,6 +429,12 @@ class AnthropicPaperVisionReader:
                 out.declared_count = parsed.declared.question_count
             if out.declared_total is None:
                 out.declared_total = parsed.declared.total_marks
+            for key, title in (getattr(parsed.declared, "section_titles", None) or {}).items():
+                if key.strip() and (title or "").strip():
+                    out.section_titles.setdefault(key.strip().upper(), title.strip())
+            for line in getattr(parsed.declared, "syllabus_lines", None) or []:
+                if (line or "").strip() and line.strip() not in out.syllabus_lines:
+                    out.syllabus_lines.append(line.strip())
 
             for q in parsed.questions:
                 number = q.question_no.strip()
@@ -479,6 +535,7 @@ def read_paper_vision(
     model: str = "claude-opus-5",
     page_concurrency: int = 4,
     on_progress: Callable[[int, int], None] | None = None,
+    capture_structure: bool = False,
 ) -> PaperVisionReading:
     """Dispatch to the vision reader, or refuse by name when there is none configured.
 
@@ -495,5 +552,5 @@ def read_paper_vision(
         )
         return out
     return AnthropicPaperVisionReader(
-        api_key, model, page_concurrency=page_concurrency
+        api_key, model, page_concurrency=page_concurrency, capture_structure=capture_structure,
     ).read(pages, on_progress)

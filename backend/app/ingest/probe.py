@@ -251,6 +251,11 @@ def _rrf(ranked: list[list[Candidate]]) -> dict[str, float]:
     return fused
 
 
+def search_all(question: str, indexes: list, k: int) -> list[list]:
+    """Every index's top ``k`` for ``question``, for ``locate(..., ranked=...)``."""
+    return [index.search(question, k=k) for index in indexes]
+
+
 def locate(
     question: str,
     indexes: list,
@@ -260,8 +265,13 @@ def locate(
     chapter_of=None,
     evidence_passages: int = 3,
     evidence_chapters: int = 1,
+    ranked: list[list] | None = None,
 ) -> ChapterVerdict:
     """Which chapter, from every retriever available, aggregated per chapter.
+
+    ``ranked``, when given, is each index's own search result for ``question`` already
+    fetched (see ``search_all``): the indexes are not searched again, so one search can
+    serve several scoped verdicts -- a semantic search is a paid embedding call.
 
     Two changes from taking the best chunk:
 
@@ -279,7 +289,8 @@ def locate(
     # Ask for more when a scope will discard some: filtering after retrieval would
     # otherwise leave too few candidates to choose between.
     want = depth * 3 if scope is not None else depth
-    ranked = [index.search(question, k=want) for index in indexes]
+    if ranked is None:
+        ranked = [index.search(question, k=want) for index in indexes]
     if scope is not None and chapter_of is not None:
         ranked = [
             [c for c in lst if chapter_of(c.node_id) in scope][:depth] for lst in ranked

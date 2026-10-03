@@ -10,7 +10,14 @@ from __future__ import annotations
 from typing import Protocol
 
 from app.classify.grounding import Grounded, ground
-from app.classify.judge import SYSTEM, Classification, Evidence, build_prompt
+from app.classify.judge import (
+    SCOPE_NOTE,
+    SYSTEM,
+    Classification,
+    Evidence,
+    ScopedClassification,
+    build_prompt,
+)
 from app.llm import output_config
 
 
@@ -66,7 +73,12 @@ class AnthropicJudge:
         self.cache_read_tokens = 0
         self.calls = 0
 
-    def classify(self, question: str, evidence: list[Evidence]) -> Classification:
+    def classify(
+        self, question: str, evidence: list[Evidence], *, scoped: bool = False,
+    ) -> Classification:
+        """``scoped`` (cross_scope_fallback, a question confined to a declared scope):
+        also ask whether none of the candidates can answer it -- ScopedClassification.
+        Off, the request is exactly as before."""
         extra = {"output_config": self.output_config} if self.output_config else {}
         response = self.client.messages.parse(
             model=self.model,
@@ -75,12 +87,12 @@ class AnthropicJudge:
             # sized for the answer alone truncates the reply mid-thought -- on a paid
             # request, in production, which is exactly what app.llm exists to prevent.
             max_tokens=16000,
-            system=SYSTEM,
+            system=SYSTEM + SCOPE_NOTE if scoped else SYSTEM,
             messages=[{
                 "role": "user",
                 "content": build_prompt(question, evidence, self.passage_chars),
             }],
-            output_format=Classification,
+            output_format=ScopedClassification if scoped else Classification,
             **extra,
         )
         usage = getattr(response, "usage", None)

@@ -43,6 +43,7 @@ from dataclasses import dataclass
 
 from pydantic import BaseModel, Field
 
+from app.classify.judge import TIER_GUIDE, TIERS
 from app.classify.pipeline import _adaptive_passage_chars
 from app.ingest.probe import (
     Candidate,
@@ -79,6 +80,10 @@ class TopicPick:
     #: True when the chosen section's own text was checked to answer the question by
     #: itself, False when no section of the chapter could, None when never checked
     verified: bool | None = None
+    #: CBSE competency tier named by the answer read, grounded to the board's three; set
+    #: only when the caller asked for it (the chapter judge was skipped, so nothing else
+    #: names the tier) -- None otherwise, or when the judge abstained
+    tier: str | None = None
 
 
 class _TopicChoice(BaseModel):
@@ -117,6 +122,22 @@ class _TopicChoice(BaseModel):
         description="other section numbers from the list, if a part of the question is "
         "answered in a different section from `section` (up to three); empty otherwise",
     )
+
+
+class _TopicChoiceWithTier(_TopicChoice):
+    """The answer read, also naming the competency tier -- asked for only when the
+    chapter judge, which normally names it, was skipped (skip_single_chapter_judge)."""
+
+    tier: str | None = Field(
+        default=None,
+        description="Exactly one of: " + "; ".join(TIERS) + ", or null",
+    )
+
+
+def grounded_tier(value) -> str | None:
+    """The tier exactly as the board words it, or None -- the chapter judge's rule
+    (app.classify.grounding): a paraphrase of a tier is not a tier."""
+    return value if isinstance(value, str) and value in TIERS else None
 
 
 class _Answerability(BaseModel):
@@ -311,7 +332,7 @@ class TopicJudge:
     def pick_from_document(
         self, stem: str, chapter_label: str, headings: dict[str, str], document: str,
         candidates: dict[str, str] | None = None, mode: str = "answer",
-        exclude: dict[str, str] | None = None,
+        exclude: dict[str, str] | None = None, with_tier: bool = False,
     ) -> _TopicChoice:
         """Read the whole chapter (a cached prefix shared by every question on it) and
         name the section whose text holds what the question tests.
@@ -338,6 +359,9 @@ class TopicJudge:
                 "Which section number does this question belong to? Copy the sentence that "
                 "contains what it tests into `quote`, verbatim from the chapter above."
             )
+        tiered = with_tier and mode == "answer" and not candidates and not exclude
+        if tiered:
+            ask += "\n\nAlso name the question's competency tier in `tier`.\n" + TIER_GUIDE
         if candidates:
             ask = (
                 "Earlier readings disagreed. Decide between ONLY these sections: "
@@ -361,7 +385,7 @@ class TopicJudge:
             max_tokens=8000,
             system=self._document_system(chapter_label, headings, document),
             messages=[{"role": "user", "content": f"QUESTION\n{stem.strip()[:3000]}\n\n{ask}"}],
-            output_format=_TopicChoice,
+            output_format=_TopicChoiceWithTier if tiered else _TopicChoice,
             **extra,
         )
         self._count(response)
@@ -547,6 +571,7 @@ def choose_topic(
     passage_chars: int = 1200,
     all_chunks_of_section=None,
     lexical_index=None,
+    want_tier: bool = False,
 ) -> TopicPick:
     """Decide the section within ``chapter_id`` that ``stem`` tests.
 
@@ -631,7 +656,7 @@ def choose_topic(
         return _choose_from_whole_chapter(
             stem, chapter_label, chapter_chunks, headings, judge, document,
             retrieval_section=retrieval_section, named=named, votes=votes,
-            fallback=fall_back,
+            fallback=fall_back, want_tier=want_tier,
         )
 
     shown = [
@@ -744,7 +769,7 @@ def _section_texts(chapter_chunks: list, headings: dict[str, str]) -> dict[str, 
 def _choose_from_whole_chapter(
     stem: str, chapter_label: str, chapter_chunks: list, headings: dict[str, str],
     judge, document: str, *, retrieval_section: str | None, named: str | None,
-    votes: dict[str, list[str]], fallback,
+    votes: dict[str, list[str]], fallback, want_tier: bool = False,
 ) -> TopicPick:
     """The judge reads the entire chapter. Its quote, not its number, is the answer; the
     independent votes (retrieval within the chapter, the book's own use of the
@@ -797,9 +822,16 @@ def _choose_from_whole_chapter(
     reads: dict[str, tuple[str | None, str]] = {}
     notes: list[str] = []
     also: list[str] = []
+    tier: str | None = None
     for mode in ("answer", "taught"):
         try:
-            choice = judge.pick_from_document(stem, chapter_label, headings, document, mode=mode)
+            if want_tier and mode == "answer":
+                choice = judge.pick_from_document(
+                    stem, chapter_label, headings, document, mode=mode, with_tier=True,
+                )
+                tier = grounded_tier(getattr(choice, "tier", None))
+            else:
+                choice = judge.pick_from_document(stem, chapter_label, headings, document, mode=mode)
             sec, why, note = anchor(choice, headings)
             reads[mode] = (sec, why)
             if note:
@@ -821,10 +853,13 @@ def _choose_from_whole_chapter(
     if section is None:
         if not any(v[1] for v in reads.values()) and all(v[0] is None for v in reads.values()):
             return fallback("the topic judge could not be asked")
-        return fallback(
+        import dataclasses
+
+        # the tier the answer read named still stands when its section does not
+        return dataclasses.replace(fallback(
             "the topic judge found no section of the chapter containing what the "
             "question tests" + (f" ({rationale})" if rationale else "")
-        )
+        ), tier=tier)
     if taught_sec is not None and answer_sec is not None and not _related(answer_sec, taught_sec):
         notes.append(
             f"the section that answers the question ({answer_sec}, "
@@ -898,7 +933,7 @@ def _choose_from_whole_chapter(
         ).strip()
     return TopicPick(
         section, headings.get(section), "judge", agreed, retrieval_section, text,
-        secondaries=secondaries, verified=verified,
+        secondaries=secondaries, verified=verified, tier=tier,
     )
 
 

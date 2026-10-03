@@ -851,6 +851,13 @@ def _finish_paper_scan(
         #: reading to it long after this response has scrolled away.
         "total_marks": extract.declared_total,
     }
+    if get_settings().paper_capture_structure:
+        # Additive keys: every reader of "sections" (marks per letter) is unchanged.
+        assessment.declared = {
+            **assessment.declared,
+            "section_titles": dict(getattr(extract, "section_titles", None) or {}) or None,
+            "syllabus_lines": list(getattr(extract, "syllabus_lines", None) or []) or None,
+        }
 
     # The paper itself, kept exactly as it arrived. Storing only what we read off it left
     # every later question -- "is that really what question 14 said?" -- unanswerable.
@@ -978,10 +985,12 @@ def _run_paper_scan_job(job_id: str) -> None:
 
         settings = get_settings()
         _report_paper_scan_progress(job_id, 0, len(pages))
+        structure = {"capture_structure": True} if settings.paper_capture_structure else {}
         reading = read_paper_vision(
             pages, api_key=settings.anthropic_api_key, model=settings.model_high_stakes,
             page_concurrency=settings.vision_page_concurrency,
             on_progress=lambda done, total: _report_paper_scan_progress(job_id, done, total),
+            **structure,
         )
         if reading.refused:
             _finish_paper_scan_job(
@@ -995,6 +1004,8 @@ def _run_paper_scan_job(job_id: str) -> None:
             route="vision", page_count=len(pages), questions=reading.questions,
             declared_sections=reading.declared_sections, declared_count=reading.declared_count,
             declared_total=reading.declared_total, problems=reading.problems,
+            section_titles=dict(getattr(reading, "section_titles", None) or {}),
+            syllabus_lines=list(getattr(reading, "syllabus_lines", None) or []),
         )
         check_db = SessionLocal()
         try:
@@ -2211,6 +2222,40 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         _subject_index_cache[subject_code] = (sub_indexes, sub_mode)
         return _subject_index_cache[subject_code]
 
+    # sst_unified_scope: one rule for map and place (app.classify.question_scope). The
+    # retrieval pool for a row is the chunks of the chapters its scope allows, one index
+    # per distinct scope, built lazily like the per-subject indexes above.
+    paper_scope = None
+    if settings.sst_unified_scope:
+        from app.classify.question_scope import paper_scope_for
+
+        paper_scope = paper_scope_for(db, assessment, book_subject_codes)
+    chapter_id_of_code = {
+        n.code: n.id for n in db.scalars(select(TaxonomyNode).where(TaxonomyNode.kind == "chapter"))
+    }
+    _scope_index_cache: dict[frozenset[str], tuple[list, str] | None] = {}
+
+    def _indexes_for_chapters(chapter_codes: frozenset[str]) -> tuple[list, str] | None:
+        if chapter_codes in _scope_index_cache:
+            return _scope_index_cache[chapter_codes]
+        ids = {chapter_id_of_code[c] for c in chapter_codes if c in chapter_id_of_code}
+        sub_retrieval_chunks = content_chunks([c for c in chunks if c.node_id in ids])
+        built: tuple[list, str] | None = None
+        if sub_retrieval_chunks:
+            sub_indexes: list = [LexicalIndex(sub_retrieval_chunks)]
+            sub_mode = "lexical"
+            if any(c.embedding for c in sub_retrieval_chunks) and settings.jina_api_key:
+                from app.ingest.jina import JinaEmbedder
+
+                sub_indexes.append(SemanticIndex(sub_retrieval_chunks, JinaEmbedder(
+                    settings.jina_api_key, model=settings.embedding_model,
+                    dimensions=settings.embedding_dimensions,
+                )))
+                sub_mode = "hybrid"
+            built = (sub_indexes, sub_mode)
+        _scope_index_cache[chapter_codes] = built
+        return built
+
     nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
     units = {
         row.chapter_id: row.board_unit_id
@@ -2342,7 +2387,13 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             continue
 
         row_indexes, row_mode = indexes, mode
-        if is_sst_group and row.section:
+        if paper_scope is not None:
+            decision = paper_scope.for_section(row.section)
+            if decision.chapter_codes is not None:
+                scoped = _indexes_for_chapters(decision.chapter_codes)
+                if scoped is not None:
+                    row_indexes, row_mode = scoped
+        elif is_sst_group and row.section:
             target_subject = _SST_SECTION_SUBJECT.get(row.section.strip().upper())
             if target_subject and target_subject in book_subject_codes:
                 scoped = _indexes_for_subject(target_subject)
