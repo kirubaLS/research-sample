@@ -157,6 +157,10 @@ def record_family_section(
     later paper, so a chapter stops being permanently blocked the first time anyone (human
     or model) settles one of its questions.
     """
+    from app.curriculum.depth import collapse_section
+
+    # topic_depth_cap: a family claims the major topic, never a deeper section
+    section = collapse_section(None, section, chapter_code=chapter.code) or section
     matching = [p for p in proposals if p.code == winner.code]
     sections = sorted(set(clean_sections(matching[0].from_sections) if matching else []) | {section})
     if matching:
@@ -260,6 +264,7 @@ def semantic_family_choice(
     embedding_model: str | None,
     embedding_dimensions: int | None,
     margin: float = SEMANTIC_FAMILY_MARGIN,
+    section_key=None,
 ) -> Resolution | None:
     """Rank each candidate family by how closely ITS OWN book text matches the question,
     using the same embedding infrastructure retrieval already relies on -- reused rather
@@ -294,7 +299,9 @@ def semantic_family_choice(
     if not section_owner:
         return None
 
-    scored_chunks = [c for c in chapter_chunks if c.section_number in section_owner]
+    # topic_depth_cap: a chunk of 4.1.2 counts for the family claiming 4.1
+    key = section_key or (lambda section: section)
+    scored_chunks = [c for c in chapter_chunks if key(c.section_number) in section_owner]
     if not scored_chunks:
         return None
 
@@ -312,7 +319,7 @@ def semantic_family_choice(
 
     best_by_family: dict[str, tuple] = {}  # code -> (score, candidate)
     for candidate in ranked:
-        code = section_owner.get(candidate.section)
+        code = section_owner.get(key(candidate.section))
         if code is None:
             continue
         if code not in best_by_family or candidate.score > best_by_family[code][0]:
@@ -340,7 +347,7 @@ def semantic_family_choice(
             f"(section {top_chunk.section}): {top_chunk.text[:200]!r}"
         ),
         grounded_in="semantic_family",
-        book_section=top_chunk.section,
+        book_section=key(top_chunk.section),
     )
 
 
@@ -362,6 +369,17 @@ def _resolve_blocked_family(
     if not stem_text or not stem_text.strip():
         return None
 
+    from app.curriculum.depth import collapse_section, is_capped
+
+    capped_chapter = is_capped(chapter.code)
+
+    def cap(sec):
+        if not capped_chapter or not sec:
+            return sec
+        return collapse_section(None, sec, chapter_code=chapter.code)
+
+    section = cap(section)
+
     proposals = list(db.scalars(
         select(ConceptFamilyProposal).where(
             ConceptFamilyProposal.subject_code.in_(subject_codes),
@@ -371,7 +389,9 @@ def _resolve_blocked_family(
     sections_of: dict[str, list[str]] = {}
     for p in proposals:
         sections_of.setdefault(p.code, [])
-        sections_of[p.code] = sorted(set(sections_of[p.code]) | set(clean_sections(p.from_sections)))
+        sections_of[p.code] = sorted(
+            set(sections_of[p.code]) | {cap(x) for x in clean_sections(p.from_sections)}
+        )
 
     # Stage 0: pure semantic ranking of the chapter's own candidate families against the
     # question, no LLM call needed -- cheap, and it is exactly the signal retrieval
@@ -388,6 +408,7 @@ def _resolve_blocked_family(
         chapter_chunks_for_semantic, candidates, sections_of, stem_text,
         jina_api_key=jina_api_key, embedding_model=embedding_model,
         embedding_dimensions=embedding_dimensions,
+        **({"section_key": cap} if capped_chapter else {}),
     )
     if semantic_resolution is not None:
         if semantic_resolution.book_section:
@@ -411,7 +432,7 @@ def _resolve_blocked_family(
         winner = next((c for c in candidates if c.code == choice.family_code), None)
         if winner is None:
             return None
-        recorded_section = book_section or section
+        recorded_section = cap(book_section) or section
         rationale = f'{choice.rationale} (quoted: "{choice.quote}")'
         if recorded_section:
             record_family_section(
@@ -429,12 +450,24 @@ def _resolve_blocked_family(
     # carries it -- the strongest signal, because it is precisely where the book itself
     # says this question's content lives.
     if section:
-        exact_chunks = list(db.scalars(
-            select(BookChunk).where(
-                BookChunk.subject_code.in_(subject_codes),
-                BookChunk.section_number == section,
-            )
-        ))
+        if capped_chapter:
+            # A major topic's text is its own and its sub-sections' ("4.1" has none of
+            # its own; 4.1.1-4.1.4 are all of it), and only this chapter's -- another
+            # book's identically numbered section is not this one.
+            exact_chunks = [
+                c for c in db.scalars(select(BookChunk).where(
+                    BookChunk.subject_code.in_(subject_codes),
+                    BookChunk.node_id == chapter.id,
+                ))
+                if c.section_number and cap(c.section_number) == section
+            ]
+        else:
+            exact_chunks = list(db.scalars(
+                select(BookChunk).where(
+                    BookChunk.subject_code.in_(subject_codes),
+                    BookChunk.section_number == section,
+                )
+            ))
         exact_text = "\n\n".join(c.text for c in exact_chunks if c.text)
         if exact_text.strip():
             choice = _ask(

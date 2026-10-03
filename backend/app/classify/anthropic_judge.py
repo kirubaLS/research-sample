@@ -38,6 +38,7 @@ class AnthropicJudge:
         passage_chars: int = 1200,
         batched: bool = False,
         batch_options: dict | None = None,
+        section_mapper=None,
     ) -> None:
         if not api_key:
             raise ValueError(
@@ -63,6 +64,9 @@ class AnthropicJudge:
         self.known_sections = known_sections
         #: how much of each passage the model is shown -- the price of the call
         self.passage_chars = passage_chars
+        #: (chapter, section) -> the section cut to the subject's depth (topic_depth_cap),
+        #: applied to the answer before it is checked against known_sections
+        self.section_mapper = section_mapper
         #: every field the knowledge base could not vouch for, kept for inspection
         self.violations: list[tuple[str, list[str]]] = []
         #: What was actually spent, added up as the paper is read. Reported rather than
@@ -101,9 +105,13 @@ class AnthropicJudge:
             self.output_tokens += getattr(usage, "output_tokens", 0) or 0
             self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
         self.calls += 1
-        checked: Grounded = ground(
-            response.parsed_output, evidence, known_sections=self.known_sections
-        )
+        result = response.parsed_output
+        mapper = getattr(self, "section_mapper", None)
+        if mapper is not None and getattr(result, "curriculum_section", None):
+            result = result.model_copy(update={
+                "curriculum_section": mapper(result.chapter, result.curriculum_section),
+            })
+        checked: Grounded = ground(result, evidence, known_sections=self.known_sections)
         if checked.violations:
             # kept rather than logged away: how often the model has to be corrected is the
             # measure of whether it can be trusted on the next paper

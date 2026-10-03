@@ -95,6 +95,31 @@ def _latest_placements(db: Session, question_ids: list[str]) -> dict[str, Questi
     return out
 
 
+def _capped_skill_code(code: str) -> str:
+    """A subtopic code cut to its subject's depth (topic_depth_cap), so a row written
+    before the cap -- 'X.GEO.MINERALSENERGY.S4_1_2' -- groups with its major topic
+    'X.GEO.MINERALSENERGY.S4_1'. Any other code, or an uncapped subject, is unchanged."""
+    from app.curriculum.depth import collapse_section, is_capped
+    from app.mapping.topic_node import section_number
+
+    chapter_code, _, tail = code.rpartition(".")
+    section = section_number(code)
+    if not section or not chapter_code or not is_capped(chapter_code):
+        return code
+    cut = collapse_section(None, section, chapter_code=chapter_code)
+    return f"{chapter_code}.S{cut.replace('.', '_')}" if cut else code
+
+
+def _capped_section(q: Question, codes: dict[str, str]) -> str | None:
+    """The question's section cut to its subject's depth (topic_depth_cap)."""
+    code = codes.get(q.chapter_id) if q.chapter_id else None
+    if not q.curriculum_section or not code:
+        return q.curriculum_section
+    from app.curriculum.depth import collapse_section
+
+    return collapse_section(None, q.curriculum_section, chapter_code=code)
+
+
 def _rows(db: Session, assessment: Assessment) -> list[MarkRow]:
     """Read the curriculum columns the question actually carries.
 
@@ -114,7 +139,10 @@ def _rows(db: Session, assessment: Assessment) -> list[MarkRow]:
     ):
         node = db.get(TaxonomyNode, qs.node_id)
         if node:
-            skills.setdefault(qs.question_id, []).append(node.code)
+            code = _capped_skill_code(node.code)
+            held = skills.setdefault(qs.question_id, [])
+            if code not in held:
+                held.append(code)
     tiers: dict[str, str] = {}
     for t in db.scalars(select(QuestionTier).where(QuestionTier.question_id.in_(list(questions)))):
         if t.tier:
@@ -186,7 +214,7 @@ def _proof(
         "question_type": q.question_type,
         "stem_text": q.stem_text,
         "logical_page": q.logical_page,
-        "curriculum_section": q.curriculum_section,
+        "curriculum_section": _capped_section(q, codes),
         "curriculum_section_title": q.curriculum_section_title,
         "concept_variant": q.concept_variant,
         "mark_source": ev.source,

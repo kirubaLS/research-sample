@@ -547,12 +547,13 @@ def test_place_moves_an_unanswerable_single_chapter_question_out_of_scope_and_sa
     db.close()
     # the re-read searched the whole Social Science group, nothing else
     wide = [shown for stem, shown in seen["chapter"] if stem.startswith("Geography")]
-    assert wide and all(
-        label in {"Print Culture and the Modern World", "The Rise of Nationalism in Europe",
-                  "Minerals and Energy Resources", "Resources and Development",
-                  "Political Parties", "Globalisation and the Indian Economy"}
-        for label in wide[0]
-    )
+    from app.curriculum import CURRICULA
+
+    sst_labels = {
+        ch.label for code in ("X.HIST", "X.GEO", "X.POL", "X.ECO")
+        for ch in CURRICULA[code].chapters
+    }
+    assert wide and wide[0] <= sst_labels
     # every other single-chapter question stayed where its title put it, unflagged
     other = _latest(QuestionPlacement, ids["Political science question stem, section C."])
     assert not other.cross_scope and not other.needs_review
@@ -628,3 +629,122 @@ def test_with_the_flag_off_no_scope_warnings_key_is_added(school, sst_world, mon
     aid, _ = _placed_paper(school, {"section_titles": {"B": "Geography"}})
     job = _run_place(school, aid, monkeypatch)
     assert "scope_warnings" not in job.result
+
+
+# --- 2A: no code path writes a section deeper than the cap ----------------------------------
+
+
+def test_no_path_writes_a_three_level_section_for_a_capped_subject(
+    client, school, sst_world, monkeypatch,
+):
+    import app.classify.anthropic_judge as anthropic_judge_module
+    import app.classify.topic as topic_module
+    from app.classify.judge import Classification
+    from app.db import SessionLocal
+    from app.models import (
+        BookChunk,
+        Question,
+        QuestionPlacement,
+        QuestionSkill,
+        TaxonomyNode,
+    )
+
+    for flag in ("sst_unified_scope", "topic_depth_cap"):
+        monkeypatch.setattr(get_settings(), flag, True)
+    db = SessionLocal()
+    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.GEO.MINERALSENERGY"))
+    for section, text in (("4.1.2", "petroleum oil field refinery crude"),
+                          ("4.1.1", "coal mines lignite gondwana")):
+        tag = f"deep-{section}"
+        if db.scalar(select(BookChunk).where(BookChunk.stem_hash == tag)) is None:
+            db.add(BookChunk(
+                curriculum_version=chapter.curriculum_version, subject_code="X.GEO",
+                node_id=chapter.id, bucket="T", reference=f"{section} Deep", text=text,
+                section_number=section, normalised=text, stem_hash=tag,
+            ))
+    db.commit()
+    db.close()
+
+    class ChapterJudge:
+        batched = False
+        calls = input_tokens = output_tokens = cache_read_tokens = 0
+
+        def __init__(self, *a, **kw):
+            self.mapper = kw.get("section_mapper")
+
+        def classify(self, question, evidence, **kw):
+            result = Classification(chapter="Minerals and Energy Resources",
+                                    curriculum_section="4.1.2", tier="Applying",
+                                    skill_required="x", reasoning="stub", confidence=0.9)
+            if self.mapper:
+                result = result.model_copy(update={
+                    "curriculum_section": self.mapper(result.chapter, "4.1.2")})
+            return result
+
+    class TopicJudge:
+        batched = False
+        calls = input_tokens = output_tokens = cache_read_tokens = 0
+
+        def __init__(self, *a, **kw):
+            pass
+
+        def pick_from_document(self, stem, chapter_label, headings, document, candidates=None,
+                               mode="answer", exclude=None):
+            class C:
+                pass
+
+            c = C()
+            deepest = max(headings, key=lambda n: n.count("."))
+            c.section, c.quote, c.rationale, c.answer, c.quotes = deepest, "", "x", "", []
+            c.also = [n for n in headings if n.count(".") >= 2][:3]
+            return c
+
+    monkeypatch.setattr(anthropic_judge_module, "AnthropicJudge", ChapterJudge)
+    monkeypatch.setattr(topic_module, "TopicJudge", TopicJudge)
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "test-key")
+
+    aid = _sst_paper(client, school, {"section_titles": {"B": "Geography : Minerals and Energy Resources"}})
+    from app.models import ScannedQuestion
+
+    db = SessionLocal()
+    row = db.scalar(select(ScannedQuestion).where(
+        ScannedQuestion.assessment_id == aid, ScannedQuestion.section == "B"))
+    row.stem_text = "Name the petroleum oil field and the refinery that processes its crude."
+    db.commit()
+    db.close()
+    h = _auth(school)
+    out = client.post(f"/assessments/{aid}/map", headers=h)
+    if out.status_code == 202:
+        client.get(f"/assessments/{aid}/map/jobs/{out.json()['job_id']}", headers=h)
+    job = _run_place(school, aid, monkeypatch)
+    assert job.status == "succeeded", job.error_detail
+
+    db = SessionLocal()
+    qs = db.scalars(select(Question).where(Question.assessment_id == aid)).all()
+    geo = [q for q in qs if q.section == "B"]
+    assert geo, "the Geography question was mapped"
+    # a person settles it with a deep section too
+    r = client.post(f"/assessments/{aid}/review/{geo[0].id}", headers=h, json={
+        "chapter_code": "X.GEO.MINERALSENERGY", "curriculum_section": "4.1.2",
+        "reviewed_by": "teacher",
+    })
+    assert r.status_code == 200, r.text
+    db.expire_all()
+    ids = [q.id for q in qs]
+    deep = []
+    for q in db.scalars(select(Question).where(Question.id.in_(ids))):
+        if q.curriculum_section and q.curriculum_section.count(".") >= 2:
+            deep.append(("question", q.address, q.curriculum_section))
+    placements = db.scalars(select(QuestionPlacement).where(QuestionPlacement.question_id.in_(ids)))
+    for p in placements:
+        if p.curriculum_section and p.curriculum_section.count(".") >= 2:
+            deep.append(("placement", p.question_id, p.curriculum_section))
+    fine = [p.curriculum_section_fine for p in db.scalars(
+        select(QuestionPlacement).where(QuestionPlacement.question_id == geo[0].id))]
+    for link in db.scalars(select(QuestionSkill).where(QuestionSkill.question_id.in_(ids))):
+        node = db.get(TaxonomyNode, link.node_id)
+        if node.code.count("_") >= 2:
+            deep.append(("skill", link.question_id, node.code))
+    db.close()
+    assert deep == [], deep
+    assert "4.1.2" in fine, "the judge's fine-grained answer is kept"

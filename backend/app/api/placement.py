@@ -23,7 +23,11 @@ from app.curriculum import group_subjects
 from app.mapping.auto_resolve import record_family_section, resolve_blocked_family
 from app.mapping.family import Choice, choose_family
 from app.llm import estimate_usd
-from app.mapping.topic_node import section_headings, set_question_topic
+from app.mapping.topic_node import (
+    major_view,
+    set_question_topic,
+    topic_headings,
+)
 from app.config import get_settings
 from app.db import get_session
 from app.ingest.probe import LexicalIndex, SemanticIndex, content_chunks
@@ -300,6 +304,23 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             if chapter_node is not None:
                 known_sections.setdefault(chapter_node.label, set()).add(c.section_number)
 
+        # topic_depth_cap: the sections the judge may name are the capped ones, and its
+        # answer is cut to that depth before it is checked against them.
+        from app.curriculum.depth import collapse_section, is_capped
+
+        code_of_label = {n.label: n.code for n in by_label.values()}
+
+        def cap_for(label: str | None, section: str | None) -> str | None:
+            code = code_of_label.get(label or "")
+            if code is None or not is_capped(code):
+                return section
+            return collapse_section(None, section, chapter_code=code)
+
+        if any(is_capped(code) for code in code_of_label.values()):
+            known_sections = {
+                label: {cap_for(label, s) for s in sections}
+                for label, sections in known_sections.items()
+            }
         from app.classify.anthropic_judge import AnthropicJudge
 
         batch_options = {
@@ -314,6 +335,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             passage_chars=settings.classifier_passage_chars,
             batched=settings.batch_classify and settings.batch_chapter_judge,
             batch_options=batch_options,
+            **({"section_mapper": cap_for} if settings.topic_depth_cap else {}),
         )
 
         scope = None
@@ -365,7 +387,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         # The closed set the topic judge chooses from, per chapter: every section the
         # book has for it, with its heading.
         headings_of = {
-            node.id: section_headings(chunks, node, nodes) for node in by_label.values()
+            node.id: topic_headings(chunks, node, nodes) for node in by_label.values()
         }
         embedder = None
         if settings.jina_api_key and any(c.embedding for c in retrieval_chunks):
@@ -382,6 +404,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 settings.anthropic_api_key, settings.model_classifier,
                 effort=settings.model_effort, passage_chars=settings.classifier_passage_chars,
                 batched=settings.batch_classify, batch_options=batch_options,
+                **({"major_only": True} if settings.topic_major_only_document else {}),
             )
         except Exception:  # noqa: BLE001 -- retrieval within the chapter still decides
             topic_judge = None
@@ -396,6 +419,22 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 ConceptFamilyProposal.subject_code.in_(book_subject_codes)
             ))
         }
+        # the same family table the map step builds (app.mapping.family_sections)
+        family_table = None
+        if settings.book_map_only_subtopics or settings.topic_depth_cap:
+            from app.mapping import family_sections
+
+            family_table = family_sections.build(
+                db.scalars(select(ConceptFamilyProposal).where(
+                    ConceptFamilyProposal.subject_code.in_(book_subject_codes)
+                )),
+                union=settings.book_map_only_subtopics,
+                chapter_code_of={
+                    f.code: nodes[f.parent_id].code
+                    for fams in families.values() for f in fams if f.parent_id in nodes
+                } if settings.topic_depth_cap else None,
+            )
+            sections_of = family_table.sections_of
         declared = (a.declared or {}).get("board_units")
         paper_kind, subject_code, assessment_id = a.paper_kind, a.subject_code, a.id
     finally:
@@ -423,7 +462,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     pass_options: dict = {}
     if (
         settings.balanced_group_candidates or settings.cross_scope_fallback
-        or settings.skip_single_chapter_judge
+        or settings.skip_single_chapter_judge or settings.topic_depth_cap
     ):
         book_of = {
             nodes[i].label: code
@@ -434,6 +473,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             balanced=settings.balanced_group_candidates,
             cross_scope=settings.cross_scope_fallback,
             skip_single_chapter=settings.skip_single_chapter_judge,
+            section_cap=cap_for if settings.topic_depth_cap else None,
         )
 
     try:
@@ -487,7 +527,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         # the chapter judge was skipped, so nothing else names the tier: the topic
         # judge's answer read does (skip_single_chapter_judge)
         tiered = {"want_tier": True} if getattr(placed, "chapter_judge_skipped", False) else {}
-        return choose_topic(
+        pick = choose_topic(
             stem_by_id.get(placed.question_id, ""), chapter_node.id, chapter_node.label,
             retrieval_chunks, headings_of.get(chapter_node.id, {}), topic_judge,
             fallback_section=placed.curriculum_section,
@@ -496,7 +536,16 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
             **tiered,
+            **({"major": view} if (view := major_view(chapter_node)) is not None else {}),
         )
+        if is_capped(chapter_node.code):
+            from app.classify.topic import capped
+
+            pick = capped(
+                pick, lambda sec: collapse_section(None, sec, chapter_code=chapter_node.code),
+                headings_of.get(chapter_node.id, {}),
+            )
+        return pick
 
     to_pick = [
         placed for placed in result.questions
@@ -596,6 +645,16 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 import dataclasses
 
                 placed = dataclasses.replace(placed, tier=getattr(pick, "tier", None))
+            fine_section = (
+                getattr(pick, "fine_section", None)
+                if pick is not None and pick.section == placed.curriculum_section else None
+            )
+            capped_section = cap_for(placed.chapter, placed.curriculum_section)
+            if capped_section != placed.curriculum_section:
+                import dataclasses
+
+                fine_section = placed.curriculum_section
+                placed = dataclasses.replace(placed, curriculum_section=capped_section)
             if question is not None and placed.judge_failed:
                 # The judge could not be asked for this one question. That is not a
                 # finding about the question, so what the map step decided -- chapter,
@@ -607,7 +666,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 chapter = kept
                 placed = dataclasses.replace(
                     placed, chapter=kept.label if kept else None,
-                    curriculum_section=question.curriculum_section,
+                    curriculum_section=cap_for(
+                        kept.label if kept else None, question.curriculum_section,
+                    ),
                     needs_review=True,
                 )
             elif question is not None and placed.chapter is None:
@@ -624,10 +685,17 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     question.skill_required = placed.skill_required
                 settled += 1
             elif question is not None and chapter is not None:
+                chapter_families = families.get(chapter.id, [])
+                if family_table is not None:
+                    chapter_families = family_table.candidates(chapter_families)
                 choice = choose_family(
-                    families.get(chapter.id, []), sections_of,
+                    chapter_families, sections_of,
                     placed.curriculum_section, chapter.label,
                     prefer_label=pick.heading if pick is not None else None,
+                    **(
+                        {"exact_sections_of": family_table.exact_of}
+                        if family_table is not None else {}
+                    ),
                 )
                 if choice.family is None and choice.blocked is not None:
                     # The mapping step already tries this same auto-resolve (see
@@ -650,7 +718,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                         section=placed.curriculum_section,
                         stem_text=question.stem_text,
                         chapter=chapter,
-                        candidates=families.get(chapter.id, []),
+                        candidates=chapter_families,
                         jina_api_key=settings.jina_api_key,
                         embedding_model=settings.embedding_model,
                         embedding_dimensions=settings.embedding_dimensions,
@@ -665,7 +733,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
                         placed = dataclasses.replace(
                             placed,
-                            curriculum_section=placed.curriculum_section or resolution.book_section,
+                            curriculum_section=placed.curriculum_section or cap_for(
+                                chapter.label, resolution.book_section,
+                            ),
                         )
                 if choice.family is not None:
                     question.concept_family_id = choice.family.id
@@ -724,6 +794,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 chapter_id=chapter.id if chapter else None,
                 board_unit_id=unit_id,
                 curriculum_section=placed.curriculum_section,
+                curriculum_section_fine=fine_section,
                 tier=placed.tier,
                 skill_required=placed.skill_required,
                 confidence=placed.confidence,
@@ -1158,10 +1229,18 @@ def confirm(
     # ck_question_chapter_pairing) going half-filled and crashing with a bare
     # IntegrityError, which is what happened here before this line existed.
     resolved_section = body.curriculum_section or question.curriculum_section
+    # topic_depth_cap: a person's section is cut to the subject's depth like any other
+    from app.curriculum.depth import collapse_section
+
+    fine_section = resolved_section
+    resolved_section = collapse_section(None, resolved_section, chapter_code=chapter.code)
     db.add(QuestionPlacement(
         question_id=question_id,
         chapter_id=chapter.id,
         curriculum_section=resolved_section,
+        curriculum_section_fine=(
+            fine_section if fine_section and fine_section != resolved_section else None
+        ),
         tier=body.tier,
         confidence=1.0,
         source="human",
@@ -1187,7 +1266,13 @@ def confirm(
                 select(TaxonomyNode).where(TaxonomyNode.parent_id == chapter.id)
             )
         }
-        headings = section_headings(chapter_chunks, chapter, subtopics)
+        headings = topic_headings(chapter_chunks, chapter, subtopics)
+        if resolved_section not in headings:
+            from app.curriculum.book_map import heading_label, unit_by_number
+
+            unit = unit_by_number(chapter.code).get(resolved_section)
+            if unit is not None:
+                headings[resolved_section] = heading_label(resolved_section, unit.title)
         set_question_topic(
             db, question.id, chapter, resolved_section,
             headings.get(resolved_section) or resolved_section,

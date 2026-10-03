@@ -84,6 +84,37 @@ class TopicPick:
     #: only when the caller asked for it (the chapter judge was skipped, so nothing else
     #: names the tier) -- None otherwise, or when the judge abstained
     tier: str | None = None
+    #: the section as first decided, before ``capped`` cut it to the subject's depth
+    #: ("4.1.2" when ``section`` is "4.1"); None when nothing was cut
+    fine_section: str | None = None
+
+
+def capped(pick: TopicPick, collapse, headings: dict[str, str] | None = None) -> TopicPick:
+    """``pick`` with every section cut by ``collapse`` (app.curriculum.depth): the
+    primary, retrieval's section and the secondaries. A secondary that collapses onto
+    the primary is dropped, and duplicates are removed. The heading follows the collapsed
+    section from ``headings`` when it has one. The original section is kept as
+    ``fine_section`` when it changed."""
+    import dataclasses
+
+    section = collapse(pick.section) if pick.section else pick.section
+    seen: set[str] = set()
+    secondaries = []
+    for other, label in pick.secondaries:
+        c = collapse(other)
+        if not c or c == section or c in seen:
+            continue
+        seen.add(c)
+        secondaries.append((c, (headings or {}).get(c) or (label if c == other else c)))
+    heading = pick.heading
+    if section != pick.section:
+        heading = (headings or {}).get(section) or section
+    return dataclasses.replace(
+        pick, section=section, heading=heading,
+        retrieval_section=collapse(pick.retrieval_section) if pick.retrieval_section else None,
+        secondaries=tuple(secondaries),
+        fine_section=pick.section if section != pick.section else pick.fine_section,
+    )
 
 
 class _TopicChoice(BaseModel):
@@ -162,14 +193,15 @@ textbook chapter that it tests. The chapter has already been decided; do not que
 You are given every section of that chapter, numbered, with the book's own heading for
 each, and passages from the book. Answer with exactly one section number copied from the
 list. Judge what the question ASKS, not which words it shares with a passage: a question
-about the functions of political parties belongs under the section whose heading names
-functions, even if a later section on reform mentions functions in passing.
+about how a country decides which languages it recognises belongs under the section whose
+heading names language policy, even if a later section on Centre-State relations mentions
+language in passing.
 
 Rules:
 - The section is where the FACT the question tests is written, not the heading that
-  sounds most like the question. A question about the Index of Prohibited Books belongs
-  to the section whose text mentions the Index, even if another section's heading is
-  "the Fear of Print". Copy that sentence into `quote`, verbatim, from the passage shown.
+  sounds most like the question. A question about the Bhakra Nangal project belongs to
+  the section whose text mentions that project, even if another section's heading is
+  "Water Scarcity". Copy that sentence into `quote`, verbatim, from the passage shown.
 - Prefer the most specific section that is genuinely about the question. A sub-section
   (2.2) beats its parent (2) when the question is about that sub-section's subject; the
   parent is right only when the question spans its children or is about the parent's
@@ -177,7 +209,8 @@ Rules:
 - A sub-question of a passage-based (source-based) question is about the passage's
   subject: place it where the book discusses what the passage discusses.
 - A map-skill or one-line locate-and-label item belongs to the section that teaches the
-  thing being located (a coal mine goes under the coal section, not the chapter intro).
+  thing being located (a dam goes under the section on river projects, not the chapter
+  intro).
 - Answer 'none' only when the question fits no listed section at all. A confident wrong
   section is filed as fact and misleads every report grouped by topic, but so is a
   needless 'none': it hands the choice back to word-overlap search."""
@@ -234,9 +267,9 @@ question tests, and copy that sentence, verbatim, into `quote`.
 
 Rules:
 - The section is where the question is ANSWERED, not where its subject is mentioned. A
-  question that names a thing (a nuclear plant, a law, a book) but asks what, where, why
-  or how belongs where the chapter teaches that answer -- a nuclear plant's location is
-  taught where nuclear energy is taught, measures against a problem are taught where the
+  question that names a thing (a dam, a law, a treaty) but asks what, where, why or how
+  belongs where the chapter teaches that answer -- a dam's purposes are taught where
+  multi-purpose river projects are taught, measures against a problem are taught where the
   remedies are listed, not where the problem is named. Quote the sentence that answers.
 - A sub-question of a passage-based (source-based) question is about the passage's
   subject: place it where the chapter discusses what the passage discusses.
@@ -256,9 +289,45 @@ Rules:
 - Answer 'none' only when no section of the chapter contains what the question tests."""
 
 
-def chapter_document(chapter_chunks: list, headings: dict[str, str]) -> str:
+#: topic_major_only_document: the section list holds major topics only, so the specificity
+#: rule says "of the listed sections", and the document's sub-headings are never answers.
+_MAJOR_RULE = (
+    "- Prefer the most specific of the listed sections: a listed sub-section (2.2) beats\n"
+    "  its parent (2) when the sentence you quote is under the sub-section's heading or one\n"
+    "  of its sub-headings. Text under a ### sub-heading belongs to the numbered section it\n"
+    "  sits in; a sub-heading is never itself an answer.\n"
+    "- Section 0 is the chapter's introduction: answer 0 only when the question is about\n"
+    "  the chapter as a whole and no numbered section teaches what it asks."
+)
+_DOCUMENT_SYSTEM_MAJOR = _DOCUMENT_SYSTEM.replace(
+    "- Prefer the most specific section: a sub-section (2.2) beats its parent (2) when the\n"
+    "  sentence you quote is under the sub-section's heading.",
+    _MAJOR_RULE,
+)
+_SYSTEM_MAJOR = _SYSTEM.replace(
+    "- Prefer the most specific section that is genuinely about the question. A sub-section\n"
+    "  (2.2) beats its parent (2) when the question is about that sub-section's subject; the\n"
+    "  parent is right only when the question spans its children or is about the parent's\n"
+    "  own introductory text.",
+    "- Prefer the most specific of the listed sections that is genuinely about the\n"
+    "  question. A listed sub-section (2.2) beats its parent (2) when the question is about\n"
+    "  that sub-section's subject; the parent is right only when the question spans its\n"
+    "  children or is about the parent's own text.",
+)
+assert _DOCUMENT_SYSTEM_MAJOR != _DOCUMENT_SYSTEM and _SYSTEM_MAJOR != _SYSTEM
+
+
+def chapter_document(
+    chapter_chunks: list, headings: dict[str, str], *, render_empty: bool = False,
+) -> str:
     """The whole chapter as one document, section by section in book order, each chunk's
-    text under its section heading. Deterministic for a given chapter, so it caches."""
+    text under its section heading. Deterministic for a given chapter, so it caches.
+
+    A chunk carrying a ``subheading`` (a deeper unit or a box folded into its major topic
+    -- see ``major_chunks``) is rendered under a plain ``### `` sub-heading inside its
+    section, after the section's own text, in book order. ``render_empty`` keeps a
+    heading that has no text of its own: "4.1 Conventional Sources of Energy" is a real
+    topic whose text is all in its sub-headings, or none at all."""
     by_section: dict[str, list] = {n: [] for n in headings}
     for c in chapter_chunks:
         if c.section_number in by_section and (c.text or "").strip():
@@ -268,13 +337,88 @@ def chapter_document(chapter_chunks: list, headings: dict[str, str]) -> str:
         chunks = sorted(
             by_section[number], key=lambda c: (len(c.reference or ""), c.reference or "", c.id),
         )
-        if not chunks:
+        if not chunks and not render_empty:
             continue
         titled = heading and heading != number
         parts.append(f"## SECTION {number}  {heading}" if titled else f"## SECTION {number}")
-        parts.extend(c.text.strip() for c in chunks)
+        own = [c for c in chunks if not getattr(c, "subheading", None)]
+        parts.extend(c.text.strip() for c in own)
+        groups: dict[tuple, list] = {}
+        for c in chunks:
+            sub = getattr(c, "subheading", None)
+            if sub:
+                groups.setdefault((_order(getattr(c, "fine_section", None)), sub), []).append(c)
+        for (_, sub), members in sorted(groups.items(), key=lambda kv: kv[0]):
+            parts.append(f"### {sub}")
+            parts.extend(c.text.strip() for c in members)
         parts.append("")
     return "\n".join(parts)
+
+
+def _order(section: str | None) -> tuple[int, ...]:
+    return tuple(int(p) for p in (section or "").split(".") if p.isdigit())
+
+
+class _MajorChunk:
+    """A chunk seen through its major topic: ``section_number`` is the major topic it
+    belongs to ("4.1" for a 4.1.2 chunk, "2" for the Rat-Hole Mining box at 2.1, "0" for
+    the chapter's unnumbered introduction); ``fine_section`` is what the book printed;
+    ``subheading`` is the deeper unit's own title, or None for the major's own text.
+    Everything else is the chunk's own."""
+
+    __slots__ = ("_chunk", "section_number", "fine_section", "subheading")
+
+    def __init__(self, chunk, section: str, fine: str | None, subheading: str | None):
+        self._chunk = chunk
+        self.section_number = section
+        self.fine_section = fine
+        self.subheading = subheading
+
+    def __getattr__(self, name):
+        return getattr(self._chunk, name)
+
+
+def major_chunks(chapter_id: str, chapter_code: str, pool: list, max_depth: int) -> list:
+    """This chapter's chunks, each placed under its major topic (see ``_MajorChunk``).
+    Includes the unnumbered introduction and conclusion text as section "0", which the
+    section-tagged view leaves out. A chunk whose section maps to no major topic is
+    dropped, as a section the book map does not know."""
+    from app.curriculum.book_map import (
+        CHAPTER_LEVEL,
+        INTRO_SECTION,
+        NOT_A_TOPIC,
+        chapter_units,
+        major_of,
+        unit_by_number,
+    )
+    from app.mapping.topic_node import BOOK_MAP_SUFFIX
+
+    units = unit_by_number(chapter_code)
+    unnumbered = {
+        u.title.strip().lower(): u for u in chapter_units(chapter_code) or ()
+        if u.number is None and u.kind in CHAPTER_LEVEL
+    }
+    out = []
+    for c in pool:
+        if c.node_id != chapter_id or getattr(c, "bucket", "T") != "T":
+            continue
+        fine = getattr(c, "section_number", None)
+        major = major_of(chapter_code, fine, max_depth)
+        if major is None:
+            continue
+        subheading = None
+        if fine is None:
+            title = BOOK_MAP_SUFFIX.sub("", c.reference or "").strip()
+            unit = unnumbered.get(title.lower())
+            if unit is not None and unit.kind != "intro":
+                subheading = unit.title          # "Conclusion", folded into section 0
+            fine = INTRO_SECTION
+        elif fine != major:
+            unit = units.get(fine)
+            title = unit.title if unit else fine
+            subheading = f"Box: {title}" if unit is not None and unit.kind in NOT_A_TOPIC else title
+        out.append(_MajorChunk(c, major, fine, subheading))
+    return out
 
 
 class TopicJudge:
@@ -283,6 +427,7 @@ class TopicJudge:
     def __init__(
         self, api_key: str, model: str, *, effort: str | None = None,
         passage_chars: int = 1200, batched: bool = False, batch_options: dict | None = None,
+        major_only: bool = False,
     ) -> None:
         import anthropic
 
@@ -296,6 +441,8 @@ class TopicJudge:
         self.model = model
         self.output_config = output_config(model, effort)
         self.passage_chars = passage_chars
+        #: topic_major_only_document: the prompts say sub-headings are never an answer
+        self.major_only = major_only
         self.calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
@@ -315,8 +462,9 @@ class TopicJudge:
         section_list = "\n".join(
             f"- {n}  {h}" if h and h != n else f"- {n}" for n, h in headings.items()
         )
+        system = _DOCUMENT_SYSTEM_MAJOR if getattr(self, "major_only", False) else _DOCUMENT_SYSTEM
         return [
-            {"type": "text", "text": _DOCUMENT_SYSTEM},
+            {"type": "text", "text": system},
             {
                 "type": "text",
                 "text": (
@@ -429,7 +577,7 @@ class TopicJudge:
         response = self.client.messages.parse(
             model=self.model,
             max_tokens=8000,
-            system=_SYSTEM,
+            system=_SYSTEM_MAJOR if getattr(self, "major_only", False) else _SYSTEM,
             messages=[{
                 "role": "user",
                 "content": _prompt(stem, chapter_label, headings, passages, self.passage_chars),
@@ -572,6 +720,7 @@ def choose_topic(
     all_chunks_of_section=None,
     lexical_index=None,
     want_tier: bool = False,
+    major: tuple[str, int] | None = None,
 ) -> TopicPick:
     """Decide the section within ``chapter_id`` that ``stem`` tests.
 
@@ -592,10 +741,22 @@ def choose_topic(
     outranks word overlap) and only then to retrieval within the chapter -- never to
     a guess.
     """
-    chapter_chunks = [
-        c for c in pool
-        if c.node_id == chapter_id and getattr(c, "section_number", None)
-    ]
+    major_section = None
+    if major is not None:
+        # topic_major_only_document: ``major`` is (chapter code, depth). Every chunk is
+        # seen through its major topic, and the introduction joins as section "0".
+        from app.curriculum.book_map import major_of
+
+        chapter_code, depth = major
+        chapter_chunks = major_chunks(chapter_id, chapter_code, pool, depth)
+
+        def major_section(section):
+            return major_of(chapter_code, section, depth) if section else None
+    else:
+        chapter_chunks = [
+            c for c in pool
+            if c.node_id == chapter_id and getattr(c, "section_number", None)
+        ]
     if not chapter_chunks or not headings:
         return TopicPick(None, None, "none", False, None,
                          "the book has no section-tagged text for this chapter")
@@ -614,7 +775,10 @@ def choose_topic(
         query, indexes, depth=8, scope={chapter_id}, chapter_of=lambda node_id: node_id,
         evidence_passages=evidence_passages, evidence_chapters=1,
     )
-    retrieval_section = verdict.section if verdict.section in headings else None
+    retrieval_section = verdict.section
+    if major_section is not None:
+        retrieval_section = major_section(retrieval_section)
+    retrieval_section = retrieval_section if retrieval_section in headings else None
 
     # What the judge reads: the passages that scored best, then one representative of
     # every other section so no section is absent from the picture -- inclusion earned
@@ -651,7 +815,10 @@ def choose_topic(
     if judge is None:
         return fall_back("no topic judge available")
 
-    document = chapter_document(chapter_chunks, headings) if hasattr(judge, "pick_from_document") else ""
+    document = (
+        chapter_document(chapter_chunks, headings, render_empty=major is not None)
+        if hasattr(judge, "pick_from_document") else ""
+    )
     if document and len(document) <= FULL_CHAPTER_MAX_CHARS:
         return _choose_from_whole_chapter(
             stem, chapter_label, chapter_chunks, headings, judge, document,

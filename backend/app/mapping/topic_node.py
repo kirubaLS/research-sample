@@ -111,14 +111,78 @@ def section_headings(
     return dict(sorted(out.items(), key=_section_order))
 
 
+def major_view(chapter: TaxonomyNode) -> tuple[str, int] | None:
+    """(chapter code, depth) when the topic judge sees only this chapter's major topics
+    (topic_major_only_document on, the subject capped, and the book map describing the
+    chapter); None otherwise."""
+    from app.config import get_settings
+    from app.curriculum.book_map import chapter_units
+    from app.curriculum.depth import max_depth_for
+
+    if not get_settings().topic_major_only_document:
+        return None
+    depth = max_depth_for(chapter.code)
+    if depth is None or chapter_units(chapter.code) is None:
+        return None
+    return chapter.code, depth
+
+
+def topic_headings(
+    chunks: list, chapter: TaxonomyNode, nodes: dict[str, TaxonomyNode] | None = None,
+) -> dict[str, str]:
+    """The closed set a topic judge chooses from: the major topics when ``major_view``
+    applies -- every one, including a heading with no text of its own, never a box, and
+    "0 Introduction" -- otherwise ``section_headings`` as before."""
+    view = major_view(chapter)
+    if view is not None:
+        from app.curriculum.book_map import major_headings
+
+        headings = major_headings(*view)
+        if headings:
+            return headings
+    return section_headings(chunks, chapter, nodes)
+
+
 def _section_order(item: tuple[str, str]) -> list[int]:
     return [int(p) for p in item[0].split(".") if p.isdigit()]
+
+
+def _capped(chapter: TaxonomyNode, section: str, label: str) -> tuple[str, str]:
+    """(section, label) cut to the subject's depth (topic_depth_cap) -- the last guard,
+    so no caller can create or write a topic deeper than the cap. A cut section takes
+    the book map's own heading for its new number."""
+    from app.curriculum.depth import collapse_section, is_capped
+
+    if not is_capped(chapter.code):
+        return section, label
+    cut = collapse_section(None, section, chapter_code=chapter.code)
+    if cut == section or not cut:
+        return section, label
+    from app.curriculum.book_map import heading_label, unit_by_number
+
+    unit = unit_by_number(chapter.code).get(cut)
+    return cut, heading_label(cut, unit.title) if unit else cut
+
+
+def _book_map_only(chapter: TaxonomyNode) -> bool:
+    """book_map_only_subtopics, for a book-map subject: a node is matched by its printed
+    number only and never relabelled -- an existing node under that code may carry a
+    label from the ingest's reading-order numbering, and overwriting it made one node
+    mean two different sections (see scripts/clean_book_map_subtopics.py, which puts the
+    labels right once, reviewed)."""
+    from app.config import get_settings
+    from app.curriculum.depth import subject_of
+
+    return bool(get_settings().book_map_only_subtopics) and (
+        subject_of(chapter.code) in BOOK_MAP_SUBJECTS
+    )
 
 
 def topic_node(db: Session, chapter: TaxonomyNode, section: str, label: str) -> TaxonomyNode:
     """Get-or-create the subtopic node for a chapter+section, keyed and labelled from
     the same book data the chapter/section themselves came from -- so, unlike the stale
     pre-book_map subtopic rows, this key and this label can never drift apart."""
+    section, label = _capped(chapter, section, label)
     code = f"{chapter.code}.S{section.replace('.', '_')}"
     node = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
     if node is None:
@@ -128,7 +192,7 @@ def topic_node(db: Session, chapter: TaxonomyNode, section: str, label: str) -> 
         )
         db.add(node)
         db.flush()
-    elif node.label != label and label != section:
+    elif node.label != label and label != section and not _book_map_only(chapter):
         # Re-mapping after the book data changed (a title correction) must not leave the
         # old label sitting here forever -- the same reasoning books.py's own
         # subtopic-label refresh already relies on. A bare number is not a better label
@@ -158,6 +222,7 @@ def set_question_topic(
     for other, other_label in secondaries:
         if other == section:
             continue
+        # a secondary that collapses onto the primary (topic_depth_cap) is the primary
         wanted.setdefault(topic_node(db, chapter, other, other_label or other).id, SECONDARY_WEIGHT)
     rows = list(db.scalars(
         select(QuestionSkill).where(QuestionSkill.question_id == question_id)

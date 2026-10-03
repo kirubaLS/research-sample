@@ -1,0 +1,347 @@
+{
+ "paper": "Unit Test, Class X Social Science (X.SST)",
+ "description": "Gold key: sections collapsed to two levels; addresses as stored (SECTION/QNO/SUBPART/CHOICE).",
+ "section_chapters": {
+  "A": {
+   "subject": "X.HIST",
+   "chapter": "X.HIST.PRINTCULTURE",
+   "label": "Print Culture and the Modern World"
+  },
+  "B": {
+   "subject": "X.GEO",
+   "chapter": "X.GEO.MINERALSENERGY",
+   "label": "Minerals and Energy Resources"
+  },
+  "C": {
+   "subject": "X.POL",
+   "chapter": "X.POL.PARTIES",
+   "label": "Political Parties"
+  },
+  "D": {
+   "subject": "X.ECO",
+   "chapter": "X.ECO.GLOBALISATION",
+   "label": "Globalisation and the Indian Economy"
+  }
+ },
+ "baseline": {
+  "assessment_id": "959e36d4-5028-42e6-922e-c69228c5c325",
+  "chapter_correct": 54,
+  "topic_exact": 54,
+  "topic_partial": 0,
+  "topic_wrong": 1,
+  "flagged": 38,
+  "wrong": [
+   "B/18//b"
+  ],
+  "note": "re-scored at two levels with B16's corrected key; B18b is the wrong chapter"
+ },
+ "targets": {
+  "chapter_correct": 55,
+  "topic_exact_min": 54,
+  "flagged_max": 8,
+  "flag_precision_min": 0.5,
+  "max_depth": 2
+ },
+ "questions": {
+  "A/1//": {
+   "exact": [
+    "2",
+    "2.1"
+   ],
+   "partial": [
+    "6.2",
+    "9"
+   ]
+  },
+  "A/2//": {
+   "exact": [
+    "8.2"
+   ],
+   "partial": [
+    "8.1",
+    "8"
+   ]
+  },
+  "A/3//": {
+   "exact": [
+    "1"
+   ]
+  },
+  "A/4//": {
+   "exact": [
+    "4"
+   ]
+  },
+  "A/5//": {
+   "exact": [
+    "3.3"
+   ]
+  },
+  "A/6//": {
+   "exact": [
+    "9"
+   ]
+  },
+  "A/7//": {
+   "exact": [
+    "2.1"
+   ]
+  },
+  "A/7//b": {
+   "exact": [
+    "2"
+   ],
+   "partial": [
+    "2.1"
+   ]
+  },
+  "A/8//": {
+   "exact": [
+    "8.1"
+   ]
+  },
+  "A/9//": {
+   "exact": [
+    "4.2"
+   ]
+  },
+  "A/9//b": {
+   "exact": [
+    "9"
+   ]
+  },
+  "A/10/10.1/": {
+   "exact": [
+    "8.2"
+   ]
+  },
+  "A/10/10.2/": {
+   "exact": [
+    "8.2"
+   ]
+  },
+  "A/10/10.3/": {
+   "exact": [
+    "8.2"
+   ]
+  },
+  "B/11//": {
+   "exact": [
+    "2.2"
+   ]
+  },
+  "B/12//": {
+   "exact": [
+    "4.1"
+   ]
+  },
+  "B/13//": {
+   "exact": [
+    "4.1"
+   ]
+  },
+  "B/14//": {
+   "exact": [
+    "4.2"
+   ]
+  },
+  "B/15//": {
+   "exact": [
+    "4.2"
+   ]
+  },
+  "B/16//": {
+   "exact": [
+    "2.2",
+    "2.3"
+   ],
+   "partial": [
+    "2"
+   ],
+   "note": "difference between ferrous and non-ferrous; the main topic is either one, with the other as secondary. Section 2 is 'Mode of Occurrence of Minerals', which is not what is asked"
+  },
+  "B/17//": {
+   "exact": [
+    "4.3"
+   ]
+  },
+  "B/18//": {
+   "exact": [
+    "4.1"
+   ]
+  },
+  "B/18//b": {
+   "exact": [
+    "2.3"
+   ],
+   "chapter": "Minerals and Energy Resources",
+   "note": "Manufacturing 3.2 acceptable only as a secondary"
+  },
+  "B/19/19.1/": {
+   "exact": [
+    "2.2"
+   ]
+  },
+  "B/19/19.2/": {
+   "exact": [
+    "4.1"
+   ]
+  },
+  "B/19/19.3/": {
+   "exact": [
+    "4.1"
+   ]
+  },
+  "B/19/19.4/": {
+   "exact": [
+    "4.1"
+   ]
+  },
+  "B/19/19.5/": {
+   "exact": [
+    "4.1"
+   ]
+  },
+  "B/19/19.6/": {
+   "exact": [
+    "4.1"
+   ]
+  },
+  "B/19/19.7/": {
+   "exact": [
+    "4.2"
+   ],
+   "partial": [
+    "4.1"
+   ]
+  },
+  "C/20//": {
+   "exact": [
+    "6"
+   ]
+  },
+  "C/21//": {
+   "exact": [
+    "3"
+   ]
+  },
+  "C/22//": {
+   "exact": [
+    "5"
+   ]
+  },
+  "C/23//": {
+   "exact": [
+    "6"
+   ]
+  },
+  "C/24//": {
+   "exact": [
+    "1.3"
+   ]
+  },
+  "C/25//": {
+   "exact": [
+    "1.2"
+   ]
+  },
+  "C/26//": {
+   "exact": [
+    "6"
+   ],
+   "partial": [
+    "5"
+   ]
+  },
+  "C/26//b": {
+   "exact": [
+    "6"
+   ]
+  },
+  "C/27//": {
+   "exact": [
+    "1.2"
+   ]
+  },
+  "C/28//": {
+   "exact": [
+    "1.3"
+   ]
+  },
+  "C/28//b": {
+   "exact": [
+    "5"
+   ]
+  },
+  "C/29/29.1/": {
+   "exact": [
+    "6"
+   ]
+  },
+  "C/29/29.2/": {
+   "exact": [
+    "6"
+   ]
+  },
+  "C/29/29.3/": {
+   "exact": [
+    "6"
+   ]
+  },
+  "D/30//": {
+   "exact": [
+    "5.2"
+   ]
+  },
+  "D/31//": {
+   "exact": [
+    "5.2"
+   ]
+  },
+  "D/32//": {
+   "exact": [
+    "4"
+   ]
+  },
+  "D/33//": {
+   "exact": [
+    "5.2"
+   ]
+  },
+  "D/34//": {
+   "exact": [
+    "3"
+   ]
+  },
+  "D/35//": {
+   "exact": [
+    "5.1"
+   ]
+  },
+  "D/36//": {
+   "exact": [
+    "4"
+   ]
+  },
+  "D/36//b": {
+   "exact": [
+    "5.2"
+   ]
+  },
+  "D/37/37.1/": {
+   "exact": [
+    "5.2"
+   ]
+  },
+  "D/37/37.2/": {
+   "exact": [
+    "5.2"
+   ]
+  },
+  "D/37/37.3/": {
+   "exact": [
+    "5.2"
+   ]
+  }
+ }
+}

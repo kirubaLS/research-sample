@@ -1,0 +1,361 @@
+DRY RUN -- nothing will be written
+
+X.HIST.NATIONALISM_EUROPE  The Rise of Nationalism in Europe  (cap 2)  REUSE 17, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.HIST.CF.INTRODUCTION                                     'Introduction'
+  REUSE   1     X.HIST.CF.FRENCH_REVOLUTION_IDEA_NATION                    'The French Revolution and the Idea of the Nation'
+  REUSE   2     X.HIST.CF.MAKING_NATIONALISM_IN_EUROPE                     'The Making of Nationalism in Europe'
+  REUSE   2.1   X.HIST.CF.ARISTOCRACY_NEW_MIDDLE_CLASS                     'The Aristocracy and the New Middle Class'
+  REUSE   2.2   X.HIST.CF.WHAT_DID_LIBERAL_NATIONALISM_STAND_FOR           'What did Liberal Nationalism Stand for?'
+  REUSE   2.3   X.HIST.CF.NEW_CONSERVATISM_AFTER_1815                      'A New Conservatism after 1815'
+  REUSE   2.4   X.HIST.CF.REVOLUTIONARIES                                  'The Revolutionaries'
+  REUSE   3     X.HIST.CF.AGE_REVOLUTIONS_1830_1848                        'The Age of Revolutions: 1830-1848'
+  REUSE   3.1   X.HIST.CF.ROMANTIC_IMAGINATION_NATIONAL_FEELING            'The Romantic Imagination and National Feeling'
+  REUSE   3.2   X.HIST.CF.HUNGER_HARDSHIP_POPULAR_REVOLT                   'Hunger, Hardship and Popular Revolt'
+  REUSE   3.3   X.HIST.CF.1848_REVOLUTION_LIBERALS                         '1848: The Revolution of the Liberals'
+  REUSE   4     X.HIST.CF.MAKING_GERMANY_ITALY                             'The Making of Germany and Italy'
+  REUSE   4.1   X.HIST.CF.GERMANY_CAN_ARMY_BE_ARCHITECT_NATION             'Germany – Can the Army be the Architect of a Nation?'
+  REUSE   4.2   X.HIST.CF.ITALY_UNIFIED                                    'Italy Unified'
+  REUSE   4.3   X.HIST.CF.STRANGE_CASE_BRITAIN                             'The Strange Case of Britain'
+  REUSE   5     X.HIST.CF.VISUALISING_NATION                               'Visualising the Nation'
+  REUSE   6     X.HIST.CF.NATIONALISM_IMPERIALISM                          'Nationalism and Imperialism'
+
+X.HIST.NATIONALISM_INDIA  Nationalism in India  (cap 2)  REUSE 14, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.HIST.CF.NATIONALISM_INDIA_INTRODUCTION                   'Introduction'
+  REUSE   1     X.HIST.CF.FIRST_WORLD_WAR_KHILAFAT_NON_COOPERATION         'The First World War, Khilafat and Non-Cooperation'
+  REUSE   1.1   X.HIST.CF.IDEA_SATYAGRAHA                                  'The Idea of Satyagraha'
+  REUSE   1.2   X.HIST.CF.ROWLATT_ACT                                      'The Rowlatt Act'
+  REUSE   1.3   X.HIST.CF.WHY_NON_COOPERATION                              'Why Non-cooperation?'
+  REUSE   2     X.HIST.CF.DIFFERING_STRANDS_WITHIN_MOVEMENT                'Differing Strands within the Movement'
+  REUSE   2.1   X.HIST.CF.MOVEMENT_IN_TOWNS                                'The Movement in the Towns'
+  REUSE   2.2   X.HIST.CF.REBELLION_IN_COUNTRYSIDE                         'Rebellion in the Countryside'
+  REUSE   2.3   X.HIST.CF.SWARAJ_IN_PLANTATIONS                            'Swaraj in the Plantations'
+  REUSE   3     X.HIST.CF.TOWARDS_CIVIL_DISOBEDIENCE                       'Towards Civil Disobedience'
+  REUSE   3.1   X.HIST.CF.SALT_MARCH_CIVIL_DISOBEDIENCE_MOVEMENT           'The Salt March and the Civil Disobedience Movement'
+  REUSE   3.2   X.HIST.CF.HOW_PARTICIPANTS_SAW_MOVEMENT                    'How Participants saw the Movement'
+  REUSE   3.3   X.HIST.CF.LIMITS_CIVIL_DISOBEDIENCE                        'The Limits of Civil Disobedience'
+  REUSE   4     X.HIST.CF.SENSE_COLLECTIVE_BELONGING                       'The Sense of Collective Belonging'
+
+X.HIST.GLOBALWORLD  The Making of a Global World  (cap 2)  REUSE 22, CREATE 1, deep families 0, REPOINT 0
+  CREATE  0     X.HIST.CF.MAKING_GLOBAL_WORLD_INTRODUCTION                 'The Making of a Global World: Introduction'
+  REUSE   1     X.HIST.CF.PRE_MODERN_WORLD                                 'The Pre-modern World'
+  REUSE   1.1   X.HIST.CF.SILK_ROUTES_LINK_WORLD                           'Silk Routes Link the World'
+  REUSE   1.2   X.HIST.CF.FOOD_TRAVELS_SPAGHETTI_POTATO                    'Food Travels: Spaghetti and Potato'
+  REUSE   1.3   X.HIST.CF.CONQUEST_DISEASE_TRADE                           'Conquest, Disease and Trade'
+  REUSE   2     X.HIST.CF.NINETEENTH_CENTURY_1815_1914                     'The Nineteenth Century (1815-1914)'
+  REUSE   2.1   X.HIST.CF.WORLD_ECONOMY_TAKES_SHAPE                        'A World Economy Takes Shape'
+  REUSE   2.2   X.HIST.CF.ROLE_TECHNOLOGY                                  'Role of Technology'
+  REUSE   2.3   X.HIST.CF.LATE_NINETEENTH_CENTURY_COLONIALISM              'Late nineteenth-century Colonialism'
+  REUSE   2.4   X.HIST.CF.RINDERPEST_OR_CATTLE_PLAGUE                      'Rinderpest, or the Cattle Plague'
+  REUSE   2.5   X.HIST.CF.INDIAN_ENTREPRENEURS_ABROAD                      'Indian Entrepreneurs Abroad'
+  REUSE   2.6   X.HIST.CF.INDIAN_TRADE_COLONIALISM_GLOBAL_SYSTEM           'Indian Trade, Colonialism and the Global System'
+  REUSE   3     X.HIST.CF.INTER_WAR_ECONOMY                                'The Inter-war Economy'
+  REUSE   3.1   X.HIST.CF.WARTIME_TRANSFORMATIONS                          'Wartime Transformations'
+  REUSE   3.2   X.HIST.CF.POST_WAR_RECOVERY                                'Post-war Recovery'
+  REUSE   3.3   X.HIST.CF.RISE_MASS_PRODUCTION_CONSUMPTION                 'Rise of Mass Production and Consumption'
+  REUSE   3.4   X.HIST.CF.GREAT_DEPRESSION                                 'The Great Depression'
+  REUSE   3.5   X.HIST.CF.INDIA_GREAT_DEPRESSION                           'India and the Great Depression'
+  REUSE   4     X.HIST.CF.REBUILDING_WORLD_ECONOMY_POST_WAR_ERA            'Rebuilding a World Economy: The Post-war Era'
+  REUSE   4.1   X.HIST.CF.POST_WAR_SETTLEMENT_BRETTON_WOODS_INSTITUTIONS   'Post-war Settlement and the Bretton Woods Institutions'
+  REUSE   4.2   X.HIST.CF.EARLY_POST_WAR_YEARS                             'The Early Post-war Years'
+  REUSE   4.3   X.HIST.CF.DECOLONISATION_INDEPENDENCE                      'Decolonisation and Independence'
+  REUSE   4.4   X.HIST.CF.END_BRETTON_WOODS_BEGINNING_GLOBALISATION        'End of Bretton Woods and the Beginning of ‘Globalisation’'
+
+X.HIST.INDUSTRIALISATION  The Age of Industrialisation  (cap 2)  REUSE 16, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.HIST.CF.INDUSTRIALISATION_INTRODUCTION                   'Introduction'
+  REUSE   1     X.HIST.CF.BEFORE_INDUSTRIAL_REVOLUTION                     'Before the Industrial Revolution'
+  REUSE   1.1   X.HIST.CF.COMING_UP_FACTORY                                'The Coming Up of the Factory'
+  REUSE   1.2   X.HIST.CF.PACE_INDUSTRIAL_CHANGE                           'The Pace of Industrial Change'
+  REUSE   2     X.HIST.CF.HAND_LABOUR_STEAM_POWER                          'Hand Labour and Steam Power'
+  REUSE   2.1   X.HIST.CF.LIFE_WORKERS                                     'Life of the Workers'
+  REUSE   3     X.HIST.CF.INDUSTRIALISATION_IN_COLONIES                    'Industrialisation in the Colonies'
+  REUSE   3.1   X.HIST.CF.AGE_INDIAN_TEXTILES                              'The Age of Indian Textiles'
+  REUSE   3.2   X.HIST.CF.WHAT_HAPPENED_TO_WEAVERS                         'What Happened to Weavers?'
+  REUSE   3.3   X.HIST.CF.MANCHESTER_COMES_TO_INDIA                        'Manchester Comes to India'
+  REUSE   4     X.HIST.CF.FACTORIES_COME_UP                                'Factories Come Up'
+  REUSE   4.1   X.HIST.CF.EARLY_ENTREPRENEURS                              'The Early Entrepreneurs'
+  REUSE   4.2   X.HIST.CF.WHERE_DID_WORKERS_COME_FROM                      'Where Did the Workers Come From?'
+  REUSE   5     X.HIST.CF.PECULIARITIES_INDUSTRIAL_GROWTH                  'The Peculiarities of Industrial Growth'
+  REUSE   5.1   X.HIST.CF.SMALL_SCALE_INDUSTRIES_PREDOMINATE               'Small-scale Industries Predominate'
+  REUSE   6     X.HIST.CF.MARKET_FOR_GOODS                                 'Market for Goods'
+
+X.HIST.PRINTCULTURE  Print Culture and the Modern World  (cap 2)  REUSE 23, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.HIST.CF.PRINTCULTURE_INTRODUCTION                        'Introduction'
+  REUSE   1     X.HIST.CF.FIRST_PRINTED_BOOKS                              'The First Printed Books'
+  REUSE   1.1   X.HIST.CF.PRINT_IN_JAPAN                                   'Print in Japan'
+  REUSE   2     X.HIST.CF.PRINT_COMES_TO_EUROPE                            'Print Comes to Europe'
+  REUSE   2.1   X.HIST.CF.GUTENBERG_PRINTING_PRESS                         'Gutenberg and the Printing Press'
+  REUSE   3     X.HIST.CF.PRINT_REVOLUTION_ITS_IMPACT                      'The Print Revolution and Its Impact'
+  REUSE   3.1   X.HIST.CF.NEW_READING_PUBLIC                               'A New Reading Public'
+  REUSE   3.2   X.HIST.CF.RELIGIOUS_DEBATES_FEAR_PRINT                     'Religious Debates and the Fear of Print'
+  REUSE   3.3   X.HIST.CF.PRINT_DISSENT                                    'Print and Dissent'
+  REUSE   4     X.HIST.CF.READING_MANIA                                    'The Reading Mania'
+  REUSE   4.1   X.HIST.CF.TREMBLE_THEREFORE_TYRANTS_WORLD                  '‘Tremble, therefore, tyrants of the world!’'
+  REUSE   4.2   X.HIST.CF.PRINT_CULTURE_FRENCH_REVOLUTION                  'Print Culture and the French Revolution'
+  REUSE   5     X.HIST.CF.NINETEENTH_CENTURY                               'The Nineteenth Century'
+  REUSE   5.1   X.HIST.CF.CHILDREN_WOMEN_WORKERS                           'Children, Women and Workers'
+  REUSE   5.2   X.HIST.CF.FURTHER_INNOVATIONS                              'Further Innovations'
+  REUSE   6     X.HIST.CF.INDIA_WORLD_PRINT                                'India and the World of Print'
+  REUSE   6.1   X.HIST.CF.MANUSCRIPTS_BEFORE_AGE_PRINT                     'Manuscripts Before the Age of Print'
+  REUSE   6.2   X.HIST.CF.PRINT_COMES_TO_INDIA                             'Print Comes to India'
+  REUSE   7     X.HIST.CF.RELIGIOUS_REFORM_PUBLIC_DEBATES                  'Religious Reform and Public Debates'
+  REUSE   8     X.HIST.CF.NEW_FORMS_PUBLICATION                            'New Forms of Publication'
+  REUSE   8.1   X.HIST.CF.WOMEN_PRINT                                      'Women and Print'
+  REUSE   8.2   X.HIST.CF.PRINT_POOR_PEOPLE                                'Print and the Poor People'
+  REUSE   9     X.HIST.CF.PRINT_CENSORSHIP                                 'Print and Censorship'
+
+X.GEO.RESOURCES  Resources and Development  (cap 2)  REUSE 12, CREATE 0, deep families 6, REPOINT 0
+  REUSE   0     X.GEO.CF.INTRODUCTION                                      'Introduction'
+  REUSE   1     X.GEO.CF.DEVELOPMENT_RESOURCES                             'Development of Resources'
+  REUSE   2     X.GEO.CF.RESOURCE_PLANNING                                 'Resource Planning'
+  REUSE   2.1   X.GEO.CF.RESOURCE_PLANNING_IN_INDIA                        'Resource Planning in India'
+  REUSE   2.2   X.GEO.CF.CONSERVATION_RESOURCES                            'Conservation of Resources'
+  REUSE   3     X.GEO.CF.LAND_RESOURCES                                    'Land Resources'
+  REUSE   4     X.GEO.CF.LAND_UTILISATION                                  'Land Utilisation'
+  REUSE   5     X.GEO.CF.LAND_USE_PATTERN_IN_INDIA                         'Land Use Pattern in India'
+  REUSE   6     X.GEO.CF.LAND_DEGRADATION_CONSERVATION_MEASURES            'Land Degradation and Conservation Measures'
+  REUSE   7     X.GEO.CF.SOIL_AS_RESOURCE                                  'Soil as a Resource'
+  REUSE   7.1   X.GEO.CF.CLASSIFICATION_SOILS                              'Classification of Soils'
+  REUSE   7.2   X.GEO.CF.SOIL_EROSION_SOIL_CONSERVATION                    'Soil Erosion and Soil Conservation'
+  deep    X.GEO.CF.ALLUVIAL_SOILS                                          -> major topic 7.1 (kept, unused)
+  deep    X.GEO.CF.ARID_SOILS                                              -> major topic 7.1 (kept, unused)
+  deep    X.GEO.CF.BLACK_SOIL                                              -> major topic 7.1 (kept, unused)
+  deep    X.GEO.CF.FOREST_SOILS                                            -> major topic 7.1 (kept, unused)
+  deep    X.GEO.CF.LATERITE_SOIL                                           -> major topic 7.1 (kept, unused)
+  deep    X.GEO.CF.RED_YELLOW_SOILS                                        -> major topic 7.1 (kept, unused)
+
+X.GEO.FORESTWILDLIFE  Forest and Wildlife Resources  (cap 2)  REUSE 8, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.GEO.CF.FORESTWILDLIFE_INTRODUCTION                       'Introduction'
+  REUSE   1     X.GEO.CF.FLORA_FAUNA_IN_INDIA                              'Flora and Fauna in India'
+  REUSE   2     X.GEO.CF.CONSERVATION_FOREST_WILDLIFE_IN_INDIA             'Conservation of Forest and Wildlife in India'
+  REUSE   3     X.GEO.CF.TYPES_DISTRIBUTION_FOREST_CF497C                  'Types and Distribution of Forest and Wildlife Resources'
+  REUSE   3.1   X.GEO.CF.RESERVED_FORESTS                                  'Reserved Forests'
+  REUSE   3.2   X.GEO.CF.PROTECTED_FORESTS                                 'Protected Forests'
+  REUSE   3.3   X.GEO.CF.UNCLASSED_FORESTS                                 'Unclassed Forests'
+  REUSE   4     X.GEO.CF.COMMUNITY_CONSERVATION                            'Community and Conservation'
+
+X.GEO.WATER  Water Resources  (cap 2)  REUSE 5, CREATE 0, deep families 2, REPOINT 0
+  REUSE   0     X.GEO.CF.WATER_INTRODUCTION                                'Introduction'
+  REUSE   1     X.GEO.CF.WATER_SCARCITY_NEED_FOR_WATER_813349              'Water Scarcity and the Need for Water Conservation and Management'
+  REUSE   2     X.GEO.CF.MULTI_PURPOSE_RIVER_PROJECTS_INTEGRATED_WATER_RESOURCES_MANAGEMENT 'Multi-purpose River Projects and Integrated Water Resources Management'
+  REUSE   3     X.GEO.CF.RAINWATER_HARVESTING                              'Rainwater Harvesting'
+  REUSE   4     X.GEO.CF.BAMBOO_DRIP_IRRIGATION_SYSTEM                     'Bamboo Drip Irrigation System'
+  deep    X.GEO.CF.ATAL_BHUJAL_YOJANA_ATAL_JAL                             -> major topic 1 (kept, unused)
+  deep    X.GEO.CF.SARDAR_SAROVAR_DAM                                      -> major topic 2 (kept, unused)
+
+X.GEO.AGRICULTURE  Agriculture  (cap 2)  REUSE 8, CREATE 0, deep families 16, REPOINT 0
+  REUSE   0     X.GEO.CF.AGRICULTURE_INTRODUCTION                          'Introduction'
+  REUSE   1     X.GEO.CF.TYPES_FARMING                                     'Types of Farming'
+  REUSE   1.1   X.GEO.CF.PRIMITIVE_SUBSISTENCE_FARMING                     'Primitive Subsistence Farming'
+  REUSE   1.2   X.GEO.CF.INTENSIVE_SUBSISTENCE_FARMING                     'Intensive Subsistence Farming'
+  REUSE   1.3   X.GEO.CF.COMMERCIAL_FARMING                                'Commercial Farming'
+  REUSE   2     X.GEO.CF.CROPPING_PATTERN                                  'Cropping Pattern'
+  REUSE   2.1   X.GEO.CF.MAJOR_CROPS                                       'Major Crops'
+  REUSE   3     X.GEO.CF.TECHNOLOGICAL_INSTITUTIONAL_REFORMS               'Technological and Institutional Reforms'
+  deep    X.GEO.CF.COFFEE                                                  -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.COTTON                                                  -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.FIBRE_CROPS                                             -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.FOOD_CROPS_OTHER_THAN_GRAINS                            -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.HORTICULTURE_CROPS                                      -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.JUTE                                                    -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.MAIZE                                                   -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.MILLETS                                                 -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.NON_FOOD_CROPS                                          -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.OIL_SEEDS                                               -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.PULSES                                                  -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.RICE                                                    -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.RUBBER                                                  -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.SUGARCANE                                               -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.TEA                                                     -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.WHEAT                                                   -> major topic 2.1 (kept, unused)
+
+X.GEO.MINERALSENERGY  Minerals and Energy Resources  (cap 2)  REUSE 12, CREATE 0, deep families 15, REPOINT 2
+  REUSE   0     X.GEO.CF.MINERALSENERGY_INTRODUCTION                       'Introduction'
+  REUSE   1     X.GEO.CF.WHAT_IS_MINERAL                                   'What is a mineral?'
+  REUSE   2     X.GEO.CF.MODE_OCCURRENCE_MINERALS                          'Mode of Occurrence of Minerals'
+  REUSE   2.2   X.GEO.CF.FERROUS_MINERALS                                  'Ferrous Minerals'
+  REUSE   2.3   X.GEO.CF.NON_FERROUS_MINERALS                              'Non-Ferrous Minerals'
+  REUSE   2.4   X.GEO.CF.NON_METALLIC_MINERALS                             'Non-Metallic Minerals'
+  REUSE   2.5   X.GEO.CF.ROCK_MINERALS                                     'Rock Minerals'
+  REUSE   3     X.GEO.CF.CONSERVATION_MINERALS                             'Conservation of Minerals'
+  REUSE   4     X.GEO.CF.ENERGY_RESOURCES                                  'Energy Resources'
+  REUSE   4.1   X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY                       'Conventional Sources of Energy'
+  REUSE   4.2   X.GEO.CF.NON_CONVENTIONAL_SOURCES_ENERGY                   'Non-Conventional Sources of Energy'
+  REUSE   4.3   X.GEO.CF.CONSERVATION_ENERGY_RESOURCES                     'Conservation of Energy Resources'
+  deep    X.GEO.CF.BAUXITE                                                 -> major topic 2.3 (kept, unused)
+  deep    X.GEO.CF.BIOGAS                                                  -> major topic 4.2 (kept, unused)
+  deep    X.GEO.CF.COAL                                                    -> major topic 4.1 (kept, unused)
+  deep    X.GEO.CF.COPPER                                                  -> major topic 2.3 (kept, unused)
+  deep    X.GEO.CF.ELECTRICITY                                             -> major topic 4.1 (kept, unused)
+  deep    X.GEO.CF.GEO_THERMAL_ENERGY                                      -> major topic 4.2 (kept, unused)
+  deep    X.GEO.CF.IRON_ORE                                                -> major topic 2.2 (kept, unused)
+  deep    X.GEO.CF.MANGANESE                                               -> major topic 2.2 (kept, unused)
+  deep    X.GEO.CF.NATURAL_GAS                                             -> major topic 4.1 (kept, unused)
+  deep    X.GEO.CF.NUCLEAR_OR_ATOMIC_ENERGY                                -> major topic 4.2 (kept, unused)
+  deep    X.GEO.CF.PETROLEUM                                               -> major topic 4.1 (kept, unused)
+  deep    X.GEO.CF.RAT_HOLE_MINING                                         -> major topic 2 (kept, unused)
+  deep    X.GEO.CF.SOLAR_ENERGY                                            -> major topic 4.2 (kept, unused)
+  deep    X.GEO.CF.TIDAL_ENERGY                                            -> major topic 4.2 (kept, unused)
+  deep    X.GEO.CF.WIND_POWER                                              -> major topic 4.2 (kept, unused)
+  REPOINT question B/19/19.3/   X.GEO.CF.PETROLEUM -> X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY (section 4.1)
+  REPOINT question B/16//       X.GEO.CF.RAT_HOLE_MINING -> X.GEO.CF.MODE_OCCURRENCE_MINERALS (section 2)
+
+X.GEO.MANUFACTURING  Manufacturing Industries  (cap 2)  REUSE 15, CREATE 0, deep families 2, REPOINT 0
+  REUSE   0     X.GEO.CF.MANUFACTURING_INTRODUCTION                        'Introduction'
+  REUSE   1     X.GEO.CF.IMPORTANCE_MANUFACTURING                          'Importance of Manufacturing'
+  REUSE   2     X.GEO.CF.AGRO_BASED_INDUSTRIES                             'Agro-based Industries'
+  REUSE   2.1   X.GEO.CF.TEXTILE_INDUSTRY                                  'Textile Industry'
+  REUSE   2.2   X.GEO.CF.SUGAR_INDUSTRY                                    'Sugar Industry'
+  REUSE   3     X.GEO.CF.MINERAL_BASED_INDUSTRIES                          'Mineral-based Industries'
+  REUSE   3.1   X.GEO.CF.IRON_STEEL_INDUSTRY                               'Iron and Steel Industry'
+  REUSE   3.2   X.GEO.CF.ALUMINIUM_SMELTING                                'Aluminium Smelting'
+  REUSE   3.3   X.GEO.CF.CHEMICAL_INDUSTRIES                               'Chemical Industries'
+  REUSE   3.4   X.GEO.CF.FERTILIZER_INDUSTRY                               'Fertilizer Industry'
+  REUSE   3.5   X.GEO.CF.CEMENT_INDUSTRY                                   'Cement Industry'
+  REUSE   3.6   X.GEO.CF.AUTOMOBILE_INDUSTRY                               'Automobile Industry'
+  REUSE   3.7   X.GEO.CF.INFORMATION_TECHNOLOGY_ELECTRONICS_INDUSTRY       'Information Technology and Electronics Industry'
+  REUSE   4     X.GEO.CF.INDUSTRIAL_POLLUTION_ENVIRONMENTAL_DEGRADATION    'Industrial Pollution and Environmental Degradation'
+  REUSE   5     X.GEO.CF.CONTROL_ENVIRONMENTAL_DEGRADATION                 'Control of Environmental Degradation'
+  deep    X.GEO.CF.COTTON_TEXTILES                                         -> major topic 2.1 (kept, unused)
+  deep    X.GEO.CF.JUTE_TEXTILES                                           -> major topic 2.1 (kept, unused)
+
+X.GEO.LIFELINES  Lifelines of National Economy  (cap 2)  REUSE 11, CREATE 0, deep families 8, REPOINT 0
+  REUSE   0     X.GEO.CF.LIFELINES_INTRODUCTION                            'Introduction'
+  REUSE   1     X.GEO.CF.TRANSPORT                                         'Transport'
+  REUSE   1.1   X.GEO.CF.ROADWAYS                                          'Roadways'
+  REUSE   1.2   X.GEO.CF.RAILWAYS                                          'Railways'
+  REUSE   1.3   X.GEO.CF.PIPELINES                                         'Pipelines'
+  REUSE   1.4   X.GEO.CF.WATERWAYS                                         'Waterways'
+  REUSE   1.5   X.GEO.CF.MAJOR_SEA_PORTS                                   'Major Sea Ports'
+  REUSE   1.6   X.GEO.CF.AIRWAYS                                           'Airways'
+  REUSE   2     X.GEO.CF.COMMUNICATION                                     'Communication'
+  REUSE   3     X.GEO.CF.INTERNATIONAL_TRADE                               'International Trade'
+  REUSE   4     X.GEO.CF.TOURISM_AS_TRADE                                  'Tourism as a Trade'
+  deep    X.GEO.CF.BORDER_ROADS                                            -> major topic 1.1 (kept, unused)
+  deep    X.GEO.CF.DIGITAL_INDIA                                           -> major topic 1 (kept, unused)
+  deep    X.GEO.CF.DISTRICT_ROADS                                          -> major topic 1.1 (kept, unused)
+  deep    X.GEO.CF.GOLDEN_QUADRILATERAL_SUPER_HIGHWAYS                     -> major topic 1.1 (kept, unused)
+  deep    X.GEO.CF.NATIONAL_HIGHWAYS                                       -> major topic 1.1 (kept, unused)
+  deep    X.GEO.CF.OTHER_ROADS                                             -> major topic 1.1 (kept, unused)
+  deep    X.GEO.CF.REGIONAL_CONNECTIVITY_SCHEME_RCS_UDAN                   -> major topic 1.6 (kept, unused)
+  deep    X.GEO.CF.STATE_HIGHWAYS                                          -> major topic 1.1 (kept, unused)
+
+X.POL.POWERSHARING  Power-sharing  (cap 2)  REUSE 6, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.POL.CF.OVERVIEW                                          'Overview'
+  REUSE   1     X.POL.CF.BELGIUM_SRI_LANKA                                 'Belgium and Sri Lanka'
+  REUSE   2     X.POL.CF.MAJORITARIANISM_IN_SRI_LANKA                      'Majoritarianism in Sri Lanka'
+  REUSE   3     X.POL.CF.ACCOMMODATION_IN_BELGIUM                          'Accommodation in Belgium'
+  REUSE   3.1   X.POL.CF.WHY_POWER_SHARING_IS_DESIRABLE                    'Why power sharing is desirable?'
+  REUSE   4     X.POL.CF.FORMS_POWER_SHARING                               'Forms of power-sharing'
+
+X.POL.FEDERALISM  Federalism  (cap 2)  REUSE 8, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.POL.CF.FEDERALISM_OVERVIEW                               'Overview'
+  REUSE   1     X.POL.CF.WHAT_IS_FEDERALISM                                'What is federalism?'
+  REUSE   2     X.POL.CF.WHAT_MAKES_INDIA_FEDERAL_COUNTRY                  'What makes India a federal country?'
+  REUSE   3     X.POL.CF.HOW_IS_FEDERALISM_PRACTISED                       'How is federalism practised?'
+  REUSE   3.1   X.POL.CF.LINGUISTIC_STATES                                 'Linguistic States'
+  REUSE   3.2   X.POL.CF.LANGUAGE_POLICY                                   'Language policy'
+  REUSE   3.3   X.POL.CF.CENTRE_STATE_RELATIONS                            'Centre-State relations'
+  REUSE   4     X.POL.CF.DECENTRALISATION_IN_INDIA                         'Decentralisation in India'
+
+X.POL.GENDERRELIGIONCASTE  Gender, Religion and Caste  (cap 2)  REUSE 11, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.POL.CF.GENDERRELIGIONCASTE_OVERVIEW                      'Overview'
+  REUSE   1     X.POL.CF.GENDER_POLITICS                                   'Gender and politics'
+  REUSE   1.1   X.POL.CF.PUBLIC_PRIVATE_DIVISION                           'Public/private division'
+  REUSE   1.2   X.POL.CF.WOMEN_S_POLITICAL_REPRESENTATION                  'Women’s political representation'
+  REUSE   2     X.POL.CF.RELIGION_COMMUNALISM_POLITICS                     'Religion, communalism and politics'
+  REUSE   2.1   X.POL.CF.COMMUNALISM                                       'Communalism'
+  REUSE   2.2   X.POL.CF.SECULAR_STATE                                     'Secular state'
+  REUSE   3     X.POL.CF.CASTE_POLITICS                                    'Caste and politics'
+  REUSE   3.1   X.POL.CF.CASTE_INEQUALITIES                                'Caste inequalities'
+  REUSE   3.2   X.POL.CF.CASTE_IN_POLITICS                                 'Caste in politics'
+  REUSE   3.3   X.POL.CF.POLITICS_IN_CASTE                                 'Politics in caste'
+
+X.POL.PARTIES  Political Parties  (cap 2)  REUSE 10, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.POL.CF.PARTIES_OVERVIEW                                  'Overview'
+  REUSE   1     X.POL.CF.WHY_DO_WE_NEED_POLITICAL_PARTIES                  'Why do we need political parties?'
+  REUSE   1.1   X.POL.CF.MEANING                                           'Meaning'
+  REUSE   1.2   X.POL.CF.FUNCTIONS                                         'Functions'
+  REUSE   1.3   X.POL.CF.NECESSITY                                         'Necessity'
+  REUSE   2     X.POL.CF.HOW_MANY_PARTIES_SHOULD_WE_HAVE                   'How many parties should we have?'
+  REUSE   3     X.POL.CF.NATIONAL_PARTIES                                  'National parties'
+  REUSE   4     X.POL.CF.STATE_PARTIES                                     'State parties'
+  REUSE   5     X.POL.CF.CHALLENGES_POLITICAL_PARTIES                      'Challenges to political parties'
+  REUSE   6     X.POL.CF.HOW_CAN_PARTIES_BE_REFORMED                       'How can parties be reformed?'
+
+X.POL.OUTCOMES  Outcomes of Democracy  (cap 2)  REUSE 7, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.POL.CF.OUTCOMES_OVERVIEW                                 'Overview'
+  REUSE   1     X.POL.CF.HOW_DO_WE_ASSESS_DEMOCRACY_S_OUTCOMES             'How do we assess democracy’s outcomes?'
+  REUSE   2     X.POL.CF.ACCOUNTABLE_RESPONSIVE_LEGITIMATE_6070F3          'Accountable, responsive and legitimate government'
+  REUSE   3     X.POL.CF.ECONOMIC_GROWTH_DEVELOPMENT                       'Economic growth and development'
+  REUSE   4     X.POL.CF.REDUCTION_INEQUALITY_POVERTY                      'Reduction of inequality and poverty'
+  REUSE   5     X.POL.CF.ACCOMMODATION_SOCIAL_DIVERSITY                    'Accommodation of social diversity'
+  REUSE   6     X.POL.CF.DIGNITY_FREEDOM_CITIZENS                          'Dignity and freedom of the citizens'
+
+X.ECO.DEVELOPMENT  Development  (cap 2)  REUSE 8, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.ECO.CF.INTRODUCTION                                      'Introduction'
+  REUSE   1     X.ECO.CF.WHAT_DEVELOPMENT_PROMISES_DIFFERENT_PEOPLE_DIFFERENT_GOALS 'WHAT DEVELOPMENT PROMISES — DIFFERENT PEOPLE, DIFFERENT GOALS'
+  REUSE   2     X.ECO.CF.INCOME_OTHER_GOALS                                'INCOME AND OTHER GOALS'
+  REUSE   3     X.ECO.CF.NATIONAL_DEVELOPMENT                              'NATIONAL DEVELOPMENT'
+  REUSE   4     X.ECO.CF.HOW_TO_COMPARE_DIFFERENT_COUNTRIES_OR_STATES      'HOW TO COMPARE DIFFERENT COUNTRIES OR STATES?'
+  REUSE   5     X.ECO.CF.INCOME_OTHER_CRITERIA                             'INCOME AND OTHER CRITERIA'
+  REUSE   6     X.ECO.CF.PUBLIC_FACILITIES                                 'PUBLIC FACILITIES'
+  REUSE   7     X.ECO.CF.SUSTAINABILITY_DEVELOPMENT                        'SUSTAINABILITY OF DEVELOPMENT'
+
+X.ECO.SECTORS  Sectors of the Indian Economy  (cap 2)  REUSE 12, CREATE 1, deep families 0, REPOINT 0
+  CREATE  0     X.ECO.CF.SECTORS_INDIAN_ECONOMY_INTRODUCTION               'Sectors of the Indian Economy: Introduction'
+  REUSE   1     X.ECO.CF.SECTORS_ECONOMIC_ACTIVITIES                       'SECTORS OF ECONOMIC ACTIVITIES'
+  REUSE   2     X.ECO.CF.COMPARING_THREE_SECTORS                           'COMPARING THE THREE SECTORS'
+  REUSE   2.1   X.ECO.CF.HOW_DO_WE_COUNT_GOODS_SERVICES_TOTAL_PRODUCTION_EACH_SECTOR 'How do we count the various goods and services and know the total production in each sector?'
+  REUSE   2.2   X.ECO.CF.HISTORICAL_CHANGE_IN_SECTORS                      'Historical Change in Sectors'
+  REUSE   3     X.ECO.CF.PRIMARY_SECONDARY_TERTIARY_SECTORS_IN_INDIA       'PRIMARY, SECONDARY AND TERTIARY SECTORS IN INDIA'
+  REUSE   3.1   X.ECO.CF.RISING_IMPORTANCE_TERTIARY_SECTOR_IN_PRODUCTION   'Rising Importance of the Tertiary Sector in Production'
+  REUSE   3.2   X.ECO.CF.WHERE_ARE_MOST_PEOPLE_EMPLOYED                    'Where are most of the people employed?'
+  REUSE   3.3   X.ECO.CF.HOW_TO_CREATE_MORE_EMPLOYMENT                     'How to Create More Employment?'
+  REUSE   4     X.ECO.CF.DIVISION_SECTORS_AS_ORGANISED_UNORGANISED         'DIVISION OF SECTORS AS ORGANISED AND UNORGANISED'
+  REUSE   4.1   X.ECO.CF.HOW_TO_PROTECT_WORKERS_IN_UNORGANISED_SECTOR      'How to Protect Workers in the Unorganised Sector?'
+  REUSE   5     X.ECO.CF.SECTORS_IN_TERMS_OWNERSHIP_PUBLIC_PRIVATE_SECTORS 'SECTORS IN TERMS OF OWNERSHIP: PUBLIC AND PRIVATE SECTORS'
+  REUSE   6     X.ECO.CF.SUMMING_UP                                        'SUMMING UP'
+
+X.ECO.MONEYCREDIT  Money and Credit  (cap 2)  REUSE 11, CREATE 1, deep families 0, REPOINT 0
+  CREATE  0     X.ECO.CF.MONEY_CREDIT_INTRODUCTION                         'Money and Credit: Introduction'
+  REUSE   1     X.ECO.CF.MONEY_AS_MEDIUM_EXCHANGE                          'MONEY AS A MEDIUM OF EXCHANGE'
+  REUSE   2     X.ECO.CF.MODERN_FORMS_MONEY                                'MODERN FORMS OF MONEY'
+  REUSE   2.1   X.ECO.CF.CURRENCY                                          'Currency'
+  REUSE   2.2   X.ECO.CF.DEPOSITS_WITH_BANKS                               'Deposits with Banks'
+  REUSE   3     X.ECO.CF.LOAN_ACTIVITIES_BANKS                             'LOAN ACTIVITIES OF BANKS'
+  REUSE   4     X.ECO.CF.TWO_DIFFERENT_CREDIT_SITUATIONS                   'TWO DIFFERENT CREDIT SITUATIONS'
+  REUSE   5     X.ECO.CF.TERMS_CREDIT                                      'TERMS OF CREDIT'
+  REUSE   6     X.ECO.CF.FORMAL_SECTOR_CREDIT_IN_INDIA                     'FORMAL SECTOR CREDIT IN INDIA'
+  REUSE   6.1   X.ECO.CF.FORMAL_INFORMAL_CREDIT_WHO_GETS_WHAT              'Formal and Informal Credit: Who gets what?'
+  REUSE   7     X.ECO.CF.SELF_HELP_GROUPS_FOR_POOR                         'SELF-HELP GROUPS FOR THE POOR'
+  REUSE   8     X.ECO.CF.MONEYCREDIT_SUMMING_UP                            'SUMMING UP'
+
+X.ECO.GLOBALISATION  Globalisation and the Indian Economy  (cap 2)  REUSE 14, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.ECO.CF.GLOBALISATION_INTRODUCTION                        'Introduction'
+  REUSE   1     X.ECO.CF.PRODUCTION_ACROSS_COUNTRIES                       'PRODUCTION ACROSS COUNTRIES'
+  REUSE   2     X.ECO.CF.INTERLINKING_PRODUCTION_ACROSS_COUNTRIES          'INTERLINKING PRODUCTION ACROSS COUNTRIES'
+  REUSE   3     X.ECO.CF.FOREIGN_TRADE_INTEGRATION_MARKETS                 'FOREIGN TRADE AND INTEGRATION OF MARKETS'
+  REUSE   4     X.ECO.CF.WHAT_IS_GLOBALISATION                             'WHAT IS GLOBALISATION?'
+  REUSE   5     X.ECO.CF.FACTORS_THAT_HAVE_ENABLED_GLOBALISATION           'FACTORS THAT HAVE ENABLED GLOBALISATION'
+  REUSE   5.1   X.ECO.CF.TECHNOLOGY                                        'Technology'
+  REUSE   5.2   X.ECO.CF.LIBERALISATION_FOREIGN_TRADE_FOREIGN_INVESTMENT_POLICY 'Liberalisation of foreign trade and foreign investment policy'
+  REUSE   6     X.ECO.CF.WORLD_TRADE_ORGANISATION                          'WORLD TRADE ORGANISATION'
+  REUSE   7     X.ECO.CF.IMPACT_GLOBALISATION_IN_INDIA                     'IMPACT OF GLOBALISATION IN INDIA'
+  REUSE   7.1   X.ECO.CF.SMALL_PRODUCERS_COMPETE_OR_PERISH                 'Small producers: Compete or perish'
+  REUSE   7.2   X.ECO.CF.COMPETITION_UNCERTAIN_EMPLOYMENT                  'Competition and Uncertain Employment'
+  REUSE   8     X.ECO.CF.STRUGGLE_FOR_FAIR_GLOBALISATION                   'THE STRUGGLE FOR A FAIR GLOBALISATION'
+  REUSE   9     X.ECO.CF.GLOBALISATION_SUMMING_UP                          'SUMMING UP'
+
+X.ECO.CONSUMERRIGHTS  Consumer Rights  (cap 2)  REUSE 10, CREATE 0, deep families 0, REPOINT 0
+  REUSE   0     X.ECO.CF.CONSUMERRIGHTS_INTRODUCTION                       'Introduction'
+  REUSE   1     X.ECO.CF.CONSUMER_IN_MARKETPLACE                           'THE CONSUMER IN THE MARKETPLACE'
+  REUSE   2     X.ECO.CF.CONSUMER_MOVEMENT                                 'CONSUMER MOVEMENT'
+  REUSE   3     X.ECO.CF.CONSUMER_RIGHTS                                   'CONSUMER RIGHTS'
+  REUSE   3.1   X.ECO.CF.SAFETY_IS_EVERYONES_RIGHT                         'SAFETY IS EVERYONE’S RIGHT'
+  REUSE   3.2   X.ECO.CF.INFORMATION_ABOUT_GOODS_SERVICES                  'Information about goods and services'
+  REUSE   3.3   X.ECO.CF.WHEN_CHOICE_IS_DENIED                             'When choice is denied'
+  REUSE   3.4   X.ECO.CF.WHERE_SHOULD_CONSUMERS_GO_TO_GET_JUSTICE          'Where should consumers go to get justice?'
+  REUSE   3.5   X.ECO.CF.LEARNING_TO_BECOME_WELL_INFORMED_CONSUMERS        'LEARNING TO BECOME WELL-INFORMED CONSUMERS'
+  REUSE   4     X.ECO.CF.TAKING_CONSUMER_MOVEMENT_FORWARD                  'TAKING THE CONSUMER MOVEMENT FORWARD'
+
+TOTAL REUSE 260, deep families 49, REPOINT 2, board questions left alone 0, CREATE 3

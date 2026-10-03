@@ -54,6 +54,7 @@ def choose_family(
     section: str | None,
     chapter_label: str,
     prefer_label: str | None = None,
+    exact_sections_of: Mapping[str, set[str]] | None = None,
 ) -> Choice:
     """Which family of a chapter a question in ``section`` belongs to.
 
@@ -80,6 +81,12 @@ def choose_family(
     claimants = [
         f for f in candidates if section and section in sections_of.get(f.code, set())
     ]
+    if exact_sections_of is not None and len(claimants) > 1:
+        # topic_depth_cap: several families can claim one major topic once their
+        # sections are cut; the one whose own claim IS that topic wins outright
+        exact = [f for f in claimants if section in exact_sections_of.get(f.code, set())]
+        if exact:
+            claimants = exact
     if len(claimants) == 1:
         return Choice(claimants[0])
     if claimants and prefer_label:

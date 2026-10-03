@@ -384,7 +384,9 @@ def locate(
     )
 
 
-def full_chapter_evidence(node_id: str, pool: list, question: str) -> list[Candidate]:
+def full_chapter_evidence(
+    node_id: str, pool: list, question: str, section_key=None,
+) -> list[Candidate]:
     """One passage per real section of ``node_id``, independent of any scored top-K.
 
     ``locate()``'s own evidence is a guess at what is worth showing the judge: it takes
@@ -416,6 +418,9 @@ def full_chapter_evidence(node_id: str, pool: list, question: str) -> list[Candi
         section = getattr(c, "section_number", None)
         if not section:
             continue
+        if section_key is not None:
+            # topic_depth_cap: one passage per MAJOR topic, labelled with it
+            section = section_key(section) or section
         by_section.setdefault(section, []).append(c)
     if not by_section:
         return []
@@ -438,6 +443,11 @@ def full_chapter_evidence(node_id: str, pool: list, question: str) -> list[Candi
                 best = scored or Candidate(
                     c.id, c.reference, c.node_id, c.bucket, 0.0, section, c.text or "",
                 )
+                if section_key is not None and best.section != section:
+                    best = Candidate(
+                        best.chunk_id, best.reference, best.node_id, best.bucket,
+                        best.score, section, best.text,
+                    )
         assert best is not None  # every section has at least one chunk by construction
         out.append(best)
     out.sort(key=lambda c: -c.score)

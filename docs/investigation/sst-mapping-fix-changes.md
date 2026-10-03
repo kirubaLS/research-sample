@@ -200,3 +200,160 @@ Section titles reach `declared` only for papers scanned after `paper_capture_str
   - A skipped question saves one chapter-judge call and its retrieval, including the Jina embedding.
   - Balanced candidates add passages but no calls, and no extra embedding because one search is reused.
   - Cross-scope adds one chapter-judge call, only for a question it triggers on. A skipped question that the topic judge cannot verify adds one chapter-judge call plus a new topic decision.
+
+---
+
+## Phase 1 follow-up: resolver variants and teacher-scope warnings
+
+- `backend/app/classify/question_scope.py`: `ScopeDecision.warning` and `PaperScope.warnings()`. A section title that resolves only to chapters outside the teacher's scope is ignored for that question, the teacher's scope stands, and one warning line is recorded.
+- The warnings reach the job result as `scope_warnings`, in the map job (`backend/app/api/marks.py:2748`) and the place job (`backend/app/api/placement.py:857`), only with `sst_unified_scope` on.
+- Tests in `backend/tests/test_resolve.py`:
+  - eight spelling variants, each to exactly one chapter
+  - "Resources and Development", "Global World" and "Globalisation" never cross-match
+  - the gold paper's four exact header strings
+  - "Energy Resources" alone resolves to `X.GEO.MINERALSENERGY` with score 1.0 through its alias; without the alias the title scores 0.667, below the 0.8 threshold, and nothing is returned
+- Tests in `backend/tests/test_question_scope.py`: the warning, its appearance in both job results, and no key with the flag off.
+
+---
+
+## Phase 2: one clean, two-level topic list per chapter
+
+### Settings (all off by default)
+
+| Setting | File | What it switches on |
+|---|---|---|
+| `topic_depth_cap` | `backend/app/config.py:156` | `collapse_section` everywhere a section is decided or stored, for subjects in the map below |
+| `topic_max_depth` (2) | `backend/app/config.py:158` | the depth a listed subject gets when its own entry gives none |
+| `topic_max_depth_by_subject` | `backend/app/config.py:159` | `{"X.HIST":2,"X.GEO":2,"X.POL":2,"X.ECO":2}`. A subject not listed keeps today's behaviour. JSON in `YAADHUM_TOPIC_MAX_DEPTH_BY_SUBJECT`. |
+| `topic_major_only_document` | `backend/app/config.py:165` | the topic judge is offered major topics only, with deeper text as subheadings and "0 Introduction" |
+| `book_map_only_subtopics` | `backend/app/config.py:169` | book-map subtopics matched by printed number only, never relabelled, never an ingest-node fallback; family sections are a union |
+
+No migration in Phase 2. `question_placement.curriculum_section_fine` came with Phase 1's migration.
+
+### Where the book map's structure comes from
+
+New `backend/app/curriculum/book_map.py` reads unit structure (number, title, kind, parent, family code) from the audited reference JSON in `backend/reference/book_map/`. It keeps no body text.
+
+The chunk table cannot say that "2.1 Rat-Hole Mining" is a box, or that "4.1 Conventional Sources of Energy" exists with no text of its own. This module can. It adds no dependency on `book_chunk`.
+
+- `major_headings` (`:90`) lists every numbered unit at depth ≤ the cap that is not a box, plus "0 Introduction" when the chapter has an unnumbered introduction or conclusion.
+- `major_of` (`:112`) maps any section to its major topic: itself, a box's parent, or the nearest listed ancestor.
+- `family_topic` (`:137`) gives the major topic a book-map family *is*, or none.
+
+### 2A: the cap
+
+- **`collapse_section(subject_code, section, *, chapter_code=None)`** (`backend/app/curriculum/depth.py:46`):
+  - truncates "4.1.1" to "4.1" for capped subjects
+  - lifts a box to its parent when the chapter is known
+  - leaves `None` and "none" unchanged
+- **Applied at each point:**
+  - **Retrieval evidence** for the chapter judge: one passage per major topic, labelled with it. `full_chapter_evidence(..., section_key=)` (`backend/app/ingest/probe.py:388-423`), with `PassOptions.section_cap` and `shown_section` (`backend/app/classify/pipeline.py:147`, `:213-246`).
+  - **Chapter-judge grounding:** `known_sections` is collapsed (`backend/app/api/placement.py:313-319`). The judge's own answer is cut before it is grounded (`section_mapper`, `backend/app/classify/anthropic_judge.py:41`, `:109-112`), so a correct "4.1.2" is not counted as a violation.
+  - **Every topic-judge result** (answer, taught, confirm, relocate and `also`): `capped()` (`backend/app/classify/topic.py:92`) cuts the section, retrieval's section and the secondaries. It drops secondaries that collapse onto the primary, removes duplicates, and keeps the original as `fine_section`. Applied in map (`backend/app/api/marks.py:2474-2480`, `:2639-2641`) and place (`backend/app/api/placement.py:541-547`).
+  - **`fallback_section`:** the judge's section is already cut by `section_mapper`, and the write phase cuts it again (`backend/app/api/placement.py:648-657`).
+  - **`choose_family` and `auto_resolve`:** see 2D. In `auto_resolve`, under the cap, a section's text is the chapter's own chunks of that major topic and its sub-sections, never another book's identically numbered section. Every recorded section is cut (`backend/app/mapping/auto_resolve.py:160-163`, `:372-411`).
+  - **Human confirm:** cut, with the fine value kept (`backend/app/api/placement.py:1235-1243`).
+  - **Last guard:** `topic_node()` cuts before creating or matching a node (`backend/app/mapping/topic_node.py:150`, `:185`). No caller can write a deeper subtopic for a capped subject.
+  - **Reports:** an older deep skill code groups with its major topic on read, and the proof's section is cut (`backend/app/api/reports.py:98-121`, `:142`, `:217`).
+  - **Eval:** Phase 6.
+- **Test that nothing deeper is written:** `backend/tests/test_question_scope.py::test_no_path_writes_a_three_level_section_for_a_capped_subject`.
+  - It runs map, then place, then a human confirm, with judges that always answer 4.1.2.
+  - It asserts that no `question`, `question_placement` or `question_skill` row is deeper than two levels, and that 4.1.2 is kept in `curriculum_section_fine`.
+  - With the cap switched off the same test fails, which shows it catches the problem.
+
+### 2B: the topic judge sees major topics only
+
+- **`topic_headings()`** (`backend/app/mapping/topic_node.py:130`) returns the major headings when `major_view()` applies. That includes headings with no text of its own, such as 4.1, excludes boxes, and adds "0 Introduction". Used by map (`backend/app/api/marks.py:2374`), place (`backend/app/api/placement.py:390`) and confirm (`:1269`).
+- **`major_chunks()` and `_MajorChunk`** (`backend/app/classify/topic.py:362-421`) show every chunk through its major topic. A chunk of 4.1.2 counts as 4.1, and introduction or conclusion text counts as "0". Retrieval, term votes, the chapter document, quote anchoring and answerability therefore all work at major-topic level. `choose_topic(..., major=(chapter_code, depth))` (`:723`) switches it on.
+- **`chapter_document(..., render_empty=True)`** (`backend/app/classify/topic.py:320`) renders deeper units and boxes as `### Title` or `### Box: Title` subheadings inside their major topic, in book order, with no deeper number shown. It keeps a major heading that has no text of its own.
+- **Prompts:** `_DOCUMENT_SYSTEM_MAJOR` and `_SYSTEM_MAJOR` (`backend/app/classify/topic.py:294-318`).
+  - The specificity rule reads "the most specific of the listed sections".
+  - Sub-headings are never answers.
+  - Section 0 means chapter level.
+  - The rule that a question spanning sub-sections of one parent goes to the parent is kept.
+  - Used only when `TopicJudge(major_only=True)` (`:430`).
+- **Answerability** reads the whole major topic. Its text in the document includes every subheading, and the quote check accepts a sentence from any of its sub-sections.
+- **Gold-paper examples removed** from both topic-judge prompts in both paths (unflagged, as agreed). The replacements come from Federalism (language policy) and Water Resources (Bhakra Nangal, a dam), chapters outside the gold set (`backend/app/classify/topic.py:197`, `:202`, `:212`, `:270-271`). A test checks that no prompt contains "Index of Prohibited Books", "Fear of Print", "political parties", "nuclear" or "coal mine".
+
+### 2C: clean subtopic nodes
+
+- **`topic_node()`** never relabels an existing node of a book-map subject under `book_map_only_subtopics` (`backend/app/mapping/topic_node.py:167`, `:195`).
+- **Map** no longer falls back to the ingest-created nodes for book-map subjects (`backend/app/api/marks.py:2498`, `:2648`). A major topic with no chunk of its own takes the book map's heading (`:2487-2496`).
+- **`sections_of`** is a union over proposal rows in both map and place, via `backend/app/mapping/family_sections.py:38`.
+- **Script `backend/scripts/clean_book_map_subtopics.py`**, dry run by default:
+  - sorts every subtopic node into KEEP, RELABEL, ORPHAN or DEEP
+  - lists the `question_skill` and `question` rows on each ORPHAN and DEEP node, with each row's target
+  - with `--apply`: relabels; repoints references (deleting a duplicate instead); moves a question's section with its primary topic; deletes an ORPHAN once nothing references it, unless its code is a major topic's, in which case the node is relabelled and kept; keeps DEEP nodes
+  - writes an undo file
+  - a reference with no target is listed as UNRESOLVED and left in place
+
+### 2D: families follow the cap
+
+- **`family_sections.build()`** (`backend/app/mapping/family_sections.py`):
+  - cuts each family's sections to major topics
+  - lets a book-map family claim the topic it is, "0" for an introduction's family
+  - marks as **deep** every family whose own unit is deeper than the cap or is a box
+- **`candidates()`** drops deep families from new placements in map (`backend/app/api/marks.py:2511`, `:2652`) and place (`backend/app/api/placement.py:689`).
+- **`choose_family(..., exact_sections_of=)`** (`backend/app/mapping/family.py:57`, `:84-89`) prefers the family whose own claim is exactly the section, so Coal, Petroleum, Natural Gas and Electricity never compete with Conventional Sources of Energy for 4.1.
+- **Script `backend/scripts/propose_major_topic_families.py`**, dry run by default:
+  - REUSE an existing family that is the major topic
+  - CREATE `{subject}.CF.{slug(heading)}` only where none exists
+  - REPOINT school-paper questions on deep families
+  - list board-paper questions as untouched
+  - with `--apply`: create the families, each with one `concept_family_proposal` row claiming exactly its section; repoint; write an undo file
+- **Consumers to know about:** remediation rows, reports, the insight rules and board-paper family frequencies are all keyed by family. Repointing school-paper questions changes past reports for those questions. Board papers are never repointed.
+
+### 2E: storage
+
+- `question.curriculum_section`, the primary `question_skill` node and `question_placement.curriculum_section` hold the collapsed section.
+- The judge's fine-grained answer goes to `question_placement.curriculum_section_fine`, written by map (`backend/app/api/marks.py:2577`), place (`backend/app/api/placement.py:797`) and confirm (`:1241`).
+- I chose a column over the evidence JSON because place already stores a list of references there, and changing its shape would break its readers.
+
+### Gold fixture
+
+`backend/tests/fixtures/sst_gold/unit_test_2026_09.json`: 55 questions, with B16 as corrected (exact 2.2 or 2.3, partial 2), and the new baseline (54 exact, 0 partial, 1 wrong) and targets. A test asserts that every exact and partial section in the key is one the topic judge is actually offered for its chapter.
+
+### Tests added in Phase 2 (32, all passing)
+
+| File | What it covers |
+|---|---|
+| `backend/tests/test_major_topics.py` | `collapse_section` per subject, boxes, flag off, the per-subject map. `capped()` and dropped secondaries. Judge answer cut before grounding. One evidence passage per major topic. 4.1 selectable with no text of its own. 2.1 never selectable. "0 Introduction". The document renders Coal, Petroleum, Natural Gas and Electricity under `## SECTION 4.1  4.1 Conventional Sources of Energy`, and Rat-Hole Mining as a box under 2. A deeper quote lands on its major topic. A box or deeper number is not an answer. Answerability over the whole major topic. Major prompts. No gold-chapter examples. Live judge prompt switch. The gold fixture fits the headings. All built from the real Minerals and Energy Resources book map. |
+| `backend/tests/test_major_topic_data.py` | Union versus last-wins. Deep and box families marked. A new placement never picks a deep family. Candidates never empty. No relabel under the flag. Both scripts: dry run writes nothing, apply refuses without a backup, apply repoints and writes an undo file, board papers untouched. |
+| `backend/tests/test_question_scope.py` | No three-level section from map, place or confirm. |
+
+Full suite after Phase 2: 1180 passed, 19 skipped, and only the 12 baseline failures.
+
+### Dry runs
+
+Both scripts were run against a scratch SQLite database (`docs/investigation/phase2-dryruns/seed_scratch_db.py`) holding:
+
+- the four Social Science curricula, plus Science, which `import_book_map` requires
+- `scripts/import_book_map --apply`, the real book maps
+- the reading-order subtopic nodes the PDF ingest makes, from the repo's own oracle `scripts/load_expected_sections.py`
+- the depth-3 nodes the old mapping path created
+- three **synthetic** questions so the reference listing has rows to show: C/23 on `X.POL.PARTIES.S4 "Functions"`, B/19.3 on `4.1.2 Petroleum`, and B/16 on the `2.1` box
+
+A byte comparison confirmed that neither dry run changed the database. Full outputs are in `docs/investigation/phase2-dryruns/`.
+
+| Script | Summary line |
+|---|---|
+| `clean_book_map_subtopics` | KEEP 0, RELABEL 102, ORPHAN 244, DEEP 44 |
+| `propose_major_topic_families` | REUSE 260, CREATE 3 (introductions of Making of a Global World, Sectors of the Indian Economy, Money and Credit, which the book map gives no family), deep families 49, REPOINT 2, board questions left alone 0 |
+
+An `--apply` of the cleanup script on a copy of the scratch database moved the synthetic questions to `1.2 Functions`, `4.1 Conventional Sources of Energy` and `2 Mode of Occurrence of Minerals`. Re-planning afterwards gave KEEP 177, RELABEL 0, ORPHAN 0, DEEP 44, so a second run changes nothing.
+
+### Commands for you (staging copy only)
+
+```bash
+cd backend
+python -m scripts.clean_book_map_subtopics            > clean-plan.txt   # read it
+python -m scripts.propose_major_topic_families        > families-plan.txt
+# after a backup:
+python -m scripts.clean_book_map_subtopics --apply --i-have-a-backup
+python -m scripts.propose_major_topic_families --apply --i-have-a-backup
+# then, per environment:
+#   YAADHUM_TOPIC_DEPTH_CAP=true YAADHUM_TOPIC_MAJOR_ONLY_DOCUMENT=true
+#   YAADHUM_BOOK_MAP_ONLY_SUBTOPICS=true
+```
+
+Run the subtopic cleanup before switching on `book_map_only_subtopics`. With the flag on and the cleanup not yet applied, a node whose code collides, such as `S3 "Meaning"` for section 3 "National parties", keeps its wrong label until the script relabels it.

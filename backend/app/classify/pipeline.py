@@ -142,6 +142,9 @@ class PassOptions:
     #: the paper-wide ``scope`` passed to the pass was declared (teacher, syllabus), not
     #: inferred -- only a declared single-chapter scope may skip the judge
     scope_declared: bool = False
+    #: (chapter label, section) -> the section cut to the subject's depth
+    #: (topic_depth_cap): the judge sees one passage per major topic, labelled with it
+    section_cap: Callable[[str | None, str | None], str | None] | None = None
 
 
 #: passages each other book contributes when candidates are balanced across books
@@ -207,7 +210,17 @@ def _pass(
         # this chapter has from `pool` -- which is not itself scope-filtered -- cannot
         # leak an out-of-scope chapter's content: it only ever fetches content belonging
         # to the exact node_id locate() already vetted.
-        own_evidence = full_chapter_evidence(verdict.node_id, pool, query) if verdict.node_id else []
+        cap = options.section_cap
+        key = None
+        if cap is not None and verdict.node_id:
+            label = chapter_of(verdict.node_id)
+
+            def key(section, _label=label):
+                return cap(_label, section)
+        own_evidence = (
+            full_chapter_evidence(verdict.node_id, pool, query, section_key=key)
+            if verdict.node_id else []
+        )
         if not own_evidence:
             # No section-tagged content for this chapter (e.g. a book imported without
             # section numbers) -- fall back to whatever locate() itself found, rather
@@ -225,11 +238,18 @@ def _pass(
             if c.node_id not in shown_chapters or c.chunk_id not in {x.chunk_id for x in candidates}:
                 candidates.append(c)
         budget = _adaptive_passage_chars(passage_chars, len(candidates))
+
+        def shown_section(c) -> str:
+            section = section_of(c.reference) or (c.section or "")
+            if cap is not None and section:
+                section = cap(chapter_of(c.node_id), section) or section
+            return section
+
         return [
             Evidence(
                 chapter=chapter_of(c.node_id) or "?",
                 reference=c.reference,
-                section=section_of(c.reference) or (c.section or ""),
+                section=shown_section(c),
                 text=c.text[:budget],
             )
             for c in candidates

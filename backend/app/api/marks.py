@@ -42,8 +42,9 @@ from app.mapping.topic_node import (
     BOOK_MAP_SUBJECTS,
     SECONDARY_WEIGHT,
     book_map_topic_label,
-    section_headings,
+    major_view,
     section_number,
+    topic_headings,
     topic_node,
 )
 from app.models import (
@@ -2107,6 +2108,25 @@ def _run_map_job(job_id: str) -> None:
     finish("succeeded", result=result)
 
 
+def _no_cap(section):
+    return section
+
+
+def _section_cap(chapter: TaxonomyNode):
+    """The collapse for ``chapter``'s subject (topic_depth_cap), or the identity."""
+    from app.curriculum.depth import collapse_section, is_capped
+
+    if not is_capped(chapter.code):
+        return _no_cap
+    return lambda section: collapse_section(None, section, chapter_code=chapter.code)
+
+
+def capped_pick(pick, cap, headings):
+    from app.classify.topic import capped
+
+    return capped(pick, cap, headings)
+
+
 def _add_secondary_topics(db: Session, question_id: str, chapter: TaxonomyNode, section, pick) -> None:
     """The other sections a PART of a multi-part question is answered in, beside the
     primary topic at SECONDARY_WEIGHT -- see app.mapping.topic_node.set_question_topic.
@@ -2285,6 +2305,24 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             ConceptFamilyProposal.subject_code.in_(book_subject_codes)
         ))
     }
+    # book_map_only_subtopics: a family's sections are the union over its rows;
+    # topic_depth_cap: cut to major topics, and families that are not one are never
+    # picked for a new placement (app.mapping.family_sections)
+    family_table = None
+    if settings.book_map_only_subtopics or settings.topic_depth_cap:
+        from app.mapping import family_sections
+
+        family_table = family_sections.build(
+            db.scalars(select(ConceptFamilyProposal).where(
+                ConceptFamilyProposal.subject_code.in_(book_subject_codes)
+            )),
+            union=settings.book_map_only_subtopics,
+            chapter_code_of={
+                f.code: nodes[f.parent_id].code
+                for fams in families.values() for f in fams if f.parent_id in nodes
+            } if settings.topic_depth_cap else None,
+        )
+        sections_of = family_table.sections_of
 
     context = context_addresses(staged)
     # The topic within the chapter is decided by the closed-set topic judge (see
@@ -2307,6 +2345,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             topic_judge = TopicJudge(
                 settings.anthropic_api_key, settings.model_classifier,
                 effort=settings.model_effort, passage_chars=settings.classifier_passage_chars,
+                **({"major_only": True} if settings.topic_major_only_document else {}),
             )
         except Exception:  # noqa: BLE001 -- the retrieval section then stands
             topic_judge = None
@@ -2332,7 +2371,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         provisional -- retrieval's, kept until classify decides -- and says so, rather
         than reading as a disagreement a person should look at."""
         if chapter.id not in headings_of:
-            headings_of[chapter.id] = section_headings(chunks, chapter, nodes)
+            headings_of[chapter.id] = topic_headings(chunks, chapter, nodes)
         text = row.stem_text or ""
         passage = passage_of.get((row.section, row.question_no)) if row.sub_part else None
         if passage and passage not in text:
@@ -2343,6 +2382,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             evidence_passages=settings.classifier_evidence_passages,
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
+            **({"major": view} if (view := major_view(chapter)) is not None else {}),
         )
         if deferred_to_classify:
             import dataclasses
@@ -2428,7 +2468,16 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         # the fallback: the topic judge reads the question against every section of the
         # chapter and its answer, when it gives one, is the section.
         section = verdict.section or (_section_number(landed.code) if landed else None)
+        # topic_depth_cap: every section decided here is cut to the subject's depth
+        # ("4.1.2" -> "4.1", a box to its parent); the judge's own answer is kept as
+        # curriculum_section_fine on the placement.
+        cap = _section_cap(chapter)
+        fine_section = section
+        section = cap(section)
         pick = decide_topic(row, chapter, section)
+        if cap is not _no_cap:
+            pick = capped_pick(pick, cap, headings_of.get(chapter.id))
+            fine_section = pick.fine_section or pick.section or fine_section
         if pick.section:
             section = pick.section
         topic = None
@@ -2436,10 +2485,21 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             topic = _book_map_topic_node(db, chapter, section, pick.heading)
         if topic is None and section and is_book_map_subject:
             book_map_label = _book_map_topic_label(chunks, chapter.id, section)
+            if book_map_label is None and cap is not _no_cap:
+                # a major topic with no text of its own ("4.1 Conventional Sources of
+                # Energy") still has the book map's printed heading
+                from app.curriculum.book_map import heading_label, unit_by_number
+
+                unit = unit_by_number(chapter.code).get(section)
+                book_map_label = heading_label(section, unit.title) if unit else None
             if book_map_label:
                 topic = _book_map_topic_node(db, chapter, section, book_map_label)
-        if topic is None:
-            topic = topics.get((chapter.id, section)) if section else None
+        if topic is None and section and not (
+            settings.book_map_only_subtopics and is_book_map_subject
+        ):
+            # book_map_only_subtopics: an ingest-created node of a book-map subject is a
+            # different numbering, never a fallback topic
+            topic = topics.get((chapter.id, section))
 
         # The family is what every trend groups by and it is deliberately required, so a
         # question whose family cannot be settled is left staged rather than placed under
@@ -2447,6 +2507,8 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         # comes from the winning passages, and a family created from the book records the
         # section it came from, so the two can be matched.
         candidates = families.get(chapter.id, [])
+        if family_table is not None:
+            candidates = family_table.candidates(candidates)
         if not candidates and not settings.auto_pipeline:
             row.blocked_reason = (
                 f"no concept family exists for {chapter.label}. Open the book screen for "
@@ -2458,6 +2520,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         choice = choose_family(
             candidates, sections_of, section, chapter.label,
             prefer_label=pick.heading if pick.section else None,
+            **({"exact_sections_of": family_table.exact_of} if family_table is not None else {}),
         ) if candidates else Choice(None, blocked="no family yet")
         family, ambiguous = choice.family, choice.unsettled
         auto_resolved: str | None = None
@@ -2511,6 +2574,9 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         db.add(QuestionPlacement(
             question_id=question.id, chapter_id=chapter.id, board_unit_id=unit_id,
             curriculum_section=section, confidence=verdict.score,
+            curriculum_section_fine=(
+                fine_section if fine_section and fine_section != section else None
+            ),
             # A question whose family could not be settled is one for a person to look at,
             # which is what this flag is for. It is not a reason to refuse the placement.
             # An auto-resolved one gets the same flag: the classifier read the book and
@@ -2570,18 +2636,24 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             borrowed["chapter"], borrowed["unit_id"], borrowed["section"], borrowed["topic"],
         )
         pick = decide_topic(row, chapter, section)
+        cap = _section_cap(chapter)
+        if cap is not _no_cap:
+            pick = capped_pick(pick, cap, headings_of.get(chapter.id))
         if pick.section:
             section = pick.section
             if pick.heading and pick.heading != section:
                 topic = _book_map_topic_node(db, chapter, section, pick.heading)
             elif is_book_map_subject and (label := _book_map_topic_label(chunks, chapter.id, section)):
                 topic = _book_map_topic_node(db, chapter, section, label)
-            else:
+            elif not (settings.book_map_only_subtopics and is_book_map_subject):
                 topic = topics.get((chapter.id, section))
         candidates = families.get(chapter.id, [])
+        if family_table is not None:
+            candidates = family_table.candidates(candidates)
         choice = choose_family(
             candidates, sections_of, section, chapter.label,
             prefer_label=pick.heading if pick.section else None,
+            **({"exact_sections_of": family_table.exact_of} if family_table is not None else {}),
         ) if candidates else Choice(None, blocked="no family yet")
         family = choice.family
         if family is None and settings.auto_pipeline:

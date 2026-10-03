@@ -148,6 +148,25 @@ class Settings(BaseSettings):
     #: A question whose scope is exactly one chapter skips the chapter judge and goes
     #: straight to the topic judge, which then also returns the tier.
     skip_single_chapter_judge: bool = False
+    #: A major topic is at most this many levels deep ("4" or "4.1", never "4.1.1") for
+    #: every subject listed in topic_max_depth_by_subject, everywhere a section is decided
+    #: or stored (app.curriculum.depth.collapse_section). A subject not listed keeps
+    #: today's behaviour. YAADHUM_TOPIC_DEPTH_CAP; the map is JSON in
+    #: YAADHUM_TOPIC_MAX_DEPTH_BY_SUBJECT.
+    topic_depth_cap: bool = False
+    #: the depth a listed subject gets when its own entry gives none
+    topic_max_depth: int = 2
+    topic_max_depth_by_subject: dict[str, int] = {
+        "X.HIST": 2, "X.GEO": 2, "X.POL": 2, "X.ECO": 2,
+    }
+    #: The topic judge is offered only major topics (depth <= the subject's cap, boxes
+    #: never), deeper sections rendered as plain subheadings inside their parent, and the
+    #: chapter's unnumbered introduction as "0 Introduction". Applies to capped subjects.
+    topic_major_only_document: bool = False
+    #: For book-map subjects, subtopic nodes come from the book map's printed numbers
+    #: only: an existing node is never relabelled, and the ingest-created nodes are never
+    #: a fallback topic.
+    book_map_only_subtopics: bool = False
 
     # --- what the classifier is shown, which is what it costs ---------------------------
     #: How many book passages go into one classification, and how many chapters they are
