@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from app.curriculum.resolve import normalise, resolve_text
+from app.curriculum.resolve import TITLE_THRESHOLD, normalise, resolve_text
 
 SST = ["X.HIST", "X.GEO", "X.POL", "X.ECO"]
 ALIASES = {
@@ -189,3 +189,61 @@ def test_the_seed_script_applies_once_and_writes_an_undo_file(sst_curricula, tmp
     assert seed_sst_aliases.main(["--apply", "--i-have-a-backup",
                                   "--undo-file", str(tmp_path / "u2.json")]) == 0
     assert _alias_count() == count
+
+
+# --- spelling variants, cross-matches and the gold paper's headers -------------------------
+# Resolved with the alias list the seed script installs, which is what production reads.
+
+def _seeded():
+    from scripts.seed_sst_aliases import SST_SHORT_NAMES
+
+    return SST_SHORT_NAMES
+
+
+@pytest.mark.parametrize("text, chapter", [
+    ("Power Sharing", "X.POL.POWERSHARING"),
+    ("Power-sharing", "X.POL.POWERSHARING"),
+    ("Gender, Religion & Caste", "X.POL.GENDERRELIGIONCASTE"),
+    ("Money & Credit", "X.ECO.MONEYCREDIT"),
+    ("Sectors of Indian Economy", "X.ECO.SECTORS"),
+    ("Consumer Rights", "X.ECO.CONSUMERRIGHTS"),
+    ("Lifelines of National Economy", "X.GEO.LIFELINES"),
+    ("The Rise of Nationalism in Europe", "X.HIST.NATIONALISM_EUROPE"),
+])
+def test_a_spelling_variant_resolves_to_exactly_one_chapter(text, chapter):
+    assert set(resolve_text(text, SST, _seeded()).chapters) == {chapter}
+
+
+@pytest.mark.parametrize("text, chapter", [
+    ("Resources and Development", "X.GEO.RESOURCES"),
+    ("Global World", "X.HIST.GLOBALWORLD"),
+    ("Globalisation", "X.ECO.GLOBALISATION"),
+])
+def test_close_names_never_cross_match(text, chapter):
+    assert set(resolve_text(text, SST, _seeded()).chapters) == {chapter}
+
+
+def test_energy_resources_alone_resolves_to_minerals_and_energy(capsys):
+    seeded = resolve_text("Energy Resources", SST, _seeded())
+    bare = resolve_text("Energy Resources", SST)
+    assert set(seeded.chapters) == {"X.GEO.MINERALSENERGY"}
+    match = seeded.chapters["X.GEO.MINERALSENERGY"]
+    with capsys.disabled():
+        print(f"\n'Energy Resources' -> X.GEO.MINERALSENERGY score={match.score} via={match.via}"
+              f" (without the alias the title alone scores below the {TITLE_THRESHOLD} "
+              "threshold and nothing is returned)")
+    assert match.score >= TITLE_THRESHOLD
+    assert bare.chapters == {}
+
+
+@pytest.mark.parametrize("text, subject, chapter", [
+    ("SECTION A (History : Print Culture and the Modern World)", "X.HIST", "X.HIST.PRINTCULTURE"),
+    ("(Geography : Minerals and Energy Resources)", "X.GEO", "X.GEO.MINERALSENERGY"),
+    ("(Political Science : Political Parties)", "X.POL", "X.POL.PARTIES"),
+    ("(Economics : Globalisation and the Indian Economy)", "X.ECO", "X.ECO.GLOBALISATION"),
+])
+def test_the_gold_papers_headers_resolve_to_their_one_chapter(text, subject, chapter):
+    for aliases in (None, _seeded()):
+        out = resolve_text(text, SST, aliases)
+        assert set(out.chapters) == {chapter}
+        assert set(out.subjects) == {subject}

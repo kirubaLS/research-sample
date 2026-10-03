@@ -2672,6 +2672,8 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             ),
         },
         "blocked_addresses": blocked[:20],
+        #: printed section titles the teacher's scope overruled (sst_unified_scope)
+        **({"scope_warnings": paper_scope.warnings()} if paper_scope is not None else {}),
         "needs_review": db.scalar(select(func.count(QuestionPlacement.id)).where(
             QuestionPlacement.needs_review.is_(True),
             QuestionPlacement.question_id.in_(

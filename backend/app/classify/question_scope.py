@@ -46,6 +46,9 @@ class ScopeDecision:
     source: str
     #: the printed text the decision came from, for the placement's explanation
     detail: str = ""
+    #: set when a printed title was overruled -- a section title naming chapters outside
+    #: the teacher's scope. Reported in the job result, never silent.
+    warning: str = ""
 
     @property
     def single_chapter(self) -> str | None:
@@ -132,7 +135,26 @@ class PaperScope:
             # the header outranks the cover: a section titled with a chapter the cover
             # line did not list is still that chapter
             return ScopeDecision(codes, SECTION_TITLE, title)
-        return base
+        # The teacher's scope stands and the title is ignored for this question -- but a
+        # header that contradicts the teacher is a fact somebody should see.
+        return ScopeDecision(
+            base.chapter_codes, base.source, base.detail,
+            warning=(
+                f"section {(section or '').strip().upper()} is titled {title!r}, which names "
+                f"{', '.join(sorted(codes))} -- outside the teacher's scope "
+                f"({', '.join(sorted(base.chapter_codes))}); the teacher's scope was kept "
+                "and the title ignored"
+            ),
+        )
+
+    def warnings(self) -> list[str]:
+        """Every titled section whose title was overruled, one line each."""
+        out = []
+        for letter in sorted(self.titles):
+            warning = self.for_section(letter).warning
+            if warning:
+                out.append(warning)
+        return out
 
 
 def paper_scope_for(db, assessment, subject_codes: list[str]) -> PaperScope:

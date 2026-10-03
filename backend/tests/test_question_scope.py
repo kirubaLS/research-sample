@@ -569,3 +569,62 @@ def test_place_with_every_new_flag_off_writes_no_new_columns(school, sst_world, 
     for qid in ids.values():
         row = _latest(QuestionPlacement, qid)
         assert row.cross_scope is None and row.review_reason is None and row.source == "model"
+
+
+# --- a section title outside the teacher's scope ---------------------------------------------
+
+
+def test_a_title_outside_the_teacher_scope_is_ignored_with_a_warning():
+    scope = _scope(
+        {"section_titles": {"B": "Geography : Minerals and Energy Resources", "C": "Political Parties"}},
+        teacher=["X.POL.PARTIES", "X.HIST.PRINTCULTURE"],
+    )
+    decision = scope.for_section("B")
+    assert decision.chapter_codes == {"X.POL.PARTIES", "X.HIST.PRINTCULTURE"}
+    assert decision.source == TEACHER
+    assert "X.GEO.MINERALSENERGY" in decision.warning and "teacher" in decision.warning
+    assert scope.for_section("C").warning == ""
+    assert len(scope.warnings()) == 1 and scope.warnings()[0].startswith("section B")
+
+
+def test_map_and_place_report_the_overruled_title_in_the_job_result(
+    client, school, sst_world, monkeypatch,
+):
+    from app.db import SessionLocal
+    from app.models import Assessment, PlacementJob
+
+    monkeypatch.setattr(get_settings(), "sst_unified_scope", True)
+    aid = _sst_paper(client, school, {"section_titles": {
+        "B": "Geography : Minerals and Energy Resources", "C": "Political Science",
+    }})
+    db = SessionLocal()
+    db.get(Assessment, aid).syllabus_scope = ["X.POL.PARTIES"]
+    db.commit()
+    db.close()
+    captured = _map_capturing_scope(client, school, aid, monkeypatch)
+    assert captured["Geography question stem, section B."] == {"X.POL.PARTIES"}
+
+    db = SessionLocal()
+    map_job = db.scalars(select(PlacementJob).where(
+        PlacementJob.assessment_id == aid, PlacementJob.kind == "map")).first()
+    warnings = map_job.result["scope_warnings"]
+    db.close()
+    assert len(warnings) == 1 and "X.GEO.MINERALSENERGY" in warnings[0]
+
+    _stub_judges(monkeypatch)
+    place_aid, _ = _placed_paper(school, {"section_titles": {
+        "B": "Geography : Minerals and Energy Resources"}})
+    db = SessionLocal()
+    db.get(Assessment, place_aid).syllabus_scope = ["X.POL.PARTIES"]
+    db.commit()
+    db.close()
+    job = _run_place(school, place_aid, monkeypatch)
+    assert job.status == "succeeded", job.error_detail
+    assert len(job.result["scope_warnings"]) == 1
+
+
+def test_with_the_flag_off_no_scope_warnings_key_is_added(school, sst_world, monkeypatch):
+    _stub_judges(monkeypatch)
+    aid, _ = _placed_paper(school, {"section_titles": {"B": "Geography"}})
+    job = _run_place(school, aid, monkeypatch)
+    assert "scope_warnings" not in job.result

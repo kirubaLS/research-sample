@@ -332,6 +332,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         subject_curriculum = CURRICULA.get(a.subject_code)
         group_code = subject_curriculum.group_code if subject_curriculum else a.subject_code
         own_scope: dict[str, set[str]] = {}
+        scope_warnings: list[str] | None = None
         if settings.sst_unified_scope:
             # One rule for map and place: teacher scope, then the section's printed title,
             # then the paper's syllabus lines, then inference, then the whole group. A bare
@@ -344,6 +345,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             def _labels(codes) -> set[str]:
                 return {label_of_code[c] for c in codes if c in label_of_code}
 
+            scope_warnings = paper_scope.warnings()
             paper_level = paper_scope.paper_level()
             scope = (_labels(paper_level.chapter_codes) or None) if paper_level.chapter_codes else None
             for q in questions:
@@ -780,6 +782,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         response = {
             "assessment_id": assessment_id,
             "placed": len(result.questions),
+            #: printed section titles the teacher's scope overruled (sst_unified_scope)
+            **({"scope_warnings": scope_warnings} if scope_warnings is not None else {}),
             "board_frequency": frequency,
             #: questions whose chapter, topic and sub-topic the judge settled on the
             #: question itself, which is what every report reads
