@@ -357,3 +357,30 @@ python -m scripts.propose_major_topic_families --apply --i-have-a-backup
 ```
 
 Run the subtopic cleanup before switching on `book_map_only_subtopics`. With the flag on and the cleanup not yet applied, a node whose code collides, such as `S3 "Meaning"` for section 3 "National parties", keeps its wrong label until the script relabels it.
+
+## Book-map fixes from the audit (approved)
+
+Reference data, with the matching Markdown for each change:
+
+| Unit | Before | After | Why |
+|---|---|---|---|
+| `X.GEO.WATER.4` Bamboo Drip Irrigation System | section `4` | box `3.1` under 3 Rainwater Harvesting | A picture-only feature printed after Rainwater Harvesting on p45, not a section. |
+| `X.GEO.LIFELINES.1.7` Digital India | box `1.7` under 1 Transport | box `2.1` under 2 Communication | Its text is on p97; Communication starts on p95. |
+| `X.ECO.SECTORS.6`, `X.ECO.MONEYCREDIT.8`, `X.ECO.GLOBALISATION.9` SUMMING UP | numbered 6, 8, 9 | unnumbered | These are summaries, not sections. |
+| `X.HIST.GLOBALWORLD.2.4b` Indentured Labour Migration from India | `2.4` (the book prints 2.4 twice) | `2.4b` | Each 2.4 heading keeps its own topic. |
+
+The Minerals nesting (Ferrous and Non-Ferrous under "Mode of Occurrence") matches the book's own heading levels and is unchanged.
+
+Code needed for these changes:
+
+- **`2.4b` is a valid section number.**
+  - `clean_sections` and the subtopic-code parser (`SECTION_CODE`) accept one trailing lowercase letter, so the topic code is `X.HIST.GLOBALWORLD.S2_4b`.
+  - `book_map.section_key` sorts sections in book order (2.4 < 2.4b < 2.5 < 2.10). The topic list, the chapter document, the cleanup script and `major_headings` all use it.
+  - `depth("2.4b")` is 2, so the section is not cut down.
+  - The label-to-words helpers strip "2.4b " as the number, not as the word "b".
+- **Section 0 belongs to the introduction.**
+  - `family_topic` returns "0" only for the introduction's family.
+  - A summary or conclusion family is now deep: it is kept for questions already filed on it but never chosen for a new placement. This affects Nationalism in India and Industrialisation (Conclusion) and Sectors, Money and Credit and Globalisation (Summing Up).
+  - Their text is still chapter-level evidence under "0".
+
+Tests: 8 new tests in `tests/test_major_topics.py`. The full suite gives 1190 passed, 19 skipped and the same 12 known failures. Ruff finds no new errors.

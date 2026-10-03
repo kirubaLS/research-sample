@@ -162,9 +162,9 @@ Similar stories can be told about the impact of Western conquest on other parts 
 - p74: Fig. 12 – Transport to the Transvaal gold mines, The Graphic, 1887. Crossing the Wilge river was the quickest method of transport to the gold fields of Transvaal. After the discovery of gold in Witwatersrand, Europeans rushed to the region despite their fear of disease and death, and the difficulties of the journey. By the 1890s, South Africa contributed over 20 per cent of the world gold production.
 - p74: Fig. 13 — Diggers at work in the Transvaal gold fields in South Africa, The Graphic, 1875.
 
-### 2.4 Indentured Labour Migration from India
+### 2.4b Indentured Labour Migration from India
 unit: X.HIST.GLOBALWORLD.2.4b | kind: subsection | parent: X.HIST.GLOBALWORLD.2 | pages: 75–77 | catalog: X.HIST.CF.INDENTURED_LABOUR_MIGRATION_FROM_INDIA
-review: The book prints section number 2.4 twice. Kept as printed; this unit uses suffix "b".
+review: The book prints section number 2.4 twice. The second is numbered 2.4b here so both keep their own topic.
 
 The example of indentured labour migration from India also illustrates the two-sided nature of the nineteenth-century world. It was a world of faster economic growth as well as great misery, higher incomes for some and poverty for others, technological advances in some areas and new forms of coercion in others.
 

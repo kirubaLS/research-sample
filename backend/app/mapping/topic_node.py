@@ -18,8 +18,10 @@ from sqlalchemy.orm import Session
 
 from app.models import QuestionSkill, TaxonomyNode
 
-#: 'X.MATH.STATS.S13_2' -> '13.2'. The tail of a subtopic node's code.
-SECTION_CODE = re.compile(r"^S(\d+(?:_\d+)*)$")
+#: 'X.MATH.STATS.S13_2' -> '13.2'. The tail of a subtopic node's code. The last part may
+#: carry one lowercase letter: 'X.HIST.GLOBALWORLD.S2_4b' -> '2.4b', the second of two
+#: headings the book prints as 2.4.
+SECTION_CODE = re.compile(r"^S(\d+(?:_\d+)*[a-z]?)$")
 
 #: Subjects loaded by scripts/import_book_map.py (see its own SUBJECT_FILES). For these,
 #: BookChunk.reference IS the book's own heading text ("6 How can parties be reformed?"),
@@ -143,8 +145,10 @@ def topic_headings(
     return section_headings(chunks, chapter, nodes)
 
 
-def _section_order(item: tuple[str, str]) -> list[int]:
-    return [int(p) for p in item[0].split(".") if p.isdigit()]
+def _section_order(item: tuple[str, str]) -> tuple[tuple[int, str], ...]:
+    from app.curriculum.book_map import section_key
+
+    return section_key(item[0])
 
 
 def _capped(chapter: TaxonomyNode, section: str, label: str) -> tuple[str, str]:

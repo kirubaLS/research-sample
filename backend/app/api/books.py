@@ -1249,7 +1249,10 @@ def probe(subject: str, body: ProbeIn, db: Session = Depends(get_session)) -> di
 #: above: propose() correctly worked out each one's real section, and this filter alone
 #: threw it away again before it ever reached a family's own from_sections, reporting
 #: all four sections uncovered despite a correctly-labelled proposal existing for each.
-SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,2}(?:-\d+)?(?:\s*\([a-z]\))?$")
+#:
+#: '2.4b' -- the book map's own form for the same twice-printed 2.4: one trailing
+#: lowercase letter on the last part, so each heading keeps a topic of its own.
+SECTION_NUMBER = re.compile(r"^\d{1,2}(?:\.\d{1,2}){0,2}[a-z]?(?:-\d+)?(?:\s*\([a-z]\))?$")
 
 
 def clean_sections(values) -> list[str]:

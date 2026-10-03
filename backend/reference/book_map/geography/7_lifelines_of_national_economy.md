@@ -184,8 +184,8 @@ India has one of the largest telecom networks in Asia. Excluding urban places mo
 - p95: Fig. 7.9
 - p96: India: Major Ports and Some International Airports
 
-### 1.7 Digital India
-unit: X.GEO.LIFELINES.1.7 | kind: box | parent: X.GEO.LIFELINES.1 | pages: 97 | catalog: X.GEO.CF.DIGITAL_INDIA
+### 2.1 Digital India
+unit: X.GEO.LIFELINES.1.7 | kind: box | parent: X.GEO.LIFELINES.2 | pages: 97 | catalog: X.GEO.CF.DIGITAL_INDIA
 
 Digital India is an umbrella programme to prepare India for a knowledge based transformation. The focus of Digital India Programme is on being transformative to realise – IT (Indian Talent) + IT (Information Technology)=IT (India Tomorrow) and is on making technology central to enabling change.
 

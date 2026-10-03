@@ -11,6 +11,7 @@ heading with no text of its own (everything under it is 4.1.1-4.1.4).
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -32,8 +33,10 @@ NOT_A_TOPIC = frozenset({"box"})
 CHAPTER_LEVEL = frozenset({"intro", "summary"})
 
 #: the pseudo-section for a chapter's unnumbered introduction or conclusion: "chapter
-#: level, no subtopic"
+#: level, no subtopic". Its text is all chapter level, but only the introduction's family
+#: IS section 0; a summary or conclusion family is deep (kept for questions already on it)
 INTRO_SECTION = "0"
+INTRO_KIND = "intro"
 INTRO_TITLE = "Introduction"
 
 
@@ -50,6 +53,22 @@ class Unit:
 
 def depth(section: str | None) -> int:
     return len(section.split(".")) if section else 0
+
+
+#: one part of a section number: digits and, when the book prints one number twice, one
+#: trailing lowercase letter for the second ("2.4b" in The Making of a Global World)
+_PART = re.compile(r"^(\d+)([a-z]?)$")
+
+
+def section_key(section: str | None) -> tuple[tuple[int, str], ...]:
+    """Book order for section numbers: "2.4" < "2.4b" < "2.5" < "2.10". Parts that are
+    not numbers are left out, so "" and "0" sort first."""
+    out = []
+    for part in (section or "").split("."):
+        match = _PART.match(part)
+        if match:
+            out.append((int(match.group(1)), match.group(2)))
+    return tuple(out)
 
 
 @lru_cache(maxsize=8)
@@ -90,17 +109,19 @@ def heading_label(number: str, title: str) -> str:
 def major_headings(chapter_code: str, max_depth: int) -> dict[str, str] | None:
     """The selectable topics of a chapter at ``max_depth``: every numbered unit no deeper
     than that which is not a box, whether or not it has text of its own, plus "0
-    Introduction" when the chapter has an unnumbered introduction or conclusion. In book
-    order. None for a chapter the book map does not describe."""
+    Introduction" when the chapter has an unnumbered introduction. In book order. None
+    for a chapter the book map does not describe."""
     units = chapter_units(chapter_code)
     if units is None:
         return None
     out: dict[str, str] = {}
-    if any(u.number is None and u.kind in CHAPTER_LEVEL for u in units):
+    if any(u.number is None and u.kind == INTRO_KIND for u in units):
         out[INTRO_SECTION] = heading_label(INTRO_SECTION, INTRO_TITLE)
-    for u in units:
-        if u.number is None or u.kind in NOT_A_TOPIC or depth(u.number) > max_depth:
-            continue
+    numbered = [
+        u for u in units
+        if u.number is not None and u.kind not in NOT_A_TOPIC and depth(u.number) <= max_depth
+    ]
+    for u in sorted(numbered, key=lambda u: section_key(u.number)):
         out.setdefault(u.number, heading_label(u.number, u.title))
     return out
 
@@ -137,13 +158,13 @@ def major_of(chapter_code: str, section: str | None, max_depth: int) -> str | No
 def family_topic(chapter_code: str, family_code: str, max_depth: int) -> str | None:
     """The major topic a book-map family IS, when its own unit is a selectable topic at
     ``max_depth`` ("0" for an introduction's family); None when its unit is deeper than
-    that or a box -- a family that is not a major topic of its own -- or when the book
-    map does not know the family."""
+    that, a box, or a summary or conclusion -- a family that is not a major topic of its
+    own -- or when the book map does not know the family."""
     headings = major_headings(chapter_code, max_depth) or {}
     for u in chapter_units(chapter_code) or ():
         if u.catalog != family_code:
             continue
         if u.number is None:
-            return INTRO_SECTION if INTRO_SECTION in headings and u.kind in CHAPTER_LEVEL else None
+            return INTRO_SECTION if INTRO_SECTION in headings and u.kind == INTRO_KIND else None
         return u.number if u.number in headings else None
     return None

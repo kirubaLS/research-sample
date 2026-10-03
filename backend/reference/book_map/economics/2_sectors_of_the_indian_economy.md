@@ -285,7 +285,7 @@ Similarly, we know that nearly half of India’s children are malnourished and a
 
 **Key terms (printed in bold)** · public; private; which the; private sector will not provide at; a reasonable cost; which; the government has to support; The; government must spend on these
 
-## 6 SUMMING UP
+## SUMMING UP
 unit: X.ECO.SECTORS.6 | kind: summary | pages: 46 | catalog: X.ECO.CF.SUMMING_UP
 
 In this chapter we have looked at ways of classifying economic activities into some meaningful groups. One way of doing this is to examine whether the activity relates to the primary, secondary or tertiary sectors. The data for India, for the last thirty years, shows that while goods and services produced in the tertiary sector contribute the most to GDP, the employment remains in the primary sector. We have also seen what all can be done for increasing employment opportunities in the country. Another classification is to consider whether people are working in organised or unorganised sectors. Most people are working in the unorganised sectors and protection is necessary for them. We also looked at the difference between private and public activities, and why it is important for public activities to focus on certain areas.

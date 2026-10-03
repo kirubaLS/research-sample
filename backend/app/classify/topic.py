@@ -355,8 +355,10 @@ def chapter_document(
     return "\n".join(parts)
 
 
-def _order(section: str | None) -> tuple[int, ...]:
-    return tuple(int(p) for p in (section or "").split(".") if p.isdigit())
+def _order(section: str | None) -> tuple[tuple[int, str], ...]:
+    from app.curriculum.book_map import section_key
+
+    return section_key(section)
 
 
 class _MajorChunk:

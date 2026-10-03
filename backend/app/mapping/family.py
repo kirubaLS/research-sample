@@ -37,7 +37,8 @@ class Choice:
 
 def _words(label: str) -> str:
     """'6 How can parties be reformed?' -> 'how can parties be reformed'."""
-    return " ".join(re.findall(r"[a-z]+", re.sub(r"^[\d.\s]+", "", label.lower())))
+    text = re.sub(r"^[\s.]*(?:\d+(?:\.\d+)*[a-z]?\b)?[\d.\s]*", "", label.lower())
+    return " ".join(re.findall(r"[a-z]+", text))
 
 
 def alike(label: str, heading: str) -> bool:

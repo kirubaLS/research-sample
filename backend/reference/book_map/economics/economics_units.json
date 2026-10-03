@@ -2921,7 +2921,7 @@
    {
     "id": "X.ECO.SECTORS.6",
     "kind": "summary",
-    "number": "6",
+    "number": null,
     "title": "SUMMING UP",
     "parent": null,
     "pages": [
@@ -4212,7 +4212,7 @@
    {
     "id": "X.ECO.MONEYCREDIT.8",
     "kind": "summary",
-    "number": "8",
+    "number": null,
     "title": "SUMMING UP",
     "parent": null,
     "pages": [
@@ -5714,7 +5714,7 @@
    {
     "id": "X.ECO.GLOBALISATION.9",
     "kind": "summary",
-    "number": "9",
+    "number": null,
     "title": "SUMMING UP",
     "parent": null,
     "pages": [

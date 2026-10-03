@@ -2244,10 +2244,10 @@
    },
    {
     "id": "X.GEO.WATER.4",
-    "kind": "section",
-    "number": "4",
+    "kind": "box",
+    "number": "3.1",
     "title": "Bamboo Drip Irrigation System",
-    "parent": null,
+    "parent": "X.GEO.WATER.3",
     "body": [
      {
       "page": 45,
@@ -7498,9 +7498,9 @@
    {
     "id": "X.GEO.LIFELINES.1.7",
     "kind": "box",
-    "number": "1.7",
+    "number": "2.1",
     "title": "Digital India",
-    "parent": "X.GEO.LIFELINES.1",
+    "parent": "X.GEO.LIFELINES.2",
     "body": [
      {
       "page": 97,

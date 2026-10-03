@@ -115,8 +115,8 @@ Tamil Nadu is the first state in India which has made rooftop rainwater harvesti
 - p44: Rooftop harvesting was common across the towns and villages of the Thar. Rainwater that falls on the sloping roofs of houses is taken through a pipe into an underground tanka (circular holes in the ground). built in the main house or in the courtyard. The picture above shows water being taken from a neighbour’s roof through a long pipe. Here the neighbour’s rooftop has been used for collection of rainwater. The picture shows a hole through which rainwater flows down into an underground tanka.
 - p44: Fig. 3.6
 
-## 4 Bamboo Drip Irrigation System
-unit: X.GEO.WATER.4 | kind: section | pages: 45 | catalog: X.GEO.CF.BAMBOO_DRIP_IRRIGATION_SYSTEM
+### 3.1 Bamboo Drip Irrigation System
+unit: X.GEO.WATER.4 | kind: box | parent: X.GEO.WATER.3 | pages: 45 | catalog: X.GEO.CF.BAMBOO_DRIP_IRRIGATION_SYSTEM
 
 In Meghalaya, a 200-year-old system of tapping stream and spring water by using bamboo pipes, is prevalent. About 18-20 litres of water enters the bamboo pipe system, gets transported over hundreds of metres, and finally reduces to 20-80 drops per minute at the site of the plant.
 

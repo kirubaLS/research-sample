@@ -334,3 +334,106 @@ def test_every_gold_section_is_a_selectable_major_topic_of_its_chapter(cap):
         for section in key["exact"] + key.get("partial", []):
             assert section.count(".") <= 1, (address, section)
             assert section in offered, (address, section, chapter)
+
+
+# --- book-map fixes: 2.4b and section 0 ownership --------------------------------------
+
+GLOBAL = "X.HIST.GLOBALWORLD"
+
+
+def test_a_twice_printed_number_keeps_its_letter_everywhere(cap):
+    from app.api.books import clean_sections
+    from app.curriculum.book_map import depth, major_headings, major_of, section_key
+    from app.curriculum.depth import collapse_section
+    from app.mapping.topic_node import section_number
+
+    assert clean_sections(["2.4b", "2.4", "2.4bb", "2.4B", "b"]) == ["2.4b", "2.4"]
+    assert section_number(f"{GLOBAL}.S2_4b") == "2.4b"
+    assert section_number(f"{GLOBAL}.S2_4") == "2.4"
+    assert section_number(f"{GLOBAL}.S2_4bc") is None
+    assert depth("2.4b") == 2
+    assert collapse_section("X.HIST", "2.4b") == "2.4b"
+    assert collapse_section(None, "2.4b", chapter_code=GLOBAL) == "2.4b"
+    assert major_of(GLOBAL, "2.4b", 2) == "2.4b"
+    assert sorted(["2.5", "2.10", "2.4b", "2", "0", "2.4"], key=section_key) == [
+        "0", "2", "2.4", "2.4b", "2.5", "2.10"]
+    headings = major_headings(GLOBAL, 2)
+    numbers = list(headings)
+    assert numbers.index("2.4") + 1 == numbers.index("2.4b") < numbers.index("2.5")
+    assert headings["2.4b"] == "2.4b Indentured Labour Migration from India"
+
+
+def test_the_other_sort_helpers_put_2_4b_between_2_4_and_2_5():
+    from app.classify.topic import _order
+    from app.mapping.topic_node import _section_order
+
+    assert sorted(["2.5", "2.4b", "2.4"], key=_order) == ["2.4", "2.4b", "2.5"]
+    items = [("2.5", "x"), ("2.4b", "y"), ("2.4", "z")]
+    assert [n for n, _ in sorted(items, key=_section_order)] == ["2.4", "2.4b", "2.5"]
+
+
+def test_a_2_4b_label_names_its_heading_not_the_letter():
+    from app.mapping.family import _words as family_words
+    from scripts.clean_book_map_subtopics import _same, _words
+
+    assert _words("2.4b Indentured Labour Migration from India") == (
+        "indentured labour migration from india")
+    assert family_words("2.4b Indentured Labour") == "indentured labour"
+    assert _words("1.2 Functions") == "functions"
+    assert _words("(Overview)") == "overview"
+    assert _same("2.4b Indentured Labour Migration from India",
+                 "Indentured Labour Migration from India")
+
+
+@pytest.mark.parametrize("chapter, intro, closing", [
+    ("X.HIST.NATIONALISM_INDIA", "X.HIST.CF.NATIONALISM_INDIA_INTRODUCTION", "X.HIST.CF.CONCLUSION"),
+    ("X.HIST.INDUSTRIALISATION", "X.HIST.CF.INDUSTRIALISATION_INTRODUCTION",
+     "X.HIST.CF.INDUSTRIALISATION_CONCLUSION"),
+    ("X.ECO.GLOBALISATION", "X.ECO.CF.GLOBALISATION_INTRODUCTION",
+     "X.ECO.CF.GLOBALISATION_SUMMING_UP"),
+])
+def test_only_the_introductions_family_is_section_0(cap, chapter, intro, closing):
+    from app.curriculum.book_map import family_topic
+
+    assert family_topic(chapter, intro, 2) == "0"
+    assert family_topic(chapter, closing, 2) is None
+
+
+def test_a_summary_or_conclusion_family_is_deep(cap):
+    from app.mapping.family_sections import build
+
+    @dataclass
+    class _Row:
+        code: str
+        from_sections: list
+
+    chapter_of = {"X.HIST.CF.NATIONALISM_INDIA_INTRODUCTION": "X.HIST.NATIONALISM_INDIA",
+                  "X.HIST.CF.CONCLUSION": "X.HIST.NATIONALISM_INDIA"}
+    table = build([_Row("X.HIST.CF.NATIONALISM_INDIA_INTRODUCTION", []),
+                   _Row("X.HIST.CF.CONCLUSION", [])], union=True, chapter_code_of=chapter_of)
+    assert table.deep == {"X.HIST.CF.CONCLUSION"}
+    assert "0" in table.sections_of["X.HIST.CF.NATIONALISM_INDIA_INTRODUCTION"]
+
+
+def test_summing_up_is_unnumbered_and_section_0_stays_the_introduction(cap):
+    from app.curriculum.book_map import chapter_units, major_headings
+
+    for chapter in ("X.ECO.SECTORS", "X.ECO.MONEYCREDIT", "X.ECO.GLOBALISATION"):
+        summary = [u for u in chapter_units(chapter) if u.kind == "summary"]
+        assert [u.number for u in summary] == [None]
+        headings = major_headings(chapter, 2)
+        assert headings["0"] == "0 Introduction"
+        assert not any("SUMMING UP" in label for label in headings.values())
+
+
+def test_picture_only_and_misnumbered_features_are_boxes_under_their_section(cap):
+    from app.curriculum.book_map import major_headings, major_of, unit_by_number
+
+    water = unit_by_number("X.GEO.WATER")
+    assert water["3.1"].kind == "box" and water["3.1"].parent == "3"
+    assert "4" not in major_headings("X.GEO.WATER", 2)
+    assert major_of("X.GEO.WATER", "3.1", 2) == "3"
+    lifelines = unit_by_number("X.GEO.LIFELINES")
+    assert lifelines["2.1"].title == "Digital India" and lifelines["2.1"].parent == "2"
+    assert "1.7" not in lifelines
+    assert major_of("X.GEO.LIFELINES", "2.1", 2) == "2"

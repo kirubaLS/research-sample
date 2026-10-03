@@ -55,6 +55,7 @@ from app.curriculum.book_map import (
     depth,
     major_headings,
     major_of,
+    section_key,
 )
 from app.db import SessionLocal
 from app.mapping.topic_node import section_number
@@ -74,7 +75,7 @@ SUBJECTS = ("X.HIST", "X.GEO", "X.POL", "X.ECO")
 
 def _words(label: str | None) -> str:
     """'1.2 Functions' -> 'functions'; '(Overview)' -> 'overview'."""
-    text = re.sub(r"^[\d.\s]+", "", (label or "").lower())
+    text = re.sub(r"^[\s.]*(?:\d+(?:\.\d+)*[a-z]?\b)?[\d.\s]*", "", (label or "").lower())
     return " ".join(re.findall(r"[a-z]+", text))
 
 
@@ -152,7 +153,7 @@ def plan_chapter(db, chapter: TaxonomyNode, cap: int) -> list[Entry]:
         TaxonomyNode.kind == "subtopic", TaxonomyNode.parent_id == chapter.id,
     )).all()
     nodes = sorted(nodes, key=lambda n: (
-        tuple(int(p) for p in (section_number(n.code) or "").split(".") if p.isdigit()) or (10**6,),
+        section_key(section_number(n.code)) or ((10**6, ""),),
         n.code,
     ))
     for node in nodes:

@@ -311,7 +311,7 @@ unit: X.ECO.GLOBALISATION.8.box1 | kind: box | parent: X.ECO.GLOBALISATION.8 | p
 
 A demonstration against WTO in Hong Kong, 2005
 
-## 9 SUMMING UP
+## SUMMING UP
 unit: X.ECO.GLOBALISATION.9 | kind: summary | pages: 83 | catalog: X.ECO.CF.GLOBALISATION_SUMMING_UP
 
 In this chapter, we looked at the present phase of globalisation. Globalisation is the process of rapid integration of countries. This is happening through greater foreign trade and foreign investment. MNCs are playing a major role in the globalisation process. More and more MNCs are looking for locations around the world that are cheap for their production. As a result, production is being organised in complex ways.
