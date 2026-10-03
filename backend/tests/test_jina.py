@@ -183,3 +183,54 @@ def test_a_chunk_already_in_the_database_from_before_the_size_cap_is_truncated_n
 
     assert vectors == [[1.0]]
     assert sent_lengths == [12000]
+
+
+def test_concurrent_embedders_are_admitted_two_at_a_time(monkeypatch):
+    """Jina admits two requests per key at once; the classify step embeds from one
+    thread per question. The gate queues the rest instead of letting Jina refuse them."""
+    import threading
+    import time as _time
+
+    from app.ingest.jina import JinaEmbedder
+
+    live, peak, lock = 0, 0, threading.Lock()
+
+    def fake_post(url, json, headers, timeout):
+        nonlocal live, peak
+        with lock:
+            live += 1
+            peak = max(peak, live)
+        _time.sleep(0.05)
+        with lock:
+            live -= 1
+        request = httpx.Request("POST", url)
+        return httpx.Response(200, request=request, json={
+            "data": [{"index": i, "embedding": [0.1]} for i in range(len(json["input"]))]
+        })
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    embedder = JinaEmbedder("key")
+    threads = [threading.Thread(target=lambda: embedder.embed_texts(["q"], is_query=True)) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+    assert peak <= 2, f"{peak} requests in flight at once"
+
+
+def test_a_concurrency_429_is_retried_more_patiently_than_a_fault(monkeypatch):
+    from app.ingest.jina import JinaEmbedder
+
+    calls = {"n": 0}
+
+    def fake_post(url, json, headers, timeout):
+        calls["n"] += 1
+        request = httpx.Request("POST", url)
+        if calls["n"] < 5:
+            return httpx.Response(429, request=request, text='{"code":"RATE_CONCURRENCY_LIMIT_EXCEEDED"}')
+        return httpx.Response(200, request=request, json={"data": [{"index": 0, "embedding": [0.5]}]})
+
+    monkeypatch.setattr(httpx, "post", fake_post)
+    monkeypatch.setattr("app.ingest.jina.time.sleep", lambda s: None)
+    assert JinaEmbedder("key", max_retries=3).embed_texts(["q"], is_query=True) == [[0.5]]
+    assert calls["n"] == 5, "the fourth and fifth tries happen only because it was a 429"

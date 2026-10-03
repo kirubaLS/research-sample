@@ -11,6 +11,7 @@ not a consideration at this scale; correctness across three scripts is.
 
 from __future__ import annotations
 
+import threading
 import time
 
 import httpx
@@ -34,6 +35,15 @@ DEFAULT_DIMENSIONS = 512
 #: ratio than anything observed so far, at the cost of nothing but an extra request or two
 #: -- correctness, not request count, is what matters at this scale.
 MAX_REQUEST_TOKENS = 12000
+
+
+#: Jina admits this many requests at once per key (its 429 says "Concurrency limit
+#: exceeded: 2/2"). Every embedder in the process shares one gate sized to it, so a
+#: stage that embeds from many threads at once -- the classify step's topic reads, one
+#: thread per question -- queues here instead of being refused. A 429 that still gets
+#: through waits out the limit below.
+JINA_MAX_CONCURRENCY = 2
+_GATE = threading.BoundedSemaphore(JINA_MAX_CONCURRENCY)
 
 
 def _token_budget_batches(texts: list[str], max_tokens: int) -> list[list[int]]:
@@ -123,11 +133,15 @@ class JinaEmbedder:
         }
 
         last: Exception | None = None
-        for attempt in range(self.max_retries):
+        # a 429 is the provider's concurrency or rate limit, not a fault: it is retried
+        # more times and more patiently than a 5xx, since the only cure is waiting
+        attempts = max(self.max_retries, 6)
+        for attempt in range(attempts):
             try:
-                response = httpx.post(
-                    ENDPOINT, json=payload, headers=headers, timeout=self.timeout
-                )
+                with _GATE:
+                    response = httpx.post(
+                        ENDPOINT, json=payload, headers=headers, timeout=self.timeout
+                    )
                 if response.status_code == 429 or response.status_code >= 500:
                     # rate limit or provider fault: worth another try, but the body still
                     # belongs in the message -- the final "failed after 3 attempts" is
@@ -155,13 +169,17 @@ class JinaEmbedder:
                 return [row["embedding"] for row in data]
             except (httpx.HTTPStatusError, httpx.TransportError) as exc:
                 last = exc
-                if attempt < self.max_retries - 1:
-                    time.sleep(2**attempt)
+                limited = isinstance(exc, httpx.HTTPStatusError) and exc.response.status_code == 429
+                if not limited and attempt >= self.max_retries - 1:
+                    break
+                if attempt < attempts - 1:
+                    time.sleep(min(2**attempt, 20) + (0.5 if limited else 0))
 
         # `from last` chains the cause in a traceback, but embed_batch only surfaces
         # str(exc) to the operator (see app.api.books) -- without the reason folded into
         # the message itself, "failed after 3 attempts" was all that ever reached them,
         # true but as useless as the 400 case this same fix already covered once.
-        raise RuntimeError(
-            f"jina embedding failed after {self.max_retries} attempts: {last}"
-        ) from last
+        made = attempts if (
+            isinstance(last, httpx.HTTPStatusError) and last.response.status_code == 429
+        ) else self.max_retries
+        raise RuntimeError(f"jina embedding failed after {made} attempts: {last}") from last
