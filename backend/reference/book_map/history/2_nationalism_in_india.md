@@ -3,7 +3,7 @@ chapter: X.HIST.NATIONALISM_INDIA | book: India and the Contemporary World – I
 
 Evidence rule: body, box, term and source text are primary evidence when mapping a question. Activities and figure or table captions are supporting evidence: they are searched when locating a topic and may be quoted when a question is drawn from them. Exercises are never used as evidence.
 
-## Introduction
+## Introduction: Nationalism and the Anti-Colonial Movement
 unit: X.HIST.NATIONALISM_INDIA.0 | kind: intro | pages: 41 | catalog: X.HIST.CF.NATIONALISM_INDIA_INTRODUCTION
 
 As you have seen, modern nationalism in Europe came to be associated with the formation of nation-states. It also meant a change in people’s understanding of who they were, and what defined their identity and sense of belonging. New symbols and icons, new songs and ideas forged new links and redefined the boundaries of communities. In most countries the making of this new national identity was a long process. How did this consciousness emerge in India?

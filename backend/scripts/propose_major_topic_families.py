@@ -34,6 +34,7 @@ from sqlalchemy import select
 from app.config import get_settings
 from app.curriculum import CURRICULA
 from app.curriculum.book_map import (
+    CHAPTER_LEVEL,
     INTRO_SECTION,
     chapter_units,
     family_topic,
@@ -72,7 +73,9 @@ def plan_chapter(db, chapter: TaxonomyNode, subject: str, cap: int) -> dict:
             own.setdefault(topic, f)
         elif f.code in unit_of_family:
             unit = unit_of_family[f.code]
-            deep[f.code] = major_of(chapter.code, unit.number, cap) if unit.number else None
+            # an unnumbered (conclusion, summing-up) family's text is chapter level: "0"
+            deep[f.code] = (major_of(chapter.code, unit.number, cap) if unit.number
+                            else INTRO_SECTION if unit.kind in CHAPTER_LEVEL else None)
 
     rows = []
     for section, heading in majors.items():
@@ -184,7 +187,9 @@ def main(argv: list[str] | None = None) -> int:
                 for action, section, code, label in plan["rows"]:
                     print(f"  {action:<7} {section:<5} {code:<58} {label!r}")
                 for code, section in sorted(plan["deep"].items()):
-                    print(f"  deep    {code:<64} -> major topic {section or '?'} (kept, unused)")
+                    where = ("chapter level" if section == INTRO_SECTION
+                             else f"major topic {section or '?'}")
+                    print(f"  deep    {code:<64} -> {where} (kept, unused)")
                 for q, family_code, section, target, why in plan["repoints"]:
                     print(f"  REPOINT question {q.address:<12} {family_code} -> "
                           f"{target or 'UNRESOLVED'} (section {section or '?'}, by {why})")

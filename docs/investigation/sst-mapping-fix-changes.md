@@ -384,3 +384,46 @@ Code needed for these changes:
   - Their text is still chapter-level evidence under "0".
 
 Tests: 8 new tests in `tests/test_major_topics.py`. The full suite gives 1190 passed, 19 skipped and the same 12 known failures. Ruff finds no new errors.
+
+## Dry runs on the backup (Part B) and the fixes from them
+
+Both scripts were dry-run on a restored copy of the backup in a throwaway local Postgres. The database and the dump were deleted afterwards, and nothing was applied anywhere.
+
+- **Cleanup script totals:** KEEP 30, RELABEL 86, ORPHAN 237, DEEP 10.
+- **Families script totals:** REUSE 257, CREATE 3, deep families 55, REPOINT 61.
+- **Questions touched:** all are in Minerals and Energy Resources. DEEP lines touch 62 questions and REPOINT lines touch 61.
+- **Unresolved references:** none.
+
+Fixes made after that run:
+
+- **`clean_book_map_subtopics`:** a DEEP node's topic links now follow the question's own collapsed section first. This is the same rule the family repoint uses. The node's own major topic is used only when the question's section is no topic. The backup's case was a link on 4.1.4 Electricity whose question sits in 4.2.1; it now goes to 4.2, not 4.1.
+- **Deep conclusion and Summing Up families:**
+  - They print "chapter level" instead of "major topic ?".
+  - When the repoint has to fall back on the family, these families fall back to "0", because their text is chapter level.
+- **The old `S2_4-2` subtopic** (Indentured Labour) is an ORPHAN pointing at 2.4b. Approved as is.
+
+## Introductions titled for their content (approved)
+
+Nine introductions carry examinable content. Their unit title in the book map (JSON and Markdown) now names it, and the number stays 0:
+
+- Nationalism in Europe: "Introduction: Sorrieu's Vision and the Nation-State"
+- Nationalism in India: "Introduction: Nationalism and the Anti-Colonial Movement"
+- Industrialisation: "Introduction: Images of Industrial Progress"
+- Resources and Development: "Introduction: Types and Classification of Resources"
+- Forest and Wildlife: "Introduction: Biodiversity and the Role of Forests"
+- Water Resources: "Introduction: Freshwater and the Hydrological Cycle"
+- Minerals and Energy: "Introduction: Importance of Minerals"
+- Manufacturing: "Introduction: What Is Manufacturing"
+- Lifelines: "Introduction: Need for Transport, Communication and Trade"
+
+Where the new title shows up:
+
+- **Topic list:** `book_map.intro_label` makes section 0 show the title when it starts with "Introduction:". Every other introduction, including Politics' printed "Overview", shows as "0 Introduction".
+- **Family labels:** these take the unit title when the book map is next imported. That import has not been run anywhere.
+- **Old "0 Introduction" subtopic nodes:** the cleanup script relabels them to the titled form.
+
+An introduction titled this way also stops matching the "not a learning area" rule ("Introduction"). That is intended: these introductions carry content a student can be weak at.
+
+## Follow-ups (not done)
+
+- **Show GEO, POL and ECO topic labels in the teacher UI without the number prefix.** Their numbers are reading order, not printed in the books. Keep the numbers in stored codes, and keep them for History, where they are printed. This is not a one-line change: the label reaches the teacher through several API fields and the xlsx and PDF exports, so it needs one display helper used at each of those places.

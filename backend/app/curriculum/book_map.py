@@ -106,6 +106,15 @@ def heading_label(number: str, title: str) -> str:
     return f"{number} {title}" if title else number
 
 
+def intro_label(title: str | None) -> str:
+    """The title section 0 shows. An introduction that carries examinable content is
+    titled for it in the book map ("Introduction: Types and Classification of
+    Resources"); every other introduction, Politics' printed "Overview" included, shows
+    as plain "Introduction"."""
+    title = (title or "").strip()
+    return title if title.startswith(INTRO_TITLE + ":") else INTRO_TITLE
+
+
 def major_headings(chapter_code: str, max_depth: int) -> dict[str, str] | None:
     """The selectable topics of a chapter at ``max_depth``: every numbered unit no deeper
     than that which is not a box, whether or not it has text of its own, plus "0
@@ -115,8 +124,9 @@ def major_headings(chapter_code: str, max_depth: int) -> dict[str, str] | None:
     if units is None:
         return None
     out: dict[str, str] = {}
-    if any(u.number is None and u.kind == INTRO_KIND for u in units):
-        out[INTRO_SECTION] = heading_label(INTRO_SECTION, INTRO_TITLE)
+    intro = next((u for u in units if u.number is None and u.kind == INTRO_KIND), None)
+    if intro is not None:
+        out[INTRO_SECTION] = heading_label(INTRO_SECTION, intro_label(intro.title))
     numbered = [
         u for u in units
         if u.number is not None and u.kind not in NOT_A_TOPIC and depth(u.number) <= max_depth

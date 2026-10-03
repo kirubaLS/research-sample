@@ -3,7 +3,7 @@ chapter: X.GEO.MANUFACTURING | book: Contemporary India – II (Geography), Clas
 
 Evidence rule: body, box, term and source text are primary evidence when mapping a question. Activities and figure or table captions are supporting evidence: they are searched when locating a topic and may be quoted when a question is drawn from them. Exercises are never used as evidence.
 
-## Introduction
+## Introduction: What Is Manufacturing
 unit: X.GEO.MANUFACTURING.0 | kind: intro | pages: 75 | catalog: X.GEO.CF.MANUFACTURING_INTRODUCTION
 
 Production of goods in large quantities after processing from raw materials to more valuable products is called manufacturing. Do you know that paper is manufactured from wood, sugar from sugarcane, iron and steel from iron ore and aluminium from bauxite? Do you also know that some types of clothes are manufactured from yarn which itself is an industrial product? People employed in the secondary activities manufacture the primary materials into finished goods. The workers employed in steel factories, car, breweries, textile industries, bakeries etc. fall into this category. Some people are employed in providing services. In this chapter, we are mainly concerned with manufacturing industries which fall in the secondary sector. The economic strength of a country is measured by the development of manufacturing industries.

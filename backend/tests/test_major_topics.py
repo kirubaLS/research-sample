@@ -157,7 +157,7 @@ def test_every_major_heading_is_selectable_even_without_text_of_its_own(cap):
     assert "4.1" not in {c.section_number for c in _minerals_chunks()}, (
         "the case under test: 4.1 has no chunk of its own")
     assert "2.1" not in headings, "Rat-Hole Mining is a box, never a topic"
-    assert headings["0"] == "0 Introduction"
+    assert headings["0"] == "0 Introduction: Importance of Minerals"
     assert all(n.count(".") <= 1 for n in headings)
     assert list(headings)[:4] == ["0", "1", "2", "2.2"]
 
@@ -179,7 +179,7 @@ def test_the_chapter_document_renders_deeper_units_under_their_major_topic(cap):
     assert "## SECTION 2.1" not in doc
     section_2 = doc[doc.index("## SECTION 2  "):doc.index("## SECTION 2.2  ")]
     assert "### Box: Rat-Hole Mining" in section_2
-    assert doc.index("## SECTION 0  0 Introduction") < doc.index("## SECTION 1  ")
+    assert doc.index("## SECTION 0  0 Introduction: Importance of Minerals") < doc.index("## SECTION 1  ")
     iron = doc[doc.index("## SECTION 2.2  2.2 Ferrous Minerals"):doc.index("## SECTION 2.3  ")]
     assert "### Iron Ore" in iron and "### Manganese" in iron
 
@@ -437,3 +437,47 @@ def test_picture_only_and_misnumbered_features_are_boxes_under_their_section(cap
     assert lifelines["2.1"].title == "Digital India" and lifelines["2.1"].parent == "2"
     assert "1.7" not in lifelines
     assert major_of("X.GEO.LIFELINES", "2.1", 2) == "2"
+
+
+# --- introductions titled for their content ----------------------------------------------
+
+
+@pytest.mark.parametrize("chapter, label", [
+    ("X.GEO.RESOURCES", "0 Introduction: Types and Classification of Resources"),
+    ("X.HIST.NATIONALISM_EUROPE", "0 Introduction: Sorrieu's Vision and the Nation-State"),
+    ("X.GEO.LIFELINES", "0 Introduction: Need for Transport, Communication and Trade"),
+    # untitled: plain "Introduction" in the book map
+    ("X.HIST.PRINTCULTURE", "0 Introduction"),
+    ("X.ECO.SECTORS", "0 Introduction"),
+    # Politics prints "Overview"
+    ("X.POL.PARTIES", "0 Introduction"),
+])
+def test_section_0_shows_the_introductions_title_or_plain_introduction(cap, chapter, label):
+    from app.curriculum.book_map import major_headings
+
+    assert major_headings(chapter, 2)["0"] == label
+
+
+def test_intro_label_keeps_only_a_content_title():
+    from app.curriculum.book_map import intro_label
+
+    assert intro_label("Introduction: What Is Manufacturing") == "Introduction: What Is Manufacturing"
+    assert intro_label("Introduction") == "Introduction"
+    assert intro_label("Overview") == "Introduction"
+    assert intro_label(None) == "Introduction"
+
+
+def test_nine_introductions_carry_a_content_title():
+    from app.curriculum.book_map import INTRO_KIND, chapter_units
+
+    chapters = [
+        "X.HIST.NATIONALISM_EUROPE", "X.HIST.NATIONALISM_INDIA", "X.HIST.GLOBALWORLD",
+        "X.HIST.INDUSTRIALISATION", "X.HIST.PRINTCULTURE", "X.GEO.RESOURCES",
+        "X.GEO.FORESTWILDLIFE", "X.GEO.WATER", "X.GEO.AGRICULTURE", "X.GEO.MINERALSENERGY",
+        "X.GEO.MANUFACTURING", "X.GEO.LIFELINES", "X.POL.POWERSHARING", "X.POL.FEDERALISM",
+        "X.POL.GENDERRELIGIONCASTE", "X.POL.PARTIES", "X.POL.OUTCOMES", "X.ECO.DEVELOPMENT",
+        "X.ECO.SECTORS", "X.ECO.MONEYCREDIT", "X.ECO.GLOBALISATION", "X.ECO.CONSUMERRIGHTS",
+    ]
+    titled = [c for c in chapters for u in chapter_units(c)
+              if u.kind == INTRO_KIND and u.title.startswith("Introduction:")]
+    assert len(titled) == 9

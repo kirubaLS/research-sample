@@ -14,10 +14,10 @@ every subtopic node of every chapter is sorted into one of:
   DEEP     a book-map unit deeper than the cap (4.1.2 Petroleum)
 
 For every ORPHAN and DEEP node it lists the question_skill rows that point at it, and the
-question rows that carry its section, with the KEEP node each would be repointed to (a
-DEEP node's is its major topic; an ORPHAN's is the book-map unit its label names, else the
-question's own section). Nothing is guessed: a reference with no target is listed as
-UNRESOLVED and left exactly where it is.
+question rows that carry its section, with the KEEP node each would be repointed to (for
+a DEEP node, the question's own collapsed section, else the node's major topic; for an
+ORPHAN, the book-map unit its label names, else the question's own section). Nothing is
+guessed: a reference with no target is listed as UNRESOLVED and left exactly where it is.
 
 With --apply (and --i-have-a-backup):
   * RELABEL nodes are relabelled;
@@ -164,6 +164,10 @@ def plan_chapter(db, chapter: TaxonomyNode, cap: int) -> list[Entry]:
             exactly = named is not None and _words(named[1]) == _words(node.label)
             if node.label == expected:
                 entries.append(Entry(node, number, "KEEP"))
+            elif number == INTRO_SECTION and _words(node.label).startswith("introduction"):
+                # "0 Introduction" from before the introduction was titled for its content
+                entries.append(Entry(node, number, "RELABEL", new_label=expected,
+                                     reason="the introduction's title changed"))
             elif exactly and named[0] != number:
                 entries.append(Entry(
                     node, number, "ORPHAN", target=named[0],
@@ -223,11 +227,15 @@ def plan_chapter(db, chapter: TaxonomyNode, cap: int) -> list[Entry]:
                     entry.refs.append(Ref("question", q.id, q.id, q.address,
                                           q.curriculum_section))
         for ref in entry.refs:
+            own = major_of(chapter.code, ref.question_section, cap) if ref.question_section else None
+            if entry.status == "DEEP":
+                # the question's own collapsed section first, as the family repoint does: a
+                # link on 4.1.4 Electricity whose question sits in 4.2.1 goes to 4.2
+                ref.target = own if own in majors else entry.target
+                continue
             ref.target = entry.target
-            if ref.target is None and ref.question_section:
-                own = major_of(chapter.code, ref.question_section, cap)
-                if own in majors and own != entry.number:
-                    ref.target = own
+            if ref.target is None and own in majors and own != entry.number:
+                ref.target = own
     return entries
 
 

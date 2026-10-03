@@ -3,7 +3,7 @@ chapter: X.GEO.RESOURCES | book: Contemporary India – II (Geography), Class X 
 
 Evidence rule: body, box, term and source text are primary evidence when mapping a question. Activities and figure or table captions are supporting evidence: they are searched when locating a topic and may be quoted when a question is drawn from them. Exercises are never used as evidence.
 
-## Introduction
+## Introduction: Types and Classification of Resources
 unit: X.GEO.RESOURCES.0 | kind: intro | pages: 18 | catalog: X.GEO.CF.INTRODUCTION
 
 Everything available in our environment which can be used to satisfy our needs, provided, it is technologically accessible, economically feasible and culturally acceptable can be termed as ‘Resource’.

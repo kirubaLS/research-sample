@@ -162,6 +162,8 @@ def _seed_book_maps(db, school):
         (parties, "X.POL.PARTIES.S4", "Functions"),          # reading order: 1.2 in the map
         (parties, "X.POL.PARTIES.S7", "Popular"),            # a box title, no unit
         (minerals, "X.GEO.MINERALSENERGY.S4_1_2", "4.1.2 Petroleum"),
+        (minerals, "X.GEO.MINERALSENERGY.S4_1_4", "4.1.4 Electricity"),
+        (minerals, "X.GEO.MINERALSENERGY.S0", "0 Introduction"),     # before the title
         (minerals, "X.GEO.MINERALSENERGY.S2_1", "2.1 Rat-Hole Mining"),
     ]:
         node = nodes.get(code)
@@ -189,6 +191,9 @@ def _seed_book_maps(db, school):
         (a, "B/11//", minerals, "2.2.1", "X.GEO.MINERALSENERGY.S4_1_2", "X.GEO.CF.PETROLEUM"),
         # on a deep family, with a section that is no topic at all: the family decides
         (a, "B/12//", minerals, "9.9", "X.GEO.MINERALSENERGY.S4_1_2", "X.GEO.CF.COAL"),
+        # the backup's case: a topic link on 4.1.4 Electricity, the question itself in 4.2.1
+        (a, "B/19/19.7/", minerals, "4.2.1", "X.GEO.MINERALSENERGY.S4_1_4",
+         "X.GEO.CF.ELECTRICITY"),
     ]:
         text = f"{tag} {addr} {paper.paper_kind}"
         q = Question(assessment_id=paper.id, address=addr, section=addr[0],
@@ -229,6 +234,16 @@ def test_clean_subtopics_dry_run_writes_nothing_and_names_each_class(book_maps, 
     assert "ORPHAN  X.POL.PARTIES.S4" in out and "-> 1.2" in out
     assert "DEEP    X.GEO.MINERALSENERGY.S4_1_2" in out
     assert "a box ('Rat-Hole Mining'), never a topic" in out
+    links = [line.split() for line in out.splitlines() if line.strip().startswith("question_skill")]
+    by_address = {(w[3], w[5]): w[-1] for w in links}
+    # a DEEP node's topic links follow the question's own collapsed section first ...
+    assert by_address[("B/19/19.7/", "4.2.1")] == "4.2"
+    assert by_address[("B/11//", "2.2.1")] == "2.2"
+    # ... and the node's own major topic only when that section is no topic
+    assert by_address[("B/12//", "9.9")] == "4.1"
+    relabel = next(line.split(None, 2) for line in out.splitlines()
+                   if line.strip().startswith("RELABEL X.GEO.MINERALSENERGY.S0 "))
+    assert relabel[2] == "'0 Introduction' -> '0 Introduction: Importance of Minerals'"
 
 
 def test_clean_subtopics_refuses_apply_without_a_backup(book_maps):
@@ -258,6 +273,9 @@ def test_clean_subtopics_applies_repoints_and_writes_an_undo_file(book_maps, tmp
 
         assert topic(book_maps[("school", "C/23//")]) == ("X.POL.PARTIES.S1_2", "1.2")
         assert topic(book_maps[("school", "B/19/19.3/")]) == ("X.GEO.MINERALSENERGY.S4_1", "4.1")
+        assert topic(book_maps[("school", "B/19/19.7/")])[0] == "X.GEO.MINERALSENERGY.S4_2"
+        assert topic(book_maps[("school", "B/11//")])[0] == "X.GEO.MINERALSENERGY.S2_2"
+        assert topic(book_maps[("school", "B/12//")])[0] == "X.GEO.MINERALSENERGY.S4_1"
         s4 = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.POL.PARTIES.S4"))
         assert s4.label == "4 State parties", "the code is a major topic's: kept, relabelled"
         deep = db.scalar(select(TaxonomyNode).where(
@@ -276,6 +294,9 @@ def test_major_topic_families_dry_run_then_apply_leaves_board_papers_alone(book_
     out = capsys.readouterr().out
     assert "REUSE   4.1   X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY" in out
     assert "deep    X.GEO.CF.PETROLEUM" in out
+    assert "major topic ?" not in out
+    conclusion = next(line for line in out.splitlines() if "deep    X.HIST.CF.CONCLUSION" in line)
+    assert conclusion.endswith("-> chapter level (kept, unused)")
     assert "(board paper, untouched)" in out
     assert "B/11//       X.GEO.CF.PETROLEUM -> X.GEO.CF.FERROUS_MINERALS (section 2.2, by question section)" in out
     assert "B/12//       X.GEO.CF.COAL -> X.GEO.CF.CONVENTIONAL_SOURCES_ENERGY (section 4.1, by deep family's topic)" in out

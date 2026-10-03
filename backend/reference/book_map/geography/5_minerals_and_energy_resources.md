@@ -3,7 +3,7 @@ chapter: X.GEO.MINERALSENERGY | book: Contemporary India – II (Geography), Cla
 
 Evidence rule: body, box, term and source text are primary evidence when mapping a question. Activities and figure or table captions are supporting evidence: they are searched when locating a topic and may be quoted when a question is drawn from them. Exercises are never used as evidence.
 
-## Introduction
+## Introduction: Importance of Minerals
 unit: X.GEO.MINERALSENERGY.0 | kind: intro | pages: 59 | catalog: X.GEO.CF.MINERALSENERGY_INTRODUCTION
 
 We use different things in our daily life made from metal. Can you list a number of items used in your house made of metals. Where do these metals come from? You have studied that the earth’s crust is made up of different minerals embedded in the rocks. Various metals are extracted from these minerals after proper refinement. Minerals are an indispensable part of our lives. Almost everything we use, from a tiny pin to a towering building or a big ship, all are made from minerals. The railway lines and the tarmac (paving) of the roads, our implements and machinery too are made from minerals. Cars, buses, trains, aeroplanes are manufactured from minerals and run on power resources derived from the earth. Even the food that we eat contains minerals. In all stages of development, human beings have used minerals for their livelihood, decoration, festivities, religious and ceremonial rites.

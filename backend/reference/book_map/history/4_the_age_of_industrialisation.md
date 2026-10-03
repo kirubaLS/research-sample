@@ -3,7 +3,7 @@ chapter: X.HIST.INDUSTRIALISATION | book: India and the Contemporary World – I
 
 Evidence rule: body, box, term and source text are primary evidence when mapping a question. Activities and figure or table captions are supporting evidence: they are searched when locating a topic and may be quoted when a question is drawn from them. Exercises are never used as evidence.
 
-## Introduction
+## Introduction: Images of Industrial Progress
 unit: X.HIST.INDUSTRIALISATION.0 | kind: intro | pages: 91–92 | catalog: X.HIST.CF.INDUSTRIALISATION_INTRODUCTION
 
 In 1900, a popular music publisher E.T. Paull produced a music book that had a picture on the cover page announcing the ‘Dawn of the Century’ (Fig. 1). As you can see from the illustration, at the centre of the picture is a goddess-like figure, the angel of progress, bearing the flag of the new century. She is gently perched on a wheel with wings, symbolising time. Her flight is taking her into the future. Floating about, behind her, are the signs of progress: railway, camera, machines, printing press and factory.

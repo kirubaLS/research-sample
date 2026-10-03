@@ -11,7 +11,7 @@
     "id": "X.GEO.RESOURCES.0",
     "kind": "intro",
     "number": null,
-    "title": "Introduction",
+    "title": "Introduction: Types and Classification of Resources",
     "parent": null,
     "body": [
      {
@@ -1195,7 +1195,7 @@
     "id": "X.GEO.FORESTWILDLIFE.0",
     "kind": "intro",
     "number": null,
-    "title": "Introduction",
+    "title": "Introduction: Biodiversity and the Role of Forests",
     "parent": null,
     "body": [
      {
@@ -1691,7 +1691,7 @@
     "id": "X.GEO.WATER.0",
     "kind": "intro",
     "number": null,
-    "title": "Introduction",
+    "title": "Introduction: Freshwater and the Hydrological Cycle",
     "parent": null,
     "body": [
      {
@@ -3641,7 +3641,7 @@
     "id": "X.GEO.MINERALSENERGY.0",
     "kind": "intro",
     "number": null,
-    "title": "Introduction",
+    "title": "Introduction: Importance of Minerals",
     "parent": null,
     "body": [
      {
@@ -5433,7 +5433,7 @@
     "id": "X.GEO.MANUFACTURING.0",
     "kind": "intro",
     "number": null,
-    "title": "Introduction",
+    "title": "Introduction: What Is Manufacturing",
     "parent": null,
     "body": [
      {
@@ -6505,7 +6505,7 @@
     "id": "X.GEO.LIFELINES.0",
     "kind": "intro",
     "number": null,
-    "title": "Introduction",
+    "title": "Introduction: Need for Transport, Communication and Trade",
     "parent": null,
     "body": [
      {

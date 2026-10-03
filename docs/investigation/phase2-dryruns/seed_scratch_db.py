@@ -49,6 +49,8 @@ for addr, chapter_code, section, node_code, family_code in [
     ("C/23//", "X.POL.PARTIES", "4", "X.POL.PARTIES.S4", "X.POL.CF.FUNCTIONS"),
     ("B/19/19.3/", "X.GEO.MINERALSENERGY", "4.1.2", "X.GEO.MINERALSENERGY.S4_1_2", "X.GEO.CF.PETROLEUM"),
     ("B/16//", "X.GEO.MINERALSENERGY", "2.1", "X.GEO.MINERALSENERGY.S2_1", "X.GEO.CF.RAT_HOLE_MINING"),
+    # the backup's shape: a topic link on 4.1.4 Electricity, the question itself in 4.2.1
+    ("B/19/19.7/", "X.GEO.MINERALSENERGY", "4.2.1", "X.GEO.MINERALSENERGY.S4_1_4", "X.GEO.CF.ELECTRICITY"),
 ]:
     fam = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == family_code))
     unit = by_code["X.POL.U.WHOLE" if chapter_code.startswith("X.POL") else "X.GEO.U.WHOLE"]

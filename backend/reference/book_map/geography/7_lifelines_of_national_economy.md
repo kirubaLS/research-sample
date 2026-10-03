@@ -3,7 +3,7 @@ chapter: X.GEO.LIFELINES | book: Contemporary India – II (Geography), Class X 
 
 Evidence rule: body, box, term and source text are primary evidence when mapping a question. Activities and figure or table captions are supporting evidence: they are searched when locating a topic and may be quoted when a question is drawn from them. Exercises are never used as evidence.
 
-## Introduction
+## Introduction: Need for Transport, Communication and Trade
 unit: X.GEO.LIFELINES.0 | kind: intro | pages: 88 | catalog: X.GEO.CF.LIFELINES_INTRODUCTION
 
 We use different materials and services in our daily life. Some of these are available in our immediate surroundings, while other requirements are met by bringing things from other places. Goods and services do not move from supply locales to demand locales on their own. The movement of these goods and services from their supply locations to demand locations necessitates the need for transport. Some people are engaged in facilitating these movements. These are known to be traders who make the products come to the consumers by transportation. Thus, the pace of development of a country depends upon the production of goods and services as well as their movement over space. Therefore, efficient means of transport are prerequisites for fast development. Movement of these goods and services can be over three important domains of our earth i.e. land, water and air. Based on these, transport can also be classified into land, water and air transport.

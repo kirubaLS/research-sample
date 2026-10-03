@@ -55,7 +55,7 @@ X.HIST.GLOBALWORLD  The Making of a Global World  (cap 2)  KEEP 0, RELABEL 21, O
   RELABEL X.HIST.GLOBALWORLD.S4_2              'The Early Post-war Years' -> '4.2 The Early Post-war Years'
   RELABEL X.HIST.GLOBALWORLD.S4_3              'Decolonisation and Independence' -> '4.3 Decolonisation and Independence'
   RELABEL X.HIST.GLOBALWORLD.S4_4              'End of Bretton Woods and the Beginning of' -> '4.4 End of Bretton Woods and the Beginning of ‘Globalisation’'
-  ORPHAN  X.HIST.GLOBALWORLD.S2_4-2            'Indentured Labour Migration from India'  [the code carries no section number] -> 2.4
+  ORPHAN  X.HIST.GLOBALWORLD.S2_4-2            'Indentured Labour Migration from India'  [the code carries no section number] -> 2.4b
 
 X.HIST.INDUSTRIALISATION  The Age of Industrialisation  (cap 2)  KEEP 0, RELABEL 15, ORPHAN 0, DEEP 0
   RELABEL X.HIST.INDUSTRIALISATION.S1          'Before the Industrial Revolution' -> '1 Before the Industrial Revolution'
@@ -143,8 +143,8 @@ X.GEO.WATER  Water Resources  (cap 2)  KEEP 0, RELABEL 1, ORPHAN 4, DEEP 0
   RELABEL X.GEO.WATER.S1                       'Water Scarcity and the Need for Water Conservation and Management' -> '1 Water Scarcity and the Need for Water Conservation and Management'
   ORPHAN  X.GEO.WATER.S2                       'Water Resources'  [reading-order duplicate: 'Water Resources' is 'Water Resources' in the book map, under 0] -> 0
   ORPHAN  X.GEO.WATER.S3                       'Hydraulic Structures in Ancient India'  [label 'Hydraulic Structures in Ancient India' names no book-map unit; the code belongs to '3 Rainwater Harvesting'] -> per question
-  ORPHAN  X.GEO.WATER.S4                       'Rainwater Harvesting'  [reading-order duplicate: 'Rainwater Harvesting' is 'Rainwater Harvesting' in the book map, under 3] -> 3
-  ORPHAN  X.GEO.WATER.S5                       'Bamboo Drip Irrigation System'  [no book-map unit numbered 5; label names 'Bamboo Drip Irrigation System'] -> 4
+  ORPHAN  X.GEO.WATER.S4                       'Rainwater Harvesting'  [no book-map unit numbered 4; label names 'Rainwater Harvesting'] -> 3
+  ORPHAN  X.GEO.WATER.S5                       'Bamboo Drip Irrigation System'  [no book-map unit numbered 5; label names 'Bamboo Drip Irrigation System'] -> 3
 
 X.GEO.AGRICULTURE  Agriculture  (cap 2)  KEEP 0, RELABEL 0, ORPHAN 23, DEEP 16
   ORPHAN  X.GEO.AGRICULTURE.S1                 'Coffee'  [reading-order duplicate: 'Coffee' is 'Coffee' in the book map, under 2.1] -> 2.1
@@ -191,8 +191,8 @@ X.GEO.MINERALSENERGY  Minerals and Energy Resources  (cap 2)  KEEP 0, RELABEL 0,
   ORPHAN  X.GEO.MINERALSENERGY.S1              'A bright smile from toothpaste and minerals'  [label 'A bright smile from toothpaste and minerals' names no book-map unit; the code belongs to '1 What is a mineral?'] -> per question
   ORPHAN  X.GEO.MINERALSENERGY.S2              'All living things need minerals'  [label 'All living things need minerals' names no book-map unit; the code belongs to '2 Mode of Occurrence of Minerals'] -> per question
   ORPHAN  X.GEO.MINERALSENERGY.S2_1            '2.1 Rat-Hole Mining'  [a box ('Rat-Hole Mining'), never a topic] -> 2
-            question_skill f2706063 question B/16//       section 2.1    weight 1.0 -> 2
-            question       1aad4d34 question B/16//       section 2.1    -> 2
+            question_skill 626c1573 question B/16//       section 2.1    weight 1.0 -> 2
+            question       7ac80e72 question B/16//       section 2.1    -> 2
   DEEP    X.GEO.MINERALSENERGY.S2_2_1          '2.2.1 Iron Ore'  [depth 3 > 2] -> 2.2
   DEEP    X.GEO.MINERALSENERGY.S2_2_2          '2.2.2 Manganese'  [depth 3 > 2] -> 2.2
   DEEP    X.GEO.MINERALSENERGY.S2_3_1          '2.3.1 Copper'  [depth 3 > 2] -> 2.3
@@ -201,11 +201,13 @@ X.GEO.MINERALSENERGY  Minerals and Energy Resources  (cap 2)  KEEP 0, RELABEL 0,
   ORPHAN  X.GEO.MINERALSENERGY.S4              'Study of Minerals by Geographers and Geologists'  [label 'Study of Minerals by Geographers and Geologists' names no book-map unit; the code belongs to '4 Energy Resources'] -> per question
   DEEP    X.GEO.MINERALSENERGY.S4_1_1          '4.1.1 Coal'  [depth 3 > 2] -> 4.1
   DEEP    X.GEO.MINERALSENERGY.S4_1_2          '4.1.2 Petroleum'  [depth 3 > 2] -> 4.1
-            question_skill c5305f30 question B/19/19.3/   section 4.1.2  weight 1.0 -> 4.1
-            question       6f3a768d question B/19/19.3/   section 4.1.2  -> 4.1
+            question_skill fe0091f8 question B/19/19.3/   section 4.1.2  weight 1.0 -> 4.1
+            question       55f7852b question B/19/19.3/   section 4.1.2  -> 4.1
   DEEP    X.GEO.MINERALSENERGY.S4_1_3          '4.1.3 Natural Gas'  [depth 3 > 2] -> 4.1
   DEEP    X.GEO.MINERALSENERGY.S4_1_4          '4.1.4 Electricity'  [depth 3 > 2] -> 4.1
+            question_skill 12ecb3fb question B/19/19.7/   section 4.2.1  weight 1.0 -> 4.2
   DEEP    X.GEO.MINERALSENERGY.S4_2_1          '4.2.1 Nuclear or Atomic Energy'  [depth 3 > 2] -> 4.2
+            question       96c833fc question B/19/19.7/   section 4.2.1  -> 4.2
   DEEP    X.GEO.MINERALSENERGY.S4_2_2          '4.2.2 Solar Energy'  [depth 3 > 2] -> 4.2
   DEEP    X.GEO.MINERALSENERGY.S4_2_3          '4.2.3 Wind Power'  [depth 3 > 2] -> 4.2
   DEEP    X.GEO.MINERALSENERGY.S4_2_4          '4.2.4 Biogas'  [depth 3 > 2] -> 4.2
@@ -287,7 +289,7 @@ X.GEO.LIFELINES  Lifelines of National Economy  (cap 2)  KEEP 0, RELABEL 1, ORPH
   ORPHAN  X.GEO.LIFELINES.S14                  'Communication'  [no book-map unit numbered 14; label names 'Communication'] -> 2
   ORPHAN  X.GEO.LIFELINES.S15                  'Waterways'  [no book-map unit numbered 15; label names 'Waterways'] -> 1.4
   ORPHAN  X.GEO.LIFELINES.S16                  'International Trade'  [no book-map unit numbered 16; label names 'International Trade'] -> 3
-  ORPHAN  X.GEO.LIFELINES.S17                  'Digital India'  [no book-map unit numbered 17; label names 'Digital India'] -> 1
+  ORPHAN  X.GEO.LIFELINES.S17                  'Digital India'  [no book-map unit numbered 17; label names 'Digital India'] -> 2
   ORPHAN  X.GEO.LIFELINES.S18                  'Tourism as a Trade'  [no book-map unit numbered 18; label names 'Tourism as a Trade'] -> 4
 
 X.POL.POWERSHARING  Power-sharing  (cap 2)  KEEP 0, RELABEL 0, ORPHAN 7, DEEP 0
@@ -331,8 +333,8 @@ X.POL.PARTIES  Political Parties  (cap 2)  KEEP 0, RELABEL 0, ORPHAN 11, DEEP 0
   ORPHAN  X.POL.PARTIES.S2                     'Why do we need political parties?'  [reading-order duplicate: 'Why do we need political parties?' is 'Why do we need political parties?' in the book map, under 1] -> 1
   ORPHAN  X.POL.PARTIES.S3                     'Meaning'  [reading-order duplicate: 'Meaning' is 'Meaning' in the book map, under 1.1] -> 1.1
   ORPHAN  X.POL.PARTIES.S4                     'Functions'  [reading-order duplicate: 'Functions' is 'Functions' in the book map, under 1.2] -> 1.2
-            question_skill 58df59ca question C/23//       section 4      weight 1.0 -> 1.2
-            question       bf3ecac5 question C/23//       section 4      -> 1.2
+            question_skill 565d9055 question C/23//       section 4      weight 1.0 -> 1.2
+            question       c0ebf8e4 question C/23//       section 4      -> 1.2
   ORPHAN  X.POL.PARTIES.S5                     'Necessity'  [reading-order duplicate: 'Necessity' is 'Necessity' in the book map, under 1.3] -> 1.3
   ORPHAN  X.POL.PARTIES.S6                     'How many parties should we have?'  [reading-order duplicate: 'How many parties should we have?' is 'How many parties should we have?' in the book map, under 2] -> 2
   ORPHAN  X.POL.PARTIES.S7                     'Popular'  [no book-map unit numbered 7] -> per question
@@ -369,7 +371,7 @@ X.ECO.SECTORS  Sectors of the Indian Economy  (cap 2)  KEEP 0, RELABEL 1, ORPHAN
   ORPHAN  X.ECO.SECTORS.S3                     'COMPARING THE THREE SECTORS'  [reading-order duplicate: 'COMPARING THE THREE SECTORS' is 'COMPARING THE THREE SECTORS' in the book map, under 2] -> 2
   ORPHAN  X.ECO.SECTORS.S4                     'Historical Change in Sectors'  [reading-order duplicate: 'Historical Change in Sectors' is 'Historical Change in Sectors' in the book map, under 2.2] -> 2.2
   ORPHAN  X.ECO.SECTORS.S5                     'PRIMARY, SECONDARY AND TERTIARY SECTORS IN INDIA'  [reading-order duplicate: 'PRIMARY, SECONDARY AND TERTIARY SECTORS IN INDIA' is 'PRIMARY, SECONDARY AND TERTIARY SECTORS IN INDIA' in the book map, under 3] -> 3
-  ORPHAN  X.ECO.SECTORS.S6                     'Rising Importance of the Tertiary Sector in Production'  [reading-order duplicate: 'Rising Importance of the Tertiary Sector in Production' is 'Rising Importance of the Tertiary Sector in Production' in the book map, under 3.1] -> 3.1
+  ORPHAN  X.ECO.SECTORS.S6                     'Rising Importance of the Tertiary Sector in Production'  [no book-map unit numbered 6; label names 'Rising Importance of the Tertiary Sector in Production'] -> 3.1
   ORPHAN  X.ECO.SECTORS.S7                     'Where are most of the people employed?'  [no book-map unit numbered 7; label names 'Where are most of the people employed?'] -> 3.2
   ORPHAN  X.ECO.SECTORS.S8                     'How to Create More Employment?'  [no book-map unit numbered 8; label names 'How to Create More Employment?'] -> 3.3
   ORPHAN  X.ECO.SECTORS.S9                     'DIVISION OF SECTORS AS ORGANISED AND UNORGANISED'  [no book-map unit numbered 9; label names 'DIVISION OF SECTORS AS ORGANISED AND UNORGANISED'] -> 4
@@ -377,7 +379,7 @@ X.ECO.SECTORS  Sectors of the Indian Economy  (cap 2)  KEEP 0, RELABEL 1, ORPHAN
   ORPHAN  X.ECO.SECTORS.S11                    'Kamal'  [no book-map unit numbered 11] -> per question
   ORPHAN  X.ECO.SECTORS.S12                    'How to Protect Workers in the Unorganised Sector?'  [no book-map unit numbered 12; label names 'How to Protect Workers in the Unorganised Sector?'] -> 4.1
   ORPHAN  X.ECO.SECTORS.S13                    'SECTORS IN TERMS OF OWNERSHIP: PUBLIC AND PRIVATE SECTORS'  [no book-map unit numbered 13; label names 'SECTORS IN TERMS OF OWNERSHIP: PUBLIC AND PRIVATE SECTORS'] -> 5
-  ORPHAN  X.ECO.SECTORS.S14                    'SUMMING UP'  [no book-map unit numbered 14; label names 'SUMMING UP'] -> 6
+  ORPHAN  X.ECO.SECTORS.S14                    'SUMMING UP'  [no book-map unit numbered 14; label names 'SUMMING UP'] -> 0
 
 X.ECO.MONEYCREDIT  Money and Credit  (cap 2)  KEEP 0, RELABEL 1, ORPHAN 18, DEEP 0
   RELABEL X.ECO.MONEYCREDIT.S1                 'MONEY AS A MEDIUM OF EXCHANGE' -> '1 MONEY AS A MEDIUM OF EXCHANGE'
@@ -387,7 +389,7 @@ X.ECO.MONEYCREDIT  Money and Credit  (cap 2)  KEEP 0, RELABEL 1, ORPHAN 18, DEEP
   ORPHAN  X.ECO.MONEYCREDIT.S5                 'Cheque Payments'  [label 'Cheque Payments' names no book-map unit; the code belongs to '5 TERMS OF CREDIT'] -> per question
   ORPHAN  X.ECO.MONEYCREDIT.S6                 'LOAN ACTIVITIES OF BANKS'  [reading-order duplicate: 'LOAN ACTIVITIES OF BANKS' is 'LOAN ACTIVITIES OF BANKS' in the book map, under 3] -> 3
   ORPHAN  X.ECO.MONEYCREDIT.S7                 '(1) Festival Season'  [label '(1) Festival Season' names no book-map unit; the code belongs to '7 SELF-HELP GROUPS FOR THE POOR'] -> per question
-  ORPHAN  X.ECO.MONEYCREDIT.S8                 '(2) Swapna’s Problem'  [label '(2) Swapna’s Problem' names no book-map unit; the code belongs to '8 SUMMING UP'] -> per question
+  ORPHAN  X.ECO.MONEYCREDIT.S8                 '(2) Swapna’s Problem'  [no book-map unit numbered 8] -> per question
   ORPHAN  X.ECO.MONEYCREDIT.S9                 'TWO DIFFERENT CREDIT SITUATIONS'  [no book-map unit numbered 9; label names 'TWO DIFFERENT CREDIT SITUATIONS'] -> 4
   ORPHAN  X.ECO.MONEYCREDIT.S10                'TERMS OF CREDIT'  [no book-map unit numbered 10; label names 'TERMS OF CREDIT'] -> 5
   ORPHAN  X.ECO.MONEYCREDIT.S11                'A House Loan'  [no book-map unit numbered 11] -> per question
@@ -398,7 +400,7 @@ X.ECO.MONEYCREDIT  Money and Credit  (cap 2)  KEEP 0, RELABEL 1, ORPHAN 18, DEEP
   ORPHAN  X.ECO.MONEYCREDIT.S16                'Formal and Informal Credit: Who gets what?'  [no book-map unit numbered 16; label names 'Formal and Informal Credit: Who gets what?'] -> 6.1
   ORPHAN  X.ECO.MONEYCREDIT.S17                'SELF-HELP GROUPS FOR THE POOR'  [no book-map unit numbered 17; label names 'SELF-HELP GROUPS FOR THE POOR'] -> 7
   ORPHAN  X.ECO.MONEYCREDIT.S18                'Grameen Bank of Bangladesh'  [no book-map unit numbered 18] -> per question
-  ORPHAN  X.ECO.MONEYCREDIT.S19                'SUMMING UP'  [no book-map unit numbered 19; label names 'SUMMING UP'] -> 8
+  ORPHAN  X.ECO.MONEYCREDIT.S19                'SUMMING UP'  [no book-map unit numbered 19; label names 'SUMMING UP'] -> 0
 
 X.ECO.GLOBALISATION  Globalisation and the Indian Economy  (cap 2)  KEEP 0, RELABEL 0, ORPHAN 21, DEEP 0
   ORPHAN  X.ECO.GLOBALISATION.S1               'Spreading  of Production by an MNC'  [label 'Spreading  of Production by an MNC' names no book-map unit; the code belongs to '1 PRODUCTION ACROSS COUNTRIES'] -> per question
@@ -409,7 +411,7 @@ X.ECO.GLOBALISATION  Globalisation and the Indian Economy  (cap 2)  KEEP 0, RELA
   ORPHAN  X.ECO.GLOBALISATION.S6               'WHAT IS GLOBALISATION?'  [reading-order duplicate: 'WHAT IS GLOBALISATION?' is 'WHAT IS GLOBALISATION?' in the book map, under 4] -> 4
   ORPHAN  X.ECO.GLOBALISATION.S7               'Technology'  [reading-order duplicate: 'Technology' is 'Technology' in the book map, under 5.1] -> 5.1
   ORPHAN  X.ECO.GLOBALISATION.S8               'Containers for transport of goods'  [label 'Containers for transport of goods' names no book-map unit; the code belongs to '8 THE STRUGGLE FOR A FAIR GLOBALISATION'] -> per question
-  ORPHAN  X.ECO.GLOBALISATION.S9               'FACTORS THAT HAVE ENABLED GLOBALISATION'  [reading-order duplicate: 'FACTORS THAT HAVE ENABLED GLOBALISATION' is 'FACTORS THAT HAVE ENABLED GLOBALISATION' in the book map, under 5] -> 5
+  ORPHAN  X.ECO.GLOBALISATION.S9               'FACTORS THAT HAVE ENABLED GLOBALISATION'  [no book-map unit numbered 9; label names 'FACTORS THAT HAVE ENABLED GLOBALISATION'] -> 5
   ORPHAN  X.ECO.GLOBALISATION.S10              'Using IT in'  [no book-map unit numbered 10] -> per question
   ORPHAN  X.ECO.GLOBALISATION.S11              'Liberalisation of foreign trade and foreign investment policy'  [no book-map unit numbered 11; label names 'Liberalisation of foreign trade and foreign investment policy'] -> 5.2
   ORPHAN  X.ECO.GLOBALISATION.S12              'WORLD TRADE ORGANISATION'  [no book-map unit numbered 12; label names 'WORLD TRADE ORGANISATION'] -> 6
@@ -421,7 +423,7 @@ X.ECO.GLOBALISATION  Globalisation and the Indian Economy  (cap 2)  KEEP 0, RELA
   ORPHAN  X.ECO.GLOBALISATION.S18              'Competition and Uncertain Employment'  [no book-map unit numbered 18; label names 'Competition and Uncertain Employment'] -> 7.2
   ORPHAN  X.ECO.GLOBALISATION.S19              'A Garment Worker'  [no book-map unit numbered 19] -> per question
   ORPHAN  X.ECO.GLOBALISATION.S20              'THE STRUGGLE FOR A FAIR GLOBALISATION'  [no book-map unit numbered 20; label names 'THE STRUGGLE FOR A FAIR GLOBALISATION'] -> 8
-  ORPHAN  X.ECO.GLOBALISATION.S21              'SUMMING UP'  [no book-map unit numbered 21; label names 'SUMMING UP'] -> 9
+  ORPHAN  X.ECO.GLOBALISATION.S21              'SUMMING UP'  [no book-map unit numbered 21; label names 'SUMMING UP'] -> 0
 
 X.ECO.CONSUMERRIGHTS  Consumer Rights  (cap 2)  KEEP 0, RELABEL 2, ORPHAN 13, DEEP 0
   RELABEL X.ECO.CONSUMERRIGHTS.S1              'THE CONSUMER IN THE MARKETPLACE' -> '1 THE CONSUMER IN THE MARKETPLACE'

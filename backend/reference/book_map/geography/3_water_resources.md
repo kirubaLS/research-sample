@@ -3,7 +3,7 @@ chapter: X.GEO.WATER | book: Contemporary India – II (Geography), Class X | ed
 
 Evidence rule: body, box, term and source text are primary evidence when mapping a question. Activities and figure or table captions are supporting evidence: they are searched when locating a topic and may be quoted when a question is drawn from them. Exercises are never used as evidence.
 
-## Introduction
+## Introduction: Freshwater and the Hydrological Cycle
 unit: X.GEO.WATER.0 | kind: intro | pages: 36–37 | catalog: X.GEO.CF.WATER_INTRODUCTION
 
 You already know that three-fourth of the earth’s surface is covered with water, but only a small proportion of it accounts for freshwater that can be put to use. This freshwater is mainly obtained from surface run off and ground water that is continually being renewed and recharged through the hydrological cycle. All water moves within the hydrological cycle ensuring that water is a renewable resource. You might wonder that if three-fourth of the world is covered with water and water is a renewable resource, then how is it that countries and regions around the globe suffer from water scarcity? Why is it predicted that by 2025, nearly two billion people will live in absolute water scarcity?
