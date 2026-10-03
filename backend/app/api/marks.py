@@ -2262,20 +2262,31 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
 
     def decide_topic(row, chapter: TaxonomyNode, section: str | None):
         """The section this question tests within ``chapter``, and its heading. A
-        sub-part of a source-based question is judged together with its passage."""
+        sub-part of a source-based question is judged together with its passage.
+        With the judge deferred to the classify job behind this map, the section is
+        provisional -- retrieval's, kept until classify decides -- and says so, rather
+        than reading as a disagreement a person should look at."""
         if chapter.id not in headings_of:
             headings_of[chapter.id] = section_headings(chunks, chapter, nodes)
         text = row.stem_text or ""
         passage = passage_of.get((row.section, row.question_no)) if row.sub_part else None
         if passage and passage not in text:
             text = f"{passage}\n\nQUESTION ON THE PASSAGE ABOVE:\n{text}"
-        return choose_topic(
+        pick = choose_topic(
             text, chapter.id, chapter.label, retrieval_chunks, headings_of[chapter.id],
             topic_judge, fallback_section=section, embedder=topic_embedder,
             evidence_passages=settings.classifier_evidence_passages,
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
         )
+        if deferred_to_classify:
+            import dataclasses
+
+            pick = dataclasses.replace(
+                pick, agreed=True,
+                rationale="provisional: the classify step queued behind this map decides the topic",
+            )
+        return pick
     # A case study's sub-parts all read the same source passage, which is not in the book
     # at all (an unseen extract, invented for this paper) -- so raw retrieval can easily
     # find real evidence for one sub-part (a shared word with some unrelated chapter) and

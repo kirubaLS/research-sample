@@ -1433,6 +1433,10 @@ def test_map_leaves_the_topic_judge_to_a_classify_job_already_queued_behind_it(
     assert body["spend"]["calls"] == 0 and body["spend"]["estimated_usd"] == 0
     placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
     assert placed["mapped_to"]["curriculum_section"] == "13.2", "retrieval's section stands"
+    # the single-retriever fixture flags the chapter on its own (verdict.agreed needs two
+    # retrievers); what matters here is that the deferred topic adds no doubt of its own
+    assert "provisional" in placed["mapped_to"]["review_reason"]
+    assert "no topic judge" not in placed["mapped_to"]["review_reason"]
 
     listed = next(p for p in client.get("/assessments", headers=h).json()["assessments"] if p["id"] == aid)
     assert listed["spend"] == {
