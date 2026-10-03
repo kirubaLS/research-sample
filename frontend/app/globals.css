@@ -1682,7 +1682,7 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
 .pm-btn-action { min-width: 122px; justify-content: center; }
 
 /* Create test modal */
-.pm-modal { width: min(600px, 100%); }
+.pm-modal { width: min(640px, 100%); max-height: 90dvh; overflow-y: auto; }
 .pm-modal__head {
   display: flex; align-items: center; justify-content: space-between; padding: 18px 22px;
   border-bottom: 1px solid var(--line);
@@ -1731,3 +1731,31 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
 .pm-total { font-weight: 700; font-size: 14px; }
 .pm-total__max { color: var(--muted); font-size: 12px; margin-left: 2px; }
 .pm-marks-foot { margin: 0; padding: 12px 20px 16px; }
+
+/* Create test: chapters assessed, one panel per picked subject */
+.pm-chapters { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--surface); }
+.pm-chapters__head { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.pm-chapters__all { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; color: var(--brand-ink-soft); cursor: pointer; }
+.pm-chapters__row { display: flex; gap: 8px; align-items: stretch; }
+.pm-chapters__number { width: 92px; flex: none; text-align: center; }
+.pm-chapters__search { position: relative; flex: 1; min-width: 0; }
+.pm-chapters__search .input { width: 100%; }
+.pm-chapters__suggest {
+  position: absolute; left: 0; right: 0; top: calc(100% + 4px); z-index: 20; margin: 0; padding: 6px; list-style: none;
+  background: var(--surface); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow-md);
+  max-height: 240px; overflow: auto;
+}
+.pm-chapters__option { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 8px; cursor: pointer; font-size: 14px; }
+.pm-chapters__option--hi { background: color-mix(in srgb, var(--brand-teal) 12%, transparent); }
+.pm-chapters__option--picked { color: var(--muted); }
+.pm-chapters__num { min-width: 26px; text-align: right; font-weight: 700; color: var(--brand-teal); }
+.pm-chip--static { cursor: default; display: inline-flex; align-items: center; gap: 6px; }
+.pm-chip--static:hover { color: #fff; }
+.pm-chip__x { background: none; border: 0; color: inherit; cursor: pointer; display: inline-flex; padding: 0; opacity: .8; }
+.pm-chip__x:hover { opacity: 1; }
+/* the scoped .pm-chip override above (same specificity, declared later) was winning over
+   .pm-chip--on and washing out every selected chip in the Create-test modal */
+.pm-chip.pm-chip--on {
+  background: var(--brand-teal); border-color: var(--brand-teal); color: #fff;
+  box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--brand-teal) 60%, transparent);
+}

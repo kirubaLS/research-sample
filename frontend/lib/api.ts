@@ -1470,6 +1470,19 @@ export interface SubjectBook {
  * `group_code`/`group_label` are always present; `subject_code`/`label` mirror them
  * (back-compat for a one-book group, where group and book are the same thing). Submit
  * `group_code` as an Assessment's subject_code -- /place resolves it back to every book. */
+export interface ChapterOption {
+  code: string;
+  /** the chapter's number in its own book, 1-based */
+  number: number;
+  label: string;
+  board_unit: string;
+}
+
+export interface SubjectChapters {
+  subject_code: string;
+  books: { subject_code: string; label: string; chapters: ChapterOption[] }[];
+}
+
 export interface Subject extends SubjectBook {
   group_code: string;
   group_label: string;
@@ -1838,6 +1851,11 @@ export const api = {
 
   /** The subjects this deployment carries. Never a list written into a screen. */
   subjects: (key: string) => authed<{ subjects: Subject[] }>("/admin/subjects", key),
+
+  /** Every chapter of a subject, numbered as its book numbers them, book by book -- a
+   *  group code (Social Science, English) answers with each of its books. */
+  subjectChapters: (key: string, subjectCode: string) =>
+    authed<SubjectChapters>(`/admin/subjects/${encodeURIComponent(subjectCode)}/chapters`, key),
 
   roster: (key: string, sectionId: string) =>
     authed<{ section: { id: string; label: string; student_path: string }; students: RosterRow[] }>(

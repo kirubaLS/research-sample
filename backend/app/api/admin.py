@@ -30,7 +30,7 @@ from app.api.deps import (
 )
 from app.api.academics import _subject_label
 from app.api.schemas import StudentCreateIn, StudentUpdateIn
-from app.curriculum import subject_groups
+from app.curriculum import CURRICULA, group_subjects, subject_groups
 from app.db import get_session
 from app.models import (
     TEACHER_ASSIGNMENT_TYPES,
@@ -693,6 +693,38 @@ def list_subjects(
             "books": books,
         })
     return {"subjects": out}
+
+
+@router.get("/subjects/{subject_code}/chapters")
+def list_subject_chapters(
+    subject_code: str, _staff: Staff = Depends(current_staff),
+) -> dict:
+    """Every chapter of a subject, numbered as the book numbers them, book by book.
+
+    What the Create-test screen offers when a teacher says which chapters a test
+    covers (``syllabus_scope``): the chapter number a teacher thinks in and the
+    chapter's own name, side by side, so either can be typed to find the other. A
+    group code (Social Science, English) answers with each of its books in turn, since
+    each book numbers its chapters from one. Any signed-in member of staff, not scoped
+    to a school: the curriculum is the same answer for everybody.
+    """
+    members = [CURRICULA[c] for c in group_subjects(subject_code) if c in CURRICULA]
+    if not members:
+        raise HTTPException(404, f"{subject_code!r} is not a subject this deployment carries")
+    return {
+        "subject_code": subject_code,
+        "books": [
+            {
+                "subject_code": c.subject_code,
+                "label": c.subject_label,
+                "chapters": [
+                    {"code": ch.code, "number": i, "label": ch.label, "board_unit": ch.board_unit}
+                    for i, ch in enumerate(c.chapters, start=1)
+                ],
+            }
+            for c in members
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------------

@@ -37,6 +37,7 @@ import {
   ConductedExam,
   ExamsOverview,
   PaperSummary,
+  type SubjectChapters,
   ReviewChapterOption,
   ReviewQuestion,
   ScheduledExam,
@@ -49,6 +50,7 @@ import { FilePickButtons } from "@/components/FilePickButtons";
 import { usePageHeader } from "@/lib/pageHeader";
 import { MarksEntryGrid } from "@/components/MarksEntryGrid";
 import { ConfirmedMarksGrid } from "@/components/ConfirmedMarksGrid";
+import { ChapterPicker } from "@/components/ChapterPicker";
 import { SubjectRoster } from "@/components/SubjectRoster";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
@@ -351,6 +353,11 @@ function PapersTab({ examCell }: { examCell: boolean }) {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // Which chapters each picked subject's paper covers (its syllabus_scope): the
+  // chapter list of a subject is fetched the first time it is picked and kept.
+  const [chaptersOf, setChaptersOf] = useState<Record<string, SubjectChapters | null>>({});
+  const [pickedChapters, setPickedChapters] = useState<Record<string, Set<string>>>({});
+
   function toggleSubject(code: string) {
     setPickedSubjects((prev) => {
       const next = new Set(prev);
@@ -358,6 +365,14 @@ function PapersTab({ examCell }: { examCell: boolean }) {
       else next.add(code);
       return next;
     });
+    if (!(code in chaptersOf)) {
+      const key = getApiKey();
+      if (!key) return;
+      setChaptersOf((prev) => ({ ...prev, [code]: null }));
+      api.subjectChapters(key, code)
+        .then((out) => setChaptersOf((prev) => ({ ...prev, [code]: out })))
+        .catch(() => setChaptersOf((prev) => { const next = { ...prev }; delete next[code]; return next; }));
+    }
   }
 
   // Filling a scheduled test after the fact, and joining a standalone paper to one:
@@ -424,16 +439,21 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     try {
       const created = await api.createExam(key, { name: examName.trim(), scheduled_date: examDate });
       for (const subject_code of pickedSubjects) {
-        await api.createAssessment(key, { subject_code, title: examName.trim(), exam_id: created.id });
+        const scope = [...(pickedChapters[subject_code] ?? [])];
+        await api.createAssessment(key, {
+          subject_code, title: examName.trim(), exam_id: created.id,
+          ...(scope.length ? { syllabus_scope: scope } : {}),
+        });
       }
       setShowCreate(false);
       setExamName("");
       setExamDate("");
       setPickedSubjects(new Set());
+      setPickedChapters({});
       setExpanded((prev) => new Set(prev).add(created.id));
       await Promise.all([loadExams(), scan.loadPapers()]);
     } catch (err) {
-      setCreateError(err instanceof ApiError ? "Could not create the test." : "Could not reach the API.");
+      setCreateError(err instanceof ApiError ? `Could not create the test: ${err.message}` : "Could not reach the API.");
     } finally {
       setCreating(false);
     }
@@ -1255,6 +1275,25 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                     ))}
                   </div>
                 </div>
+                {pickedSubjects.size > 0 && (
+                  <div>
+                    <label className="pm-modal__label">Chapters assessed</label>
+                    <p className="small muted" style={{ margin: "0 0 10px" }}>
+                      Enter a unit number to fill in its chapter, or start typing a chapter name to search. Leave a subject empty to cover the whole book.
+                    </p>
+                    <div style={{ display: "grid", gap: 10 }}>
+                      {pickableSubjects.filter((s) => pickedSubjects.has(s.subject_code)).map((s) => (
+                        <ChapterPicker
+                          key={s.subject_code}
+                          label={shortSubject(s.label)}
+                          chapters={chaptersOf[s.subject_code] ?? null}
+                          picked={pickedChapters[s.subject_code] ?? new Set()}
+                          onChange={(next) => setPickedChapters((prev) => ({ ...prev, [s.subject_code]: next }))}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {createError && <p className="small" style={{ color: "var(--danger, #b91c1c)", margin: 0 }}>{createError}</p>}
               </div>
               <div className="modal__foot">

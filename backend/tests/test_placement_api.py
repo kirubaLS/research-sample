@@ -804,3 +804,39 @@ def test_one_question_the_judge_could_not_read_keeps_its_mapped_chapter_and_is_f
         assert other.curriculum_section == "13.2", "the question the judge did read was settled"
     finally:
         db.close()
+
+
+def test_a_subjects_chapters_are_listed_numbered_book_by_book(client, school):
+    maths = client.get("/admin/subjects/X.MATH/chapters", headers=_auth(school))
+    assert maths.status_code == 200, maths.text
+    books = maths.json()["books"]
+    assert len(books) == 1 and books[0]["subject_code"] == "X.MATH"
+    chapters = books[0]["chapters"]
+    assert chapters[0] == {"code": "X.MATH.REAL", "number": 1, "label": "Real Numbers", "board_unit": "X.MATH.U.NUMBER"}
+    assert [c["number"] for c in chapters] == list(range(1, len(chapters) + 1))
+    sst = client.get("/admin/subjects/X.SST/chapters", headers=_auth(school)).json()
+    assert [b["subject_code"] for b in sst["books"]] == ["X.HIST", "X.GEO", "X.POL", "X.ECO"]
+    assert sst["books"][0]["chapters"][0]["number"] == 1 and sst["books"][1]["chapters"][0]["number"] == 1
+    assert client.get("/admin/subjects/X.NOPE/chapters", headers=_auth(school)).status_code == 404
+
+
+def test_a_paper_can_declare_its_chapters_at_creation(client, school):
+    from app.db import SessionLocal
+    from app.models import Assessment
+
+    h = _auth(school)
+    made = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Scoped at birth", "total_marks": 20,
+        "syllabus_scope": ["X.MATH.STATS", "X.MATH.REAL"],
+    })
+    assert made.status_code == 200, made.text
+    db = SessionLocal()
+    try:
+        assert db.get(Assessment, made.json()["assessment_id"]).syllabus_scope == ["X.MATH.REAL", "X.MATH.STATS"]
+    finally:
+        db.close()
+    bad = client.post("/assessments", headers=h, json={
+        "subject_code": "X.MATH", "title": "Bad scope", "total_marks": 20,
+        "syllabus_scope": ["X.MATH.NOT_A_CHAPTER"],
+    })
+    assert bad.status_code == 422 and "not chapters" in bad.json()["detail"]

@@ -131,11 +131,31 @@ def create_assessment(
         exam = db.get(Exam, body.exam_id)
         if exam is None or exam.school_id != school.id:
             raise HTTPException(404, "no such exam")
+    scope: list[str] | None = None
+    if body.syllabus_scope:
+        # A chapter the curriculum defines is a valid scope whether or not its book has
+        # been loaded into the taxonomy yet: the Create-test screen offers the
+        # curriculum's chapters (GET /admin/subjects/{code}/chapters), and a test can be
+        # scheduled before its book is ingested. Placement reads the scope against the
+        # taxonomy at run time, so a not-yet-loaded chapter simply does not narrow it.
+        curricular = {
+            ch.code for c in CURRICULA.values() for ch in c.chapters
+        }
+        known = {
+            n.code for n in db.scalars(select(TaxonomyNode).where(
+                TaxonomyNode.kind == "chapter", TaxonomyNode.code.in_(body.syllabus_scope),
+            ))
+        } | curricular
+        unknown = sorted(set(body.syllabus_scope) - known)
+        if unknown:
+            raise HTTPException(422, f"not chapters in the taxonomy: {unknown}")
+        scope = sorted(set(body.syllabus_scope))
     a = Assessment(
         school_id=school.id, subject_code=body.subject_code, title=body.title,
         paper_code=body.paper_code, total_marks=body.total_marks,
         curriculum_version=body.curriculum_version, declared=body.declared,
         paper_kind=body.paper_kind, exam_year=body.exam_year, exam_id=body.exam_id,
+        syllabus_scope=scope,
     )
     db.add(a)
     db.flush()

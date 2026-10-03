@@ -160,6 +160,10 @@ class AssessmentIn(BaseModel):
     exam_year: int | None = Field(default=None, ge=2000, le=2100)
     #: the scheduled exam day this paper belongs to (POST /admin/exams), if any
     exam_id: str | None = None
+    #: the chapters this paper covers, as chapter codes (see PUT /assessments/{id}/scope,
+    #: which sets the same thing later): the strongest constraint a daily or cyclic test
+    #: has, declared at creation rather than remembered afterwards
+    syllabus_scope: list[str] | None = None
 
 
 class QuestionIn(BaseModel):
