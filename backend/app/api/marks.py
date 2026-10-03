@@ -1735,9 +1735,11 @@ def _run_auto_pipeline(assessment_id: str, jobs: dict) -> None:
         from app.api.placement import _run_placement_job
 
         _run_placement_job(jobs["place_job_id"])
-    except Exception:  # noqa: BLE001 -- the scan itself succeeded; this must never undo that
+    except Exception as exc:  # noqa: BLE001 -- the scan itself succeeded; this must never undo that
         logger.exception("auto pipeline failed for assessment %s", assessment_id)
-        fail_place("the automatic pipeline hit an error; see the server log")
+        # the cause on the job row itself: the screen is where it is looked for, and a
+        # server log is not something a school has
+        fail_place(f"the automatic pipeline hit an error: {type(exc).__name__}: {exc}"[:900])
 
 
 @router.post("/{assessment_id}/scan/confirm")

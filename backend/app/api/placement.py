@@ -457,18 +457,25 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         placed for placed in result.questions
         if placed.chapter is not None and by_label.get(placed.chapter) is not None
     ]
-    if getattr(topic_judge, "batched", False) and len(to_pick) > 1:
-        # One thread per question so every question's read joins the same batch, and
-        # the chapter's reads, confirms and checks become one batch per round rather
-        # than one live call each -- see app.llm_batch.
-        from concurrent.futures import ThreadPoolExecutor
+    try:
+        if getattr(topic_judge, "batched", False) and len(to_pick) > 1:
+            # One thread per question so every question's read joins the same batch,
+            # and the chapter's reads, confirms and checks become one batch per round
+            # rather than one live call each -- see app.llm_batch.
+            from concurrent.futures import ThreadPoolExecutor
 
-        with ThreadPoolExecutor(max_workers=min(64, len(to_pick))) as pool:
-            for placed, pick in zip(to_pick, pool.map(pick_topic, to_pick), strict=True):
-                topic_picks[placed.question_id] = pick
-    else:
-        for placed in to_pick:
-            topic_picks[placed.question_id] = pick_topic(placed)
+            with ThreadPoolExecutor(max_workers=min(64, len(to_pick))) as pool:
+                for placed, pick in zip(to_pick, pool.map(pick_topic, to_pick), strict=True):
+                    topic_picks[placed.question_id] = pick
+        else:
+            for placed in to_pick:
+                topic_picks[placed.question_id] = pick_topic(placed)
+    except Exception as exc:  # noqa: BLE001 -- the job row is where this must be seen
+        _finish_placement_job(
+            job_id, status_value="failed", error_status=502,
+            error_detail=f"topic placement failed ({type(exc).__name__}: {exc})"[:900],
+        )
+        return
 
     db = SessionLocal()
     try:
