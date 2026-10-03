@@ -527,6 +527,12 @@ def _related(a: str | None, b: str | None) -> bool:
     return a == b or a.startswith(b + ".") or b.startswith(a + ".")
 
 
+def topic_lexical_index(pool: list) -> LexicalIndex:
+    """The lexical index ``choose_topic`` retrieves within a chapter with: the pool's
+    section-tagged chunks, so the index's document frequencies are the book's."""
+    return LexicalIndex([c for c in pool if getattr(c, "section_number", None)])
+
+
 def choose_topic(
     stem: str,
     chapter_id: str,
@@ -540,8 +546,16 @@ def choose_topic(
     evidence_passages: int = 6,
     passage_chars: int = 1200,
     all_chunks_of_section=None,
+    lexical_index=None,
 ) -> TopicPick:
     """Decide the section within ``chapter_id`` that ``stem`` tests.
+
+    ``lexical_index`` is the TF-IDF index over the pool's section-tagged chunks, built
+    once by the caller and shared across every question of a run: building it costs
+    a tokenisation of the whole book, and a paper's questions decided concurrently
+    (see placement.py) each rebuilding it starved the API of the interpreter for the
+    duration -- the screen's own requests timed out behind it. Omitted, it is built
+    here, as before.
 
     ``pool`` is the content-chunk pool retrieval already uses (see
     ``app.ingest.probe.content_chunks``); only this chapter's section-tagged chunks are
@@ -568,8 +582,7 @@ def choose_topic(
     # discriminating word scores log(n / (1 + df)) = 0, leaving nothing to rank. Cosine
     # similarity has no such dependence, so the semantic index is built on the chapter's
     # own chunks only -- the cheaper of the two, and exactly as discriminating.
-    pool_with_sections = [c for c in pool if getattr(c, "section_number", None)]
-    indexes: list = [LexicalIndex(pool_with_sections)]
+    indexes: list = [lexical_index if lexical_index is not None else topic_lexical_index(pool)]
     if embedder is not None and any(getattr(c, "embedding", None) for c in chapter_chunks):
         indexes.append(SemanticIndex(chapter_chunks, embedder))
     verdict = locate(

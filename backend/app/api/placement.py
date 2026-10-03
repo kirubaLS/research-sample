@@ -436,6 +436,10 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     # from the closed set of that chapter's own sections. Still outside any database
     # session: this is one more model call per question.
     topic_picks: dict[str, object] = {}
+    from app.classify.topic import topic_lexical_index
+
+    # built once: a tokenisation of the whole book, which every question used to repeat
+    topic_index = topic_lexical_index(retrieval_chunks)
 
     def pick_topic(placed):
         chapter_node = by_label.get(placed.chapter)
@@ -446,6 +450,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             embedder=embedder,
             evidence_passages=settings.classifier_evidence_passages,
             passage_chars=settings.classifier_passage_chars,
+            lexical_index=topic_index,
         )
 
     to_pick = [

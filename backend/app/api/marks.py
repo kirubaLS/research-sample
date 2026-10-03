@@ -2225,7 +2225,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     # chapter's own section headings, every one of them, with the judge choosing among
     # them and retrieval within the chapter as the check. Without a classifier key the
     # judge cannot be asked and the retrieval section stands, as it always did.
-    from app.classify.topic import TopicJudge, choose_topic
+    from app.classify.topic import TopicJudge, choose_topic, topic_lexical_index
 
     # Once, not twice. The classify step that follows a zero-touch upload decides the
     # topic again from scratch (placement.py's topic_picks), so a map step that runs
@@ -2252,6 +2252,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             dimensions=settings.embedding_dimensions,
         )
     headings_of: dict[str, dict[str, str]] = {}
+    topic_index = topic_lexical_index(retrieval_chunks)
     passage_of: dict[tuple[str | None, str], str] = {
         (r.section, r.question_no): (r.stem_text or "").strip()
         for r in staged if r.address in context and (r.stem_text or "").strip()
@@ -2271,6 +2272,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             topic_judge, fallback_section=section, embedder=topic_embedder,
             evidence_passages=settings.classifier_evidence_passages,
             passage_chars=settings.classifier_passage_chars,
+            lexical_index=topic_index,
         )
     # A case study's sub-parts all read the same source passage, which is not in the book
     # at all (an unseen extract, invented for this paper) -- so raw retrieval can easily
