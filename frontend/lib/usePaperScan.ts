@@ -571,6 +571,34 @@ export function usePaperScan(opts: {
     await onMap();
   }
 
+  /** Release a paper the duplicate check is holding (duplicate_upload_check): open the
+   *  existing paper it matched, or keep it as a new paper, which then maps and classifies
+   *  by itself. The same choice the scan's own dialog offers -- here for a paper whose
+   *  scan showed none (a resumed scan), from the papers list. */
+  async function releaseDuplicate(p: PaperSummary, choice: "keep_new" | "open_existing") {
+    const key = getApiKey();
+    if (!key) return;
+    const best = p.duplicates_pending?.[0];
+    setError(null);
+    try {
+      const decided = await api.decideDuplicate(
+        key, p.id, choice, choice === "open_existing" ? best?.assessment_id : undefined,
+      );
+      const { assessments } = await fetchPapers(key);
+      setPapers(assessments);
+      if (choice === "open_existing" && decided.open) {
+        const match = assessments.find((a) => a.id === decided.open);
+        if (match) await openPaper(match);
+        return;
+      }
+      if (decided.auto?.map_job_id) setJob("paper-map", p.id, decided.auto.map_job_id);
+      if (decided.auto?.place_job_id) setJob("paper-place", p.id, decided.auto.place_job_id);
+      if (assessmentId === p.id && scan_auto_follow(p.id)) await followAutoPipeline(p.id);
+    } catch (err) {
+      setError(explain(err));
+    }
+  }
+
   function scan_auto_follow(id: string): boolean {
     return !!getJob("paper-map", id);
   }
@@ -771,7 +799,7 @@ export function usePaperScan(opts: {
     confirmed, stage, rows, blockedCount,
     // actions
     openPaper, closePaper, onRename, onDelete, onRemoveScan, onFiles, submitScan,
-    onEdit, onConfirm, onMap, onClassify, retryPendingNow, discardPending,
+    onEdit, onConfirm, onMap, onClassify, retryPendingNow, discardPending, releaseDuplicate,
     loadPapers, explain, refresh,
   };
 }

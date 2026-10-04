@@ -29,18 +29,20 @@
   "topic_exact": 54,
   "topic_partial": 0,
   "topic_wrong": 1,
-  "flagged": 38,
+  "flagged": 39,
   "wrong": [
    "B/18//b"
   ],
-  "note": "re-scored at two levels with B16's corrected key; B18b is the wrong chapter"
+  "note": "re-scored at two levels with B16's corrected key; B18b is the wrong chapter",
+  "flag_note": "39 flagged on the latest run (from the backup): 38 at exactly 0.4 confidence, all from citation-only grounding violations, which cite_passages_by_number no longer caps"
  },
  "targets": {
   "chapter_correct": 55,
   "topic_exact_min": 54,
   "flagged_max": 8,
   "flag_precision_min": 0.5,
-  "max_depth": 2
+  "max_depth": 2,
+  "flagged_expected": "about 1-2 (estimate; Phase 6 measures it)"
  },
  "questions": {
   "A/1//": {

@@ -45,6 +45,7 @@ def is_capped(subject_code: str | None) -> bool:
 
 def collapse_section(
     subject_code: str | None, section: str | None, *, chapter_code: str | None = None,
+    max_depth: int | None = None,
 ) -> str | None:
     """``section`` cut to the subject's depth: "4.1.1" -> "4.1".
 
@@ -52,10 +53,13 @@ def collapse_section(
     subject. When ``chapter_code`` names a book-map chapter, a box is also lifted to its
     parent ("2.1 Rat-Hole Mining" is a box in Minerals and Energy Resources, so it
     collapses to "2"): a box is never a topic.
+
+    ``max_depth`` cuts to that depth whatever the settings say -- the evaluation scores
+    every run at the gold key's two levels, cap on or off.
     """
     if section is None or section.strip().lower() in NONE_WORDS:
         return section
-    depth = max_depth_for(chapter_code or subject_code)
+    depth = max_depth if max_depth is not None else max_depth_for(chapter_code or subject_code)
     if depth is None:
         return section
     if chapter_code:

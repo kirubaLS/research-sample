@@ -178,6 +178,7 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
     two screens can never quietly drift into showing different stages for the same paper.
     """
     from app.api.academics import _subject_label  # local: avoids a circular import at module load
+    from app.extraction.duplicates import held_by
 
     ids = [a.id for a in assessments]
 
@@ -261,13 +262,10 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
             #: real, not derived, so the Question Papers screen can group a teacher's own
             #: papers by test without a second round trip per paper.
             "exam_id": a.exam_id,
-            #: duplicate_upload_check: the matched papers while the teacher has not yet
-            #: chosen "open existing" or "keep as new"; None otherwise
-            "duplicates_pending": (
-                (a.duplicate_check or {}).get("candidates")
-                if (a.duplicate_check or {}).get("candidates")
-                and not (a.duplicate_check or {}).get("decision") else None
-            ),
+            #: duplicate_upload_check: the matched papers while the hold lasts -- the
+            #: teacher has not chosen "open existing" or "keep as new" and the paper has
+            #: not been mapped (by hand); None otherwise, so the list's label goes away
+            "duplicates_pending": held_by(a, stage),
             "stage": stage,
             "scanned_questions": scanned.get(a.id, 0),
             "document": documents.get(a.id),

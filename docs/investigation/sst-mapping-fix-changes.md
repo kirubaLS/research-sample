@@ -622,10 +622,224 @@ python -m scripts.list_duplicate_assessments --subject X.SST
   - the backup's five copies form one group;
   - the listing writes nothing.
 
+## Phase 6: evaluation, and the staging runbook
+
+### Held papers in the papers list (added at the start of Phase 6)
+- **The label.** A paper the duplicate check is holding shows, in both paper lists on the teacher dashboard (inside a test, and standalone): **"Possible duplicate of <title> (<overlap>%) — not mapped"**, with **Open existing** and **Keep as new** buttons. These make the same decision as the scan's dialog, so a resumed scan that showed no dialog can still be released.
+  - The component is `frontend/components/DuplicateHold.tsx`; the action is `releaseDuplicate` in `frontend/lib/usePaperScan.ts`.
+  - **Keep as new** starts the held-back pipeline and follows it. **Open existing** opens the matched paper.
+- **When it shows.** Only while the pipeline is held. The server (`app.extraction.duplicates.held_by`, read by `assessment_summaries`) stops listing the match once the teacher has chosen, or once the paper has been mapped, for example by pressing Map by hand. That retires the "resumed scan does not ask" follow-up from Phase 5.
+
+### `scripts/eval_mapping.py` (read-only)
+- **Input.** `--assessment <id>` reads the stored paper; on Postgres the session is `READ ONLY`. `--fixture <file>` re-scores predictions saved earlier with `--export`.
+- **Collapsing.** Every predicted section is collapsed to the key's two levels with `collapse_section(..., max_depth=2)`, a new optional argument, whatever the settings say. The book map decides where a box or a deeper unit belongs.
+- **Scoring.** Each question is scored against `tests/fixtures/sst_gold/unit_test_2026_09.json`: chapter correct, and topic exact / partial / wrong. A wrong chapter counts as wrong on both.
+- **What it reports:**
+  - totals, and the same per paper section;
+  - flag precision and recall, both as you specified (wrong only) and counting a partial as a miss;
+  - `review_reason` counts;
+  - sections stored deeper than two levels;
+  - model calls, tokens and estimated cost per question, from the map and place jobs' own `spend`;
+  - every miss, one line each;
+  - PASS or FAIL against the key's targets.
+- **`--export <file>`** writes the predictions and the scores as JSON, so a run can be re-scored after the database is gone.
+- **Gold fixture.** The baseline now records the 39 flags you measured (38 citation-only, at 0.4), and the targets gain `flagged_expected: "about 1-2 (estimate)"`.
+- **What a report looks like.** This is from a hand-made fixture with one partial and one flag, **not a real run**:
+
+```
+READ-ONLY -- nothing will be written
+gold: Unit Test, Class X Social Science (X.SST)   run: 959e36d4-5028-42e6-922e-c69228c5c325 (illustration, not a real run)
+
+CHAPTER  55/55
+TOPIC    exact 54, partial 1, wrong 0
+FLAGS    1 flagged; precision 0.0, recall None (wrong only); counting partial as a miss: precision 1.0, recall 1.0
+REASONS  topic_differs 1
+DEPTH    0 section(s) deeper than 2 levels
+SPEND    192 calls, 76800 in / 230400 out / 1920000 cache-read tokens, ~$1.42 (place); per question 3.5 calls, 1396 in / 4189 out, ~$0.0258
+
+BY SECTION
+  sec   qs  chapter  exact  partial  wrong  flagged
+  A     14       14     14        0      0        0
+  B     16       16     15        1      0        1
+  C     14       14     14        0      0        0
+  D     11       11     11        0      0        0
+
+MISSES (1)
+  B/16//       partial  section 2 -> 2; key exact ['2.2', '2.3'] partial ['2']; flagged [topic_differs]
+
+TARGETS
+  PASS  chapter: 55/55 (target 55)
+  PASS  topic exact: 54 (target >= 54)
+  PASS  flags: 1 (target <= 8; expected about 1-2 (estimate; Phase 6 measures it))
+  FAIL  flag precision: 0.0 (target >= 0.5)
+  PASS  no 3-level section: 0 deeper than 2
+```
+
+### Format robustness F1–F4
+These were complete from Phase 1. All tests use mocked models.
+- `tests/test_question_scope.py`:
+  - F1: a section title naming a chapter, and a subject-only title;
+  - F2 and F4: type-only titles ("SECTION A — MCQs") and no titles never narrow by letter;
+  - bilingual type titles and bilingual subject titles;
+  - F3: syllabus lines;
+  - teacher scope precedence;
+  - the old `declared` shape;
+  - map and place end to end with the flags on and off;
+  - a board Section A is never forced into History.
+- `tests/test_resolve.py`: spelling variants, short names through aliases, Hindi subject words, chapter numbers, close names that must not cross-match, and low-scoring or unclear text resolving to nothing.
+
+### `scripts/apply_undo.py` (new, for rollback)
+- **What it does.** It reverses an applied run from the undo file it wrote, newest entry first: an inserted row is deleted, an updated row gets its old values back, a deleted row is re-inserted with its old id.
+- **Conflicts.** It first checks each row is still as the run left it; a row changed since is a CONFLICT, and nothing is written without `--force`.
+- **Safety.** It is a dry run by default, `--apply` needs `--i-have-a-backup`, and it writes its own undo file.
+- **Test.** An applied subtopic cleanup reversed by its undo file returns the database to exactly where it was (`tests/test_major_topic_data.py`).
+
+### Tests (Phase 6)
+- `tests/test_eval_mapping.py`: 12 tests.
+  - a perfect run is 55/55 and passes every target;
+  - each kind of miss is scored and listed;
+  - predictions are collapsed with the book map (Coal 4.1.1 → 4.1; the Rat-Hole Mining box 2.1 → 2);
+  - a three-level section is reported;
+  - flag precision and recall, both ways, and the reason counts;
+  - spend per question;
+  - export then offline re-score gives the same scores;
+  - a stored paper is read and scored without writing;
+  - argument checks, and the depth override.
+- `tests/test_duplicate_papers.py`: 7 more, covering the held label and the `held_by` rule.
+- `tests/test_major_topic_data.py`: the undo round trip.
+
+## Staging runbook (staging copy only, never production)
+
+Follow it in order. Each step says what it should print. `$STAGING` is the staging connection string, which you set yourself; nothing here prints it. Every script is run from `backend/`, with `YAADHUM_DATABASE_URL` and `YAADHUM_MIGRATION_DATABASE_URL` pointing at the staging copy. `$API` is the staging API, `$KEY` a school admin key for the gold paper's school, and `GOLD=959e36d4-5028-42e6-922e-c69228c5c325`.
+
+**0. Before you start.**
+- Set `YAADHUM_AUTO_PIPELINE=false` on the staging backend for the whole run, so nothing maps or classifies by itself; step 8 starts place explicitly.
+- The staging backend needs `YAADHUM_ANTHROPIC_API_KEY` for step 8. Paid calls happen only in step 8, and in 7b's vision read if the PDF has no text layer.
+- Keep every undo file the scripts write.
+
+**1. Restore a fresh backup.**
+```bash
+createdb yaadhum_staging            # or drop and recreate the staging database
+gunzip -c yaadhum_backup.sql.gz | psql "$STAGING" -q -v ON_ERROR_STOP=0 2>restore_errors.log
+grep -c ERROR restore_errors.log
+```
+*Expect:* only ownership noise. On the reduced backup that was 51 × `role "yaadhum" does not exist` and 1 × `unrecognized configuration parameter "transaction_timeout"`. Any other ERROR line is a real failure; stop.
+
+**2. Migrate.**
+```bash
+alembic upgrade head
+```
+*Expect* exactly these two upgrades (the backup is at `c4e8a1f7b2d9`):
+`Running upgrade c4e8a1f7b2d9 -> e2b7c4a9d1f3` (placement columns) and `Running upgrade e2b7c4a9d1f3 -> f3a9c6d2b8e1` (duplicate-check columns).
+
+**3. Re-import the book map.** This carries 2.4b, the box fixes, the unnumbered Summing Up and the titled introductions into the database.
+```bash
+python -m scripts.import_book_map             # dry run: read it
+python -m scripts.import_book_map --apply
+```
+- *Expect (dry run):* `Chapters matched` 5 / 7 / 5 / 5 for X.HIST / X.GEO / X.POL / X.ECO, and `Concept families in the new map` 95 / 120 / 42 / 55.
+- Any old family that still has questions is listed and left alone. Then `Dry run only -- nothing was changed`; after `--apply`, `Applied.`
+- Existing families keep their ids, and their labels are refreshed: the nine introductions get their new titles.
+- **Embeddings:** the re-imported chunks have none. Retrieval then runs on its lexical index, which the pipeline already supports; the topic judge reads each chapter's whole text either way. To restore semantic retrieval, run `python -m scripts.embed_kb --subject X.HIST --dry-run` (then without `--dry-run`) for each of the four subjects. **That calls Jina, a paid API**, so it is your call. The baseline run's embedding state is not recorded, so do the same thing for before and after if you compare.
+
+**4. Aliases and the two topic scripts.** Dry run, check, then apply, in this order.
+```bash
+python -m scripts.list_topic_mismatches                         # before anything is applied
+python -m scripts.seed_sst_aliases
+python -m scripts.seed_sst_aliases --apply --i-have-a-backup
+python -m scripts.clean_book_map_subtopics                      > clean-plan.txt
+python -m scripts.clean_book_map_subtopics --apply --i-have-a-backup
+python -m scripts.clean_book_map_subtopics                      > clean-after.txt
+python -m scripts.propose_major_topic_families                  > families-plan.txt
+python -m scripts.propose_major_topic_families --apply --i-have-a-backup
+```
+*Expect:*
+- **`list_topic_mismatches`:** `TOTAL 21 question(s) on 1 paper(s)`, all on `32ebf883`. Run it here, before the cleanup moves topic links.
+- **`seed_sst_aliases`:** about 19 alias rows to insert and 2 skipped (that was the scratch database), then the same count applied.
+- **`clean-plan.txt`:** `TOTAL KEEP 30, RELABEL 86, ORPHAN 237, DEEP 10`, as in Part B. The B/19/19.7 link on 4.1.4 Electricity now goes to **4.2** (the question's own section). No UNRESOLVED lines touch real questions.
+- **`clean-after.txt`:** no RELABEL, ORPHAN 0, DEEP 10 (deep nodes stay).
+- **`families-plan.txt`:** `TOTAL REUSE 257, deep families 55, REPOINT 61, board questions left alone 0, CREATE 3`. The three CREATEs are the introductions of Global World, Sectors and Money and Credit. Conclusion and Summing Up families print `-> chapter level (kept, unused)`.
+
+**5. The two listings.**
+```bash
+python -m scripts.list_topic_mismatches
+python -m scripts.list_duplicate_assessments --subject X.SST
+```
+*Expect:*
+- **`list_topic_mismatches`:** at most 21, all on `32ebf883`. It reported exactly 21 before step 4; the cleanup can only make some of them agree, by moving a deep link to the question's own section. Re-running place on that paper, or retiring it as a duplicate, resolves the rest.
+- **`list_duplicate_assessments`:** one group of 5 (`32ebf883`, `2654797a`, `6253a5c9`, `03c447fd`, `959e36d4`), linked by `stems`, never `hash`, with `959e36d4` marked `<- linked to the exam`. The Maths paper is in no group.
+
+**6. Turn the flags on, in this order** (environment variables on the staging backend, then restart it):
+1. `YAADHUM_TOPIC_DEPTH_CAP=true`, `YAADHUM_TOPIC_MAJOR_ONLY_DOCUMENT=true`, `YAADHUM_BOOK_MAP_ONLY_SUBTOPICS=true` (Phase 2; the cleanup is already applied)
+2. `YAADHUM_SST_UNIFIED_SCOPE=true`, `YAADHUM_SKIP_SINGLE_CHAPTER_JUDGE=true`, `YAADHUM_BALANCED_GROUP_CANDIDATES=true`, `YAADHUM_CROSS_SCOPE_FALLBACK=true` (Phase 1 scope)
+3. `YAADHUM_CITE_PASSAGES_BY_NUMBER=true`, `YAADHUM_REVIEW_FLAG_RULE=true` (Phase 4)
+4. `YAADHUM_PAPER_CAPTURE_STRUCTURE=true` (Phase 1.1; needed for step 7b)
+5. `YAADHUM_DUPLICATE_UPLOAD_CHECK=true`, `YAADHUM_AUTO_PIPELINE_DEDUPE=true` (Phase 5). These only act on uploads and the automatic pipeline, which is off for this run.
+
+*Expect:* the backend starts normally, and the gold paper's Topic column is unchanged until step 8.
+
+**7. Give the gold paper its scope.** Pick one; **7b is recommended**, and it is what the expected results in step 8 assume.
+- **7a (scope only).** `curl -X PUT -H "X-API-Key: $KEY" -H "Content-Type: application/json" $API/assessments/$GOLD/scope -d '{"chapters":["X.HIST.PRINTCULTURE","X.GEO.MINERALSENERGY","X.POL.PARTIES","X.ECO.GLOBALISATION"]}'`. Every question is then scoped to all four chapters, so **the chapter judge is asked for all 55**. Its confidence below 0.7 with four chapters to choose from is a `low_confidence` flag, and the cost is about $1 more (see the estimate below).
+- **7b (re-scan once; tests header capture).** Download the stored paper and send it back:
+  ```bash
+  curl -H "X-API-Key: $KEY" $API/assessments/$GOLD/documents             # note the question_paper document id
+  curl -H "X-API-Key: $KEY" $API/documents/<doc-id>/pages/0 -o gold.pdf
+  curl -H "X-API-Key: $KEY" -F files=@gold.pdf $API/assessments/$GOLD/scan
+  ```
+  - *Expect:* the scan response lists `duplicates` (the four other copies) and no `auto`, because the pipeline is off and held. Already-mapped questions are kept (`already_promoted`). The re-scan clears the scan's confirmation, which place does not need.
+  - `GET $API/assessments/$GOLD/scan` → `declared.section_titles` should hold A–D with each section's printed title, e.g. "Geography : Minerals and Energy Resources". Each question then resolves to one chapter, and the chapter judge is skipped.
+  - Answer the duplicate question with **Keep as new** (`POST $API/assessments/$GOLD/duplicates/decision -d '{"choice":"keep_new"}'`). It records the choice; with the automatic pipeline off, nothing runs.
+  - A text-layer PDF re-scans without a model call; a scanned PDF goes through the vision reader, which is one paid call per page.
+
+**8. Re-run place on the gold paper, then score it.**
+```bash
+curl -X POST -H "X-API-Key: $KEY" $API/assessments/$GOLD/place      # -> {"job_id": ...}
+curl -H "X-API-Key: $KEY" $API/assessments/$GOLD/place/jobs/<job_id> # poll until "succeeded"
+python -m scripts.eval_mapping --assessment $GOLD --export gold-after.json
+```
+- The topic judge goes through the Batches API (`batch_classify`, on by default), so the job can take from a few minutes to about an hour.
+- *Expected results:*
+  - **chapter 55/55**;
+  - **topic ≥ 54 exact**;
+  - **flags ≈ 1–2** (an estimate, from your analysis of the backup; this run measures it);
+  - **no 3-level section** (`DEPTH 0`);
+  - every TARGETS line PASS, except possibly `flag precision`, which is noisy at one or two flags. Read it with the partial-as-a-miss figure beside it.
+- The SPEND line gives the measured cost; compare it with the estimate below.
+- Keep `gold-after.json`: it re-scores offline with `--fixture`.
+
+**9. Roll back.**
+1. **Flags off.** Unset the variables from step 6, newest group first, and restart. Every path is then as before. Nothing the flags wrote needs undoing to run with them off; the new columns are nullable and unread.
+2. **Undo the data scripts**, newest run first: `propose_major_topic_families`, then `clean_book_map_subtopics`, then `seed_sst_aliases`.
+   ```bash
+   python -m scripts.apply_undo undo-propose_major_topic_families-<time>.json      # dry run: 0 conflict(s)
+   python -m scripts.apply_undo undo-propose_major_topic_families-<time>.json --apply --i-have-a-backup
+   ```
+   Repeat for the other two files.
+3. **The book-map re-import** (step 3) has no undo file; it replaces chunks and proposals wholesale. Restore the backup if it must be reverted.
+4. **The migration:** `alembic downgrade e2b7c4a9d1f3` removes the Phase 5 columns, and `alembic downgrade c4e8a1f7b2d9` removes the Phase 1 ones. Both were tested on Postgres 16.
+5. **Last resort:** restore the step 1 backup.
+
+## Cost of step 8 (estimate, current price table)
+- **Model and price.** The model is `claude-sonnet-5` at medium effort. `PRICES_PER_MTOK` in `app/llm.py` gives $2 per million input tokens, $10 per million output and $0.20 per million cache reads; the Batches API halves all three.
+- **The four chapters' text.** Measured from the book map: Print Culture ≈ 12.7k tokens, Minerals ≈ 6.7k, Parties ≈ 7.3k, Globalisation ≈ 7.1k. Weighted by questions, that averages 8.5k per question, read from the prompt cache.
+- **Topic judge per question:** the answer and taught reads, about 1.2 answerability checks and about 0.3 confirm/relocate reads, so about 3.5 calls. Each reads about 10k cached tokens and 0.4k fresh input, and writes 0.7–2.5k output tokens including thinking.
+- **Chapter judge** (7a only): one live call per question, about 3.8k input (8 passages × 1200 characters, plus the prompt) and about 1k output.
+
+| | low | mid | high |
+|---|---|---|---|
+| Topic judge (batched, the default) | $0.81 | $1.42 | $3.82 |
+| Chapter judge, 7a only (55 live calls) | +$0.80 | +$0.97 | +$1.52 |
+| **Step 8 with 7b** | **≈ $0.8** | **≈ $1.4** | **≈ $3.8** |
+| **Step 8 with 7a** | ≈ $1.6 | ≈ $2.4 | ≈ $5.3 |
+
+- **Uncertainty.** Output tokens, mostly thinking, are the largest and least certain term, which is why the range is wide. The midpoint is about 2.6 cents per question with 7b.
+- **Not counted:** cache writes (about 4 × 10k tokens, roughly $0.10; the price table does not count them, see the investigation report), and the vision reader if 7b re-scans a scanned PDF.
+- **Measurement.** The place job's `spend`, printed by `eval_mapping.py` as SPEND, is the measured figure.
+
 ## Follow-ups (not done)
 
 - **The paper-creation screen should send `class_section_id`** when it knows the section, so two classes' copies of one test are never offered as duplicates.
-- **A scan resumed after a lost connection** should ask the duplicate question too (see 5.1).
+- ~~A scan resumed after a lost connection should ask the duplicate question too~~: done in Phase 6. The papers list shows the held label with both actions.
 
 - **Twelve order-dependent baseline test failures.** They pass alone and fail in the full run, through shared test-client state (for example, a stubbed judge that is not the one the run uses). Until this is fixed, a new end-to-end test can't be fully trusted in the full suite. Phase 3 had to drop the second half of one test for this reason.
 

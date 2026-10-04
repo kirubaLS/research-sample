@@ -361,3 +361,42 @@ def test_the_listing_writes_nothing(school):
         assert (db.query(Assessment).count(), db.query(ScannedQuestion).count()) == before
     finally:
         db.close()
+
+
+# --- the papers list shows the hold, and only while it lasts --------------------------------
+
+
+def _listed(client, school, aid):
+    body = client.get("/assessments", headers=_auth(school)).json()
+    return {p["id"]: p for p in body["assessments"]}[aid]
+
+
+def test_the_list_shows_a_held_paper_until_it_is_released(client, school, pipeline_spy):
+    data = _paper([f"{uuid.uuid4().hex} {s}" for s in STEMS])
+    first = _new_paper(client, school, "Cycle Test I")
+    _upload(client, school, first, data)
+    second = _new_paper(client, school)
+    _upload(client, school, second, data)
+    held = _listed(client, school, second)["duplicates_pending"]
+    assert held[0]["title"] == "Cycle Test I" and held[0]["overlap"] == 1.0
+    client.post(f"/assessments/{second}/duplicates/decision", headers=_auth(school),
+                json={"choice": "keep_new"})
+    assert _listed(client, school, second)["duplicates_pending"] is None
+
+
+@pytest.mark.parametrize("check, stage, shown", [
+    ({"candidates": [{"assessment_id": "x"}], "decision": None}, "scanned", True),
+    ({"candidates": [{"assessment_id": "x"}], "decision": None}, "confirmed", True),
+    # mapped by hand: the hold is over, whatever was decided
+    ({"candidates": [{"assessment_id": "x"}], "decision": None}, "mapped", False),
+    ({"candidates": [{"assessment_id": "x"}], "decision": {"choice": "keep_new"}}, "scanned", False),
+    ({"candidates": [], "decision": None}, "scanned", False),
+    (None, "scanned", False),
+])
+def test_the_label_shows_only_while_the_pipeline_is_held(check, stage, shown):
+    import types
+
+    from app.extraction.duplicates import held_by
+
+    paper = types.SimpleNamespace(duplicate_check=check)
+    assert bool(held_by(paper, stage)) is shown

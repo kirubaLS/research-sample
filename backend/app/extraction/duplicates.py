@@ -113,6 +113,15 @@ def find_duplicates(
     return out
 
 
+def held_by(assessment, stage: str) -> list[dict] | None:
+    """The matches the papers list shows on a paper: only while the hold lasts -- the
+    teacher has not chosen and the paper has not been mapped (a person can still press
+    Map by hand) -- None otherwise."""
+    if stage == "mapped" or not pending(assessment):
+        return None
+    return (assessment.duplicate_check or {}).get("candidates")
+
+
 def pending(assessment) -> bool:
     """A duplicate check found candidates and the teacher has not chosen yet."""
     check = assessment.duplicate_check or {}

@@ -55,6 +55,7 @@ import { SubjectRoster } from "@/components/SubjectRoster";
 import { AttentionPill } from "@/components/Status";
 import { EvidenceState } from "@/components/EvidenceState";
 import { LoadingScreen } from "@/components/Shell";
+import { DuplicateHold } from "@/components/DuplicateHold";
 import { DeltaCell } from "@/components/StudentRosterTable";
 import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
@@ -630,6 +631,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                           </td>
                                           <td>
                                             <span className={`pm-pill ${st.cls}`}>{st.label}</span>
+                                            <DuplicateHold paper={p} onChoose={(q, c) => void scan.releaseDuplicate(q, c)} />
                                           </td>
                                           <td style={{ textAlign: "right" }}>
                                             <button className="btn btn--sm pm-btn-action" onClick={() => void scan.openPaper(p)}>
@@ -814,6 +816,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                             <ChevronDown size={16} className="muted" />
                           </div>
                         </button>
+                        <DuplicateHold paper={p} onChoose={(q, c) => void scan.releaseDuplicate(q, c)} />
                         {targets.length > 0 && (
                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingLeft: 4 }}>
                             {moving ? (

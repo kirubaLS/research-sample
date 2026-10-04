@@ -339,3 +339,42 @@ def test_a_label_merely_inside_a_longer_heading_is_not_that_heading():
     assert _same("Post-war Settlement and the",
                  "4.1 Post-war Settlement and the Bretton Woods Institutions")
     assert _same("INCOME AND OTHER GOALS", "2 INCOME AND OTHER GOALS")
+
+
+def test_an_applied_cleanup_is_reversed_exactly_by_its_undo_file(book_maps, tmp_path, capsys):
+    from app.db import SessionLocal
+    from app.models import Question, QuestionSkill, TaxonomyNode
+    from scripts import apply_undo, clean_book_map_subtopics
+
+    def snapshot():
+        db = SessionLocal()
+        try:
+            return (
+                sorted((n.code, n.label) for n in db.scalars(select(TaxonomyNode).where(
+                    TaxonomyNode.kind == "subtopic"))),
+                sorted((s.id, s.question_id, s.node_id, s.weight) for s in db.scalars(
+                    select(QuestionSkill))),
+                sorted((q.id, q.curriculum_section) for q in db.scalars(select(Question))),
+            )
+        finally:
+            db.close()
+
+    before = snapshot()
+    undo = tmp_path / "undo.json"
+    assert clean_book_map_subtopics.main(
+        ["--apply", "--i-have-a-backup", "--undo-file", str(undo)]) == 0
+    assert snapshot() != before, "the case under test: the run changed rows"
+    capsys.readouterr()
+    # dry run first: reports, writes nothing
+    assert apply_undo.main([str(undo)]) == 0
+    out = capsys.readouterr().out
+    assert "DRY RUN" in out and "0 conflict(s)" in out
+    with pytest.raises(SystemExit):
+        apply_undo.main([str(undo), "--apply"])                      # no backup, no write
+    assert apply_undo.main([str(undo), "--apply", "--i-have-a-backup",
+                            "--undo-file", str(tmp_path / "undo2.json")]) == 0
+    assert snapshot() == before
+    # a second reversal finds every row already back: all conflicts, nothing written
+    assert apply_undo.main([str(undo), "--apply", "--i-have-a-backup",
+                            "--undo-file", str(tmp_path / "undo3.json")]) == 3
+    assert snapshot() == before
