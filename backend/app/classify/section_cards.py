@@ -81,15 +81,16 @@ def build_cards(
     return cards
 
 
-def rank_sections(query: str, chunks: list[tuple[str, str]]) -> list[str]:
+def score_sections(query: str, chunks: list[tuple[str, str]]) -> dict[str, float]:
     """Stage 1: BM25 over every chunk of a chapter -- (section, text) pairs -- then each
     section scores its best chunk plus ``EXTRA_CHUNKS`` x its next two. Measured on the
     gold paper this put the right section first for 43 of 54 questions and in the top
-    three for 51; ranking whole sections by TF-IDF, or fusing with the cards, was worse."""
+    three for 50-51; ranking whole sections by TF-IDF, or fusing with the cards or an
+    exact-term signal, was worse or no better."""
     docs = [(k, Counter(words(t))) for k, t in chunks]
     docs = [(k, c) for k, c in docs if c]
     if not docs:
-        return []
+        return {}
     n = len(docs)
     avg = sum(sum(c.values()) for _, c in docs) / n
     df = Counter(t for _, c in docs for t in c)
@@ -101,9 +102,66 @@ def rank_sections(query: str, chunks: list[tuple[str, str]]) -> list[str]:
             math.log(1 + (n - df[t] + .5) / (df[t] + .5)) * c[t] * (K1 + 1)
             / (c[t] + K1 * (1 - B + B * length / avg))
             for t in q if t in c))
-    score = {k: (v := sorted(vs, reverse=True))[0] + EXTRA_CHUNKS * sum(v[1:3])
-             for k, vs in per.items()}
+    return {k: (v := sorted(vs, reverse=True))[0] + EXTRA_CHUNKS * sum(v[1:3])
+            for k, vs in per.items()}
+
+
+def rank_sections(query: str, chunks: list[tuple[str, str]]) -> list[str]:
+    """The chapter's sections, best first."""
+    score = score_sections(query, chunks)
     return sorted(score, key=lambda k: (-score[k], k))
+
+
+#: how many sections' full text a card read is given, by how clearly BM25 separates the
+#: first from the second: ``margin`` = (top1 - top2) / top1. On the gold paper the first
+#: section was right for 22 of 22 questions at a margin of 0.5 or more, 12 of 17 between
+#: 0.25 and 0.5, and 9 of 15 below 0.25 (11 of 15 within the top two).
+MARGIN_CLEAR, MARGIN_LIKELY = 0.5, 0.25
+
+
+def margin(score: dict[str, float]) -> float:
+    top = sorted(score.values(), reverse=True)
+    return (top[0] - top[1]) / top[0] if len(top) > 1 and top[0] else 1.0
+
+
+def sections_to_show(m: float) -> int:
+    """One section when retrieval is clear, two when likely, three when ambiguous."""
+    return 1 if m >= MARGIN_CLEAR else 2 if m >= MARGIN_LIKELY else 3
+
+
+#: a quote that is not a verbatim copy still counts when this share of its words sit,
+#: in order of appearance, in one stretch of a shown section's text
+FUZZY_MIN = 0.85
+FUZZY_MIN_WORDS = 6
+
+
+def quote_overlap(quote: str, text: str) -> float:
+    """1.0 when ``quote`` (already normalised) is a verbatim part of ``text``; otherwise
+    the best share of the quote's words found in any window of the text about as long as
+    the quote -- a paraphrased or lightly reworded copy of a real sentence scores high, a
+    sentence that is nowhere in the text scores low. Never authorises an answer alone:
+    the caller still requires the section the stretch sits in to be the one named."""
+    if quote in text:
+        return 1.0
+    q = quote.split()
+    if len(q) < FUZZY_MIN_WORDS:
+        return 0.0
+    want = Counter(q)
+    t = text.split()
+    size = len(q) + 3
+    if len(t) < size:
+        size = len(t)
+    window: Counter = Counter()
+    hit = best = 0
+    for i, w in enumerate(t):
+        window[w] += 1
+        hit += window[w] <= want.get(w, 0)
+        if i >= size:
+            old = t[i - size]
+            hit -= window[old] <= want.get(old, 0)
+            window[old] -= 1
+        best = max(best, hit)
+    return best / len(q)
 
 
 @lru_cache(maxsize=1)

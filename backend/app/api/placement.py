@@ -916,6 +916,10 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             #: told is the wrong one
             "family_refused": len(refused),
             "tiers": sum(1 for q in result.questions if tier_code(q.tier)),
+            #: topic_card_mode: how each question's one-call card read ended (accept /
+            #: review / fallback / no_quote / ...); every non-accept read the whole chapter
+            **({"card_tiers": dict(topic_judge.card_tiers)}
+               if getattr(topic_judge, "card_tiers", None) else {}),
             #: What this run actually cost, in tokens, read back off the responses. Not
             #: an estimate: every figure anybody has quoted for a paper so far was
             #: arithmetic on a guess about the prompt, and the two differed by more than

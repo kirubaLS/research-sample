@@ -885,5 +885,21 @@ A code review of the whole branch against production (`4e97dfa`) found three thi
   when the quoted sentences are found verbatim in the book under the section named and the
   book's own terms / BM25 / retrieval agree; anything else reads the whole chapter as before.
   `judge.card_hits` / `judge.card_escalations` count both.
+* **Adaptive excerpt.** BM25's margin ((top1 - top2) / top1) sets how much full text goes
+  with the cards: one section at >= 0.5 (gold: 22/22 first sections right), two at >= 0.25
+  (12/17), three below (9/15 right first, 11/15 in the top two).
+* **Fuzzy quote check.** A quote counts when it is verbatim in a shown section, or when >= 85%
+  of its words (six or more) sit in one stretch of it; never alone: the section it sits in must
+  be the one named.
+* **Counted signals** (`card_signals`): section shown, quote found, quote verbatim, quote in the
+  named section, BM25 agrees, retrieval agrees, book terms agree (7; a signal with nothing to
+  say agrees). Accepted at >= 6 with the quote in the named section and no book term pointing
+  elsewhere; anything else reads the whole chapter. Outcomes are tallied (`accept`, `review`,
+  `fallback`, `no_quote`, `terms_disagree`, ...) and written to the place job result as
+  `card_tiers`.
+* Measured offline on the gold paper and NOT adopted: fusing an exact-term/entity signal into
+  BM25 (no gain, hurt at larger weights); richer cards (term coverage grows only in step with
+  tokens); a reranker (BM25 already has the right section in the top three for 50-51 of 54).
+  Dense fusion was not testable offline (no embeddings in the test container).
 * Not yet measured on a paid run: accuracy and spend with card mode on. Compare with the
   card-mode-off numbers from the same paper.

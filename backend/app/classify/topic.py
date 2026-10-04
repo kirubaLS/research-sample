@@ -1003,10 +1003,39 @@ def _section_texts(chapter_chunks: list, headings: dict[str, str]) -> dict[str, 
     return out
 
 
-#: the sections BM25 ranks first whose full text a card read is given, and the most of
-#: each section's text shown
-CARD_FULL_SECTIONS = 2
+#: the most of each section's text shown in a card read
 CARD_SECTION_CHARS = 7000
+#: a card read is taken at this many signals of ``CARD_SIGNALS``
+CARD_ACCEPT = 6
+CARD_SIGNALS = 7
+
+
+def card_signals(
+    section: str, grounded: str, exact: bool, ranked: list[str], shown: list[str],
+    retrieval_section: str | None, named: str | None,
+) -> tuple[int, dict[str, bool]]:
+    """What the application can observe about a card read, counted -- never the model's
+    own confidence. A signal with nothing to say (no retrieval section, no term that
+    names one place) counts as agreeing: it is no evidence against.
+
+    1. the section named is one of the sections shown in full
+    2. the sentences quoted were found in a shown section's text
+    3. ... word for word (a close paraphrase of a real sentence scores 2 but not 3)
+    4. the section they were found in is the one named
+    5. BM25's first section agrees
+    6. retrieval within the chapter (lexical + semantic) agrees
+    7. the book's own use of the question's terms agrees
+    """
+    signals = {
+        "named_section_shown": any(_related(section, n) for n in shown),
+        "quote_found": True,
+        "quote_verbatim": exact,
+        "quote_in_named_section": _related(grounded, section),
+        "bm25_agrees": _related(section, ranked[0]),
+        "retrieval_agrees": retrieval_section is None or _related(section, retrieval_section),
+        "terms_agree": named is None or _related(section, named),
+    }
+    return sum(signals.values()), signals
 
 
 def _choose_by_cards(
@@ -1015,64 +1044,72 @@ def _choose_by_cards(
     want_tier: bool = False,
 ) -> TopicPick | None:
     """The cheap path: ONE call that reads every section's card and the full text of the
-    two sections BM25 ranks first. Trusted only when nothing is left to chance:
+    sections BM25 ranks first -- one when retrieval is clear, two when likely, three when
+    ambiguous (see ``sections_to_show``). Trusted only on evidence the application can
+    check, counted by ``card_signals``: the quoted sentences are found in the book (word
+    for word, or a close copy) under the section the judge named, and the independent
+    signals agree. Fewer than ``CARD_ACCEPT`` of ``CARD_SIGNALS``, or a term that the book
+    uses only under another section, returns None and the caller reads the whole chapter
+    as before -- so the saving is only taken where the cheap read is demonstrably sound."""
+    from app.classify.section_cards import (
+        FUZZY_MIN,
+        cards_block,
+        margin,
+        quote_overlap,
+        score_sections,
+        sections_to_show,
+    )
 
-    * the sentences the judge quoted are found, verbatim, in the text of a section it
-      was shown (the book's own words decide, not the number it wrote);
-    * that section is the one the judge named (or a relative of it);
-    * the independent signals agree -- the book's own use of the question's terms when
-      there is one, otherwise BM25's first section or retrieval within the chapter.
-
-    Anything else returns None and the caller reads the whole chapter as before, so the
-    saving is only ever taken on questions where the cheap read is demonstrably sound."""
-    from app.classify.section_cards import cards_block, rank_sections
-
-    ranked = [
-        n for n in rank_sections(stem, [
-            (c.section_number, c.text or "") for c in chapter_chunks
-        ]) if n in headings
-    ]
-    shown = ranked[:CARD_FULL_SECTIONS]
+    score = score_sections(stem, [(c.section_number, c.text or "") for c in chapter_chunks])
+    ranked = sorted((n for n in score if n in headings), key=lambda n: (-score[n], n))
+    shown = ranked[:sections_to_show(margin(score))]
     if not shown:
         return None
     shown_chunks = [c for c in chapter_chunks if c.section_number in shown]
-    excerpt = chapter_document(
-        shown_chunks, {n: headings[n] for n in shown}, render_empty=False,
-    )
+    shown_headings = {n: headings[n] for n in shown}
+    excerpt = chapter_document(shown_chunks, shown_headings, render_empty=False)
     if len(excerpt) > CARD_SECTION_CHARS * len(shown):
         excerpt = excerpt[:CARD_SECTION_CHARS * len(shown)]
-    texts = _section_texts(shown_chunks, {n: headings[n] for n in shown})
+    texts = _section_texts(shown_chunks, shown_headings)
+    tally = getattr(judge, "card_tiers", None)
+    if tally is None:
+        tally = judge.card_tiers = {}
+
+    def done(tier: str, pick: TopicPick | None) -> TopicPick | None:
+        tally[tier] = tally.get(tier, 0) + 1
+        return pick
+
     try:
         choice = judge.pick_from_cards(
             stem, chapter_label, cards_block(cards, headings), excerpt, with_tier=want_tier,
         )
     except Exception:  # noqa: BLE001 -- the whole-chapter read decides instead
         logger.exception("topic card read failed for %s", chapter_label)
-        return None
+        return done("failed", None)
     section = normalise_section(getattr(choice, "section", ""), headings)
     if section is None:
-        return None
-    weight: dict[str, int] = {}
+        return done("no_section", None)
+    weight: dict[str, float] = {}
+    exact = True
     for q in (str(x) for x in (getattr(choice, "quotes", None) or [])):
         nq = _normalise(q)
         if len(nq) < 12:
             continue
         for n, t in texts.items():
-            if nq in t:
-                weight[n] = weight.get(n, 0) + len(nq)
+            share = quote_overlap(nq, t)
+            if share >= FUZZY_MIN:
+                weight[n] = weight.get(n, 0) + len(nq) * share
+                exact = exact and share == 1.0
     if not weight:
-        return None                                   # nothing quoted from what was shown
+        return done("no_quote", None)                # nothing quoted from what was shown
     grounded = sorted(weight, key=lambda n: (-weight[n], -n.count("."), n))
-    if not any(_related(g, section) for g in grounded):
-        return None                                   # the quote sits elsewhere
-    if named is not None:
-        agreed = _related(section, named)
-    else:
-        agreed = _related(section, ranked[0]) or (
-            retrieval_section is not None and _related(section, retrieval_section)
-        )
-    if not agreed:
-        return None
+    anchor = next((g for g in grounded if _related(g, section)), grounded[0])
+    if named is not None and not _related(section, named):
+        return done("terms_disagree", None)          # the book's own terms say elsewhere
+    points, signals = card_signals(
+        section, anchor, exact, ranked, shown, retrieval_section, named)
+    if points < CARD_ACCEPT or not signals["quote_in_named_section"]:
+        return done("review" if points == CARD_ACCEPT - 1 else "fallback", None)
     also = tuple(
         (s, headings.get(s, s)) for s in dict.fromkeys(
             x for x in (normalise_section(str(a), headings)
@@ -1080,14 +1117,15 @@ def _choose_by_cards(
         ) if not _related(s, section)
     )[:3]
     rationale = str(getattr(choice, "rationale", "") or getattr(choice, "answer", "") or "")
-    return TopicPick(
+    return done("accept", TopicPick(
         section, headings.get(section), "judge", True, retrieval_section,
         f"{rationale} Read from the chapter's section cards and the full text of "
-        f"sections {' and '.join(shown)}; the quoted sentences were found in the book "
-        f"under section {grounded[0]}.".strip(),
+        f"section{'s' if len(shown) > 1 else ''} {' and '.join(shown)}; the quoted "
+        f"sentences were {'found' if exact else 'closely matched'} in the book under "
+        f"section {anchor} ({points} of {CARD_SIGNALS} signals agree).".strip(),
         secondaries=also, verified=True,
         tier=grounded_tier(getattr(choice, "tier", None)) if want_tier else None,
-    )
+    ))
 
 
 def _choose_from_whole_chapter(
