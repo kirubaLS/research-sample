@@ -540,6 +540,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             evidence_passages=settings.classifier_evidence_passages,
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
+            card_mode=settings.topic_card_mode,
             **tiered,
             **({"major": view} if (view := major_view(chapter_node)) is not None else {}),
         )

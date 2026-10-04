@@ -870,3 +870,20 @@ A code review of the whole branch against production (`4e97dfa`) found three thi
 - **Twelve order-dependent baseline test failures.** They pass alone and fail in the full run, through shared test-client state (for example, a stubbed judge that is not the one the run uses). Until this is fixed, a new end-to-end test can't be fully trusted in the full suite. Phase 3 had to drop the second half of one test for this reason.
 
 - **Show GEO, POL and ECO topic labels in the teacher UI without the number prefix.** Their numbers are reading order, not printed in the books. Keep the numbers in stored codes, and keep them for History, where they are printed. This is not a one-line change: the label reaches the teacher through several API fields and the xlsx and PDF exports, so it needs one display helper used at each of those places.
+
+## Section cards and the one-call topic read (default OFF: `YAADHUM_TOPIC_CARD_MODE`)
+
+* `backend/reference/book_map/section_cards.json`: one card per major topic of all 22 Social
+  Science chapters (heading, opening, ~18 key terms: glossary terms, box titles, names, years,
+  rare words). 27.7k tokens in all against 172k of full text. Rebuild with
+  `python -m scripts.build_section_cards`; `--check` fails when stale or a topic has no card.
+* `app/classify/section_cards.py`: chunk-level BM25 (a section scores its best chunk plus 0.3 x
+  its next two). On the gold paper: right section first 43/54, in the top three 51/54 (whole
+  section TF-IDF 33 / 43; cards only 31 / 41).
+* With the setting on (and `topic_major_only_document`), `choose_topic` makes ONE call that
+  reads the chapter's cards and the full text of the two top-ranked sections. It is taken only
+  when the quoted sentences are found verbatim in the book under the section named and the
+  book's own terms / BM25 / retrieval agree; anything else reads the whole chapter as before.
+  `judge.card_hits` / `judge.card_escalations` count both.
+* Not yet measured on a paid run: accuracy and spend with card mode on. Compare with the
+  card-mode-off numbers from the same paper.

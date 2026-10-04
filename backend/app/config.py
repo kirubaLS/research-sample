@@ -163,6 +163,12 @@ class Settings(BaseSettings):
     #: never), deeper sections rendered as plain subheadings inside their parent, and the
     #: chapter's unnumbered introduction as "0 Introduction". Applies to capped subjects.
     topic_major_only_document: bool = False
+    #: Read a chapter's section cards plus the full text of the two sections BM25 ranks
+    #: first, in ONE call, instead of the whole chapter in several. Taken only when the
+    #: judge's quoted sentences are found in the book under the section it named and the
+    #: book's own terms / retrieval agree; every other question reads the whole chapter as
+    #: before. Needs topic_major_only_document and the committed section_cards.json.
+    topic_card_mode: bool = False
     #: For book-map subjects, subtopic nodes come from the book map's printed numbers
     #: only: an existing node is never relabelled, and the ingest-created nodes are never
     #: a fallback topic.

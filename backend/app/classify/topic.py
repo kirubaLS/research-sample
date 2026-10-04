@@ -317,6 +317,26 @@ _SYSTEM_MAJOR = _SYSTEM.replace(
 assert _DOCUMENT_SYSTEM_MAJOR != _DOCUMENT_SYSTEM and _SYSTEM_MAJOR != _SYSTEM
 
 
+_CARDS_SYSTEM = """You place one CBSE Class X exam question under the ONE section of its NCERT
+chapter whose text answers it.
+
+You are given a CARD for every section of the chapter (its heading, opening words and the
+names and terms that set it apart), and with the question the FULL TEXT of the sections
+most likely to hold the answer.
+
+- Write the answer a student would give, in one or two sentences, from the full text shown
+  only. Then copy into `quotes`, verbatim from the full text shown, the sentence(s) the
+  answer is drawn from (up to three). `section` is the section those sentences are in.
+- If the full text shown does NOT contain what the question tests, leave `quotes` empty
+  and name in `section` the section whose card most likely holds it.
+- A question that spans several sections: name the best one in `section` and the others in
+  `also`. A section that only mentions the question's subject is not an answer.
+- Prefer the most specific of the listed sections. Section 0 is the chapter's
+  introduction: answer 0 only when the question is about the chapter as a whole.
+- Map work, figures, tables and captions are part of a section's text.
+- Answer 'none' only when no section of the chapter fits."""
+
+
 def chapter_document(
     chapter_chunks: list, headings: dict[str, str], *, render_empty: bool = False,
 ) -> str:
@@ -541,6 +561,40 @@ class TopicJudge:
         self._count(response)
         return response.parsed_output
 
+    def pick_from_cards(
+        self, stem: str, chapter_label: str, cards: str, excerpt: str, with_tier: bool = False,
+    ) -> _TopicChoice:
+        """One read from the chapter's section cards plus the full text of the sections
+        retrieval ranked first (``excerpt``). The cards are the cached prefix, identical
+        for every question of the chapter."""
+        extra = {"output_config": self.output_config} if self.output_config else {}
+        ask = (
+            "Write the answer in `answer`, copy the sentence(s) it is drawn from into "
+            "`quotes` (verbatim from the full text above), and name the section."
+        )
+        if with_tier:
+            ask += "\n\nAlso name the question's competency tier in `tier`.\n" + TIER_GUIDE
+        response = self.client.messages.parse(
+            model=self.model,
+            max_tokens=3000,
+            system=[
+                {"type": "text", "text": _CARDS_SYSTEM},
+                {
+                    "type": "text",
+                    "text": f"CHAPTER: {chapter_label}\n\nSECTION CARDS\n{cards}",
+                    "cache_control": {"type": "ephemeral"},
+                },
+            ],
+            messages=[{"role": "user", "content": (
+                f"QUESTION\n{stem.strip()[:3000]}\n\nFULL TEXT OF THE MOST LIKELY "
+                f"SECTIONS\n\n{excerpt}\n\n{ask}"
+            )}],
+            output_format=_TopicChoiceWithTier if with_tier else _TopicChoice,
+            **extra,
+        )
+        self._count(response)
+        return response.parsed_output
+
     def answerable(
         self, stem: str, chapter_label: str, headings: dict[str, str], document: str,
         section: str, sub_sections: list[str] | None = None,
@@ -723,6 +777,7 @@ def choose_topic(
     lexical_index=None,
     want_tier: bool = False,
     major: tuple[str, int] | None = None,
+    card_mode: bool = False,
 ) -> TopicPick:
     """Decide the section within ``chapter_id`` that ``stem`` tests.
 
@@ -821,6 +876,19 @@ def choose_topic(
         chapter_document(chapter_chunks, headings, render_empty=major is not None)
         if hasattr(judge, "pick_from_document") else ""
     )
+    if document and card_mode and major is not None and hasattr(judge, "pick_from_cards"):
+        from app.classify.section_cards import load_cards
+
+        cards = load_cards(major[0])
+        if cards:
+            quick = _choose_by_cards(
+                stem, chapter_label, chapter_chunks, headings, judge, cards,
+                retrieval_section=retrieval_section, named=named, want_tier=want_tier,
+            )
+            judge.card_hits = getattr(judge, "card_hits", 0) + (quick is not None)
+            judge.card_escalations = getattr(judge, "card_escalations", 0) + (quick is None)
+            if quick is not None:
+                return quick
     if document and len(document) <= FULL_CHAPTER_MAX_CHARS:
         return _choose_from_whole_chapter(
             stem, chapter_label, chapter_chunks, headings, judge, document,
@@ -933,6 +1001,93 @@ def _section_texts(chapter_chunks: list, headings: dict[str, str]) -> dict[str, 
         if c.section_number in out:
             out[c.section_number] += " " + _normalise(c.text or "")
     return out
+
+
+#: the sections BM25 ranks first whose full text a card read is given, and the most of
+#: each section's text shown
+CARD_FULL_SECTIONS = 2
+CARD_SECTION_CHARS = 7000
+
+
+def _choose_by_cards(
+    stem: str, chapter_label: str, chapter_chunks: list, headings: dict[str, str],
+    judge, cards: dict[str, str], *, retrieval_section: str | None, named: str | None,
+    want_tier: bool = False,
+) -> TopicPick | None:
+    """The cheap path: ONE call that reads every section's card and the full text of the
+    two sections BM25 ranks first. Trusted only when nothing is left to chance:
+
+    * the sentences the judge quoted are found, verbatim, in the text of a section it
+      was shown (the book's own words decide, not the number it wrote);
+    * that section is the one the judge named (or a relative of it);
+    * the independent signals agree -- the book's own use of the question's terms when
+      there is one, otherwise BM25's first section or retrieval within the chapter.
+
+    Anything else returns None and the caller reads the whole chapter as before, so the
+    saving is only ever taken on questions where the cheap read is demonstrably sound."""
+    from app.classify.section_cards import cards_block, rank_sections
+
+    ranked = [
+        n for n in rank_sections(stem, [
+            (c.section_number, c.text or "") for c in chapter_chunks
+        ]) if n in headings
+    ]
+    shown = ranked[:CARD_FULL_SECTIONS]
+    if not shown:
+        return None
+    shown_chunks = [c for c in chapter_chunks if c.section_number in shown]
+    excerpt = chapter_document(
+        shown_chunks, {n: headings[n] for n in shown}, render_empty=False,
+    )
+    if len(excerpt) > CARD_SECTION_CHARS * len(shown):
+        excerpt = excerpt[:CARD_SECTION_CHARS * len(shown)]
+    texts = _section_texts(shown_chunks, {n: headings[n] for n in shown})
+    try:
+        choice = judge.pick_from_cards(
+            stem, chapter_label, cards_block(cards, headings), excerpt, with_tier=want_tier,
+        )
+    except Exception:  # noqa: BLE001 -- the whole-chapter read decides instead
+        logger.exception("topic card read failed for %s", chapter_label)
+        return None
+    section = normalise_section(getattr(choice, "section", ""), headings)
+    if section is None:
+        return None
+    weight: dict[str, int] = {}
+    for q in (str(x) for x in (getattr(choice, "quotes", None) or [])):
+        nq = _normalise(q)
+        if len(nq) < 12:
+            continue
+        for n, t in texts.items():
+            if nq in t:
+                weight[n] = weight.get(n, 0) + len(nq)
+    if not weight:
+        return None                                   # nothing quoted from what was shown
+    grounded = sorted(weight, key=lambda n: (-weight[n], -n.count("."), n))
+    if not any(_related(g, section) for g in grounded):
+        return None                                   # the quote sits elsewhere
+    if named is not None:
+        agreed = _related(section, named)
+    else:
+        agreed = _related(section, ranked[0]) or (
+            retrieval_section is not None and _related(section, retrieval_section)
+        )
+    if not agreed:
+        return None
+    also = tuple(
+        (s, headings.get(s, s)) for s in dict.fromkeys(
+            x for x in (normalise_section(str(a), headings)
+                        for a in (getattr(choice, "also", None) or [])) if x is not None
+        ) if not _related(s, section)
+    )[:3]
+    rationale = str(getattr(choice, "rationale", "") or getattr(choice, "answer", "") or "")
+    return TopicPick(
+        section, headings.get(section), "judge", True, retrieval_section,
+        f"{rationale} Read from the chapter's section cards and the full text of "
+        f"sections {' and '.join(shown)}; the quoted sentences were found in the book "
+        f"under section {grounded[0]}.".strip(),
+        secondaries=also, verified=True,
+        tier=grounded_tier(getattr(choice, "tier", None)) if want_tier else None,
+    )
 
 
 def _choose_from_whole_chapter(

@@ -2510,6 +2510,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             evidence_passages=settings.classifier_evidence_passages,
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
+            card_mode=settings.topic_card_mode,
             **({"major": view} if (view := major_view(chapter)) is not None else {}),
         )
         if deferred_to_classify:
