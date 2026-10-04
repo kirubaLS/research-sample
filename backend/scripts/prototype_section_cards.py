@@ -146,7 +146,7 @@ def stems_from(pdf: str) -> dict[str, str]:
 
 def write_all(path: Path) -> None:
     out, total_full, total_cards = {}, 0, 0
-    for subject, rel in SUBJECT_FILES.items():
+    for rel in SUBJECT_FILES.values():
         file = REFERENCE_DIR / rel
         if not file.exists():
             continue
@@ -220,7 +220,8 @@ def main(argv=None) -> int:
                 misses.append((address, sorted(gold_sections), [t for t in wanted if t not in got]))
     print(f"\nquestions scored {n} (not read from the PDF or off-chapter: {unread})")
     for k in (1, 3, 5):
-        print(f"recall@{k}   cards {hits[f'card@{k}']}/{n}   full text {hits[f'full@{k}']}/{n}   hybrid {hits[f'mix@{k}']}/{n}")
+        print(f"recall@{k}   cards {hits[f'card@{k}']}/{n}   full text {hits[f'full@{k}']}/{n}"
+              f"   hybrid {hits[f'mix@{k}']}/{n}")
     print(f"decisive terms on the card: {covered}/{decisive}")
     print(f"avg tokens, top-5 cards + top-2 full sections (hybrid): {sum(sizes) // max(len(sizes), 1)}")
     for address, gs, terms in misses:
