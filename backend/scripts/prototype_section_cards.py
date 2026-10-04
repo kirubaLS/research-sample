@@ -20,7 +20,7 @@ import argparse
 import json
 import math
 import re
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 from app.classify.topic import distinctive_terms
@@ -123,6 +123,26 @@ def rank(query: str, docs: dict[str, str]) -> list[str]:
     return sorted(docs, key=lambda k: (-score[k], k))
 
 
+def bm25_sections(query: str, sections: dict[str, dict], k1: float = 1.4, b: float = 0.75) -> list[str]:
+    """Stage 1: BM25 over every CHUNK of the chapter, then each section scores its best
+    chunk plus 0.3 x its next two. (Whole-section TF-IDF and fusing with the cards both
+    measured worse on the gold paper.)"""
+    chunks = [(k, Counter(words(t))) for k, v in sections.items() for t in v["chunks"]]
+    n = len(chunks)
+    avg = sum(sum(c.values()) for _, c in chunks) / n
+    df = Counter(t for _, c in chunks for t in c)
+    q = set(words(query))
+    per: dict[str, list[float]] = defaultdict(list)
+    for k, c in chunks:
+        length = sum(c.values())
+        per[k].append(sum(
+            math.log(1 + (n - df[t] + .5) / (df[t] + .5)) * c[t] * (k1 + 1)
+            / (c[t] + k1 * (1 - b + b * length / avg))
+            for t in q if t in c))
+    score = {k: (v := sorted(vs, reverse=True))[0] + 0.3 * sum(v[1:3]) for k, vs in per.items()}
+    return sorted(score, key=lambda k: (-score[k], k))
+
+
 def fuse(*orders: list[str]) -> list[str]:
     """Reciprocal-rank fusion of several rankings of the same sections."""
     score: Counter = Counter()
@@ -205,7 +225,7 @@ def main(argv=None) -> int:
             continue
         n += 1
         by_card, by_full = rank(stem, cards), rank(stem, full)
-        by_mix = fuse(by_card, by_full)
+        by_mix = bm25_sections(stem, sections)
         for name, order in (("card", by_card), ("full", by_full), ("mix", by_mix)):
             for k in (1, 3, 5):
                 hits[f"{name}@{k}"] += bool(gold_sections & set(order[:k]))
@@ -221,9 +241,9 @@ def main(argv=None) -> int:
     print(f"\nquestions scored {n} (not read from the PDF or off-chapter: {unread})")
     for k in (1, 3, 5):
         print(f"recall@{k}   cards {hits[f'card@{k}']}/{n}   full text {hits[f'full@{k}']}/{n}"
-              f"   hybrid {hits[f'mix@{k}']}/{n}")
+              f"   bm25 {hits[f'mix@{k}']}/{n}")
     print(f"decisive terms on the card: {covered}/{decisive}")
-    print(f"avg tokens, top-5 cards + top-2 full sections (hybrid): {sum(sizes) // max(len(sizes), 1)}")
+    print(f"avg tokens, top-5 cards + top-2 full sections (bm25): {sum(sizes) // max(len(sizes), 1)}")
     for address, gs, terms in misses:
         print(f"  no card coverage {address:<10} {','.join(gs):<6} {terms}")
     return 0
