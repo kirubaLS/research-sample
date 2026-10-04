@@ -259,3 +259,15 @@ def test_outcomes_are_tallied_by_tier(cards_on):
     _choose(judge, stem)
     _choose(judge, stem)
     assert judge.card_tiers == {"accept": 2}
+
+
+def test_dense_fusion_blends_normalised_scores_and_ranks_best_first():
+    from scripts.eval_dense_retrieval import dense_scores, fuse, normalise, position
+
+    assert normalise({"a": 10.0, "b": 0.0, "c": 5.0}) == {"a": 1.0, "b": 0.0, "c": 0.5}
+    bm25 = {"1": 9.0, "2": 8.0, "3": 1.0}
+    dense = {"1": 0.1, "2": 0.9, "3": 0.2}
+    assert fuse(bm25, dense, 0.0)[0] == "1" and fuse(bm25, dense, 1.0)[0] == "2"
+    assert position(["1", "2", "3"], {"3"}) == 2 and position(["1"], {"9"}) == 1
+    scored = dense_scores([1.0, 0.0], [("a", [1.0, 0.0]), ("a", [0.0, 1.0]), ("b", [0.0, 1.0])])
+    assert scored["a"] > scored["b"]
