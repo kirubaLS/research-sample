@@ -33,8 +33,9 @@ _STOP = set("the and for are was were that this with from which their they have 
             "its into than then also such these those been being can may will would about "
             "when where who what why how all any each other more most one two".split())
 _NAMES = re.compile(r"(?<![\w'])(?:[A-Z][\w'’-]+)(?:\s+(?:(?:of|the|and|for|in|on|to)\s+)?[A-Z][\w'’-]+)+")
+_MID = re.compile(r"(?<=[)\-–—,;] )([A-Z][a-z][\w'’-]{3,})")
 _YEAR = re.compile(r"\b(1[4-9]\d\d|20\d\d)\b")
-TERMS_PER_CARD = 8
+TERMS_PER_CARD = 18
 FIRST_CHARS = 200
 
 
@@ -62,18 +63,52 @@ def chapter_sections(chapter_code: str) -> dict[str, dict]:
     return out
 
 
-def build_cards(sections: dict[str, dict]) -> dict[str, str]:
-    full = {k: " ".join(v["chunks"]) for k, v in sections.items()}
+def _candidates(sections: dict[str, dict], key: str) -> Counter:
+    """Everything on a section that could decide a question: names, years, mid-sentence
+    capitalised words and rare lowercase content words. Glossary terms and box titles are
+    added by the caller from the book map's own structure."""
+    text = " ".join(sections[key]["chunks"])
+    counts = Counter(_NAMES.findall(text) + _YEAR.findall(text))
+    counts.update(m for m in _MID.findall(text))
+    counts.update(w for w in words(text) if len(w) >= 5)
+    return counts
+
+
+def build_cards(sections: dict[str, dict], extras: dict[str, list[str]] | None = None,
+                n_terms: int = TERMS_PER_CARD) -> dict[str, str]:
+    extras = extras or {}
+    cand = {k: _candidates(sections, k) for k in sections}
     df: Counter = Counter()
-    for text in full.values():
-        df.update({t for t in _NAMES.findall(text)} | set(_YEAR.findall(text)))
+    for c in cand.values():
+        df.update(c.keys())
     cards = {}
-    for key, text in full.items():
-        counts = Counter(_NAMES.findall(text) + _YEAR.findall(text))
-        ranked = sorted(counts, key=lambda t: (df[t], -counts[t], t))[:TERMS_PER_CARD]
+    for key, counts in cand.items():
+        picked = list(dict.fromkeys(extras.get(key, [])))[:6]
+        seen = {p.lower() for p in picked}
+        for t in sorted(counts, key=lambda t: (df[t], -counts[t], t)):
+            if len(picked) >= n_terms:
+                break
+            if df[t] <= 2 and t.lower() not in seen:
+                picked.append(t)
+                seen.add(t.lower())
         first = (sections[key]["chunks"] or [""])[0][:FIRST_CHARS].rsplit(" ", 1)[0]
-        cards[key] = f"{sections[key]['heading']}. {first}. Key: {'; '.join(ranked)}"
+        cards[key] = f"{sections[key]['heading']}. {first}. Key: {'; '.join(picked)}"
     return cards
+
+
+def structural_terms(chapter_code: str) -> dict[str, list[str]]:
+    """Glossary terms and box/source titles per major topic: the book's own vocabulary."""
+    subject = ".".join(chapter_code.split(".")[:2])
+    chapter = _load_chapter(REFERENCE_DIR / SUBJECT_FILES[subject], chapter_code)
+    out: dict[str, list[str]] = {}
+    for unit in chapter["units"]:
+        top = major_of(chapter_code, unit.get("number"), 2)
+        if top is None:
+            continue
+        got = out.setdefault(top, [])
+        got += [t["term"] for t in unit.get("terms", []) if t.get("term")]
+        got += [b["title"] for b in unit.get("boxes", []) + unit.get("sources", []) if b.get("title")]
+    return out
 
 
 def rank(query: str, docs: dict[str, str]) -> list[str]:
@@ -88,6 +123,15 @@ def rank(query: str, docs: dict[str, str]) -> list[str]:
     return sorted(docs, key=lambda k: (-score[k], k))
 
 
+def fuse(*orders: list[str]) -> list[str]:
+    """Reciprocal-rank fusion of several rankings of the same sections."""
+    score: Counter = Counter()
+    for order in orders:
+        for i, k in enumerate(order):
+            score[k] += 1 / (10 + i)
+    return sorted(score, key=lambda k: (-score[k], k))
+
+
 def stems_from(pdf: str) -> dict[str, str]:
     from app.extraction.paper import extract_paper
 
@@ -100,18 +144,42 @@ def stems_from(pdf: str) -> dict[str, str]:
     return out
 
 
+def write_all(path: Path) -> None:
+    out, total_full, total_cards = {}, 0, 0
+    for subject, rel in SUBJECT_FILES.items():
+        file = REFERENCE_DIR / rel
+        if not file.exists():
+            continue
+        for chapter in json.loads(file.read_text()):
+            code = chapter["code"]
+            sections = chapter_sections(code)
+            cards = build_cards(sections, structural_terms(code))
+            full = sum(tokens(" ".join(v["chunks"])) for v in sections.values())
+            small = sum(tokens(c) for c in cards.values())
+            total_full, total_cards = total_full + full, total_cards + small
+            out[code] = {"sections": len(cards), "full_tokens": full, "card_tokens": small, "cards": cards}
+            print(f"  {code:<30} {len(cards):>3} cards  {small:>5} / {full:>6} tok")
+    path.write_text(json.dumps(out, indent=1, ensure_ascii=False))
+    print(f"ALL  {len(out)} chapters  cards {total_cards} tok vs full {total_full} tok "
+          f"({total_cards / total_full:.0%}) -> {path}\n")
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--pdf", required=True)
     ap.add_argument("--show-cards", action="store_true")
+    ap.add_argument("--write-all", metavar="PATH",
+                    help="also write the cards of EVERY chapter of every subject to this JSON file")
     args = ap.parse_args(argv)
+    if args.write_all:
+        write_all(Path(args.write_all))
     gold = json.loads(GOLD.read_text())
     stems = stems_from(args.pdf)
     built: dict[str, tuple[dict, dict, dict]] = {}
     for sec, info in gold["section_chapters"].items():
         code = info["chapter"]
         sections = chapter_sections(code)
-        cards = build_cards(sections)
+        cards = build_cards(sections, structural_terms(code))
         full = {k: " ".join(v["chunks"]) for k, v in sections.items()}
         built[sec] = (sections, cards, full)
         t_full, t_cards = sum(tokens(t) for t in full.values()), sum(tokens(t) for t in cards.values())
@@ -137,10 +205,11 @@ def main(argv=None) -> int:
             continue
         n += 1
         by_card, by_full = rank(stem, cards), rank(stem, full)
-        for name, order in (("card", by_card), ("full", by_full)):
-            for k in (1, 3):
+        by_mix = fuse(by_card, by_full)
+        for name, order in (("card", by_card), ("full", by_full), ("mix", by_mix)):
+            for k in (1, 3, 5):
                 hits[f"{name}@{k}"] += bool(gold_sections & set(order[:k]))
-        sizes.append(tokens(" ".join(cards.values())) + sum(tokens(full[k]) for k in by_card[:2]))
+        sizes.append(sum(tokens(cards[k]) for k in by_mix[:5]) + sum(tokens(full[k]) for k in by_mix[:2]))
         wanted = [t for t in distinctive_terms(stem)
                   if any(t.lower() in full[g].lower() for g in gold_sections)]
         if wanted:
@@ -150,10 +219,10 @@ def main(argv=None) -> int:
             if len(got) < len(wanted):
                 misses.append((address, sorted(gold_sections), [t for t in wanted if t not in got]))
     print(f"\nquestions scored {n} (not read from the PDF or off-chapter: {unread})")
-    for k in (1, 3):
-        print(f"recall@{k}   cards {hits[f'card@{k}']}/{n}   full text {hits[f'full@{k}']}/{n}")
+    for k in (1, 3, 5):
+        print(f"recall@{k}   cards {hits[f'card@{k}']}/{n}   full text {hits[f'full@{k}']}/{n}   hybrid {hits[f'mix@{k}']}/{n}")
     print(f"decisive terms on the card: {covered}/{decisive}")
-    print(f"avg tokens, cards + top-2 full sections: {sum(sizes) // max(len(sizes), 1)}")
+    print(f"avg tokens, top-5 cards + top-2 full sections (hybrid): {sum(sizes) // max(len(sizes), 1)}")
     for address, gs, terms in misses:
         print(f"  no card coverage {address:<10} {','.join(gs):<6} {terms}")
     return 0
