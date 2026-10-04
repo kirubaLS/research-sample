@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.books import clean_sections
 from app.api.deps import require_admin, require_paper_scope, require_reader, require_scanner
 from app.classify.pipeline import place_paper
+from app.classify.review_rule import ReviewInputs, reason_code, review_reasons
 from app.curriculum import group_subjects
 from app.mapping.auto_resolve import record_family_section, resolve_blocked_family
 from app.mapping.family import Choice, choose_family
@@ -339,6 +340,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             batched=settings.batch_classify and settings.batch_chapter_judge,
             batch_options=batch_options,
             **({"section_mapper": cap_for} if settings.topic_depth_cap else {}),
+            **({"cite_by_number": True} if settings.cite_passages_by_number else {}),
         )
 
         scope = None
@@ -628,6 +630,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         settled, unsettled, refused = 0, 0, []
         #: questions whose section and topic this run wrote -- checked to agree before commit
         topic_written: list[str] = []
+        #: rows flagged under review_flag_rule, by reason
+        flagged_by_reason: dict[str, int] = {}
+        flagged_rows = 0
         for placed in result.questions:
             chapter = by_label.get(placed.chapter) if placed.chapter is not None else None
             unit_id = _unit_node_id(db, nodes, placed.board_unit) if placed.board_unit else None
@@ -805,6 +810,26 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             if question is None:
                 continue
 
+            new_rule = None
+            if settings.review_flag_rule:
+                new_rule = [] if held is not None else review_reasons(ReviewInputs(
+                    judge_failed=placed.judge_failed,
+                    cross_scope=bool(getattr(placed, "cross_scope", False)),
+                    family_unsettled=choice.unsettled is not None,
+                    family_blocked=(
+                        choice.blocked is not None or placed.question_id in refused
+                    ),
+                    chapter_confidence=getattr(placed, "judge_confidence", None),
+                    chapters_shown=getattr(placed, "chapters_shown", 0),
+                    topic_section=pick.section if pick is not None else None,
+                    retrieval_section=pick.retrieval_section if pick is not None else None,
+                    topic_verified=pick.verified if pick is not None else None,
+                    topic_source=pick.source if pick is not None else None,
+                ))
+
+            for reason in new_rule or []:
+                flagged_by_reason[reason] = flagged_by_reason.get(reason, 0) + 1
+            flagged_rows += bool(new_rule)
             db.add(QuestionPlacement(
                 question_id=placed.question_id,
                 chapter_id=chapter.id if chapter else None,
@@ -820,8 +845,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     else "model"
                 ),
                 cross_scope=True if getattr(placed, "cross_scope", False) else None,
-                review_reason="cross_scope" if getattr(placed, "cross_scope", False) else None,
-                needs_review=held is None and (
+                review_reason=(
+                    reason_code(new_rule) if new_rule is not None
+                    else "cross_scope" if getattr(placed, "cross_scope", False) else None
+                ),
+                needs_review=bool(new_rule) if new_rule is not None else held is None and (
                     placed.needs_review
                     or getattr(placed, "cross_scope", False)
                     or (pick is not None and pick.section is not None and not pick.agreed)
@@ -927,7 +955,10 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 ),
             },
             "settled": result.settled,
-            "needs_review": result.reviewed_count,
+            "needs_review": flagged_rows if settings.review_flag_rule else result.reviewed_count,
+            #: review_flag_rule: why the rows this run wrote were flagged, by reason (a row
+            #: with two reasons counts under both)
+            **({"flagged_by_reason": flagged_by_reason} if settings.review_flag_rule else {}),
             "blueprint_feasible": result.feasible,
             "note": result.note,
             # How often the knowledge base had to correct the model. A rising number is
@@ -935,6 +966,12 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             "grounding_violations": [
                 {"question": q, "problems": v} for q, v in getattr(judge, "violations", [])
             ],
+            #: cite_passages_by_number: citations that matched no shown passage -- recorded,
+            #: never a reason to doubt the placement
+            **({"citation_warnings": [
+                {"question": q, "problems": v}
+                for q, v in getattr(judge, "citation_warnings", [])
+            ]} if getattr(judge, "cite_by_number", False) is True else {}),
             "scope_source": result.scope_source,
             "scope": {
                 "chapters": sorted(result.scope.chapters),

@@ -73,6 +73,35 @@ class ScopedClassification(Classification):
     )
 
 
+class NumberedClassification(Classification):
+    """``Classification`` citing passages by their printed number (cite_passages_by_number).
+    A number is checkable exactly -- it was shown or it was not -- where a retyped
+    reference can drift by a word and read as invented."""
+
+    evidence: list[int] = Field(
+        default_factory=list,
+        description="The numbers of the passages actually used, as printed in square "
+        "brackets before each passage, e.g. [2, 5]",
+    )
+
+
+class NumberedScopedClassification(ScopedClassification):
+    """``ScopedClassification`` citing passages by number -- see NumberedClassification."""
+
+    evidence: list[int] = Field(
+        default_factory=list,
+        description="The numbers of the passages actually used, as printed in square "
+        "brackets before each passage, e.g. [2, 5]",
+    )
+
+
+#: Appended to SYSTEM when the judge cites by number (cite_passages_by_number).
+CITE_NOTE = """
+
+Cite the passages you used by their number only -- the number in square brackets before
+each passage, e.g. evidence [2, 5]. Never cite a number you were not shown."""
+
+
 #: Appended to SYSTEM for a ScopedClassification call.
 SCOPE_NOTE = """
 

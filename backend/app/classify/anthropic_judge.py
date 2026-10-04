@@ -11,10 +11,13 @@ from typing import Protocol
 
 from app.classify.grounding import Grounded, ground
 from app.classify.judge import (
+    CITE_NOTE,
     SCOPE_NOTE,
     SYSTEM,
     Classification,
     Evidence,
+    NumberedClassification,
+    NumberedScopedClassification,
     ScopedClassification,
     build_prompt,
 )
@@ -39,6 +42,7 @@ class AnthropicJudge:
         batched: bool = False,
         batch_options: dict | None = None,
         section_mapper=None,
+        cite_by_number: bool = False,
     ) -> None:
         if not api_key:
             raise ValueError(
@@ -69,6 +73,10 @@ class AnthropicJudge:
         self.section_mapper = section_mapper
         #: every field the knowledge base could not vouch for, kept for inspection
         self.violations: list[tuple[str, list[str]]] = []
+        #: cite_passages_by_number: passages are cited by their printed number, checked;
+        #: a citation problem is kept here as a warning and changes nothing else
+        self.cite_by_number = cite_by_number
+        self.citation_warnings: list[tuple[str, list[str]]] = []
         #: What was actually spent, added up as the paper is read. Reported rather than
         #: estimated: every figure anybody quoted for a paper before this, mine included,
         #: was arithmetic on a guess about the prompt.
@@ -76,6 +84,11 @@ class AnthropicJudge:
         self.output_tokens = 0
         self.cache_read_tokens = 0
         self.calls = 0
+
+    def _schema(self, scoped: bool) -> type[Classification]:
+        if getattr(self, "cite_by_number", False):
+            return NumberedScopedClassification if scoped else NumberedClassification
+        return ScopedClassification if scoped else Classification
 
     def classify(
         self, question: str, evidence: list[Evidence], *, scoped: bool = False,
@@ -91,12 +104,13 @@ class AnthropicJudge:
             # sized for the answer alone truncates the reply mid-thought -- on a paid
             # request, in production, which is exactly what app.llm exists to prevent.
             max_tokens=16000,
-            system=SYSTEM + SCOPE_NOTE if scoped else SYSTEM,
+            system=(SYSTEM + (SCOPE_NOTE if scoped else "")
+                    + (CITE_NOTE if getattr(self, "cite_by_number", False) else "")),
             messages=[{
                 "role": "user",
                 "content": build_prompt(question, evidence, self.passage_chars),
             }],
-            output_format=ScopedClassification if scoped else Classification,
+            output_format=self._schema(scoped),
             **extra,
         )
         usage = getattr(response, "usage", None)
@@ -111,7 +125,12 @@ class AnthropicJudge:
             result = result.model_copy(update={
                 "curriculum_section": mapper(result.chapter, result.curriculum_section),
             })
-        checked: Grounded = ground(result, evidence, known_sections=self.known_sections)
+        numbered = getattr(self, "cite_by_number", False)
+        checked: Grounded = ground(
+            result, evidence, known_sections=self.known_sections, cite_by_number=numbered,
+        )
+        if checked.warnings:
+            self.citation_warnings.append((question[:80], checked.warnings))
         if checked.violations:
             # kept rather than logged away: how often the model has to be corrected is the
             # measure of whether it can be trusted on the next paper

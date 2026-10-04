@@ -104,6 +104,10 @@ class PlacedQuestion:
     #: the scope named exactly one chapter, so the chapter judge was not asked
     #: (skip_single_chapter_judge); the tier then comes from the topic judge
     chapter_judge_skipped: bool = False
+    #: the chapter judge's own confidence, and how many chapters it chose among -- None
+    #: and 0 when it was not asked (skipped, failed, nothing retrieved)
+    judge_confidence: float | None = None
+    chapters_shown: int = 0
 
 
 @dataclass
@@ -165,6 +169,7 @@ def _pass(
     on_progress: Callable[[int, int], None] | None = None,
     scope_of: Callable[[str], set[str] | None] | None = None,
     options: PassOptions | None = None,
+    asked: dict[str, tuple[float, int]] | None = None,
 ) -> tuple[list[QuestionSlot], dict[str, Classification], set[str], set[str], set[str]]:
     """One classification pass over every question. Returns the slots, the judgments,
     the ids of the questions the judge could not be asked about at all, the ids placed
@@ -176,6 +181,10 @@ def _pass(
     same group's other book. Combined with the paper-wide ``scope`` by intersection;
     the question's own scope wins outright when the two do not overlap, because it is
     the more certain fact of the two.
+
+    ``asked``, when given, is filled with question id -> (the chapter judge's own
+    confidence, how many chapters it chose among) for every question the judge actually
+    answered -- what review_flag_rule's confidence condition reads.
     """
     options = options or PassOptions()
     slots: list[QuestionSlot] = []
@@ -402,6 +411,7 @@ def _pass(
             continue
 
         crossing = options.cross_scope and out_of_scope and question_id in declared
+        judged_on = evidence           # the passages the answer kept was given
         if scoped_call(item) and getattr(call, "no_in_scope_chapter", False):
             # The judge says no chapter in the declared scope can answer this question.
             # One more read over the whole group (the indexes hold only this paper's own
@@ -426,11 +436,15 @@ def _pass(
                 })
                 verdict, crossing = wide, True
                 q_scope = None
-            elif second is not None:
-                call = second if second.chapter in (q_scope or set()) else call
+                judged_on = wide_evidence
+            elif second is not None and second.chapter in (q_scope or set()):
+                call = second
+                judged_on = wide_evidence
 
         if crossing:
             crossed.add(question_id)
+        if asked is not None:
+            asked[question_id] = (call.confidence, len({e.chapter for e in judged_on}))
 
         # a question whose evidence all fell outside the scope cannot be trusted to the
         # confidence the judge gave it, whatever that was
@@ -527,10 +541,11 @@ def place_paper(
 
     options = options or PassOptions()
     first_options = dataclasses.replace(options, scope_declared=scope is not None)
+    asked: dict[str, tuple[float, int]] = {}
     slots, judged, failed, crossed, skipped = _pass(
         questions, indexes, judge, chapter_of, unit_of, section_of, scope,
         evidence_passages, evidence_chapters, passage_chars, on_progress, scope_of,
-        first_options,
+        first_options, asked,
     )
 
     if scope is None and infer_scope_when_undeclared and slots:
@@ -552,6 +567,7 @@ def place_paper(
         # deleted question is worse than a misplaced one -- it vanishes from the report
         # instead of being wrong in it.
         if inferred.confident:
+            asked = {}
             slots, judged, failed, crossed, skipped = _pass(
                 questions, indexes, judge, chapter_of, unit_of, section_of,
                 inferred.chapters, evidence_passages, evidence_chapters, passage_chars,
@@ -559,6 +575,7 @@ def place_paper(
                 # an inferred scope is not a declaration: only a question's own declared
                 # scope may skip the judge or make a placement cross-scope
                 dataclasses.replace(options, scope_declared=False),
+                asked,
             )
             scope_source = "inferred"
 
@@ -582,6 +599,8 @@ def place_paper(
             judge_failed=slot.question_id in failed,
             cross_scope=slot.question_id in crossed,
             chapter_judge_skipped=slot.question_id in skipped,
+            judge_confidence=asked.get(slot.question_id, (None, 0))[0],
+            chapters_shown=asked.get(slot.question_id, (None, 0))[1],
         )
         for slot in slots
     ]
@@ -616,9 +635,10 @@ def reclassify_without_scope(
     to a single chapter, its chapter judge skipped, and the topic judge then found that no
     section of that chapter can answer it (cross_scope_fallback). None when nothing was
     retrieved or the judge could not be asked."""
+    asked: dict[str, tuple[float, int]] = {}
     slots, judged, failed, _, _ = _pass(
         [(question_id, stem, marks)], indexes, judge, chapter_of, unit_of, section_of,
-        None, evidence_passages, evidence_chapters, passage_chars,
+        None, evidence_passages, evidence_chapters, passage_chars, asked=asked,
     )
     if not slots or question_id in failed:
         return None
@@ -630,4 +650,6 @@ def reclassify_without_scope(
         curriculum_section=call.curriculum_section, tier=call.tier,
         skill_required=call.skill_required, confidence=call.confidence,
         reasoning=call.reasoning, evidence=list(call.evidence),
+        judge_confidence=asked.get(question_id, (None, 0))[0],
+        chapters_shown=asked.get(question_id, (None, 0))[1],
     )

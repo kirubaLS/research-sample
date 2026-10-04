@@ -21,7 +21,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, validates
 
 from app.models.base import Base, PkMixin, TimestampMixin
 
@@ -346,7 +346,7 @@ class QuestionPlacement(Base, PkMixin, TimestampMixin):
     needs_review: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
     reviewed_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     #: the model's own words, so a wrong placement is inspectable rather than a bare label
-    reasoning: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    reasoning: Mapped[str | None] = mapped_column(String(1000), nullable=True)   # REASONING_WIDTH
     #: chunk references the decision rested on, e.g. ['Theorem 6.3', 'Example 4']
     evidence: Mapped[list | None] = mapped_column(JSON, nullable=True)
     #: the chapters that were on the table, so a reviewer sees the real alternatives
@@ -361,6 +361,20 @@ class QuestionPlacement(Base, PkMixin, TimestampMixin):
     #: True when the question was placed in a chapter outside the scope the paper (or the
     #: teacher) declared for it -- never silent, always also needs_review
     cross_scope: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+
+    @validates("reasoning")
+    def _fit_reasoning(self, _key: str, value: str | None) -> str | None:
+        """Cut to the column's 1000 characters before insert. The place step joins the
+        judge's reasoning, the topic rationale, family messages and auto-resolve text,
+        which together can run longer -- and on Postgres an over-long value fails the
+        whole write phase, losing every placement in the run for one long sentence."""
+        if value is not None and len(value) > REASONING_WIDTH:
+            return value[:REASONING_WIDTH]
+        return value
+
+
+#: question_placement.reasoning's width
+REASONING_WIDTH = 1000
 
 
 class QuestionJudgment(Base, PkMixin, TimestampMixin):

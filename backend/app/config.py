@@ -167,6 +167,20 @@ class Settings(BaseSettings):
     #: only: an existing node is never relabelled, and the ingest-created nodes are never
     #: a fallback topic.
     book_map_only_subtopics: bool = False
+    #: The chapter judge cites the passages it used by their printed number ([1]..[n])
+    #: instead of retyping a reference, and the numbers are checked against what it was
+    #: shown. A reference string still works as a tolerant fallback (the printed line, a
+    #: bare reference, or a quote from a shown passage). A citation problem is recorded
+    #: as a warning only and never lowers the placement's confidence.
+    cite_passages_by_number: bool = False
+    #: A placement is flagged for review only for one of six reasons, stored as
+    #: question_placement.review_reason (app.classify.review_rule): the chapter judge
+    #: failed; the placement left the declared scope; the family is unsettled or
+    #: blocked; the chapter judge was below 0.7 with more than one chapter to choose
+    #: from; the topic judge's section differs from in-chapter retrieval's and was not
+    #: verified to answer the question; the topic judge verified nothing. Off: the
+    #: existing flags.
+    review_flag_rule: bool = False
 
     # --- what the classifier is shown, which is what it costs ---------------------------
     #: How many book passages go into one classification, and how many chapters they are

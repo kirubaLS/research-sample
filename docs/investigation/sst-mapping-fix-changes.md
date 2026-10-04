@@ -457,6 +457,12 @@ The Topic column shows a question's primary `question_skill` node. Reports read 
 - All three readers use it: `marks.read_scan`, `reports._rows` and `academics.resolved_rows`.
 - Before, none of them ordered the rows, and `academics` let a later abstain blank the tier.
 
+### On the real data (your check of the backup)
+- **Mismatches.** Only assessment `32ebf883` has topic/section mismatches: 21 of its 55 questions, all retrieval-sourced topic rows left from an older run. Every other paper has 0.
+  - `python -m scripts.list_topic_mismatches` should report exactly **21** on staging, all on that paper.
+  - Re-running place on that paper resolves them, and so does retiring it as a duplicate (Phase 5). No fix script is needed.
+- **Settled questions.** No `question_skill` or `question_placement` row in production is person- or import-sourced today, so the "a person's settle is final" rule (3.1) changes nothing on existing data.
+
 ### Tests (11 new, `tests/test_topic_column.py`)
 - Machine rows replaced, with primary 1.0 and secondaries 0.5.
 - A secondary that collapses onto the primary keeps 1.0.
@@ -470,6 +476,92 @@ The Topic column shows a question's primary `question_skill` node. Reports read 
 - The newest named tier wins.
 - All three readers use the one tier rule.
 
+## Phase 4: review flags that mean something
+
+### Settings (both off by default)
+- `cite_passages_by_number` (`YAADHUM_CITE_PASSAGES_BY_NUMBER`)
+- `review_flag_rule` (`YAADHUM_REVIEW_FLAG_RULE`)
+
+With both off, the judge's request and every flag are exactly as before. The reasoning truncation (4.3) is unflagged, as agreed.
+
+### 4.1 Citations by passage number
+- **The judge cites numbers.** With the flag on, the chapter judge answers with `NumberedClassification` (or `NumberedScopedClassification` when scoped), whose `evidence` is `list[int]`: the `[n]` printed before each passage. The system prompt gains `CITE_NOTE` (`app/classify/judge.py`).
+- **The numbers are checked.** `grounding.resolve_citations` checks each number against the passages actually shown (1..n) and turns it into the passage's reference, so everything downstream still reads references.
+- **String matching is only a tolerant fallback.** A string citation is still read if it is one of:
+  - a bare number or `[n]`;
+  - the printed passage line `"{chapter} -- {reference} (section n)"`, with or without its `[n]` and section;
+  - a bare reference;
+  - a quote of at least 12 characters found in exactly one shown passage.
+- **A citation problem is a warning only.** It goes into `Grounded.warnings`, never into `violations`, and never caps confidence at 0.4.
+  - The judge keeps them as `citation_warnings`, and the place job result reports them under `citation_warnings`.
+  - A scoped answer keeps its `no_in_scope_chapter` signal through grounding.
+  - The other checks (chapter, section, tier) are unchanged.
+
+### 4.2 Six reasons, stored on the row
+`app/classify/review_rule.py` holds the rule. A row is flagged only for:
+
+| Code | Condition |
+|---|---|
+| `judge_failed` | the chapter judge could not be asked |
+| `cross_scope` | the placement left the declared scope |
+| `family` | the family is unsettled (several claim the section) or blocked; this includes a family refused because the question moved to a chapter whose families cannot place it |
+| `low_confidence` | the chapter judge's **own** confidence is below 0.7, and it chose among **more than one** chapter |
+| `topic_differs` | the topic judge's section differs from in-chapter retrieval's (a parent and its own sub-section do not differ), and answerability did not verify it |
+| `topic_unverified` | answerability found that no section of the chapter can answer the question, or the topic judge gave no answer and retrieval decided |
+
+- **Stored reason.** `question_placement.review_reason` holds every applicable code, comma-joined in that order (whole codes only, at most 64 characters). It is set on every flagged row and null on every unflagged one.
+- **Place.** The pipeline now records the chapter judge's own confidence and how many chapters it chose among (`PlacedQuestion.judge_confidence`, `chapters_shown`). A skipped or failed judge has none, so `low_confidence` cannot fire for it. The blueprint's overrule and the thin-margin check no longer flag on their own.
+  - The job's `needs_review` is the number of rows flagged.
+  - A new `flagged_by_reason` breaks them down.
+  - A question a person settled is never flagged (Phase 3).
+- **Map.** The map step uses the same rule with the inputs it has: the family, and the topic pick unless the classify job queued behind the map decides the topic (a provisional topic is no doubt). There is no chapter judge at map time.
+
+### 4.3 Reasoning fits its column (unflagged)
+A validator on `QuestionPlacement.reasoning` (`app/models/assessment.py`) cuts it to 1000 characters before insert. It covers map, place and review alike, so an over-long reasoning can no longer fail a Postgres write phase.
+
+### The gold paper under the new rule (959e36d4)
+**Not run here.** The backup was deleted after Part B, as instructed, and no copy of its placements was kept. Run this against the staging copy:
+
+```bash
+cd backend
+python -m scripts.replay_review_flags --assessment 959e36d4-5028-42e6-922e-c69228c5c325
+```
+
+**What the script does.** It is read-only. For each question's latest placement row it reports each of the six conditions as yes, no or unknown, a verdict (flagged / not flagged / unknown), and today's stored flag. It ends with `TODAY flagged N; NEW RULE flagged a, not flagged b, unknown c`.
+
+**What a stored row can and cannot tell:**
+
+| Condition | Stored? |
+|---|---|
+| `judge_failed` | yes: the failed-judge reasoning text |
+| `cross_scope` | yes: the column, or the cross-scope reasoning text |
+| `family` | yes: the unsettled/blocked family message in the reasoning |
+| `topic_unverified` | yes: the "no section of the chapter answers" note is written exactly when answerability verified nothing, and the topic judge's fallback text when it gave no answer |
+| `low_confidence` | **partly**. The row stores the reconciled confidence: the judge's own, unless the blueprint moved the question. It does not store how many chapters the judge saw (`candidates` holds only the chosen one). So 0.7 or above is a known no; below 0.7, or a blueprint row, is **unknown**. |
+| `topic_differs` | **partly**. Retrieval's section is written only when it disagreed and was not settled ("Retrieval within the chapter pointed at section N"). Answerability's verdict is written only when it failed or switched sections. A disagreement note without a verdict is **unknown**. No note is read as **no**: that is wrong only if the answerability call itself failed for a question whose confirming re-read agreed, which no stored text records. |
+
+From here on each new row stores the rule's outcome in `review_reason`, so a run made with `review_flag_rule` on needs no replay. The raw inputs (the judge's own confidence, the chapters shown, answerability's verdict) are still not stored; storing them would need a new column.
+
+### Tests (42 new, `tests/test_review_flags.py`)
+- **Citations:**
+  - every citation form resolves;
+  - every invalid citation is a problem;
+  - a problem is a warning with the confidence unchanged;
+  - the scoped signal survives grounding;
+  - with the flag off, the old cap still applies;
+  - the live judge asks for numbers and returns references;
+  - with the flag off, the live judge is unchanged.
+- **Review rule:**
+  - each of the six reasons, and the cases that must not flag;
+  - stored-code width and order;
+  - the map step's rule, including a provisional topic;
+  - the pipeline records the judge's own confidence, and none for a skipped judge;
+  - every flagged row of a place run carries a reason.
+- **Truncation:** reasoning is cut to 1000 characters on insert.
+- **Replay:** every stored condition is read; unknown is reported where an input wasn't stored; map rows and settled rows are handled; the script is read-only.
+
 ## Follow-ups (not done)
+
+- **Twelve order-dependent baseline test failures.** They pass alone and fail in the full run, through shared test-client state (for example, a stubbed judge that is not the one the run uses). Until this is fixed, a new end-to-end test can't be fully trusted in the full suite. Phase 3 had to drop the second half of one test for this reason.
 
 - **Show GEO, POL and ECO topic labels in the teacher UI without the number prefix.** Their numbers are reading order, not printed in the books. Keep the numbers in stored codes, and keep them for History, where they are printed. This is not a one-line change: the label reaches the teacher through several API fields and the xlsx and PDF exports, so it needs one display helper used at each of those places.

@@ -2142,6 +2142,26 @@ def _write_topic(db: Session, question_id: str, chapter: TaxonomyNode, topic: Ta
         secondaries=secondaries, node=topic,
     )
 
+def _map_review(settings, pick, deferred: bool, *, family_unsettled: bool, old: bool) -> dict:
+    """needs_review and review_reason for a map-step placement. review_flag_rule: only
+    the six reasons (app.classify.review_rule) the map step has inputs for -- the family,
+    and the topic pick unless the classify job queued behind this map decides the topic
+    (a provisional topic is not a doubt). There is no chapter judge here. Off: ``old``."""
+    if not settings.review_flag_rule:
+        return {"needs_review": old}
+    from app.classify.review_rule import ReviewInputs, reason_code, review_reasons
+
+    topic = pick is not None and not deferred
+    reasons = review_reasons(ReviewInputs(
+        family_unsettled=family_unsettled,
+        topic_section=pick.section if topic else None,
+        retrieval_section=pick.retrieval_section if topic else None,
+        topic_verified=pick.verified if topic else None,
+        topic_source=pick.source if topic else None,
+    ))
+    return {"needs_review": bool(reasons), "review_reason": reason_code(reasons)}
+
+
 def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     """Place every staged question against the book, and promote what can be placed.
 
@@ -2582,11 +2602,14 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             # made a real choice, not a guess, but it is still a machine's first answer
             # rather than a person's, on a family this chapter never claimed before.
             source="model",
-            needs_review=(
-                not verdict.agreed
-                or (pick.section is not None and not pick.agreed)
-                or ambiguous is not None
-                or (auto_resolved is not None and not pick.agreed)
+            **_map_review(
+                settings, pick, deferred_to_classify, family_unsettled=ambiguous is not None,
+                old=(
+                    not verdict.agreed
+                    or (pick.section is not None and not pick.agreed)
+                    or ambiguous is not None
+                    or (auto_resolved is not None and not pick.agreed)
+                ),
             ),
             reasoning=(
                 f"{row_mode} retrieval, margin {verdict.margin:.3f}"
@@ -2685,7 +2708,11 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         db.add(QuestionPlacement(
             question_id=question.id, chapter_id=chapter.id, board_unit_id=unit_id,
             curriculum_section=section, confidence=0.0,
-            source="model", needs_review=True,
+            source="model",
+            **_map_review(
+                settings, pick, deferred_to_classify,
+                family_unsettled=choice.unsettled is not None, old=True,
+            ),
             reasoning=(
                 "no book evidence of its own -- placed under the same chapter as another "
                 "sub-part of this same case-study question, and needs a person's check."
