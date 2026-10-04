@@ -1,20 +1,21 @@
 "use client";
 
-import type { PaperSummary } from "@/lib/api";
+import type { DuplicateMatch } from "@/lib/api";
 
 /**
  * A paper the duplicate check is holding: it matched a paper the school already has, so
- * nothing has been mapped. Shown only while the hold lasts -- the server stops listing
- * the match once the teacher chooses or the paper is mapped -- with the same two choices
- * the scan's own dialog offers. Nothing is ever reused or deleted automatically.
+ * nothing has been mapped and no model call has been spent. Shown only while the hold
+ * lasts -- the server stops listing the match once the teacher chooses or the paper is
+ * mapped -- with the two choices. Dismissing nothing decides nothing: the paper simply
+ * stays held. Nothing is ever reused or deleted automatically.
  */
 export function DuplicateHold({
-  paper, onChoose,
+  matches, onChoose,
 }: {
-  paper: PaperSummary;
-  onChoose: (paper: PaperSummary, choice: "keep_new" | "open_existing") => void;
+  matches: DuplicateMatch[] | null | undefined;
+  onChoose: (choice: "keep_new" | "open_existing") => void;
 }) {
-  const best = paper.duplicates_pending?.[0];
+  const best = matches?.[0];
   if (!best) return null;
   return (
     <div
@@ -28,14 +29,14 @@ export function DuplicateHold({
       <button
         type="button"
         className="btn btn--sm"
-        onClick={(e) => { e.stopPropagation(); onChoose(paper, "open_existing"); }}
+        onClick={(e) => { e.stopPropagation(); onChoose("open_existing"); }}
       >
         Open existing
       </button>
       <button
         type="button"
         className="btn btn--sm"
-        onClick={(e) => { e.stopPropagation(); onChoose(paper, "keep_new"); }}
+        onClick={(e) => { e.stopPropagation(); onChoose("keep_new"); }}
       >
         Keep as new
       </button>

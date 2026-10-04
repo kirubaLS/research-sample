@@ -400,3 +400,26 @@ def test_the_label_shows_only_while_the_pipeline_is_held(check, stage, shown):
 
     paper = types.SimpleNamespace(duplicate_check=check)
     assert bool(held_by(paper, stage)) is shown
+
+
+def test_a_second_decision_starts_nothing_more(client, school, pipeline_spy):
+    data = _paper([f"{uuid.uuid4().hex} {s}" for s in STEMS])
+    first = _new_paper(client, school)
+    _upload(client, school, first, data)
+    second = _new_paper(client, school)
+    _upload(client, school, second, data)
+    url = f"/assessments/{second}/duplicates/decision"
+    one = client.post(url, headers=_auth(school), json={"choice": "keep_new"})
+    assert one.status_code == 200 and one.json()["auto"]["map_job_id"]
+    assert pipeline_spy == [first, second]
+    # the double-click, the second tab, the retry: the earlier answer, nothing queued
+    again = client.post(url, headers=_auth(school), json={"choice": "keep_new"})
+    assert again.status_code == 200
+    assert again.json()["already_decided"] is True
+    assert again.json()["decision"]["choice"] == "keep_new" and "auto" not in again.json()
+    # ...even a different answer: the first one stands
+    other = client.post(url, headers=_auth(school),
+                        json={"choice": "open_existing", "assessment_id": first})
+    assert other.json()["already_decided"] is True
+    assert other.json()["decision"]["choice"] == "keep_new"
+    assert pipeline_spy == [first, second], "the pipeline ran once for this paper"

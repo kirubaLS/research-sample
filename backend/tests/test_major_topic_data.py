@@ -378,3 +378,41 @@ def test_an_applied_cleanup_is_reversed_exactly_by_its_undo_file(book_maps, tmp_
     assert apply_undo.main([str(undo), "--apply", "--i-have-a-backup",
                             "--undo-file", str(tmp_path / "undo3.json")]) == 3
     assert snapshot() == before
+
+
+def test_a_row_the_run_changed_twice_is_reversed_step_by_step(school):
+    """A run that updates one row twice (several duplicates merged into one twin) must not
+    make its own earlier change look like a conflict."""
+    from app.db import SessionLocal
+    from app.models import TaxonomyNode
+    from scripts import apply_undo
+
+    db = SessionLocal()
+    try:
+        node = TaxonomyNode(kind="subtopic", code=f"T.UNDO.{uuid.uuid4().hex[:8]}", label="v2",
+                            path="T.UNDO", curriculum_version="v")
+        db.add(node)
+        db.commit()
+        nid = node.id
+        entries = [
+            {"table": "taxonomy_node", "op": "update", "id": nid,
+             "old": {"label": "v0"}, "new": {"label": "v1"}},
+            {"table": "taxonomy_node", "op": "update", "id": nid,
+             "old": {"label": "v1"}, "new": {"label": "v2"}},
+        ]
+        assert [s for _, s in apply_undo.plan(db, entries)] == ["ok", "ok"]
+        # a real later edit is still a conflict: the row is not what the run left
+        node.label = "someone else"
+        db.commit()
+        assert [s for _, s in apply_undo.plan(db, entries)] == ["changed since the run"] * 2
+        # an insert followed by an update of the same row, and a delete: all in order
+        node.label = "v2"
+        db.commit()
+        chain = [
+            {"table": "taxonomy_node", "op": "insert", "id": nid, "new": {"label": "v1"}},
+            {"table": "taxonomy_node", "op": "update", "id": nid,
+             "old": {"label": "v1"}, "new": {"label": "v2"}},
+        ]
+        assert [s for _, s in apply_undo.plan(db, chain)] == ["ok", "ok"]
+    finally:
+        db.close()

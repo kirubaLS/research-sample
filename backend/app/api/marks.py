@@ -1847,6 +1847,15 @@ def decide_duplicate(
     candidates = check.get("candidates") or []
     if not candidates:
         raise HTTPException(409, "no duplicate match is waiting for a decision on this paper")
+    earlier = check.get("decision")
+    if earlier:
+        # Already answered (a double-click, a second tab, a retry after a timeout): say
+        # so and start nothing -- a second keep_new must not queue a second pipeline.
+        return {
+            "assessment_id": a.id, "already_decided": True, "decision": earlier,
+            **({"open": earlier.get("assessment_id")} if earlier.get("choice") == "open_existing"
+               else {}),
+        }
     if body.choice == "open_existing" and body.assessment_id not in {
         c["assessment_id"] for c in candidates
     }:

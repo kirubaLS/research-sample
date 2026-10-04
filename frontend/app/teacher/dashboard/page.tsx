@@ -631,7 +631,10 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                           </td>
                                           <td>
                                             <span className={`pm-pill ${st.cls}`}>{st.label}</span>
-                                            <DuplicateHold paper={p} onChoose={(q, c) => void scan.releaseDuplicate(q, c)} />
+                                            <DuplicateHold
+                                              matches={p.duplicates_pending}
+                                              onChoose={(c) => void scan.releaseDuplicate(p.id, p.duplicates_pending ?? [], c)}
+                                            />
                                           </td>
                                           <td style={{ textAlign: "right" }}>
                                             <button className="btn btn--sm pm-btn-action" onClick={() => void scan.openPaper(p)}>
@@ -816,7 +819,10 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                             <ChevronDown size={16} className="muted" />
                           </div>
                         </button>
-                        <DuplicateHold paper={p} onChoose={(q, c) => void scan.releaseDuplicate(q, c)} />
+                        <DuplicateHold
+                          matches={p.duplicates_pending}
+                          onChoose={(c) => void scan.releaseDuplicate(p.id, p.duplicates_pending ?? [], c)}
+                        />
                         {targets.length > 0 && (
                           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingLeft: 4 }}>
                             {moving ? (
@@ -934,6 +940,12 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                 <Stat label="Marks read" value={scan.scan.total_marks} />
                 <Stat label="Pages" value={scan.scan.pages} />
               </div>
+            )}
+            {scan.scan?.duplicates && scan.scan.duplicates.length > 0 && scan.assessmentId && (
+              <DuplicateHold
+                matches={scan.scan.duplicates}
+                onChoose={(c) => void scan.releaseDuplicate(scan.assessmentId ?? "", scan.scan?.duplicates ?? [], c)}
+              />
             )}
 
             {scan.mapped && (

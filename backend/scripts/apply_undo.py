@@ -48,32 +48,53 @@ def _coerce(table, values: dict) -> dict:
     return out
 
 
-def _same(row, values: dict) -> bool:
-    return all(
-        str(getattr(row, k)) == str(v) if v is not None else getattr(row, k) is None
+def _same(current: dict | None, values: dict) -> bool:
+    """Whether a row (as a dict) holds ``values`` in those columns."""
+    return current is not None and all(
+        str(current.get(k)) == str(v) if v is not None else current.get(k) is None
         for k, v in values.items()
     )
 
 
+def _load(db, table, row_id: str) -> dict | None:
+    row = db.execute(select(table).where(table.c.id == row_id)).first()
+    return dict(row._mapping) if row is not None else None
+
+
 def plan(db, entries: list[dict]) -> list[tuple[dict, str]]:
-    """(entry, "ok" | a conflict description) for each entry, newest first."""
+    """(entry, "ok" | a conflict description) for each entry, newest first.
+
+    Each entry is checked against the row as it will be once the entries after it have
+    been reversed, not as it is now: a run that changed one row twice (merging several
+    duplicates into one twin) leaves the row holding only the last value, and the earlier
+    change is "ok" once the later one is undone. The state is tracked here, per row, with
+    nothing written."""
     from app.models import Base
 
+    state: dict[tuple[str, str], dict | None] = {}
     out = []
     for entry in reversed(entries):
         table = Base.metadata.tables.get(entry["table"])
         if table is None:
             out.append((entry, f"no table {entry['table']!r}"))
             continue
-        row = db.execute(select(table).where(table.c.id == entry["id"])).first()
+        key = (entry["table"], entry["id"])
+        if key not in state:
+            state[key] = _load(db, table, entry["id"])
+        current = state[key]
         if entry["op"] == "insert":
-            status = "ok" if row is not None else "already gone"
+            status = "ok" if current is not None else "already gone"
+            if status == "ok":
+                state[key] = None
         elif entry["op"] == "update":
-            new = _coerce(table, entry.get("new"))
-            status = "ok" if row is not None and _same(row, new) else (
-                "row missing" if row is None else "changed since the run")
+            status = "ok" if _same(current, _coerce(table, entry.get("new"))) else (
+                "row missing" if current is None else "changed since the run")
+            if status == "ok":
+                state[key] = {**current, **_coerce(table, entry.get("old"))}
         elif entry["op"] == "delete":
-            status = "ok" if row is None else "id is in use again"
+            status = "ok" if current is None else "id is in use again"
+            if status == "ok":
+                state[key] = {**_coerce(table, entry.get("old")), "id": entry["id"]}
         else:
             status = f"unknown op {entry['op']!r}"
         out.append((entry, status))

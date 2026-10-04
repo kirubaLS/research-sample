@@ -846,6 +846,22 @@ With the setting off, question-paper reading is now the same code path as produc
 
 The test `test_with_the_flag_off_the_text_route_never_scans_for_titles` proves the scan is never called with the setting off, and called once per read with it on.
 
+## Fixes from the pre-deploy code review
+A code review of the whole branch against production (`4e97dfa`) found three things worth fixing before the rollout. Each is fixed and tested.
+
+- **`apply_undo.py` and rows changed twice.** A run that changed one row twice (several duplicate links merged into one twin) left the row holding only the last value, so the undo reported the earlier change as "changed since the run", refused to apply, and under `--force` left an intermediate value. `plan()` now checks each step against the row as it will be once the later steps are reversed, tracked in memory with nothing written. A real later edit is still a conflict.
+- **"Keep as new" is idempotent.** A second call (double-click, a second tab, a retry) returns the earlier decision with `already_decided` and starts nothing, so it can no longer queue a second map-and-classify pair even with `auto_pipeline_dedupe` off.
+- **No dialog on a duplicate match.** Dismissing the old confirm dialog counted as "keep as new" and started the paid pipeline. The dialog is gone: a matched scan stays held, and the "Possible duplicate … — not mapped" banner with Open existing and Keep as new buttons shows on the paper screen as well as in the papers list. `DuplicateHold` now takes the matches and one callback.
+
+**Reviewed and left as is** (listed in the review, none touches the production plan):
+- A borrowed case-study sub-part is not flagged under `review_flag_rule`, because it is not one of the seven reasons. This is a decision for you.
+- The topic judge's base prompts changed for every subject. This is the approved removal of the gold paper's examples.
+- Findings in code behind settings that stay off in production (`cross_scope_fallback`, `paper_capture_structure`, `balanced_group_candidates`):
+  - a chapter-judge "no fit" answer whose second look fails goes unflagged;
+  - the syllabus pattern can match question text;
+  - an out-of-scope retry gets a different result in balanced mode;
+  - the job's settled and blueprint figures are not recomputed after a cross-scope move.
+
 ## Follow-ups (not done)
 
 - **The paper-creation screen should send `class_section_id`** when it knows the section, so two classes' copies of one test are never offered as duplicates.

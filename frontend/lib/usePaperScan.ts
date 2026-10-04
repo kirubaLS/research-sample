@@ -6,6 +6,7 @@ import {
   ApiError,
   ApiUnreachable,
   ConfirmResult,
+  type DuplicateMatch,
   JobProgress,
   MapResult,
   PaperSummary,
@@ -397,35 +398,13 @@ export function usePaperScan(opts: {
           }
         }, setProgress);
         setScan(scanned);
-        let auto = scanned.auto;
-        if (scanned.duplicates && scanned.duplicates.length > 0) {
-          // The school already has this paper (same file, or most of the same questions).
-          // Nothing has been mapped yet; the teacher decides, never the server.
-          const best = scanned.duplicates[0];
-          const openIt = window.confirm(
-            `This looks like a paper you already have: "${best.title}"` +
-            (best.created_at ? ` (uploaded ${best.created_at.slice(0, 10)})` : "") +
-            ` -- ${Math.round(best.overlap * 100)}% of its questions match` +
-            (best.matched_by.includes("file_hash") ? ", and it is the same file" : "") +
-            ".\n\nOK: open the existing paper.  Cancel: keep this as a new paper.",
-          );
-          const decided = await api.decideDuplicate(
-            key, id, openIt ? "open_existing" : "keep_new", openIt ? best.assessment_id : undefined,
-          );
-          if (openIt && decided.open) {
-            const listed = await fetchPapers(key);
-            const match = listed.assessments.find((p) => p.id === decided.open);
-            if (sessionId) {
-              await clearPending(sessionId);
-              setPendingResume(null);
-            }
-            if (match) await openPaper(match);
-            return;
-          }
-          auto = decided.auto ?? undefined;
-        }
-        if (auto?.map_job_id) setJob("paper-map", id, auto.map_job_id);
-        if (auto?.place_job_id) setJob("paper-place", id, auto.place_job_id);
+        // The school may already have this paper (same file, or most of the same
+        // questions). Then the server has queued nothing and the paper stays held until
+        // the teacher chooses -- on the paper screen or in the list (DuplicateHold).
+        // No dialog: closing one would have to mean something, and the only safe
+        // meaning is "decide nothing".
+        if (scanned.auto?.map_job_id) setJob("paper-map", id, scanned.auto.map_job_id);
+        if (scanned.auto?.place_job_id) setJob("paper-place", id, scanned.auto.place_job_id);
       }
       setMapped(null);
       setConfirmation(null);
@@ -575,15 +554,18 @@ export function usePaperScan(opts: {
    *  existing paper it matched, or keep it as a new paper, which then maps and classifies
    *  by itself. The same choice the scan's own dialog offers -- here for a paper whose
    *  scan showed none (a resumed scan), from the papers list. */
-  async function releaseDuplicate(p: PaperSummary, choice: "keep_new" | "open_existing") {
+  async function releaseDuplicate(
+    paperId: string, matches: DuplicateMatch[], choice: "keep_new" | "open_existing",
+  ) {
     const key = getApiKey();
     if (!key) return;
-    const best = p.duplicates_pending?.[0];
+    const best = matches[0];
     setError(null);
     try {
       const decided = await api.decideDuplicate(
-        key, p.id, choice, choice === "open_existing" ? best?.assessment_id : undefined,
+        key, paperId, choice, choice === "open_existing" ? best?.assessment_id : undefined,
       );
+      setScan((prev) => (prev ? { ...prev, duplicates: [] } : prev));
       const { assessments } = await fetchPapers(key);
       setPapers(assessments);
       if (choice === "open_existing" && decided.open) {
@@ -591,9 +573,9 @@ export function usePaperScan(opts: {
         if (match) await openPaper(match);
         return;
       }
-      if (decided.auto?.map_job_id) setJob("paper-map", p.id, decided.auto.map_job_id);
-      if (decided.auto?.place_job_id) setJob("paper-place", p.id, decided.auto.place_job_id);
-      if (assessmentId === p.id && scan_auto_follow(p.id)) await followAutoPipeline(p.id);
+      if (decided.auto?.map_job_id) setJob("paper-map", paperId, decided.auto.map_job_id);
+      if (decided.auto?.place_job_id) setJob("paper-place", paperId, decided.auto.place_job_id);
+      if (assessmentId === paperId && scan_auto_follow(paperId)) await followAutoPipeline(paperId);
     } catch (err) {
       setError(explain(err));
     }
