@@ -24,6 +24,7 @@ from app.api.deps import (
 from app.api.documents import content_type_for, store_document
 from app.api.schemas import (
     AssessmentIn,
+    DuplicateDecisionIn,
     MarkBatchIn,
     QuestionBatchIn,
     ReconcileIn,
@@ -134,6 +135,12 @@ def create_assessment(
         exam = db.get(Exam, body.exam_id)
         if exam is None or exam.school_id != school.id:
             raise HTTPException(404, "no such exam")
+    if body.class_section_id is not None:
+        from app.models import Section
+
+        section = db.get(Section, body.class_section_id)
+        if section is None or section.school_id != school.id:
+            raise HTTPException(404, "no such class section")
     scope: list[str] | None = None
     if body.syllabus_scope:
         # A chapter the curriculum defines is a valid scope whether or not its book has
@@ -158,7 +165,7 @@ def create_assessment(
         paper_code=body.paper_code, total_marks=body.total_marks,
         curriculum_version=body.curriculum_version, declared=body.declared,
         paper_kind=body.paper_kind, exam_year=body.exam_year, exam_id=body.exam_id,
-        syllabus_scope=scope,
+        syllabus_scope=scope, class_section_id=body.class_section_id,
     )
     db.add(a)
     db.flush()
@@ -254,6 +261,13 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
             #: real, not derived, so the Question Papers screen can group a teacher's own
             #: papers by test without a second round trip per paper.
             "exam_id": a.exam_id,
+            #: duplicate_upload_check: the matched papers while the teacher has not yet
+            #: chosen "open existing" or "keep as new"; None otherwise
+            "duplicates_pending": (
+                (a.duplicate_check or {}).get("candidates")
+                if (a.duplicate_check or {}).get("candidates")
+                and not (a.duplicate_check or {}).get("decision") else None
+            ),
             "stage": stage,
             "scanned_questions": scanned.get(a.id, 0),
             "document": documents.get(a.id),
@@ -868,11 +882,29 @@ def _finish_paper_scan(
         db, school_id=school.id, assessment_id=assessment.id, kind="question_paper",
         pages=[(content, content_type, None) for content, content_type, _ in originals],
     )
+    duplicates = None
+    if get_settings().duplicate_upload_check:
+        # Before any model call is spent on mapping: is this a paper the school already
+        # has? Shown to the teacher, never acted on -- see app.extraction.duplicates.
+        from app.extraction.duplicates import find_duplicates
+
+        duplicates = find_duplicates(
+            db, assessment, stems=[q.stem_text for q in extract.questions],
+            hashes=assessment.source_file_hashes,
+        )
+        assessment.duplicate_check = (
+            {"candidates": duplicates, "decision": None} if duplicates else None
+        )
     db.commit()
 
     context = context_addresses(extract.questions)
     return {
         "assessment_id": assessment.id,
+        #: duplicate_upload_check: existing papers this one matches (file hash, or at
+        #: least 70% of its question stems), most similar first. While any are listed
+        #: and the teacher has not chosen (POST .../duplicates/decision), nothing is
+        #: mapped or classified by itself.
+        **({"duplicates": duplicates} if duplicates is not None else {}),
         "route": extract.route,
         "pages": extract.page_count,
         #: a question is a number on the paper, counted once however many halves and
@@ -1065,7 +1097,7 @@ def _run_paper_scan_job(job_id: str) -> None:
         db.close()
 
     auto: dict | None = None
-    if get_settings().auto_pipeline:
+    if get_settings().auto_pipeline and not result.get("duplicates"):
         db = SessionLocal()
         try:
             auto = _queue_auto_pipeline(db, school_id, assessment_id)
@@ -1073,7 +1105,7 @@ def _run_paper_scan_job(job_id: str) -> None:
             db.close()
         result = {**result, "auto": auto}
     _finish_paper_scan_job(job_id, status_value="succeeded", result=result)
-    if auto is not None:
+    if auto is not None and not auto.get("already_queued"):
         _run_auto_pipeline(assessment_id, auto)
 
 
@@ -1124,6 +1156,12 @@ async def scan_paper(
         await upload.seek(0)
         if not content:
             raise HTTPException(422, f"{upload.filename or 'a file'} is empty")
+    if get_settings().duplicate_upload_check:
+        # each original file, before pages_to_pdf merges them: the merged PDF's bytes
+        # differ between uploads of the very same pages
+        from app.extraction.duplicates import file_hashes
+
+        assessment.source_file_hashes = file_hashes(originals)
 
     path = await pages_to_pdf(files)
     try:
@@ -1168,12 +1206,14 @@ async def scan_paper(
         return JSONResponse(status_code=status.HTTP_202_ACCEPTED, content=content)
 
     result = _finish_paper_scan(db, school, assessment, extract, originals, source_sha)
-    if get_settings().auto_pipeline:
+    if get_settings().auto_pipeline and not result.get("duplicates"):
         # The text route answers inline; the rest of the pipeline (confirm, map,
         # classify) still runs by itself, after this response has gone back.
         auto = _queue_auto_pipeline(db, school.id, assessment.id)
         result = {**result, "auto": auto}
-        if background_tasks is not None:
+        if auto.get("already_queued"):
+            pass
+        elif background_tasks is not None:
             background_tasks.add_task(_run_auto_pipeline, assessment.id, auto)
         else:
             _run_auto_pipeline(assessment.id, auto)
@@ -1716,7 +1756,22 @@ def auto_confirm_scan(db: Session, assessment: Assessment) -> dict:
 
 
 def _queue_auto_pipeline(db: Session, school_id: str, assessment_id: str) -> dict:
-    """Create the map and classify job rows up front so the screen can follow them."""
+    """Create the map and classify job rows up front so the screen can follow them.
+
+    auto_pipeline_dedupe: while a map or classify job is already pending for this paper
+    (a re-scan, a second tab, a retried upload), no second pair is queued -- the pending
+    jobs are returned with ``already_queued`` and the caller starts nothing. Two pairs
+    racing on one paper each spent a full set of model calls and appended a second set
+    of placements."""
+    if get_settings().auto_pipeline_dedupe:
+        live_map = running_job(db, assessment_id, "map")
+        live_place = running_job(db, assessment_id, "place")
+        if live_map is not None or live_place is not None:
+            return {
+                "map_job_id": live_map.id if live_map else None,
+                "place_job_id": live_place.id if live_place else None,
+                "already_queued": True,
+            }
     map_job = PlacementJob(school_id=school_id, assessment_id=assessment_id, kind="map")
     place_job = PlacementJob(school_id=school_id, assessment_id=assessment_id, kind="place")
     db.add_all([map_job, place_job])
@@ -1771,6 +1826,54 @@ def _run_auto_pipeline(assessment_id: str, jobs: dict) -> None:
         # the cause on the job row itself: the screen is where it is looked for, and a
         # server log is not something a school has
         fail_place(f"the automatic pipeline hit an error: {type(exc).__name__}: {exc}"[:900])
+
+
+@router.post("/{assessment_id}/duplicates/decision")
+def decide_duplicate(
+    assessment_id: str,
+    body: DuplicateDecisionIn,
+    background_tasks: BackgroundTasks = None,  # type: ignore[assignment]
+    school: School = Depends(require_paper_scope),
+    db: Session = Depends(get_session),
+) -> dict:
+    """The teacher's answer when an upload matched a paper the school already has
+    (duplicate_upload_check). Nothing is decided for them, and nothing is deleted:
+
+    * ``open_existing`` -- they open the matched paper instead. The new upload is left as
+      it is (unmapped; they can delete it), and the response names the paper to open.
+    * ``keep_new`` -- it really is a new paper. The automatic pipeline the match held
+      back now runs, exactly as it would have after the scan.
+    """
+    a = _get_assessment(db, school, assessment_id)
+    check = a.duplicate_check or {}
+    candidates = check.get("candidates") or []
+    if not candidates:
+        raise HTTPException(409, "no duplicate match is waiting for a decision on this paper")
+    if body.choice == "open_existing" and body.assessment_id not in {
+        c["assessment_id"] for c in candidates
+    }:
+        raise HTTPException(422, "open_existing needs the id of one of the matched papers")
+    a.duplicate_check = {**check, "decision": {
+        "choice": body.choice,
+        "assessment_id": body.assessment_id if body.choice == "open_existing" else None,
+        "at": datetime.now(UTC).isoformat(),
+    }}
+    db.commit()
+    if body.choice == "open_existing":
+        return {"assessment_id": a.id, "open": body.assessment_id}
+
+    auto = None
+    staged = db.scalar(
+        select(ScannedQuestion.id).where(ScannedQuestion.assessment_id == a.id).limit(1)
+    )
+    if get_settings().auto_pipeline and staged is not None:
+        auto = _queue_auto_pipeline(db, school.id, a.id)
+        if not auto.get("already_queued"):
+            if background_tasks is not None:
+                background_tasks.add_task(_run_auto_pipeline, a.id, auto)
+            else:
+                _run_auto_pipeline(a.id, auto)
+    return {"assessment_id": a.id, "auto": auto}
 
 
 @router.post("/{assessment_id}/scan/confirm")

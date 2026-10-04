@@ -145,6 +145,20 @@ class Assessment(Base, PkMixin, TimestampMixin):
     #: case for every paper entered before exams existed, and stays valid: a standalone
     #: paper is still a real paper, just not grouped with other subjects'.
     exam_id: Mapped[str | None] = mapped_column(ForeignKey("exam.id"), nullable=True, index=True)
+    #: sha256 of each ORIGINAL uploaded file, before the pages are merged into one PDF.
+    #: The merged PDF's bytes change from one upload to the next even for the same pages,
+    #: so source_sha256 alone matches nothing; these do, when the same file is sent again.
+    source_file_hashes: Mapped[list | None] = mapped_column(JSON, nullable=True)
+    #: The class section this paper was set for, when the teacher's screen knows it. Two
+    #: papers both carrying one are only duplicates if it is the same section.
+    class_section_id: Mapped[str | None] = mapped_column(
+        ForeignKey("section.id"), nullable=True, index=True,
+    )
+    #: duplicate_upload_check: the papers this upload matched, by file hash or by question
+    #: stems, and what the teacher chose -- {"candidates": [...], "decision": null |
+    #: {"choice": "keep_new" | "open_existing", "assessment_id": ..., "at": ...}}. Nothing
+    #: is reused automatically: while a decision is pending, nothing is mapped by itself.
+    duplicate_check: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
 
 class LogicalPage(Base, PkMixin):

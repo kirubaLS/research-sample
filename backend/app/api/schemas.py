@@ -164,6 +164,17 @@ class AssessmentIn(BaseModel):
     #: which sets the same thing later): the strongest constraint a daily or cyclic test
     #: has, declared at creation rather than remembered afterwards
     syllabus_scope: list[str] | None = None
+    #: the class section this paper is for, when the screen knows it: two papers that
+    #: both carry one are only ever duplicates if it is the same section
+    class_section_id: str | None = None
+
+
+class DuplicateDecisionIn(BaseModel):
+    """The teacher's answer to a duplicate match (duplicate_upload_check)."""
+
+    choice: str = Field(pattern="^(keep_new|open_existing)$")
+    #: the matched paper to open, for "open_existing" -- one of the listed candidates
+    assessment_id: str | None = None
 
 
 class QuestionIn(BaseModel):

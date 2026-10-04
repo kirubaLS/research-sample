@@ -397,10 +397,35 @@ export function usePaperScan(opts: {
           }
         }, setProgress);
         setScan(scanned);
-        if (scanned.auto) {
-          setJob("paper-map", id, scanned.auto.map_job_id);
-          setJob("paper-place", id, scanned.auto.place_job_id);
+        let auto = scanned.auto;
+        if (scanned.duplicates && scanned.duplicates.length > 0) {
+          // The school already has this paper (same file, or most of the same questions).
+          // Nothing has been mapped yet; the teacher decides, never the server.
+          const best = scanned.duplicates[0];
+          const openIt = window.confirm(
+            `This looks like a paper you already have: "${best.title}"` +
+            (best.created_at ? ` (uploaded ${best.created_at.slice(0, 10)})` : "") +
+            ` -- ${Math.round(best.overlap * 100)}% of its questions match` +
+            (best.matched_by.includes("file_hash") ? ", and it is the same file" : "") +
+            ".\n\nOK: open the existing paper.  Cancel: keep this as a new paper.",
+          );
+          const decided = await api.decideDuplicate(
+            key, id, openIt ? "open_existing" : "keep_new", openIt ? best.assessment_id : undefined,
+          );
+          if (openIt && decided.open) {
+            const listed = await fetchPapers(key);
+            const match = listed.assessments.find((p) => p.id === decided.open);
+            if (sessionId) {
+              await clearPending(sessionId);
+              setPendingResume(null);
+            }
+            if (match) await openPaper(match);
+            return;
+          }
+          auto = decided.auto ?? undefined;
         }
+        if (auto?.map_job_id) setJob("paper-map", id, auto.map_job_id);
+        if (auto?.place_job_id) setJob("paper-place", id, auto.place_job_id);
       }
       setMapped(null);
       setConfirmation(null);

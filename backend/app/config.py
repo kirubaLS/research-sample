@@ -182,6 +182,16 @@ class Settings(BaseSettings):
     #: verified to answer the question; the topic judge verified nothing. Off: the
     #: existing flags.
     review_flag_rule: bool = False
+    #: Each original uploaded file is hashed before the pages are merged, and after
+    #: extraction the paper's question stems are compared with the school's other papers
+    #: of the subject (app.extraction.duplicates). A match by file hash or by at least 70%
+    #: of the stems is returned to the teacher, and nothing is mapped or classified by
+    #: itself until they choose "open existing" or "keep as new". Nothing is ever reused
+    #: automatically.
+    duplicate_upload_check: bool = False
+    #: The automatic pipeline never queues a second map/classify pair for a paper while
+    #: one is already pending; the pending jobs are returned instead.
+    auto_pipeline_dedupe: bool = False
 
     # --- what the classifier is shown, which is what it costs ---------------------------
     #: How many book passages go into one classification, and how many chapters they are

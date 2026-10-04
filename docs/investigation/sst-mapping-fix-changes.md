@@ -554,7 +554,78 @@ A validator on `QuestionPlacement.reasoning` (`app/models/assessment.py`) cuts i
 - **Truncation:** reasoning is cut to 1000 characters on insert.
 - **Replay:** every stored condition is read; unknown is reported where an input wasn't stored; map rows and settled rows are handled; the script is read-only.
 
+## Phase 5: stop duplicate papers
+
+**On real data, a hash check alone catches none of the copies.** The five uploads of the gold paper have five different `source_sha256` values (0b8baeb0b534, 657f581b3272, 72cb39ad63da, 5b3d5893337a, 76b08d3d1ec6) and two titles ("Bharath Social", "Cycle Test I"). The merged PDF's bytes change between uploads even when the pages are the same. So the hash check is kept because it is cheap, but the content check is the one that finds them.
+
+### Settings (both off by default)
+- `duplicate_upload_check` (`YAADHUM_DUPLICATE_UPLOAD_CHECK`): 5.1
+- `auto_pipeline_dedupe` (`YAADHUM_AUTO_PIPELINE_DEDUPE`): 5.2
+
+### Migration `f3a9c6d2b8e1` (additive, three nullable columns on `assessment`)
+| Column | Holds |
+|---|---|
+| `source_file_hashes` (JSON) | sha256 of each original uploaded file, before the pages are merged |
+| `class_section_id` (FK `section.id`, indexed) | the class section a paper is for, as approved earlier |
+| `duplicate_check` (JSON) | the matches found, and the teacher's decision |
+
+`downgrade()` removes all three. Tested on SQLite and on Postgres 16: upgrade, downgrade, upgrade. **Run `alembic upgrade head` on staging before the scripts below**; a database without these columns cannot be read by the new model.
+
+### 5.1 The hash check and the content check (`app/extraction/duplicates.py`)
+- **Hash check.** The scan route hashes each original file before `pages_to_pdf` merges them, and stores the hashes on the paper. The vision path stores them in the request, before the job runs.
+- **Content check, after extraction and before mapping.** `_finish_paper_scan`, used by both the text and vision routes, compares this paper's normalised question stems with every other paper of the same school and subject.
+  - It uses the same `stem_hash` the question rows store.
+  - For a paper that was never mapped, it uses the staged scanned questions instead.
+  - A paper matches if it shares an original file's hash, or if **at least 70% of this upload's stems** are on it. Matches are listed most similar first.
+  - Two papers that both know their class section, and differ, are never matched. If either side's section is unknown, the match is shown and the teacher decides.
+- **Nothing is reused automatically.** A match is returned in the scan result (`duplicates`: id, title, exam, created, overlap, how it matched, question count), stored in `duplicate_check`, and shown in the paper list (`duplicates_pending`).
+  - **No model call is spent while it waits:** the automatic map and classify are not queued.
+  - The teacher answers at `POST /assessments/{id}/duplicates/decision`:
+    - `open_existing` (with one of the matched ids) records the choice and names the paper to open. The new upload is left as it is; nothing is deleted.
+    - `keep_new` records the choice and starts the automatic pipeline it held back.
+  - A teacher who presses Map by hand is not stopped.
+- **Frontend.** `submitScan` (`frontend/lib/usePaperScan.ts`) asks with a confirm dialog: "This looks like a paper you already have: … N% of its questions match". OK opens the existing paper; Cancel keeps the upload as new and follows its pipeline. `api.decideDuplicate` and the new types are in `frontend/lib/api.ts`.
+  - **Limit:** a scan resumed after a lost connection (`resumeScanJob`) does not ask. The match stays pending, so nothing is mapped, and the list shows it as `duplicates_pending`.
+- **Paper creation.** `POST /assessments` takes `class_section_id`, checked to be one of the school's sections. The frontend does not send it yet.
+
+### 5.2 One map/classify pair at a time
+With `auto_pipeline_dedupe` on, `_queue_auto_pipeline` returns the pending jobs, marked `already_queued`, while a map or classify job is already pending for the paper, and the caller starts nothing. This applies to both scan routes and to `keep_new`. The manual Map route already refused a second run.
+
+### 5.3 `scripts/list_duplicate_assessments.py` (read-only, no `--apply`)
+- **How papers are grouped.** Two papers of the same school and subject are linked by a shared file hash, the same merged-PDF hash, or a stem overlap of at least 70% from either side. Linked papers form groups (union-find), and papers with known, different class sections are never linked.
+- **What it prints.** Each group lists every paper with its id, title, created time, exam (the one linked to the exam is marked `<- linked to the exam`), stem and question counts, overlap with the group's first paper, what linked it, its sha256 prefix, and its job counts.
+- **On the backup it should report one group of 5:** 32ebf883, 2654797a, 6253a5c9, 03c447fd and 959e36d4, with 959e36d4 marked as linked to the exam. `tests/test_duplicate_papers.py::test_the_listing_finds_the_backups_five_copies_as_one_group` reproduces that shape: five papers, five different hashes, two titles, one with a misread stem, one with a short read, one linked to an exam. Alongside them are a different paper of the same subject and the same stems under another subject; neither is grouped.
+
+```bash
+cd backend
+alembic upgrade head            # staging copy only
+python -m scripts.list_duplicate_assessments --subject X.SST
+```
+
+### Tests (14 new, `tests/test_duplicate_papers.py`)
+- **Content check:**
+  - a first upload matches nothing;
+  - the same file matches by hash and stems;
+  - a re-made file with another title matches by stems alone;
+  - 33% is not a match;
+  - original files are hashed before merging;
+  - a known, different class section is never a match, while an unknown one is still shown;
+  - an unknown section id is refused;
+  - with the setting off, nothing changes.
+- **Teacher's choice:**
+  - a match holds the automatic pipeline until the teacher chooses, and the list shows it pending;
+  - `keep_new` starts the pipeline;
+  - `open_existing` names the paper and deletes nothing;
+  - a decision with no match waiting is refused.
+- **Job dedupe and listing:**
+  - no second map/classify pair while one is pending;
+  - the backup's five copies form one group;
+  - the listing writes nothing.
+
 ## Follow-ups (not done)
+
+- **The paper-creation screen should send `class_section_id`** when it knows the section, so two classes' copies of one test are never offered as duplicates.
+- **A scan resumed after a lost connection** should ask the duplicate question too (see 5.1).
 
 - **Twelve order-dependent baseline test failures.** They pass alone and fail in the full run, through shared test-client state (for example, a stubbed judge that is not the one the run uses). Until this is fixed, a new end-to-end test can't be fully trusted in the full suite. Phase 3 had to drop the second half of one test for this reason.
 

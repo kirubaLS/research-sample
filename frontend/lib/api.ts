@@ -600,6 +600,8 @@ export interface PaperSummary {
   mapped_questions: number;
   students_with_marks: number;
   ready_for_answer_sheets: boolean;
+  /** duplicate_upload_check: matched papers still waiting for the teacher's choice */
+  duplicates_pending?: DuplicateMatch[] | null;
 }
 
 export interface AnswerRow {
@@ -1489,10 +1491,27 @@ export interface Subject extends SubjectBook {
   books: SubjectBook[];
 }
 
+/** A paper the school already has that an upload matched (duplicate_upload_check): by an
+ *  original file's hash, or by at least 70% of its question stems. */
+export interface DuplicateMatch {
+  assessment_id: string;
+  title: string;
+  exam_id: string | null;
+  created_at: string | null;
+  /** the share of this upload's question stems found on that paper, 0..1 */
+  overlap: number;
+  matched_by: ("file_hash" | "stems")[];
+  questions: number;
+}
+
 export interface ScanResult {
   /** Set when the server runs the rest of the pipeline itself (auto_pipeline): the map
-   *  and classify jobs already queued for this paper, to watch rather than start. */
-  auto?: { map_job_id: string; place_job_id: string };
+   *  and classify jobs already queued for this paper, to watch rather than start.
+   *  already_queued: a pair was already pending, so these are those jobs. */
+  auto?: { map_job_id: string | null; place_job_id: string | null; already_queued?: boolean };
+  /** duplicate_upload_check: papers this upload matched. While non-empty, nothing is
+   *  mapped by itself until decideDuplicate() is called. */
+  duplicates?: DuplicateMatch[];
   route: "text" | "vision";
   pages: number;
   questions: number;
@@ -2352,6 +2371,20 @@ export const api = {
     onProgress?: (progress: JobProgress) => void,
   ) =>
     pollJob<ScanResult>(`/assessments/${assessmentId}/scan`, key, jobId, "X-API-Key", onProgress),
+
+  /** The teacher's answer to a duplicate match: open the matched paper instead, or keep
+   *  this upload as a new paper (which then maps and classifies by itself). Nothing is
+   *  deleted either way. */
+  decideDuplicate: (
+    key: string, assessmentId: string,
+    choice: "keep_new" | "open_existing", existingId?: string,
+  ) =>
+    authed<{ assessment_id: string; open?: string; auto?: ScanResult["auto"] | null }>(
+      `/assessments/${assessmentId}/duplicates/decision`, key, {
+        method: "POST",
+        body: JSON.stringify({ choice, assessment_id: existingId ?? null }),
+      },
+    ),
 
   readScan: (key: string, assessmentId: string) =>
     authed<ScanReview>(`/assessments/${assessmentId}/scan`, key),
