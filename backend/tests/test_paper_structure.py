@@ -123,7 +123,14 @@ def _pdf(tmp_path, lines):
     return path
 
 
-def test_the_text_route_keeps_the_title_printed_after_the_section_letter(tmp_path):
+@pytest.fixture
+def capture_on(monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.setattr(get_settings(), "paper_capture_structure", True)
+
+
+def test_the_text_route_keeps_the_title_printed_after_the_section_letter(tmp_path, capture_on):
     from app.extraction.paper import extract_paper
 
     path = _pdf(tmp_path, [
@@ -147,7 +154,7 @@ def test_the_text_route_keeps_the_title_printed_after_the_section_letter(tmp_pat
     assert [q.section for q in out.questions] == ["A", "B"]
 
 
-def test_a_bare_syllabus_label_collects_the_entries_under_it(tmp_path):
+def test_a_bare_syllabus_label_collects_the_entries_under_it(tmp_path, capture_on):
     from app.extraction.paper import extract_paper
 
     path = _pdf(tmp_path, [
@@ -164,7 +171,7 @@ def test_a_bare_syllabus_label_collects_the_entries_under_it(tmp_path):
     assert out.section_titles == {}
 
 
-def test_a_paper_with_no_titles_and_no_syllabus_records_nothing(tmp_path):
+def test_a_paper_with_no_titles_and_no_syllabus_records_nothing(tmp_path, capture_on):
     from app.extraction.paper import extract_paper
 
     path = _pdf(tmp_path, [
@@ -174,6 +181,31 @@ def test_a_paper_with_no_titles_and_no_syllabus_records_nothing(tmp_path):
     ])
     out = extract_paper(path)
     assert out.section_titles == {} and out.syllabus_lines == []
+
+
+def test_with_the_flag_off_the_text_route_never_scans_for_titles(tmp_path, monkeypatch):
+    """paper_capture_structure off: the text route reads exactly as it did before -- the
+    title/syllabus scan is never called, so it cannot change or break a read."""
+    from app.config import get_settings
+    from app.extraction import paper
+
+    monkeypatch.setattr(get_settings(), "paper_capture_structure", False)
+    calls = []
+    monkeypatch.setattr(paper, "_structure", lambda lines: calls.append(lines) or ({}, []))
+    path = _pdf(tmp_path, [
+        (60, 60, "Syllabus: History Ch 5"),
+        (60, 110, "SECTION A (History : Print Culture and the Modern World)"),
+        (60, 140, "1. Explain how print culture shaped the reading habits of the poor."),
+        (MARK_X, 140, "2"),
+    ])
+    out = paper.extract_paper(path)
+    assert calls == []
+    assert out.section_titles == {} and out.syllabus_lines == []
+    assert [q.question_no for q in out.questions] == ["1"]
+
+    monkeypatch.setattr(get_settings(), "paper_capture_structure", True)
+    paper.extract_paper(path)
+    assert len(calls) == 1, "on, it is called once per read"
 
 
 # --- storage in assessment.declared -----------------------------------------------------

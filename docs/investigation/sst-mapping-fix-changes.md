@@ -836,6 +836,16 @@ python -m scripts.eval_mapping --assessment $GOLD --export gold-after.json
 - **Not counted:** cache writes (about 4 × 10k tokens, roughly $0.10; the price table does not count them, see the investigation report), and the vision reader if 7b re-scans a scanned PDF.
 - **Measurement.** The place job's `spend`, printed by `eval_mapping.py` as SPEND, is the measured figure.
 
+## Text reader gated (before the production rollout)
+The text route's title and syllabus scan (`_structure` in `app/extraction/paper.py`) now runs only when `paper_capture_structure` is on. Before, it always ran and its result was dropped when the setting was off.
+
+With the setting off, question-paper reading is now the same code path as production's `4e97dfa`:
+- the vision reader sends the same prompt and output format;
+- the text reader does no extra work;
+- nothing new is stored or returned.
+
+The test `test_with_the_flag_off_the_text_route_never_scans_for_titles` proves the scan is never called with the setting off, and called once per read with it on.
+
 ## Follow-ups (not done)
 
 - **The paper-creation screen should send `class_section_id`** when it knows the section, so two classes' copies of one test are never offered as duplicates.
