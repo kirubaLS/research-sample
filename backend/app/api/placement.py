@@ -815,6 +815,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 new_rule = [] if held is not None else review_reasons(ReviewInputs(
                     judge_failed=placed.judge_failed,
                     cross_scope=bool(getattr(placed, "cross_scope", False)),
+                    blueprint_overruled=bool(placed.overruled),
                     family_unsettled=choice.unsettled is not None,
                     family_blocked=(
                         choice.blocked is not None or placed.question_id in refused

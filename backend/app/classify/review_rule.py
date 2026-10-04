@@ -1,11 +1,13 @@
 """When a placement needs a person (review_flag_rule).
 
 A flag is a request for someone's time, so it must mean something. A row is flagged for
-one of six reasons only, and the reason is stored on it (question_placement.review_reason)
+one of seven reasons only, and the reason is stored on it (question_placement.review_reason)
 so the review screen, the evaluation and a teacher can all see why:
 
 ``judge_failed``      the chapter judge could not be asked about this question
 ``cross_scope``       the placement left the scope the paper declares for the question
+``blueprint_overruled`` the paper's declared blueprint (its marks per chapter) moved the
+                      question to a chapter other than the chapter judge's
 ``family``            the concept family is unsettled (several claim the section) or blocked
 ``low_confidence``    the chapter judge was below 0.7 with more than one chapter to choose
 ``topic_differs``     the topic judge's section differs from in-chapter retrieval's, and
@@ -14,7 +16,8 @@ so the review screen, the evaluation and a teacher can all see why:
                       answer the question on its own, or the judge gave no answer at all
 
 A citation problem is not one of them (see grounding.resolve_citations), and neither is a
-disagreement that answerability settled.
+disagreement that answerability settled, nor a thin margin between the judge's top two
+chapters.
 """
 
 from __future__ import annotations
@@ -23,7 +26,7 @@ from dataclasses import dataclass
 
 #: in priority order -- the order they are stored in
 REASONS = (
-    "judge_failed", "cross_scope", "family", "low_confidence", "topic_differs",
+    "judge_failed", "cross_scope", "blueprint_overruled", "family", "low_confidence", "topic_differs",
     "topic_unverified",
 )
 #: the chapter judge's own confidence below which a choice among chapters is doubted
@@ -36,6 +39,7 @@ REASON_WIDTH = 64
 class ReviewInputs:
     judge_failed: bool = False
     cross_scope: bool = False
+    blueprint_overruled: bool = False
     family_unsettled: bool = False
     family_blocked: bool = False
     #: the chapter judge's own confidence; None when it was not asked
@@ -65,6 +69,8 @@ def review_reasons(i: ReviewInputs) -> list[str]:
         out.append("judge_failed")
     if i.cross_scope:
         out.append("cross_scope")
+    if i.blueprint_overruled:
+        out.append("blueprint_overruled")
     if i.family_unsettled or i.family_blocked:
         out.append("family")
     if (i.chapter_confidence is not None and i.chapter_confidence < LOW_CONFIDENCE

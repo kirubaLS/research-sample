@@ -1,12 +1,13 @@
 """Apply review_flag_rule offline to the placements already stored for one paper.
 
 READ-ONLY. For each question it takes the latest placement row (what the review screen
-shows today) and asks, condition by condition, whether the six-reason rule
+shows today) and asks, condition by condition, whether the seven-reason rule
 (app.classify.review_rule) would flag it -- using only what the row stores. An input the
 row does not store is reported as unknown rather than guessed:
 
   judge_failed      the reasoning starts with the failed-judge text            stored
   cross_scope       the cross_scope column, or the cross-scope reasoning text  stored
+  blueprint_overruled  the row's source is "blueprint"                         stored
   family            the unsettled / blocked family message in the reasoning    stored
   low_confidence    needs the chapter judge's OWN confidence and the number of
                     chapters it was shown. The row stores the reconciled
@@ -42,7 +43,7 @@ from sqlalchemy import select
 
 YES, NO, UNKNOWN = "yes", "no", "unknown"
 CONDITIONS = (
-    "judge_failed", "cross_scope", "family", "low_confidence", "topic_differs",
+    "judge_failed", "cross_scope", "blueprint_overruled", "family", "low_confidence", "topic_differs",
     "topic_unverified",
 )
 
@@ -73,6 +74,7 @@ def replay_row(reasoning: str | None, *, confidence: float | None, source: str,
     out: dict[str, str] = {}
     out["judge_failed"] = YES if text.startswith(_FAILED) else NO
     out["cross_scope"] = YES if (cross_scope or _CROSSED in text) else NO
+    out["blueprint_overruled"] = YES if source == "blueprint" else NO
     out["family"] = YES if (_UNSETTLED.search(text) or _BLOCKED.search(text)) else NO
 
     if map_row or out["judge_failed"] == YES:

@@ -173,9 +173,10 @@ class Settings(BaseSettings):
     #: bare reference, or a quote from a shown passage). A citation problem is recorded
     #: as a warning only and never lowers the placement's confidence.
     cite_passages_by_number: bool = False
-    #: A placement is flagged for review only for one of six reasons, stored as
+    #: A placement is flagged for review only for one of seven reasons, stored as
     #: question_placement.review_reason (app.classify.review_rule): the chapter judge
-    #: failed; the placement left the declared scope; the family is unsettled or
+    #: failed; the placement left the declared scope; the declared blueprint moved it
+    #: to a chapter other than the judge's; the family is unsettled or
     #: blocked; the chapter judge was below 0.7 with more than one chapter to choose
     #: from; the topic judge's section differs from in-chapter retrieval's and was not
     #: verified to answer the question; the topic judge verified nothing. Off: the

@@ -149,6 +149,7 @@ def test_with_the_flag_off_the_live_judge_is_unchanged():
     (ReviewInputs(), []),
     (ReviewInputs(judge_failed=True), ["judge_failed"]),
     (ReviewInputs(cross_scope=True), ["cross_scope"]),
+    (ReviewInputs(blueprint_overruled=True), ["blueprint_overruled"]),
     (ReviewInputs(family_unsettled=True), ["family"]),
     (ReviewInputs(family_blocked=True), ["family"]),
     (ReviewInputs(chapter_confidence=0.6, chapters_shown=2), ["low_confidence"]),
@@ -167,14 +168,14 @@ def test_with_the_flag_off_the_live_judge_is_unchanged():
     (ReviewInputs(topic_source="retrieval", topic_section="4.2"), ["topic_unverified"]),
     (ReviewInputs(topic_source="none"), []),
 ])
-def test_a_row_is_flagged_for_the_six_reasons_only(inputs, reasons):
+def test_a_row_is_flagged_for_the_seven_reasons_only(inputs, reasons):
     assert review_reasons(inputs) == reasons
 
 
 def test_the_stored_reason_is_whole_codes_in_priority_order_within_the_column():
     every = list(REASONS)
     code = reason_code(every)
-    assert len(code) <= 64 and code.startswith("judge_failed,cross_scope,family")
+    assert len(code) <= 64 and code.startswith("judge_failed,cross_scope,blueprint_overruled")
     assert all(part in REASONS for part in code.split(","))
     assert reason_code([]) is None
 
@@ -282,12 +283,14 @@ def test_the_replay_reads_each_stored_condition():
     assert r["topic_unverified"] == "yes" and r["topic_differs"] == "no"
     r = _replay("y Topic 4.2 (h): r.", cross_scope=True)
     assert r["cross_scope"] == "yes"
+    r = _replay("y Topic 4.2 (h): r.", source="blueprint")
+    assert r["blueprint_overruled"] == "yes" and r["verdict"] == "flagged"
 
 
 def test_the_replay_says_unknown_when_an_input_was_not_stored():
     # below 0.7: whether more than one chapter was shown is not stored
     assert _replay("y Topic 4.2 (h): r.", confidence=0.5)["low_confidence"] == "unknown"
-    # a blueprint row lost the judge's own confidence
+    # a blueprint row lost the judge's own confidence (and is flagged as overruled anyway)
     assert _replay("y", source="blueprint")["low_confidence"] == "unknown"
     # a disagreement note without answerability's verdict
     r = _replay("y Topic 4.2 (h): r. Retrieval within the chapter pointed at section 4.1 (h).")

@@ -497,20 +497,21 @@ With both off, the judge's request and every flag are exactly as before. The rea
   - A scoped answer keeps its `no_in_scope_chapter` signal through grounding.
   - The other checks (chapter, section, tier) are unchanged.
 
-### 4.2 Six reasons, stored on the row
-`app/classify/review_rule.py` holds the rule. A row is flagged only for:
+### 4.2 Seven reasons, stored on the row
+`app/classify/review_rule.py` holds the rule. A row is flagged only for the following (`blueprint_overruled` was added after review; a thin margin between the judge's top two chapters stays dropped):
 
 | Code | Condition |
 |---|---|
 | `judge_failed` | the chapter judge could not be asked |
 | `cross_scope` | the placement left the declared scope |
+| `blueprint_overruled` | the paper's declared blueprint (marks per chapter) moved the question to a chapter other than the chapter judge's |
 | `family` | the family is unsettled (several claim the section) or blocked; this includes a family refused because the question moved to a chapter whose families cannot place it |
 | `low_confidence` | the chapter judge's **own** confidence is below 0.7, and it chose among **more than one** chapter |
 | `topic_differs` | the topic judge's section differs from in-chapter retrieval's (a parent and its own sub-section do not differ), and answerability did not verify it |
 | `topic_unverified` | answerability found that no section of the chapter can answer the question, or the topic judge gave no answer and retrieval decided |
 
 - **Stored reason.** `question_placement.review_reason` holds every applicable code, comma-joined in that order (whole codes only, at most 64 characters). It is set on every flagged row and null on every unflagged one.
-- **Place.** The pipeline now records the chapter judge's own confidence and how many chapters it chose among (`PlacedQuestion.judge_confidence`, `chapters_shown`). A skipped or failed judge has none, so `low_confidence` cannot fire for it. The blueprint's overrule and the thin-margin check no longer flag on their own.
+- **Place.** The pipeline now records the chapter judge's own confidence and how many chapters it chose among (`PlacedQuestion.judge_confidence`, `chapters_shown`). A skipped or failed judge has none, so `low_confidence` cannot fire for it. The thin-margin check no longer flags on its own.
   - The job's `needs_review` is the number of rows flagged.
   - A new `flagged_by_reason` breaks them down.
   - A question a person settled is never flagged (Phase 3).
@@ -520,27 +521,20 @@ With both off, the judge's request and every flag are exactly as before. The rea
 A validator on `QuestionPlacement.reasoning` (`app/models/assessment.py`) cuts it to 1000 characters before insert. It covers map, place and review alike, so an over-long reasoning can no longer fail a Postgres write phase.
 
 ### The gold paper under the new rule (959e36d4)
-**Not run here.** The backup was deleted after Part B, as instructed, and no copy of its placements was kept. Run this against the staging copy:
+**From your analysis of the backup** (the replay was not re-run here):
+- **Flagged today:** 39 of 55 rows.
+  - The 38 low-confidence rows are all at exactly 0.4.
+  - The place job's `grounding_violations` show all 38 were citation-only problems; the 0.4 cap applied to them is gone under `cite_passages_by_number`.
+  - No row carries a family, topic-differs, topic-unverified or judge-failed reason.
+- **Expected under the new rule: about 1–2 flags.** That assumes the citation cap is gone and single-chapter scopes skip the chapter judge (`skip_single_chapter_judge`), so `low_confidence` cannot fire for them. **This is an estimate; Phase 6 measures it.**
 
-```bash
-cd backend
-python -m scripts.replay_review_flags --assessment 959e36d4-5028-42e6-922e-c69228c5c325
-```
-
-**What the script does.** It is read-only. For each question's latest placement row it reports each of the six conditions as yes, no or unknown, a verdict (flagged / not flagged / unknown), and today's stored flag. It ends with `TODAY flagged N; NEW RULE flagged a, not flagged b, unknown c`.
-
-**What a stored row can and cannot tell:**
+**The replay script.** `python -m scripts.replay_review_flags --assessment <id>` applies the rule offline to a paper's stored placements. It is read-only, and it reports a condition as **unknown** where its input was not stored:
 
 | Condition | Stored? |
 |---|---|
-| `judge_failed` | yes: the failed-judge reasoning text |
-| `cross_scope` | yes: the column, or the cross-scope reasoning text |
-| `family` | yes: the unsettled/blocked family message in the reasoning |
-| `topic_unverified` | yes: the "no section of the chapter answers" note is written exactly when answerability verified nothing, and the topic judge's fallback text when it gave no answer |
-| `low_confidence` | **partly**. The row stores the reconciled confidence: the judge's own, unless the blueprint moved the question. It does not store how many chapters the judge saw (`candidates` holds only the chosen one). So 0.7 or above is a known no; below 0.7, or a blueprint row, is **unknown**. |
-| `topic_differs` | **partly**. Retrieval's section is written only when it disagreed and was not settled ("Retrieval within the chapter pointed at section N"). Answerability's verdict is written only when it failed or switched sections. A disagreement note without a verdict is **unknown**. No note is read as **no**: that is wrong only if the answerability call itself failed for a question whose confirming re-read agreed, which no stored text records. |
-
-From here on each new row stores the rule's outcome in `review_reason`, so a run made with `review_flag_rule` on needs no replay. The raw inputs (the judge's own confidence, the chapters shown, answerability's verdict) are still not stored; storing them would need a new column.
+| `judge_failed`, `cross_scope`, `blueprint_overruled`, `family`, `topic_unverified` | yes, from the reasoning texts, the `cross_scope` column, or `source = "blueprint"` |
+| `low_confidence` | partly: 0.7 or above is a known no; below 0.7, or a blueprint row, is unknown, because the number of chapters the judge saw is not stored |
+| `topic_differs` | partly: a disagreement note without answerability's verdict is unknown; no note is read as no (inferred) |
 
 ### Tests (42 new, `tests/test_review_flags.py`)
 - **Citations:**
