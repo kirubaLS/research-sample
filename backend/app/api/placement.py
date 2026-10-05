@@ -275,7 +275,14 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         # content_chunks). Excluded from retrieval only; `chunks` itself (used for
         # known_sections below) is untouched.
         retrieval_chunks = content_chunks(chunks)
-        indexes: list = [LexicalIndex(retrieval_chunks)]
+        context_of = None
+        if settings.retrieval_contextual_prefix:
+            from app.ingest.context import chunk_context
+
+            def context_of(c):
+                return chunk_context(c, lambda nid: nodes[nid].label if nid in nodes else None)
+
+        indexes: list = [LexicalIndex(retrieval_chunks, context_of)]
         if settings.jina_api_key and any(c.embedding for c in retrieval_chunks):
             from app.ingest.jina import JinaEmbedder
 

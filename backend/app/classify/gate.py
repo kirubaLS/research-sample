@@ -35,6 +35,7 @@ class Gate:
 
 def chapter_gate(
     verdict, chapter: str | None, *, min_relative_margin: float, reranked=None,
+    remembered=None,
 ) -> Gate:
     """Would retrieval alone have placed this question confidently?
 
@@ -42,7 +43,10 @@ def chapter_gate(
     ``reranked``, when given, is called last and only if the two retrieval signals passed,
     and returns the chapter a cross-encoder puts first among the verdict's own passages
     (None when it has no opinion -- a single candidate chapter, or the call failed). A
-    third reader that names a different chapter vetoes the gate.
+    third reader that names a different chapter vetoes the gate. ``remembered``, when given,
+    returns the chapter the school's confirmed similar questions unanimously sit in (None
+    when there are none close enough): a fourth reader, the nearest-neighbour vote over what
+    teachers have confirmed, with the same veto.
     """
     if verdict.node_id is None or chapter is None:
         return Gate(False, None, 0.0, "nothing retrieved")
@@ -55,6 +59,11 @@ def chapter_gate(
         third = reranked()
         if third is not None and third != chapter:
             return Gate(False, chapter, relative, f"the reranker prefers {third}")
+    if remembered is not None:
+        fourth = remembered()
+        if fourth is not None and fourth != chapter:
+            return Gate(False, chapter, relative,
+                        f"teachers placed similar questions in {fourth}")
     return Gate(True, chapter, relative)
 
 

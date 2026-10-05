@@ -440,6 +440,10 @@ def _pass(
             gate = chapter_gate(
                 verdict, chapter_of(verdict.node_id), min_relative_margin=options.gate_min_margin,
                 reranked=reranked if options.gate_reranker is not None else None,
+                remembered=(
+                    (lambda r=recall: r.vote if r.unanimous else None)
+                    if options.memory is not None else None
+                ),
             )
             enforced = options.gate_enforce and gate.passed
             if options.gate_log is not None:

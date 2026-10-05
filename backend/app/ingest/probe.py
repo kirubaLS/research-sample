@@ -179,9 +179,18 @@ class SemanticIndex:
 class LexicalIndex:
     """TF-IDF over chunk text. No model, no network, no tuning knobs."""
 
-    def __init__(self, chunks: list) -> None:
+    def __init__(self, chunks: list, context_of=None) -> None:
+        """``context_of(chunk)``, when given, is text indexed WITH the chunk but never shown:
+        contextual BM25 (Anthropic's contextual-retrieval result: a chunk that says "the
+        company's revenue grew 3%" is only findable once it is known whose). Here it is the
+        chapter and section the chunk sits in, so a paragraph that never repeats its own
+        chapter's vocabulary is still found by a question that does. ``Candidate.text`` is
+        the chunk's own text, untouched."""
         self.chunks = chunks
-        self.tf = [Counter(tokens(c.text)) for c in chunks]
+        self.tf = [
+            Counter(tokens((context_of(c) + " " if context_of else "") + c.text))
+            for c in chunks
+        ]
         self.n = max(len(chunks), 1)
         self.df: Counter[str] = Counter()
         for tf in self.tf:

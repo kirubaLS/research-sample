@@ -2337,7 +2337,19 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     # score it *higher* than the real teaching-text passage on the same topic. See
     # content_chunks.
     retrieval_chunks = content_chunks(chunks)
-    indexes: list = [LexicalIndex(retrieval_chunks)]
+    context_of = None
+    if settings.retrieval_contextual_prefix:
+        from app.ingest.context import chunk_context
+
+        context_labels = {
+            n.id: n.label for n in db.scalars(select(TaxonomyNode).where(
+                TaxonomyNode.id.in_({c.node_id for c in retrieval_chunks if c.node_id})))
+        }
+
+        def context_of(c):
+            return chunk_context(c, context_labels.get)
+
+    indexes: list = [LexicalIndex(retrieval_chunks, context_of)]
     mode = "lexical"
     if any(c.embedding for c in retrieval_chunks) and settings.jina_api_key:
         from app.ingest.jina import JinaEmbedder

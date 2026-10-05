@@ -178,6 +178,10 @@ class Settings(BaseSettings):
     #: per-call overhead, not the passages; a question the grouped answer misses is asked
     #: alone. YAADHUM_CHAPTER_JUDGE_GROUP_SIZE.
     chapter_judge_group_size: int = 1
+    #: Index each chunk with its chapter's title and section reference prepended (the
+    #: deterministic form of contextual retrieval; app.ingest.context). Affects the lexical
+    #: index of map and place alike. YAADHUM_RETRIEVAL_CONTEXTUAL_PREFIX.
+    retrieval_contextual_prefix: bool = False
     #: Re-ask a chapter-judge answer below ``chapter_recheck_below`` confidence with its
     #: passages reordered, ``chapter_recheck_n`` times, and take the majority chapter; an
     #: answer nobody repeats is capped at 0.4 so it goes to a person. Live judge only.

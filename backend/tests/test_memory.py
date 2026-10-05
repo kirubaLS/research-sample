@@ -312,3 +312,15 @@ def test_a_confirmed_question_is_reused_end_to_end_with_no_model_call(
         assert placement.curriculum_section == "13.3" and not placement.needs_review
     finally:
         db.close()
+
+
+def test_confirmed_similar_questions_in_another_chapter_veto_the_gate():
+    """The retrievers agree on Circles, but this school has confirmed close questions in
+    Constructions: the gate does not pass, so the chapter judge reads it."""
+    judge, log = _Judge(), {}
+    memory = QuestionMemory([
+        Remembered("a", TANGENT.replace("Prove that", "Construct"), "Constructions", "11.1"),
+    ])
+    _run(judge, memory=memory, gate=True, gate_log=log, gate_min_margin=0.0)
+    assert not log["q"]["passed"] and "teachers placed similar questions" in log["q"]["reason"]
+    assert len(judge.calls) == 1

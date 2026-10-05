@@ -22,6 +22,11 @@ lever; thinking tokens are the next.
 | Nearest-neighbour vote | part of memory | A cheap classifier that improves with each confirmation, with no training step | distillation without a model to maintain |
 | Adaptive topic reads | `YAADHUM_TOPIC_ADAPTIVE_READS` | Skip the second ("taught") read when the first is corroborated; answerability check still runs | |
 | Vision cascade | `YAADHUM_VISION_CHEAP_MODEL` | Cheap model first; the strong one only if the paper's own total and count are not reproduced | cheap-first OCR cascades |
+| Grouped chapter-judge calls | `YAADHUM_CHAPTER_JUDGE_GROUP_SIZE=n` | n questions per call via `classify_many`; a question the answer misses is asked alone | batch prompting, [routing with batch prompting](https://arxiv.org/pdf/2605.28268) |
+| Reordered re-ask | `YAADHUM_CHAPTER_RECHECK` | A low-confidence answer is re-asked twice with the passages reordered; majority wins; an answer nobody repeats is capped at 0.4 for review | self-consistency and abstention ([survey](https://aclanthology.org/2025.tacl-1.26.pdf)); reordering stands in for sampling temperature |
+| Contextual retrieval prefix | `YAADHUM_RETRIEVAL_CONTEXTUAL_PREFIX` | Each chunk is indexed with its chapter title and section reference; no LLM, no re-embed | [contextual retrieval](https://www.anthropic.com/engineering/contextual-retrieval) (deterministic form) |
+| Memory vote as a fourth reader | with memory + gate | Confirmed similar questions unanimous in another chapter veto the gate | kNN over confirmed labels |
+| Gold-set export | `python -m scripts.export_gold` | Turns a reviewed paper into a gold key for `eval_mapping` / `eval_dense_retrieval` | evaluation grows with the review queue |
 | Chapter judge batched | `YAADHUM_BATCH_CHAPTER_JUDGE` | Existing flag; half price for an added batch wait | Batches API 50%, stacks with caching |
 
 ## Roll-out order
@@ -41,17 +46,14 @@ lever; thinking tokens are the next.
 
 ## Not built, and why
 
-- **Several questions per call.** Each question's evidence differs, so batching them changes what
-  every question is shown. Not worth the accuracy risk without a live evaluation.
-- **Self-consistency re-asks.** Thinking models expose no sampling temperature; a re-ask with the
-  same prompt returns the same answer. The gate, memory and verification already abstain to a
-  person where it matters.
-- **Contextual chunk prefixes** (Anthropic's contextual retrieval): needs an LLM pass and a
-  re-embed of every book at ingest. Worth doing once the gate's shadow numbers show where
-  retrieval fails.
-- **A trained distilled classifier.** The nearest-neighbour vote over confirmed questions does the
-  same job without a model to retrain; revisit with a few hundred confirmations per subject.
-- **Expanding the gold set and running `eval_dense_retrieval.py`.** Needs the production database.
+- **Vision cascade is built but not part of this round** and stays off; see its caution above.
+- **LLM-written chunk context.** The deterministic prefix is built. A model-written sentence per
+  chunk needs a paid pass and a re-embed of every book; revisit if the shadow numbers show where
+  retrieval still fails.
+- **A trained classifier.** The nearest-neighbour vote over confirmed questions does the job without
+  a model to retrain; revisit with a few hundred confirmations per subject.
+- **Running the dense-retrieval eval.** It needs the production database; `export_gold` now makes
+  the gold set it reads.
 
 ## Reading the results honestly
 
