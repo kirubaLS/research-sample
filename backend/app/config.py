@@ -174,6 +174,17 @@ class Settings(BaseSettings):
     #: confirmed chapter, section and tier with no model call at all;
     #: ``memory_demos`` > 0 shows the chapter judge that many similar confirmed questions
     #: as worked examples. YAADHUM_MEMORY_RECALL, _REUSE, _MIN_SIMILARITY, _DEMOS.
+    #: Chapter judge: ask this many questions per call (1 = one each, as before). Saves the
+    #: per-call overhead, not the passages; a question the grouped answer misses is asked
+    #: alone. YAADHUM_CHAPTER_JUDGE_GROUP_SIZE.
+    chapter_judge_group_size: int = 1
+    #: Re-ask a chapter-judge answer below ``chapter_recheck_below`` confidence with its
+    #: passages reordered, ``chapter_recheck_n`` times, and take the majority chapter; an
+    #: answer nobody repeats is capped at 0.4 so it goes to a person. Live judge only.
+    #: YAADHUM_CHAPTER_RECHECK, _BELOW, _N.
+    chapter_recheck: bool = False
+    chapter_recheck_below: float = 0.8
+    chapter_recheck_n: int = 2
     memory_recall: bool = False
     memory_reuse: bool = False
     memory_min_similarity: float = 0.9

@@ -482,11 +482,13 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
         gate_reranker = JinaReranker(settings.jina_api_key, model=settings.reranker_model)
     memory_log: dict = {}
+    recheck_log: dict = {}
     if (
         settings.balanced_group_candidates or settings.cross_scope_fallback
         or settings.skip_single_chapter_judge or settings.topic_depth_cap
         or settings.chapter_gate or settings.chapter_gate_enforce
         or (memory is not None and len(memory))
+        or settings.chapter_judge_group_size > 1 or settings.chapter_recheck
     ):
         book_of = {
             nodes[i].label: code
@@ -509,6 +511,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             memory_demos=settings.memory_demos,
             memory_demo_min_similarity=settings.memory_demo_min_similarity,
             memory_log=memory_log,
+            group_size=settings.chapter_judge_group_size,
+            recheck=settings.chapter_recheck,
+            recheck_below=settings.chapter_recheck_below,
+            recheck_n=settings.chapter_recheck_n,
+            recheck_log=recheck_log,
         )
 
     try:
@@ -1027,6 +1034,12 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             #: confirmed-question memory: near-identical confirmed questions found, reused,
             #: and how often the judge agreed where it was also asked
             **({"memory": summarise_memory(memory_log, len(memory))} if memory_log else {}),
+            #: chapter_recheck: low-confidence answers re-asked with reordered passages
+            **({"recheck": {
+                "rechecked": len(recheck_log),
+                "changed": sum(1 for e in recheck_log.values() if e["changed"]),
+                "unstable": sum(1 for e in recheck_log.values() if e["unstable"]),
+            }} if recheck_log else {}),
             "settled": result.settled,
             "needs_review": flagged_rows if settings.review_flag_rule else result.reviewed_count,
             #: review_flag_rule: why the rows this run wrote were flagged, by reason (a row

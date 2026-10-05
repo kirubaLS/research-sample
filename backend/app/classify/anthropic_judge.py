@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from pydantic import BaseModel
+
 from app.classify.grounding import Grounded, ground
 from app.classify.judge import (
     CITE_NOTE,
@@ -22,6 +24,23 @@ from app.classify.judge import (
     build_prompt,
 )
 from app.llm import output_config
+
+
+#: Appended to SYSTEM for a grouped call (classify_many).
+MANY_NOTE = """
+
+You will be given several INDEPENDENT questions in one message, each under its own
+"### QUESTION n" heading with its own candidate chapters and passages. Judge each one only
+from its own passages, as if it had been asked alone, and answer once per question with its
+index n. Never let one question's evidence or answer influence another's."""
+
+
+class _Answer(Classification):
+    index: int
+
+
+class _Many(BaseModel):
+    answers: list[_Answer]
 
 
 class Judge(Protocol):
@@ -85,6 +104,62 @@ class AnthropicJudge:
         self.cache_read_tokens = 0
         self.cache_write_tokens = 0
         self.calls = 0
+
+    def _count(self, response) -> None:
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self.input_tokens += getattr(usage, "input_tokens", 0) or 0
+            self.output_tokens += getattr(usage, "output_tokens", 0) or 0
+            self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
+            self.cache_write_tokens += getattr(usage, "cache_creation_input_tokens", 0) or 0
+        self.calls += 1
+
+    def classify_many(self, items: list[dict]) -> list[Classification | Exception]:
+        """Several questions in one call. ``items`` are dicts with ``question``, ``evidence``
+        and optionally ``examples``; the result is one Classification (or the Exception that
+        question alone failed with) per item, in order.
+
+        Saves the per-call overhead -- the system prompt, the request, one reasoning preamble
+        -- not the passages, which each question still needs. A question the model skipped or
+        answered with an unknown index is returned as an Exception for the caller to ask
+        alone. Cited-by-number runs are not grouped (the numbering is per question).
+        """
+        if getattr(self, "cite_by_number", False):
+            raise NotImplementedError("grouped calls do not cite passages by number")
+        extra = {"output_config": self.output_config} if self.output_config else {}
+        blocks = [
+            f"### QUESTION {i}\n" + build_prompt(
+                it["question"], it["evidence"], self.passage_chars, it.get("examples"))
+            for i, it in enumerate(items)
+        ]
+        response = self.client.messages.parse(
+            model=self.model,
+            max_tokens=16000,
+            system=SYSTEM + MANY_NOTE,
+            messages=[{"role": "user", "content": "\n\n".join(blocks)}],
+            output_format=_Many,
+            **extra,
+        )
+        self._count(response)
+        by_index = {a.index: a for a in response.parsed_output.answers}
+        out: list[Classification | Exception] = []
+        mapper = getattr(self, "section_mapper", None)
+        for i, it in enumerate(items):
+            answer = by_index.get(i)
+            if answer is None:
+                out.append(RuntimeError(f"the grouped answer had nothing for question {i}"))
+                continue
+            result = Classification(**answer.model_dump(exclude={"index"}))
+            if mapper is not None and result.curriculum_section:
+                result = result.model_copy(update={
+                    "curriculum_section": mapper(result.chapter, result.curriculum_section)})
+            checked = ground(result, it["evidence"], known_sections=self.known_sections)
+            if checked.warnings:
+                self.citation_warnings.append((it["question"][:80], checked.warnings))
+            if checked.violations:
+                self.violations.append((it["question"][:80], checked.violations))
+            out.append(checked.classification)
+        return out
 
     def _schema(self, scoped: bool) -> type[Classification]:
         if getattr(self, "cite_by_number", False):

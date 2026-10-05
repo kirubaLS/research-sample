@@ -180,6 +180,18 @@ class PassOptions:
     memory_demos: int = 0
     memory_demo_min_similarity: float = 0.4
     memory_log: dict | None = None
+    #: Several questions per chapter-judge call (classify_many): saves the per-call overhead
+    #: and the reasoning preamble, not the passages. A question the grouped answer misses is
+    #: asked alone. Needs a live judge that offers classify_many; ignored otherwise.
+    group_size: int = 1
+    #: Re-ask a low-confidence answer with the passages in a different order and take the
+    #: majority chapter. A thinking model offers no sampling temperature, so reordering is
+    #: the perturbation: an answer that flips when only the order changed was not an answer.
+    #: Live judge only -- every re-ask in a batched judge would wait a whole batch.
+    recheck: bool = False
+    recheck_below: float = 0.8
+    recheck_n: int = 2
+    recheck_log: dict | None = None
 
 
 #: passages each other book contributes when candidates are balanced across books
@@ -468,19 +480,24 @@ def _pass(
             and not item[7]
         )
 
+    def demos_for(item) -> list:
+        if options.memory is None or not options.memory_demos:
+            return []
+        shown = options.memory.demonstrations(
+            item[2], options.memory_demos, min_similarity=options.memory_demo_min_similarity,
+            exclude=item[1],
+        )
+        if shown and options.memory_log is not None and item[1] in options.memory_log:
+            options.memory_log[item[1]]["demos"] = len(shown)
+        return shown
+
     def classify(item):
         # worked examples only when there are some, so a judge that predates them is
         # called exactly as before
         extra = {}
-        if options.memory is not None and options.memory_demos:
-            shown = options.memory.demonstrations(
-                item[2], options.memory_demos, min_similarity=options.memory_demo_min_similarity,
-                exclude=item[1],
-            )
-            if shown:
-                extra["examples"] = shown
-                if options.memory_log is not None and item[1] in options.memory_log:
-                    options.memory_log[item[1]]["demos"] = len(shown)
+        shown = demos_for(item)
+        if shown:
+            extra["examples"] = shown
         if scoped_call(item):
             return judge.classify(item[2], item[4], scoped=True, **extra)
         return judge.classify(item[2], item[4], **extra)
@@ -490,6 +507,23 @@ def _pass(
     # asked one at a time as before. Either way each answer is handled below in paper
     # order, and one question's failure never sinks the rest.
     calls: dict[str, object] = {}
+    if (
+        options.group_size > 1 and hasattr(judge, "classify_many")
+        and not getattr(judge, "batched", False)
+    ):
+        eligible = [it for it in prepared if not scoped_call(it)]
+        for start in range(0, len(eligible), options.group_size):
+            group = eligible[start:start + options.group_size]
+            try:
+                answers = judge.classify_many([
+                    {"question": it[2], "evidence": it[4], "examples": demos_for(it)}
+                    for it in group
+                ])
+            except Exception:  # noqa: BLE001 -- every question in the group is asked alone
+                continue
+            for it, answer in zip(group, answers, strict=True):
+                if not isinstance(answer, Exception):
+                    calls[it[1]] = answer
     if getattr(judge, "batched", False) and len(prepared) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
@@ -569,6 +603,14 @@ def _pass(
                 call = second
                 judged_on = wide_evidence
 
+        if (
+            options.recheck and not getattr(judge, "batched", False)
+            and call.chapter is not None and not out_of_scope and not crossing
+            and call.confidence < options.recheck_below
+            and len({e.chapter for e in judged_on}) > 1
+        ):
+            call = _recheck(call, stem, judged_on, judge, options, question_id)
+
         if crossing:
             crossed.add(question_id)
         if options.memory_log is not None and question_id in options.memory_log:
@@ -627,6 +669,52 @@ def _pass(
             on_progress(done, total)
 
     return slots, judged, failed, crossed, skipped
+
+
+def _reordered(evidence: list[Evidence], k: int) -> list[Evidence]:
+    """The passages in a different order: reversed for the first re-ask, then rotated."""
+    if k == 0:
+        return list(reversed(evidence))
+    shift = max(1, len(evidence) // 2) * k
+    return evidence[shift % len(evidence):] + evidence[: shift % len(evidence)]
+
+
+def _recheck(call: Classification, stem: str, evidence: list[Evidence], judge,
+             options: PassOptions, question_id: str) -> Classification:
+    """Self-consistency by perturbation, for one low-confidence answer.
+
+    The chapter judge is asked again ``recheck_n`` times with the passages reordered. The
+    majority chapter stands; an answer nobody repeats is capped below the review threshold so
+    a person looks at it, and one that every re-ask repeats is left exactly as it was. A
+    re-ask that fails is no vote.
+    """
+    votes = [call.chapter]
+    answers = {call.chapter: call}
+    for k in range(options.recheck_n):
+        try:
+            again = judge.classify(stem, _reordered(evidence, k))
+        except Exception:  # noqa: BLE001
+            continue
+        votes.append(again.chapter)
+        answers.setdefault(again.chapter, again)
+    tally: dict = {}
+    for v in votes:
+        tally[v] = tally.get(v, 0) + 1
+    top, count = max(tally.items(), key=lambda kv: (kv[1], kv[0] == call.chapter))
+    changed = top != call.chapter
+    if len(votes) == 1:
+        result = call                       # no re-ask answered: nothing learnt
+    elif count >= 2 and len(tally) == 1:
+        result = call                       # unanimous
+    elif count >= 2:
+        result = answers[top] if changed else call
+    else:
+        result = call.model_copy(update={"confidence": min(call.confidence, 0.4)})
+    if options.recheck_log is not None:
+        options.recheck_log[question_id] = {
+            "votes": votes, "changed": changed, "unstable": len(tally) > 1,
+        }
+    return result
 
 
 def place_paper(
