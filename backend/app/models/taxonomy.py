@@ -160,6 +160,10 @@ class BookChunk(Base, PkMixin):
     normalised: Mapped[str] = mapped_column(Text)
     stem_hash: Mapped[str] = mapped_column(String(64), index=True)
     embedding: Mapped[list | None] = mapped_column(JSON, nullable=True)  # pgvector in production
+    #: A sentence or two situating this passage in its chapter, written once by a model
+    #: (scripts/contextualize_chunks.py) and indexed WITH the passage, never shown. Null until
+    #: that script has run; app.ingest.context falls back to the chapter title and reference.
+    context: Mapped[str | None] = mapped_column(String(400), nullable=True)
 
 
 class ConceptFamilyProposal(Base, PkMixin, TimestampMixin):

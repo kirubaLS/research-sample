@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     #: load -- a knob to tune against your organization's actual Anthropic tier, not a
     #: code change.
     vision_page_concurrency: int = 4
+    #: Read a scanned paper with this cheaper model first (e.g. claude-haiku-4-5), keeping
+    #: the read only if it reproduces the paper's own printed total and question count;
+    #: otherwise the whole paper is re-read by model_high_stakes. Empty (the default) reads
+    #: everything with model_high_stakes as before. The checksums cannot see a misread
+    #: stem, so compare a few papers both ways before turning it on.
+    #: YAADHUM_VISION_CHEAP_MODEL.
+    vision_cheap_model: str = ""
     #: the classifier's judge. Without it, placement falls back to nearest-neighbour
     #: retrieval, which cannot tell a question about a theorem from the theorem.
     anthropic_api_key: str | None = None
@@ -148,6 +155,50 @@ class Settings(BaseSettings):
     #: A question whose scope is exactly one chapter skips the chapter judge and goes
     #: straight to the topic judge, which then also returns the tier.
     skip_single_chapter_judge: bool = False
+    #: Tier 0 chapter gate (app.classify.gate). ``chapter_gate`` alone is SHADOW: the chapter
+    #: judge is still asked about everything and the job result reports how often retrieval
+    #: alone would have agreed with it. ``chapter_gate_enforce`` then skips the judge for
+    #: the questions the gate passes -- switch it on only on a measured agreement rate.
+    #: YAADHUM_CHAPTER_GATE, YAADHUM_CHAPTER_GATE_ENFORCE, YAADHUM_CHAPTER_GATE_MIN_MARGIN.
+    chapter_gate: bool = False
+    chapter_gate_enforce: bool = False
+    chapter_gate_min_margin: float = 0.3
+    #: a cross-encoder reranker (Jina) as the gate's third reader, one small call per
+    #: question the two retrievers already agreed on. YAADHUM_CHAPTER_GATE_RERANKER.
+    chapter_gate_reranker: bool = False
+    #: a naive-Bayes chapter classifier trained on the book (and confirmed questions) as a
+    #: further reader: confident about another chapter than retrieval chose = no pass.
+    #: YAADHUM_CHAPTER_GATE_CLASSIFIER, _CLASSIFIER_MIN.
+    chapter_gate_classifier: bool = False
+    chapter_gate_classifier_min: float = 0.9
+    reranker_model: str = "jina-reranker-v2-base-multilingual"
+    #: Confirmed-question memory (app.classify.memory): what this school's teachers have
+    #: already confirmed, recalled for the next paper. ``memory_recall`` alone OBSERVES --
+    #: the job result reports how often a near-identical confirmed question existed and
+    #: whether the judge then agreed. ``memory_reuse`` lets such a question take the
+    #: confirmed chapter, section and tier with no model call at all;
+    #: ``memory_demos`` > 0 shows the chapter judge that many similar confirmed questions
+    #: as worked examples. YAADHUM_MEMORY_RECALL, _REUSE, _MIN_SIMILARITY, _DEMOS.
+    #: Chapter judge: ask this many questions per call (1 = one each, as before). Saves the
+    #: per-call overhead, not the passages; a question the grouped answer misses is asked
+    #: alone. YAADHUM_CHAPTER_JUDGE_GROUP_SIZE.
+    chapter_judge_group_size: int = 1
+    #: Index each chunk with its chapter's title and section reference prepended (the
+    #: deterministic form of contextual retrieval; app.ingest.context). Affects the lexical
+    #: index of map and place alike. YAADHUM_RETRIEVAL_CONTEXTUAL_PREFIX.
+    retrieval_contextual_prefix: bool = False
+    #: Re-ask a chapter-judge answer below ``chapter_recheck_below`` confidence with its
+    #: passages reordered, ``chapter_recheck_n`` times, and take the majority chapter; an
+    #: answer nobody repeats is capped at 0.4 so it goes to a person. Live judge only.
+    #: YAADHUM_CHAPTER_RECHECK, _BELOW, _N.
+    chapter_recheck: bool = False
+    chapter_recheck_below: float = 0.8
+    chapter_recheck_n: int = 2
+    memory_recall: bool = False
+    memory_reuse: bool = False
+    memory_min_similarity: float = 0.9
+    memory_demos: int = 0
+    memory_demo_min_similarity: float = 0.4
     #: A major topic is at most this many levels deep ("4" or "4.1", never "4.1.1") for
     #: every subject listed in topic_max_depth_by_subject, everywhere a section is decided
     #: or stored (app.curriculum.depth.collapse_section). A subject not listed keeps
@@ -175,6 +226,11 @@ class Settings(BaseSettings):
     #: and one common dashboard. Off: marks entry needs a subject assignment naming the
     #: section and subject (or the exam cell), as before. Never crosses a school.
     teacher_any_subject_uploads: bool = False
+    #: The topic judge skips its second ("taught") read when the first quoted a sentence that
+    #: is verbatim in the section it named and both retrieval within the chapter and the
+    #: book's own use of the question's terms agree -- one fewer call on the easy questions,
+    #: with the answerability check still run. YAADHUM_TOPIC_ADAPTIVE_READS.
+    topic_adaptive_reads: bool = False
     #: For book-map subjects, subtopic nodes come from the book map's printed numbers
     #: only: an existing node is never relabelled, and the ingest-created nodes are never
     #: a fallback topic.

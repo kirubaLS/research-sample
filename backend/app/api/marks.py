@@ -233,7 +233,8 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
                 continue
             entry["seen"].add(kind)
             part = job.result.get("spend") or {}
-            for key in ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "estimated_usd"):
+            for key in ("calls", "input_tokens", "output_tokens", "cache_read_tokens",
+                        "cache_write_tokens", "estimated_usd"):
                 entry[key] = round(entry.get(key, 0) + (part.get(key) or 0), 4)
             del a_id
 
@@ -1019,12 +1020,27 @@ def _run_paper_scan_job(job_id: str) -> None:
         settings = get_settings()
         _report_paper_scan_progress(job_id, 0, len(pages))
         structure = {"capture_structure": True} if settings.paper_capture_structure else {}
-        reading = read_paper_vision(
-            pages, api_key=settings.anthropic_api_key, model=settings.model_high_stakes,
-            page_concurrency=settings.vision_page_concurrency,
-            on_progress=lambda done, total: _report_paper_scan_progress(job_id, done, total),
-            **structure,
-        )
+        def read(pages_, *, model, on_progress, **extra):
+            return read_paper_vision(
+                pages_, api_key=settings.anthropic_api_key, model=model,
+                page_concurrency=settings.vision_page_concurrency,
+                on_progress=on_progress, **extra,
+            )
+
+        progress = lambda done, total: _report_paper_scan_progress(job_id, done, total)  # noqa: E731
+        cascade_report: dict | None = None
+        if settings.vision_cheap_model:
+            # cheap model first; the strong one only when the read does not reproduce what
+            # the paper prints about itself (app.extraction.vision_cascade)
+            from app.extraction.vision_cascade import read_with_cascade
+
+            reading, cascade_report = read_with_cascade(
+                pages, cheap=settings.vision_cheap_model, strong=settings.model_high_stakes,
+                read=read, on_progress=progress, **structure,
+            )
+        else:
+            reading = read(pages, model=settings.model_high_stakes, on_progress=progress,
+                           **structure)
         if reading.refused:
             _finish_paper_scan_job(
                 job_id, status_value="failed", error_status=422, error_detail=reading.refused,
@@ -1102,6 +1118,8 @@ def _run_paper_scan_job(job_id: str) -> None:
         finally:
             db.close()
         result = {**result, "auto": auto}
+    if cascade_report is not None:
+        result = {**result, "vision_cascade": cascade_report}
     _finish_paper_scan_job(job_id, status_value="succeeded", result=result)
     if auto is not None and not auto.get("already_queued"):
         _run_auto_pipeline(assessment_id, auto)
@@ -2319,7 +2337,19 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     # score it *higher* than the real teaching-text passage on the same topic. See
     # content_chunks.
     retrieval_chunks = content_chunks(chunks)
-    indexes: list = [LexicalIndex(retrieval_chunks)]
+    context_of = None
+    if settings.retrieval_contextual_prefix:
+        from app.ingest.context import chunk_context
+
+        context_labels = {
+            n.id: n.label for n in db.scalars(select(TaxonomyNode).where(
+                TaxonomyNode.id.in_({c.node_id for c in retrieval_chunks if c.node_id})))
+        }
+
+        def context_of(c):
+            return chunk_context(c, context_labels.get)
+
+    indexes: list = [LexicalIndex(retrieval_chunks, context_of)]
     mode = "lexical"
     if any(c.embedding for c in retrieval_chunks) and settings.jina_api_key:
         from app.ingest.jina import JinaEmbedder
@@ -2511,6 +2541,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
             card_mode=settings.topic_card_mode,
+            adaptive_reads=settings.topic_adaptive_reads,
             **({"major": view} if (view := major_view(chapter)) is not None else {}),
         )
         if deferred_to_classify:
@@ -2875,11 +2906,13 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             "input_tokens": getattr(topic_judge, "input_tokens", 0),
             "output_tokens": getattr(topic_judge, "output_tokens", 0),
             "cache_read_tokens": getattr(topic_judge, "cache_read_tokens", 0),
+            "cache_write_tokens": getattr(topic_judge, "cache_write_tokens", 0),
             "estimated_usd": estimate_usd(
                 settings.model_classifier,
                 getattr(topic_judge, "input_tokens", 0),
                 getattr(topic_judge, "output_tokens", 0),
                 getattr(topic_judge, "cache_read_tokens", 0),
+                cache_write_tokens=getattr(topic_judge, "cache_write_tokens", 0),
             ),
         },
         "blocked_addresses": blocked[:20],

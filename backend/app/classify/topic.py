@@ -469,6 +469,7 @@ class TopicJudge:
         self.input_tokens = 0
         self.output_tokens = 0
         self.cache_read_tokens = 0
+        self.cache_write_tokens = 0
 
     def _count(self, response) -> None:
         usage = getattr(response, "usage", None)
@@ -476,6 +477,7 @@ class TopicJudge:
             self.input_tokens += getattr(usage, "input_tokens", 0) or 0
             self.output_tokens += getattr(usage, "output_tokens", 0) or 0
             self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
+            self.cache_write_tokens += getattr(usage, "cache_creation_input_tokens", 0) or 0
         self.calls += 1
 
     def _document_system(self, chapter_label: str, headings: dict[str, str], document: str) -> list:
@@ -778,6 +780,7 @@ def choose_topic(
     want_tier: bool = False,
     major: tuple[str, int] | None = None,
     card_mode: bool = False,
+    adaptive_reads: bool = False,
 ) -> TopicPick:
     """Decide the section within ``chapter_id`` that ``stem`` tests.
 
@@ -893,7 +896,7 @@ def choose_topic(
         return _choose_from_whole_chapter(
             stem, chapter_label, chapter_chunks, headings, judge, document,
             retrieval_section=retrieval_section, named=named, votes=votes,
-            fallback=fall_back, want_tier=want_tier,
+            fallback=fall_back, want_tier=want_tier, adaptive_reads=adaptive_reads,
         )
 
     shown = [
@@ -1132,6 +1135,7 @@ def _choose_from_whole_chapter(
     stem: str, chapter_label: str, chapter_chunks: list, headings: dict[str, str],
     judge, document: str, *, retrieval_section: str | None, named: str | None,
     votes: dict[str, list[str]], fallback, want_tier: bool = False,
+    adaptive_reads: bool = False,
 ) -> TopicPick:
     """The judge reads the entire chapter. Its quote, not its number, is the answer; the
     independent votes (retrieval within the chapter, the book's own use of the
@@ -1185,7 +1189,20 @@ def _choose_from_whole_chapter(
     notes: list[str] = []
     also: list[str] = []
     tier: str | None = None
+    answer_is_settled = False
     for mode in ("answer", "taught"):
+        if (
+            adaptive_reads and mode == "taught" and reads.get("answer", (None, ""))[0] is not None
+            and answer_is_settled
+        ):
+            # The answer read quoted a sentence that is verbatim in the section it named,
+            # and retrieval within the chapter and the book's own use of the question's
+            # terms both agree. The second read exists to catch a mention-versus-answer
+            # miss, and nothing here suggests one: reuse the first read for it (so no
+            # claimant disagrees and no confirm read follows) and save the call. The
+            # answerability check below still runs on the chosen section.
+            reads["taught"] = reads["answer"]
+            continue
         try:
             if want_tier and mode == "answer":
                 choice = judge.pick_from_document(
@@ -1198,6 +1215,15 @@ def _choose_from_whole_chapter(
             reads[mode] = (sec, why)
             if note:
                 notes.append(note)
+            if mode == "answer":
+                answer_is_settled = (
+                    sec is not None and note is None and bool(quote_sections(choice))
+                    # the same precedence the claimants below use: the book's own terms
+                    # when they name a place, retrieval within the chapter only when they
+                    # say nothing
+                    and (_related(sec, named) if named is not None else (
+                        retrieval_section is None or _related(sec, retrieval_section)))
+                )
             if mode == "answer":
                 also = [
                     s for s in (

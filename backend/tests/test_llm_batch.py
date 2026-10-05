@@ -144,3 +144,13 @@ def test_the_estimate_follows_list_price_and_halves_for_a_batch():
     assert estimate_usd("claude-sonnet-5", 1_000_000, 100_000, 2_000_000, batched=True) == 1.7
     assert estimate_usd("claude-opus-5", 1_000_000, 0) == 5.0
     assert estimate_usd("some-unknown-model", 1_000_000, 0) == 2.0, "an unknown model prices as Sonnet"
+
+
+def test_a_cache_write_is_billed_above_plain_input():
+    # 1M tokens written to the 5-minute cache cost 1.25x Sonnet's $2 input rate
+    assert estimate_usd("claude-sonnet-5", 0, 0, cache_write_tokens=1_000_000) == 2.5
+    assert estimate_usd(
+        "claude-sonnet-5", 0, 0, cache_write_tokens=1_000_000, batched=True,
+    ) == 1.25
+    # left out, the figure is what it was before
+    assert estimate_usd("claude-sonnet-5", 1_000_000, 100_000, 2_000_000) == 3.4

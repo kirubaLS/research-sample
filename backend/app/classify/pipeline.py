@@ -19,7 +19,8 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
-from app.classify.judge import Classification, Evidence
+from app.classify.gate import chapter_gate
+from app.classify.judge import TIERS, Classification, Evidence
 from app.classify.reconcile import (
     Option,
     QuestionSlot,
@@ -104,6 +105,13 @@ class PlacedQuestion:
     #: the scope named exactly one chapter, so the chapter judge was not asked
     #: (skip_single_chapter_judge); the tier then comes from the topic judge
     chapter_judge_skipped: bool = False
+    #: ...because a person already confirmed a near-identical question in this school
+    #: (app.classify.memory); the confirmed section and tier ride on the placement and the
+    #: topic judge is not asked either. Always also chapter_judge_skipped.
+    memory_reused: bool = False
+    #: ...because both retrievers agreed with a clear lead (Tier 0, app.classify.gate), not
+    #: because the paper declared the chapter. Always also chapter_judge_skipped.
+    chapter_gated: bool = False
     #: the chapter judge's own confidence, and how many chapters it chose among -- None
     #: and 0 when it was not asked (skipped, failed, nothing retrieved)
     judge_confidence: float | None = None
@@ -149,6 +157,45 @@ class PassOptions:
     #: (chapter label, section) -> the section cut to the subject's depth
     #: (topic_depth_cap): the judge sees one passage per major topic, labelled with it
     section_cap: Callable[[str | None, str | None], str | None] | None = None
+    #: Tier 0 (app.classify.gate): evaluate whether retrieval alone is sure of the chapter.
+    #: ``gate_log`` is filled with question id -> the gate's decision, and later the
+    #: chapter judge's answer for it, so a shadow run can be scored. Without
+    #: ``gate_enforce`` the judge is still asked about every question.
+    gate: bool = False
+    gate_enforce: bool = False
+    gate_min_margin: float = 0.3
+    #: a cross-encoder (app.ingest.rerank.JinaReranker) as the gate's third reader: it must
+    #: not prefer another chapter among the verdict's own passages
+    gate_reranker: object | None = None
+    #: a trained classifier (app.classify.bayes.NaiveBayesChapters) as a further reader: when
+    #: it is at least ``gate_classifier_min`` sure of a different chapter, the gate fails
+    gate_classifier: object | None = None
+    gate_classifier_min: float = 0.9
+    gate_log: dict | None = None
+    #: what teachers have already confirmed (app.classify.memory). Giving a memory alone
+    #: only OBSERVES: each question's closest confirmed neighbour is written to
+    #: ``memory_log`` next to the judge's answer. ``memory_reuse`` then lets a question
+    #: that is, to within a few words, one already confirmed in the same school take that
+    #: placement without either judge; ``memory_demos`` shows the judge that many similar
+    #: confirmed questions as worked examples.
+    memory: object | None = None
+    memory_reuse: bool = False
+    memory_min_similarity: float = 0.9
+    memory_demos: int = 0
+    memory_demo_min_similarity: float = 0.4
+    memory_log: dict | None = None
+    #: Several questions per chapter-judge call (classify_many): saves the per-call overhead
+    #: and the reasoning preamble, not the passages. A question the grouped answer misses is
+    #: asked alone. Needs a live judge that offers classify_many; ignored otherwise.
+    group_size: int = 1
+    #: Re-ask a low-confidence answer with the passages in a different order and take the
+    #: majority chapter. A thinking model offers no sampling temperature, so reordering is
+    #: the perturbation: an answer that flips when only the order changed was not an answer.
+    #: Live judge only -- every re-ask in a batched judge would wait a whole batch.
+    recheck: bool = False
+    recheck_below: float = 0.8
+    recheck_n: int = 2
+    recheck_log: dict | None = None
 
 
 #: passages each other book contributes when candidates are balanced across books
@@ -342,6 +389,104 @@ def _pass(
             if on_progress is not None:
                 on_progress(done, total)
             continue
+        if options.memory is not None:
+            recall = options.memory.recall(stem, exclude=question_id)
+            hit = recall.reusable(options.memory_min_similarity)
+            reusable = (
+                hit is not None and not out_of_scope
+                and (not every_label or hit.entry.chapter in every_label or unit_of(hit.entry.chapter))
+                and (q_scope is None or hit.entry.chapter in q_scope)
+            )
+            reused = bool(reusable and options.memory_reuse)
+            if options.memory_log is not None:
+                options.memory_log[question_id] = {
+                    "similarity": recall.best.similarity if recall.best else 0.0,
+                    "chapter": hit.entry.chapter if hit is not None else recall.vote,
+                    "reusable": bool(reusable), "reused": reused,
+                }
+            if reused:
+                tier = hit.entry.tier if hit.entry.tier in TIERS else None
+                judged[question_id] = Classification(
+                    chapter=hit.entry.chapter, curriculum_section=hit.entry.section, tier=tier,
+                    skill_required="",
+                    reasoning=(
+                        f"a teacher already placed a near-identical question "
+                        f"({hit.similarity:.0%} alike) in {hit.entry.chapter}"
+                        + (f", section {hit.entry.section}" if hit.entry.section else "")
+                        + ", so neither judge was asked"
+                    ),
+                    evidence=[], confidence=0.97, alternative_chapter=None,
+                )
+                skipped.add(question_id)
+                slots.append(QuestionSlot(question_id, marks, [
+                    Option(hit.entry.chapter, unit_of(hit.entry.chapter) or "?", 0.97),
+                ]))
+                if on_progress is not None:
+                    on_progress(done, total)
+                continue
+        if options.gate and not out_of_scope:
+            def classifier_reader(_stem):
+                def read():
+                    chapter, posterior = options.gate_classifier.predict(
+                        retrieval_query_text(_stem), allowed=q_scope,
+                    )
+                    return chapter if posterior >= options.gate_classifier_min else None
+                return read
+
+            def reranked(_verdict=verdict, _stem=stem):
+                # the chapter whose passage the reranker scores highest; None when only one
+                # chapter was shown (nothing to disagree about) or the call failed -- a
+                # reranker outage must never place or refuse a question by itself
+                chapters = {c.node_id for c in _verdict.evidence}
+                if len(chapters) < 2:
+                    return None
+                try:
+                    scores = options.gate_reranker.scores(
+                        retrieval_query_text(_stem), [c.text for c in _verdict.evidence],
+                    )
+                except Exception:  # noqa: BLE001
+                    return None
+                best = max(range(len(scores)), key=scores.__getitem__)
+                return chapter_of(_verdict.evidence[best].node_id)
+
+            gate = chapter_gate(
+                verdict, chapter_of(verdict.node_id), min_relative_margin=options.gate_min_margin,
+                reranked=reranked if options.gate_reranker is not None else None,
+                remembered=(
+                    (lambda r=recall: r.vote if r.unanimous else None)
+                    if options.memory is not None else None
+                ),
+                classified=(classifier_reader(stem) if options.gate_classifier is not None else None),
+            )
+            enforced = options.gate_enforce and gate.passed
+            if options.gate_log is not None:
+                options.gate_log[question_id] = {
+                    "passed": gate.passed, "chapter": gate.chapter,
+                    "relative_margin": round(gate.relative_margin, 3),
+                    "reason": gate.reason, "enforced": enforced,
+                    "retrievers_agreed": bool(verdict.agreed),
+                }
+            if enforced:
+                # Retrieval's two readers agree and lead clearly: nothing for the chapter
+                # judge to decide. Placed like a declared single chapter, so the topic
+                # judge reads it next and names the tier.
+                judged[question_id] = Classification(
+                    chapter=gate.chapter, curriculum_section=None, tier=None,
+                    skill_required="",
+                    reasoning=(
+                        f"both retrievers placed this in {gate.chapter} with a "
+                        f"{gate.relative_margin:.0%} lead, so the chapter judge was not asked"
+                    ),
+                    evidence=[], confidence=min(0.9, 0.5 + gate.relative_margin / 2),
+                    alternative_chapter=None,
+                )
+                skipped.add(question_id)
+                slots.append(QuestionSlot(question_id, marks, [
+                    Option(gate.chapter, unit_of(gate.chapter) or "?", judged[question_id].confidence),
+                ]))
+                if on_progress is not None:
+                    on_progress(done, total)
+                continue
         prepared.append((done, question_id, stem, marks, evidence, verdict, q_scope, out_of_scope))
 
     def scoped_call(item) -> bool:
@@ -352,16 +497,50 @@ def _pass(
             and not item[7]
         )
 
+    def demos_for(item) -> list:
+        if options.memory is None or not options.memory_demos:
+            return []
+        shown = options.memory.demonstrations(
+            item[2], options.memory_demos, min_similarity=options.memory_demo_min_similarity,
+            exclude=item[1],
+        )
+        if shown and options.memory_log is not None and item[1] in options.memory_log:
+            options.memory_log[item[1]]["demos"] = len(shown)
+        return shown
+
     def classify(item):
+        # worked examples only when there are some, so a judge that predates them is
+        # called exactly as before
+        extra = {}
+        shown = demos_for(item)
+        if shown:
+            extra["examples"] = shown
         if scoped_call(item):
-            return judge.classify(item[2], item[4], scoped=True)
-        return judge.classify(item[2], item[4])
+            return judge.classify(item[2], item[4], scoped=True, **extra)
+        return judge.classify(item[2], item[4], **extra)
 
     # Phase 2: the judge. A batched judge (see app.llm_batch) is asked every question at
     # once, from one thread each, so the whole paper becomes one batch; a live judge is
     # asked one at a time as before. Either way each answer is handled below in paper
     # order, and one question's failure never sinks the rest.
     calls: dict[str, object] = {}
+    if (
+        options.group_size > 1 and hasattr(judge, "classify_many")
+        and not getattr(judge, "batched", False)
+    ):
+        eligible = [it for it in prepared if not scoped_call(it)]
+        for start in range(0, len(eligible), options.group_size):
+            group = eligible[start:start + options.group_size]
+            try:
+                answers = judge.classify_many([
+                    {"question": it[2], "evidence": it[4], "examples": demos_for(it)}
+                    for it in group
+                ])
+            except Exception:  # noqa: BLE001 -- every question in the group is asked alone
+                continue
+            for it, answer in zip(group, answers, strict=True):
+                if not isinstance(answer, Exception):
+                    calls[it[1]] = answer
     if getattr(judge, "batched", False) and len(prepared) > 1:
         from concurrent.futures import ThreadPoolExecutor
 
@@ -441,8 +620,20 @@ def _pass(
                 call = second
                 judged_on = wide_evidence
 
+        if (
+            options.recheck and not getattr(judge, "batched", False)
+            and call.chapter is not None and not out_of_scope and not crossing
+            and call.confidence < options.recheck_below
+            and len({e.chapter for e in judged_on}) > 1
+        ):
+            call = _recheck(call, stem, judged_on, judge, options, question_id)
+
         if crossing:
             crossed.add(question_id)
+        if options.memory_log is not None and question_id in options.memory_log:
+            options.memory_log[question_id]["judge_chapter"] = call.chapter
+        if options.gate_log is not None and question_id in options.gate_log:
+            options.gate_log[question_id]["judge_chapter"] = call.chapter
         if asked is not None:
             asked[question_id] = (call.confidence, len({e.chapter for e in judged_on}))
 
@@ -495,6 +686,52 @@ def _pass(
             on_progress(done, total)
 
     return slots, judged, failed, crossed, skipped
+
+
+def _reordered(evidence: list[Evidence], k: int) -> list[Evidence]:
+    """The passages in a different order: reversed for the first re-ask, then rotated."""
+    if k == 0:
+        return list(reversed(evidence))
+    shift = max(1, len(evidence) // 2) * k
+    return evidence[shift % len(evidence):] + evidence[: shift % len(evidence)]
+
+
+def _recheck(call: Classification, stem: str, evidence: list[Evidence], judge,
+             options: PassOptions, question_id: str) -> Classification:
+    """Self-consistency by perturbation, for one low-confidence answer.
+
+    The chapter judge is asked again ``recheck_n`` times with the passages reordered. The
+    majority chapter stands; an answer nobody repeats is capped below the review threshold so
+    a person looks at it, and one that every re-ask repeats is left exactly as it was. A
+    re-ask that fails is no vote.
+    """
+    votes = [call.chapter]
+    answers = {call.chapter: call}
+    for k in range(options.recheck_n):
+        try:
+            again = judge.classify(stem, _reordered(evidence, k))
+        except Exception:  # noqa: BLE001
+            continue
+        votes.append(again.chapter)
+        answers.setdefault(again.chapter, again)
+    tally: dict = {}
+    for v in votes:
+        tally[v] = tally.get(v, 0) + 1
+    top, count = max(tally.items(), key=lambda kv: (kv[1], kv[0] == call.chapter))
+    changed = top != call.chapter
+    if len(votes) == 1:
+        result = call                       # no re-ask answered: nothing learnt
+    elif count >= 2 and len(tally) == 1:
+        result = call                       # unanimous
+    elif count >= 2:
+        result = answers[top] if changed else call
+    else:
+        result = call.model_copy(update={"confidence": min(call.confidence, 0.4)})
+    if options.recheck_log is not None:
+        options.recheck_log[question_id] = {
+            "votes": votes, "changed": changed, "unstable": len(tally) > 1,
+        }
+    return result
 
 
 def place_paper(
@@ -579,6 +816,14 @@ def place_paper(
             )
             scope_source = "inferred"
 
+    gated = {
+        qid for qid, entry in (options.gate_log or {}).items() if entry.get("enforced")
+    } & skipped
+
+    memorised = {
+        qid for qid, entry in (options.memory_log or {}).items() if entry.get("reused")
+    } & skipped
+
     result: Reconciliation = reconcile(slots, declared or {})
     flagged = set(needs_a_human(slots, result))
 
@@ -599,6 +844,8 @@ def place_paper(
             judge_failed=slot.question_id in failed,
             cross_scope=slot.question_id in crossed,
             chapter_judge_skipped=slot.question_id in skipped,
+            chapter_gated=slot.question_id in gated,
+            memory_reused=slot.question_id in memorised,
             judge_confidence=asked.get(slot.question_id, (None, 0))[0],
             chapters_shown=asked.get(slot.question_id, (None, 0))[1],
         )

@@ -185,9 +185,12 @@ is exactly that failure, just dressed up as a guess."""
 
 
 def build_prompt(
-    question: str, evidence: list[Evidence], passage_chars: int = 1200
+    question: str, evidence: list[Evidence], passage_chars: int = 1200,
+    examples: list | None = None,
 ) -> str:
-    """The question, and the book passages retrieval found for it."""
+    """The question, and the book passages retrieval found for it. ``examples`` are
+    similar questions a teacher already placed (app.classify.memory.Hit), shown last as
+    calibration."""
     chapters = sorted({e.chapter for e in evidence})
     lines = [
         "QUESTION",
@@ -204,4 +207,8 @@ def build_prompt(
         lines.append(
             f"\n[{i}] {e.chapter} -- {e.reference}{section}\n{e.text[:passage_chars]}"
         )
+    if examples:
+        from app.classify.memory import demonstration_block
+
+        lines.append(demonstration_block(examples))
     return "\n".join(lines)

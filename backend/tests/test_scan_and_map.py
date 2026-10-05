@@ -1440,7 +1440,8 @@ def test_map_leaves_the_topic_judge_to_a_classify_job_already_queued_behind_it(
 
     listed = next(p for p in client.get("/assessments", headers=h).json()["assessments"] if p["id"] == aid)
     assert listed["spend"] == {
-        "calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "estimated_usd": 0,
+        "calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
+        "cache_write_tokens": 0, "estimated_usd": 0,
     }
 
 

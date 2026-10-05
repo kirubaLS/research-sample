@@ -18,6 +18,8 @@ from sqlalchemy.orm import Session
 
 from app.api.books import clean_sections
 from app.api.deps import require_admin, require_paper_scope, require_reader, require_scanner
+from app.classify.gate import summarise as summarise_gate
+from app.classify.memory import summarise as summarise_memory
 from app.classify.pipeline import place_paper
 from app.classify.review_rule import ReviewInputs, reason_code, review_reasons
 from app.curriculum import group_subjects
@@ -273,7 +275,14 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         # content_chunks). Excluded from retrieval only; `chunks` itself (used for
         # known_sections below) is untouched.
         retrieval_chunks = content_chunks(chunks)
-        indexes: list = [LexicalIndex(retrieval_chunks)]
+        context_of = None
+        if settings.retrieval_contextual_prefix:
+            from app.ingest.context import chunk_context
+
+            def context_of(c):
+                return chunk_context(c, lambda nid: nodes[nid].label if nid in nodes else None)
+
+        indexes: list = [LexicalIndex(retrieval_chunks, context_of)]
         if settings.jina_api_key and any(c.embedding for c in retrieval_chunks):
             from app.ingest.jina import JinaEmbedder
 
@@ -442,6 +451,14 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             sections_of = family_table.sections_of
         declared = (a.declared or {}).get("board_units")
         paper_kind, subject_code, assessment_id = a.paper_kind, a.subject_code, a.id
+        memory = None
+        if settings.memory_recall or settings.memory_reuse or settings.memory_demos:
+            from app.classify.memory import load_confirmed
+
+            memory = load_confirmed(
+                db, school_id=a.school_id, subject_codes=book_subject_codes,
+                exclude_assessment=a.id,
+            )
     finally:
         db.close()  # released BEFORE the slow classifier calls below, not held across it
 
@@ -465,9 +482,32 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     from app.classify.pipeline import PassOptions
 
     pass_options: dict = {}
+    gate_log: dict = {}
+    gate_reranker = None
+    gate_classifier = None
+    if settings.chapter_gate_classifier:
+        from app.classify.bayes import CONFIRMED_WEIGHT, NaiveBayesChapters
+
+        examples = [
+            (nodes[c.node_id].label, c.text or "", 1)
+            for c in retrieval_chunks if c.node_id in nodes
+        ]
+        if memory is not None:
+            examples += [(e.chapter, e.stem, CONFIRMED_WEIGHT) for e in memory.entries]
+        gate_classifier = NaiveBayesChapters().fit(examples)
+    if settings.chapter_gate_reranker and settings.jina_api_key:
+        from app.ingest.rerank import JinaReranker
+
+        gate_reranker = JinaReranker(settings.jina_api_key, model=settings.reranker_model)
+    memory_log: dict = {}
+    recheck_log: dict = {}
     if (
         settings.balanced_group_candidates or settings.cross_scope_fallback
         or settings.skip_single_chapter_judge or settings.topic_depth_cap
+        or settings.chapter_gate or settings.chapter_gate_enforce
+        or (memory is not None and len(memory))
+        or settings.chapter_judge_group_size > 1 or settings.chapter_recheck
+        or settings.chapter_gate_classifier
     ):
         book_of = {
             nodes[i].label: code
@@ -479,6 +519,24 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             cross_scope=settings.cross_scope_fallback,
             skip_single_chapter=settings.skip_single_chapter_judge,
             section_cap=cap_for if settings.topic_depth_cap else None,
+            gate=settings.chapter_gate or settings.chapter_gate_enforce,
+            gate_enforce=settings.chapter_gate_enforce,
+            gate_min_margin=settings.chapter_gate_min_margin,
+            gate_log=gate_log,
+            gate_reranker=gate_reranker,
+            gate_classifier=gate_classifier,
+            gate_classifier_min=settings.chapter_gate_classifier_min,
+            memory=memory if memory is not None and len(memory) else None,
+            memory_reuse=settings.memory_reuse,
+            memory_min_similarity=settings.memory_min_similarity,
+            memory_demos=settings.memory_demos,
+            memory_demo_min_similarity=settings.memory_demo_min_similarity,
+            memory_log=memory_log,
+            group_size=settings.chapter_judge_group_size,
+            recheck=settings.chapter_recheck,
+            recheck_below=settings.chapter_recheck_below,
+            recheck_n=settings.chapter_recheck_n,
+            recheck_log=recheck_log,
         )
 
     try:
@@ -529,6 +587,28 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
     def pick_topic(placed):
         chapter_node = by_label.get(placed.chapter)
+        if getattr(placed, "memory_reused", False) and placed.curriculum_section:
+            remembered = headings_of.get(chapter_node.id, {})
+            if placed.curriculum_section in remembered:
+                # a person confirmed this section for a near-identical question: no read
+                from app.classify.topic import TopicPick, grounded_tier
+
+                pick = TopicPick(
+                    section=placed.curriculum_section,
+                    heading=remembered[placed.curriculum_section],
+                    source="memory", agreed=True, retrieval_section=None,
+                    rationale="the section a teacher confirmed for a near-identical question",
+                    verified=True, tier=grounded_tier(placed.tier),
+                )
+                if is_capped(chapter_node.code):
+                    from app.classify.topic import capped
+
+                    pick = capped(
+                        pick,
+                        lambda sec: collapse_section(None, sec, chapter_code=chapter_node.code),
+                        remembered,
+                    )
+                return pick
         # the chapter judge was skipped, so nothing else names the tier: the topic
         # judge's answer read does (skip_single_chapter_judge)
         tiered = {"want_tier": True} if getattr(placed, "chapter_judge_skipped", False) else {}
@@ -541,6 +621,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
             card_mode=settings.topic_card_mode,
+            adaptive_reads=settings.topic_adaptive_reads,
             **tiered,
             **({"major": view} if (view := major_view(chapter_node)) is not None else {}),
         )
@@ -590,6 +671,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         for placed in result.questions:
             pick = topic_picks.get(placed.question_id)
             if not (getattr(placed, "chapter_judge_skipped", False)
+                    and not getattr(placed, "chapter_gated", False)
                     and pick is not None and pick.verified is False):
                 replaced.append(placed)
                 continue
@@ -843,6 +925,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 confidence=placed.confidence,
                 source=(
                     "blueprint" if placed.overruled
+                    else "retrieval" if getattr(placed, "chapter_gated", False)
                     else "scope" if getattr(placed, "chapter_judge_skipped", False)
                     else "model"
                 ),
@@ -939,6 +1022,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     getattr(judge, "cache_read_tokens", 0)
                     + getattr(topic_judge, "cache_read_tokens", 0)
                 ),
+                #: chapter text written to the prompt cache (billed above plain input)
+                "cache_write_tokens": (
+                    getattr(judge, "cache_write_tokens", 0)
+                    + getattr(topic_judge, "cache_write_tokens", 0)
+                ),
                 "passages_shown": settings.classifier_evidence_passages,
                 "chapters_shown": evidence_chapters,
                 "batched": settings.batch_classify,
@@ -950,16 +1038,29 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                         getattr(judge, "input_tokens", 0), getattr(judge, "output_tokens", 0),
                         getattr(judge, "cache_read_tokens", 0),
                         batched=bool(getattr(judge, "batched", False)),
+                        cache_write_tokens=getattr(judge, "cache_write_tokens", 0),
                     )
                     + estimate_usd(
                         settings.model_classifier,
                         getattr(topic_judge, "input_tokens", 0), getattr(topic_judge, "output_tokens", 0),
                         getattr(topic_judge, "cache_read_tokens", 0),
                         batched=bool(getattr(topic_judge, "batched", False)),
+                        cache_write_tokens=getattr(topic_judge, "cache_write_tokens", 0),
                     ),
                     4,
                 ),
             },
+            #: Tier 0 gate (shadow or enforced): how often retrieval alone agreed with the judge
+            **({"chapter_gate": summarise_gate(gate_log)} if gate_log else {}),
+            #: confirmed-question memory: near-identical confirmed questions found, reused,
+            #: and how often the judge agreed where it was also asked
+            **({"memory": summarise_memory(memory_log, len(memory))} if memory_log else {}),
+            #: chapter_recheck: low-confidence answers re-asked with reordered passages
+            **({"recheck": {
+                "rechecked": len(recheck_log),
+                "changed": sum(1 for e in recheck_log.values() if e["changed"]),
+                "unstable": sum(1 for e in recheck_log.values() if e["unstable"]),
+            }} if recheck_log else {}),
             "settled": result.settled,
             "needs_review": flagged_rows if settings.review_flag_rule else result.reviewed_count,
             #: review_flag_rule: why the rows this run wrote were flagged, by reason (a row
