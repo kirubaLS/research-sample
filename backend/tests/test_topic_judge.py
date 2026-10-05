@@ -933,3 +933,46 @@ def test_a_map_chunks_reference_is_not_the_sections_heading():
                   "Nuclear power plant: Kalpakkam.", "4.2.1")
     body.subject_code = "X.GEO"
     assert book_map_topic_label([body], "geo", "4.2.1") == "4.2.1 Nuclear or Atomic Energy"
+
+
+# --- adaptive reads: the second read is skipped only when nothing doubts the first ----------
+
+def test_adaptive_reads_skip_the_taught_read_when_the_first_is_corroborated():
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    quote = "maintained an Index of Prohibited Books from 1558"
+    judge = _VerifyingJudge([("3.3", quote)], {"3.3": (True, quote)})
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge,
+                        adaptive_reads=True)
+    assert pick.section == "3.3" and pick.agreed and pick.verified is True
+    assert [c[3] for c in judge.calls] == ["answer"], "no taught read, no confirm"
+    assert judge.checked, "the answerability check still runs"
+
+
+def test_without_the_flag_both_reads_are_made_as_before():
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    quote = "maintained an Index of Prohibited Books from 1558"
+    judge = _VerifyingJudge([("3.3", quote), ("3.3", quote)], {"3.3": (True, quote)})
+    choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge)
+    assert [c[3] for c in judge.calls] == ["answer", "taught"]
+
+
+def test_adaptive_reads_still_make_the_second_read_when_the_first_is_not_corroborated():
+    """The judge names 3.2 but quotes a sentence that is only under 3.3: its own number and
+    quote disagree, so it is not settled and the taught read is made."""
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    quote = "maintained an Index of Prohibited Books from 1558"
+    judge = _DocumentJudge([("3.2", quote), ("3.3", quote)])
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge,
+                        adaptive_reads=True)
+    assert [c[3] for c in judge.calls] == ["answer", "taught"]
+    assert pick.section == "3.3"
+
+
+def test_adaptive_reads_do_not_skip_when_the_books_terms_name_another_section():
+    chunks = [FEAR, DISSENT, CHUNKS[4]]
+    wrong = "The Church feared that printed books would spread rebellious ideas"
+    judge = _DocumentJudge([("3.2", wrong), ("3.2", wrong),
+                            ("3.3", "maintained an Index of Prohibited Books from 1558")])
+    choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge,
+                 adaptive_reads=True)
+    assert [c[3] for c in judge.calls][:2] == ["answer", "taught"]

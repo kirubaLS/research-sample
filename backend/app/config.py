@@ -91,6 +91,13 @@ class Settings(BaseSettings):
     #: load -- a knob to tune against your organization's actual Anthropic tier, not a
     #: code change.
     vision_page_concurrency: int = 4
+    #: Read a scanned paper with this cheaper model first (e.g. claude-haiku-4-5), keeping
+    #: the read only if it reproduces the paper's own printed total and question count;
+    #: otherwise the whole paper is re-read by model_high_stakes. Empty (the default) reads
+    #: everything with model_high_stakes as before. The checksums cannot see a misread
+    #: stem, so compare a few papers both ways before turning it on.
+    #: YAADHUM_VISION_CHEAP_MODEL.
+    vision_cheap_model: str = ""
     #: the classifier's judge. Without it, placement falls back to nearest-neighbour
     #: retrieval, which cannot tell a question about a theorem from the theorem.
     anthropic_api_key: str | None = None
@@ -156,6 +163,10 @@ class Settings(BaseSettings):
     chapter_gate: bool = False
     chapter_gate_enforce: bool = False
     chapter_gate_min_margin: float = 0.3
+    #: a cross-encoder reranker (Jina) as the gate's third reader, one small call per
+    #: question the two retrievers already agreed on. YAADHUM_CHAPTER_GATE_RERANKER.
+    chapter_gate_reranker: bool = False
+    reranker_model: str = "jina-reranker-v2-base-multilingual"
     #: Confirmed-question memory (app.classify.memory): what this school's teachers have
     #: already confirmed, recalled for the next paper. ``memory_recall`` alone OBSERVES --
     #: the job result reports how often a near-identical confirmed question existed and
@@ -189,6 +200,11 @@ class Settings(BaseSettings):
     #: book's own terms / retrieval agree; every other question reads the whole chapter as
     #: before. Needs topic_major_only_document and the committed section_cards.json.
     topic_card_mode: bool = False
+    #: The topic judge skips its second ("taught") read when the first quoted a sentence that
+    #: is verbatim in the section it named and both retrieval within the chapter and the
+    #: book's own use of the question's terms agree -- one fewer call on the easy questions,
+    #: with the answerability check still run. YAADHUM_TOPIC_ADAPTIVE_READS.
+    topic_adaptive_reads: bool = False
     #: For book-map subjects, subtopic nodes come from the book map's printed numbers
     #: only: an existing node is never relabelled, and the ingest-created nodes are never
     #: a fallback topic.

@@ -476,6 +476,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
     pass_options: dict = {}
     gate_log: dict = {}
+    gate_reranker = None
+    if settings.chapter_gate_reranker and settings.jina_api_key:
+        from app.ingest.rerank import JinaReranker
+
+        gate_reranker = JinaReranker(settings.jina_api_key, model=settings.reranker_model)
     memory_log: dict = {}
     if (
         settings.balanced_group_candidates or settings.cross_scope_fallback
@@ -497,6 +502,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             gate_enforce=settings.chapter_gate_enforce,
             gate_min_margin=settings.chapter_gate_min_margin,
             gate_log=gate_log,
+            gate_reranker=gate_reranker,
             memory=memory if memory is not None and len(memory) else None,
             memory_reuse=settings.memory_reuse,
             memory_min_similarity=settings.memory_min_similarity,
@@ -587,6 +593,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             passage_chars=settings.classifier_passage_chars,
             lexical_index=topic_index,
             card_mode=settings.topic_card_mode,
+            adaptive_reads=settings.topic_adaptive_reads,
             **tiered,
             **({"major": view} if (view := major_view(chapter_node)) is not None else {}),
         )

@@ -164,6 +164,9 @@ class PassOptions:
     gate: bool = False
     gate_enforce: bool = False
     gate_min_margin: float = 0.3
+    #: a cross-encoder (app.ingest.rerank.JinaReranker) as the gate's third reader: it must
+    #: not prefer another chapter among the verdict's own passages
+    gate_reranker: object | None = None
     gate_log: dict | None = None
     #: what teachers have already confirmed (app.classify.memory). Giving a memory alone
     #: only OBSERVES: each question's closest confirmed neighbour is written to
@@ -406,8 +409,25 @@ def _pass(
                     on_progress(done, total)
                 continue
         if options.gate and not out_of_scope:
+            def reranked(_verdict=verdict, _stem=stem):
+                # the chapter whose passage the reranker scores highest; None when only one
+                # chapter was shown (nothing to disagree about) or the call failed -- a
+                # reranker outage must never place or refuse a question by itself
+                chapters = {c.node_id for c in _verdict.evidence}
+                if len(chapters) < 2:
+                    return None
+                try:
+                    scores = options.gate_reranker.scores(
+                        retrieval_query_text(_stem), [c.text for c in _verdict.evidence],
+                    )
+                except Exception:  # noqa: BLE001
+                    return None
+                best = max(range(len(scores)), key=scores.__getitem__)
+                return chapter_of(_verdict.evidence[best].node_id)
+
             gate = chapter_gate(
                 verdict, chapter_of(verdict.node_id), min_relative_margin=options.gate_min_margin,
+                reranked=reranked if options.gate_reranker is not None else None,
             )
             enforced = options.gate_enforce and gate.passed
             if options.gate_log is not None:
@@ -415,6 +435,7 @@ def _pass(
                     "passed": gate.passed, "chapter": gate.chapter,
                     "relative_margin": round(gate.relative_margin, 3),
                     "reason": gate.reason, "enforced": enforced,
+                    "retrievers_agreed": bool(verdict.agreed),
                 }
             if enforced:
                 # Retrieval's two readers agree and lead clearly: nothing for the chapter

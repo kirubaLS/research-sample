@@ -80,6 +80,7 @@ def test_shadow_asks_the_judge_and_records_whether_the_gate_would_have_agreed():
     assert entry["passed"] and entry["chapter"] == "Minerals and Energy"
     assert entry["judge_chapter"] == "Minerals and Energy" and not entry["enforced"]
     report = summarise(log)
+    assert report["curve"] == [[entry["relative_margin"], True, True]]
     assert report["passed"] == 1 and report["agreed_with_judge"] == 1
     assert report["disagreed_with_judge"] == 0
 
@@ -110,3 +111,67 @@ def test_off_is_the_original_pass():
     judge, log = _Judge(), {}
     _run(judge, gate_log=log)
     assert judge.seen == 1 and log == {}
+
+
+# --- the reranker as a third reader ----------------------------------------------------
+
+
+class _Reranker:
+    def __init__(self, prefer="H1", fail=False):
+        self.prefer, self.fail, self.calls = prefer, fail, 0
+
+    def scores(self, query, documents):
+        self.calls += 1
+        if self.fail:
+            raise RuntimeError("jina down")
+        return [1.0 if self.prefer == "H1" and "printing" in d else 0.1 for d in documents]
+
+
+def _run_reranked(reranker, evidence_chapters=2):
+    judge, log = _Judge(), {}
+    indexes = [LexicalIndex(_corpus()), LexicalIndex(_corpus())]
+    out = place_paper(
+        [("q", "coal mines iron ore printing press books", 1.0)], indexes, judge,
+        chapter_of=NAMES.get, unit_of=NAMES.get, section_of=lambda r: None,
+        evidence_passages=4, evidence_chapters=evidence_chapters,
+        options=PassOptions(gate=True, gate_log=log, gate_min_margin=0.0,
+                            gate_reranker=reranker),
+    )
+    return out, log, judge
+
+
+def test_a_reranker_that_prefers_another_chapter_vetoes_the_gate():
+    _, log, _ = _run_reranked(_Reranker(prefer="H1"))
+    assert not log["q"]["passed"] and "reranker prefers" in log["q"]["reason"]
+
+
+def test_a_reranker_that_agrees_lets_the_gate_pass():
+    _, log, _ = _run_reranked(_Reranker(prefer="G1"))
+    assert log["q"]["passed"]
+
+
+def test_a_failing_reranker_neither_places_nor_refuses():
+    _, log, judge = _run_reranked(_Reranker(fail=True))
+    assert log["q"]["passed"] and judge.seen == 1
+
+
+def test_a_single_shown_chapter_gives_the_reranker_nothing_to_decide():
+    reranker = _Reranker(prefer="H1")
+    _, log, _ = _run_reranked(reranker, evidence_chapters=1)
+    assert reranker.calls == 0 and log["q"]["passed"]
+
+
+def test_the_jina_reranker_orders_scores_by_document_not_by_response(monkeypatch):
+    from app.ingest.rerank import JinaReranker
+
+    seen = {}
+
+    class R(JinaReranker):
+        def _post(self, payload):
+            seen.update(payload)
+            return {"results": [{"index": 1, "relevance_score": 0.9},
+                                {"index": 0, "relevance_score": 0.2}]}
+
+    assert R("k").scores("q", ["a" * 5000, "b"]) == [0.2, 0.9]
+    assert len(seen["documents"][0]) == 1500 and seen["top_n"] == 2
+    assert R("k").scores("q", []) == []

@@ -33,10 +33,16 @@ class Gate:
     reason: str = ""
 
 
-def chapter_gate(verdict, chapter: str | None, *, min_relative_margin: float) -> Gate:
+def chapter_gate(
+    verdict, chapter: str | None, *, min_relative_margin: float, reranked=None,
+) -> Gate:
     """Would retrieval alone have placed this question confidently?
 
     ``verdict`` is a ``ChapterVerdict``; ``chapter`` is its winner's chapter name.
+    ``reranked``, when given, is called last and only if the two retrieval signals passed,
+    and returns the chapter a cross-encoder puts first among the verdict's own passages
+    (None when it has no opinion -- a single candidate chapter, or the call failed). A
+    third reader that names a different chapter vetoes the gate.
     """
     if verdict.node_id is None or chapter is None:
         return Gate(False, None, 0.0, "nothing retrieved")
@@ -45,6 +51,10 @@ def chapter_gate(verdict, chapter: str | None, *, min_relative_margin: float) ->
         return Gate(False, chapter, relative, "the retrievers disagree")
     if relative < min_relative_margin:
         return Gate(False, chapter, relative, "narrow lead over the runner-up")
+    if reranked is not None:
+        third = reranked()
+        if third is not None and third != chapter:
+            return Gate(False, chapter, relative, f"the reranker prefers {third}")
     return Gate(True, chapter, relative)
 
 
@@ -58,7 +68,15 @@ def summarise(log: dict[str, dict]) -> dict:
     passed = [e for e in log.values() if e["passed"]]
     compared = [e for e in passed if "judge_chapter" in e]
     agreed = sum(1 for e in compared if e["judge_chapter"] == e["chapter"])
+    #: what tuning the margin needs: every question the chapter judge also answered, with
+    #: the lead retrieval had and whether the judge named the chapter retrieval did
+    curve = [
+        [e["relative_margin"], bool(e.get("retrievers_agreed")),
+         e["judge_chapter"] == e["chapter"]]
+        for e in log.values() if "judge_chapter" in e and e.get("chapter") is not None
+    ]
     return {
+        "curve": curve,
         "evaluated": len(log),
         "passed": len(passed),
         "enforced": sum(1 for e in passed if e.get("enforced")),
