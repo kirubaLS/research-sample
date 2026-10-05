@@ -127,3 +127,37 @@ def test_another_schools_section_is_never_reachable(client, school, open_scope, 
     assert r.status_code == 404
     missing = f"/assessments/{aid}/sections/{uuid.uuid4()}/gridsheet/file"
     assert client.post(missing, headers=h, files=files).status_code == 404
+
+
+def test_a_common_key_is_offered_every_section_and_may_read_any_roster_of_its_school(
+    client, school, open_scope, other_section,
+):
+    h = _class_teacher(client, school)
+    ids = {s["section_id"] for s in client.get("/admin/teacher/sections", headers=h).json()["sections"]}
+    assert {school["section_id"], other_section} <= ids
+    assert client.get(f"/admin/teacher/sections/{other_section}/students", headers=h).status_code == 200
+
+
+def test_off_a_class_teacher_still_sees_only_their_own_sections(client, school, other_section):
+    h = _class_teacher(client, school)
+    ids = {s["section_id"] for s in client.get("/admin/teacher/sections", headers=h).json()["sections"]}
+    assert other_section not in ids
+    assert client.get(f"/admin/teacher/sections/{other_section}/students", headers=h).status_code == 404
+
+
+def test_another_schools_roster_is_never_readable(client, school, open_scope):
+    from app.db import SessionLocal
+    from app.models import School, Section
+
+    db = SessionLocal()
+    rival = School(name="Rival Roster School", api_key=f"rr-{uuid.uuid4().hex}", state="Tamil Nadu",
+                   training_consent="training_permitted", hidden_from_directory=False)
+    db.add(rival)
+    db.flush()
+    foreign = Section(school_id=rival.id, grade=10, name="R")
+    db.add(foreign)
+    db.commit()
+    foreign_id = foreign.id
+    db.close()
+    h = _class_teacher(client, school)
+    assert client.get(f"/admin/teacher/sections/{foreign_id}/students", headers=h).status_code == 404

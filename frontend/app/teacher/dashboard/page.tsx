@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -42,14 +42,11 @@ import {
   ReviewQuestion,
   ScheduledExam,
   StagedQuestion,
+  type TeacherSectionSummary,
 } from "@/lib/api";
 import { Stat } from "@/components/Stat";
 import { usePaperScan } from "@/lib/usePaperScan";
-import { useGridSheet } from "@/lib/useGridSheet";
-import { FilePickButtons } from "@/components/FilePickButtons";
 import { usePageHeader } from "@/lib/pageHeader";
-import { MarksEntryGrid } from "@/components/MarksEntryGrid";
-import { ConfirmedMarksGrid } from "@/components/ConfirmedMarksGrid";
 import { ChapterPicker } from "@/components/ChapterPicker";
 import { SubjectRoster } from "@/components/SubjectRoster";
 import { AttentionPill } from "@/components/Status";
@@ -59,6 +56,9 @@ import { DuplicateHold } from "@/components/DuplicateHold";
 import { DeltaCell } from "@/components/StudentRosterTable";
 import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
+import { PaperUploadDrawer, usePaperUploader } from "@/components/PaperUploadDrawer";
+import { UNSCHEDULED_ID, shortSubject, useTestBoard, type TestRow } from "@/lib/useTestBoard";
+import { AnswerSheetPanel, type SectionOption } from "@/components/AnswerSheetPanel";
 import { getApiKey } from "@/lib/session";
 
 /** The one common teacher dashboard, every teacher key lands on -- exam-cell or a plain
@@ -117,10 +117,24 @@ export default function TeacherDashboardPage() {
       </div>
 
       <div style={{ marginTop: 18 }}>
-        {tab === "papers" && <PapersTab examCell={!!examCell} />}
-        {tab === "marks" && <MarksTab />}
-        {tab === "insights" && <InsightsTab assignments={subjectAssignments} />}
-        {tab === "myclass" && <MyClassTab assignments={classAssignments} />}
+        {/* the outgoing tab fades out before the next one rises in. The perspective tilt
+           only lasts the animation: framer-motion drops the transform at rest, so nothing
+           inside a tab is ever left in a 3D context that could swallow a click. */}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={tab}
+            initial={{ opacity: 0, y: 14, rotateX: -4 }}
+            animate={{ opacity: 1, y: 0, rotateX: 0 }}
+            exit={{ opacity: 0, y: -8 }}
+            transition={{ duration: 0.28, ease: [0.22, 1, 0.36, 1] }}
+            style={{ transformPerspective: 1100, transformOrigin: "top" }}
+          >
+            {tab === "papers" && <PapersTab examCell={!!examCell} />}
+            {tab === "marks" && <MarksTab onGoToPapers={() => setTab("papers")} />}
+            {tab === "insights" && <InsightsTab assignments={subjectAssignments} />}
+            {tab === "myclass" && <MyClassTab assignments={classAssignments} />}
+          </motion.div>
+        </AnimatePresence>
       </div>
     </>
   );
@@ -129,8 +143,6 @@ export default function TeacherDashboardPage() {
 // =====================================================================================
 // Question papers
 // =====================================================================================
-
-type TestRow = { id: string; name: string; date: string | null; status: "Analysed" | "Awaiting marks" | "Scheduled" };
 
 /** The three cognitive tiers a classified question is filed under -- the board's own
  * words, which is what the backend accepts back (see TIER_ALIASES). */
@@ -142,8 +154,6 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     listPapers: (key) => api.teacherPapers(key),
     listSubjects: (key) => api.subjects(key).then((r) => r.subjects),
   });
-
-  const [newTitle, setNewTitle] = useState("Cycle Test I");
 
   // The row currently open for editing -- only ever a pre-confirmation, unmapped row (see
   // the Edit button's own guard below); editScanned() 409s past either point, so the
@@ -310,6 +320,14 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     void loadExams();
   }, [loadExams]);
 
+  // Question-paper upload happens in the row itself: the drawer under it takes the file and
+  // follows the server's read, map and classify to the end (see PaperUploadDrawer).
+  const uploader = usePaperUploader(() => {
+    void scan.loadPapers();
+    void loadExams();
+  });
+  const [uploadFor, setUploadFor] = useState<string | null>(null);
+
   function toggle(id: string) {
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -328,10 +346,10 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     };
     const map = new Map<string, PaperSummary[]>();
     for (const p of scan.papers) {
-      if (!p.exam_id) continue;
-      const list = map.get(p.exam_id) ?? [];
+      const id = p.exam_id ?? UNSCHEDULED_ID;
+      const list = map.get(id) ?? [];
       list.push(p);
-      map.set(p.exam_id, list);
+      map.set(id, list);
     }
     for (const list of map.values()) {
       list.sort((a, b) => rank(a.subject_code) - rank(b.subject_code) || a.subject_label.localeCompare(b.subject_label));
@@ -339,7 +357,14 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     return map;
   }, [scan.papers]);
 
-  const standalonePapers = scan.papers.filter((p) => !p.exam_id);
+  // A paper that was never attached to a test (made before the standalone form was taken
+  // off this screen) stays reachable as one more card, with no way to make new ones.
+  const testsView = useMemo<TestRow[]>(
+    () => (papersByExam.has(UNSCHEDULED_ID)
+      ? [...tests, { id: UNSCHEDULED_ID, name: "Unscheduled papers", date: null, status: "Scheduled" }]
+      : tests),
+    [tests, papersByExam],
+  );
 
   // Paper authoring/upload/status is open to every teacher key for every subject this
   // deployment carries now, exam cell or not -- see require_paper_scope. A subject
@@ -376,15 +401,11 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     }
   }
 
-  // Filling a scheduled test after the fact, and joining a standalone paper to one:
-  // the server has always allowed both (POST /assessments with exam_id, POST
-  // /admin/exams/{id}/papers), but no screen called either, so an exam scheduled from
-  // the principal's page sat at "0 subjects" forever and a paper uploaded below could
-  // never be grouped under a test. Both are one request plus a reload.
+  // Filling a scheduled test after the fact: the server has always allowed it (POST
+  // /assessments with exam_id), but no screen called it, so an exam scheduled from the
+  // principal's page sat at "0 subjects" forever. One request plus a reload.
   const [addingSubjectFor, setAddingSubjectFor] = useState<string | null>(null);
   const [addSubjectCode, setAddSubjectCode] = useState("");
-  const [movingPaper, setMovingPaper] = useState<string | null>(null);
-  const [moveTarget, setMoveTarget] = useState("");
   const [linkBusy, setLinkBusy] = useState(false);
   const [linkError, setLinkError] = useState<string | null>(null);
 
@@ -400,24 +421,6 @@ function PapersTab({ examCell }: { examCell: boolean }) {
       await Promise.all([loadExams(), scan.loadPapers()]);
     } catch (err) {
       setLinkError(err instanceof ApiError ? `Could not add the subject: ${err.message}` : "Could not reach the API.");
-    } finally {
-      setLinkBusy(false);
-    }
-  }
-
-  async function movePaperIntoTest(paperId: string, examId: string) {
-    const key = getApiKey();
-    if (!key || !examId) return;
-    setLinkBusy(true);
-    setLinkError(null);
-    try {
-      await api.attachExamPaper(key, examId, paperId);
-      setMovingPaper(null);
-      setMoveTarget("");
-      setExpanded((prev) => new Set(prev).add(examId));
-      await Promise.all([loadExams(), scan.loadPapers()]);
-    } catch (err) {
-      setLinkError(err instanceof ApiError ? `Could not move the paper: ${err.message}` : "Could not reach the API.");
     } finally {
       setLinkBusy(false);
     }
@@ -521,7 +524,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
           <Stagger style={{ display: "grid", gap: 16 }}>
             {examsLoading && <p className="small muted">Loading tests…</p>}
 
-            {tests.map((t) => {
+            {testsView.map((t) => {
               const papers = papersByExam.get(t.id) ?? [];
               const mappedCount = papers.filter((p) => p.stage === "mapped").length;
               const open = expanded.has(t.id);
@@ -531,8 +534,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                   {/* The 3D tilt (.pm-examcard--hover) only applies while collapsed: the
                      header is a single clickable target then, but once expanded this
                      card holds real per-subject action buttons, and a preserve-3d
-                     transform is what silently ate clicks on the Standalone papers form
-                     below. */}
+                     transform is what silently ate clicks on forms inside the card. */}
                   <div className={`pm-examcard ${open ? "pm-examcard--open" : "pm-examcard--hover"}`}>
                     <button
                       type="button"
@@ -571,7 +573,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                         >
                           <div className="pm-examcard__body">
                             {papers.length === 0 ? (
-                              <p className="small muted">No papers attached to this test yet. Add a subject below, or move a standalone paper into it.</p>
+                              <p className="small muted">No papers attached to this test yet. Add a subject below.</p>
                             ) : (
                               <div className="pm-table-wrap">
                                 <table className="pm-table">
@@ -586,11 +588,16 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                   </thead>
                                   <tbody>
                                     {papers.map((p, i) => {
-                                      const st = statusTag(p);
+                                      const up = uploader.states[p.id];
+                                      const uploading = up?.phase === "reading" || up?.phase === "matching" || up?.phase === "classifying";
+                                      const st = uploading
+                                        ? { label: up.phase === "reading" ? "Reading…" : up.phase === "matching" ? "Matching…" : "Classifying…", cls: "pm-pill--busy" }
+                                        : statusTag(p);
                                       const pct = coveragePct(p);
+                                      const drawerOpen = uploadFor === p.id;
                                       return (
+                                        <Fragment key={p.id}>
                                         <motion.tr
-                                          key={p.id}
                                           initial={{ opacity: 0, y: 6 }}
                                           animate={{ opacity: 1, y: 0 }}
                                           transition={{ duration: 0.3, delay: 0.05 + i * 0.05, ease: [0.22, 1, 0.36, 1] }}
@@ -637,17 +644,48 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                             />
                                           </td>
                                           <td style={{ textAlign: "right" }}>
-                                            <button className="btn btn--sm pm-btn-action" onClick={() => void scan.openPaper(p)}>
-                                              {p.stage === "empty" ? (
-                                                <>
-                                                  <Upload size={13} /> Upload
-                                                </>
-                                              ) : (
-                                                "View mapping"
-                                              )}
-                                            </button>
+                                            {p.stage === "empty" ? (
+                                              <button
+                                                className="btn btn--sm pm-btn-action"
+                                                aria-expanded={drawerOpen}
+                                                disabled={uploading}
+                                                onClick={() => setUploadFor(drawerOpen ? null : p.id)}
+                                              >
+                                                {uploading ? <Loader2 size={13} className="spin" /> : <Upload size={13} />}{" "}
+                                                {uploading ? "Working…" : "Upload"}
+                                              </button>
+                                            ) : (
+                                              <button className="btn btn--sm pm-btn-action" onClick={() => void scan.openPaper(p)}>
+                                                View mapping
+                                              </button>
+                                            )}
                                           </td>
                                         </motion.tr>
+                                        {(drawerOpen || (up && up.phase !== "reading" && up.phase !== "matching" && up.phase !== "classifying" && p.stage === "empty")) && (
+                                          <tr className="pm-drawer-row">
+                                            <td colSpan={5} style={{ padding: 0 }}>
+                                              <AnimatePresence initial>
+                                                <motion.div
+                                                  key="drawer"
+                                                  initial={{ opacity: 0, height: 0, rotateX: -10 }}
+                                                  animate={{ opacity: 1, height: "auto", rotateX: 0 }}
+                                                  exit={{ opacity: 0, height: 0 }}
+                                                  transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+                                                  style={{ overflow: "hidden", transformPerspective: 900, transformOrigin: "top" }}
+                                                >
+                                                  <PaperUploadDrawer
+                                                    paper={p}
+                                                    state={up}
+                                                    onFiles={(files) => void uploader.upload(p, files)}
+                                                    onRetry={() => uploader.clear(p.id)}
+                                                    onClose={() => { setUploadFor(null); if (up && up.phase !== "reading") uploader.clear(p.id); }}
+                                                  />
+                                                </motion.div>
+                                              </AnimatePresence>
+                                            </td>
+                                          </tr>
+                                        )}
+                                        </Fragment>
                                       );
                                     })}
                                   </tbody>
@@ -655,6 +693,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                               </div>
                             )}
                             {(() => {
+                              if (t.id === UNSCHEDULED_ID) return null;
                               const present = new Set(papers.map((p) => p.subject_code));
                               const addable = pickableSubjects.filter((s) => !present.has(s.subject_code));
                               if (addable.length === 0) return null;
@@ -706,167 +745,13 @@ function PapersTab({ examCell }: { examCell: boolean }) {
               );
             })}
 
-            {!examsLoading && tests.length === 0 && (
+            {!examsLoading && testsView.length === 0 && (
               <p className="small muted">
                 No test has been scheduled yet. Use &quot;Create test&quot; to add one.
               </p>
             )}
           </Stagger>
 
-          <Reveal delay={0.1}>
-            <div className="section" style={{ marginTop: 32 }}>
-              <div className="section__head">
-                <h2 className="section-q">Standalone papers</h2>
-              </div>
-              {/* .pm-standalone is a plain, unboxed panel -- deliberately no 3D hover:
-                 this holds a native <select> and a hidden file input the "Upload paper
-                 file" button programmatically clicks, and perspective/preserve-3d puts
-                 interactive children in a 3D rendering context where clicks silently
-                 stopped reaching them in the browser (no console error, no dialog). A
-                 surface whose whole job is to be clicked (the exam-day cards, collapsed)
-                 is fine with it; a form is not. */}
-              <div className="pm-standalone">
-                <div className="pm-standalone__fields">
-                    <div className="field" style={{ minWidth: 220 }}>
-                      <label htmlFor="new-subject">Subject</label>
-                      <select id="new-subject" className="select" value={scan.subject} onChange={(e) => scan.setSubject(e.target.value)}>
-                        {pickableSubjects.map((s) => (
-                          <option key={s.subject_code} value={s.subject_code}>
-                            {s.label}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="field" style={{ minWidth: 220, flex: 1 }}>
-                      <label htmlFor="new-title">Title</label>
-                      <input id="new-title" className="input" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} />
-                    </div>
-                  </div>
-                  {pickableSubjects.length === 0 ? (
-                    <p className="small muted">This deployment carries no subjects yet.</p>
-                  ) : (
-                    <div style={{ display: "flex", gap: 8 }}>
-                      <button
-                        className="btn btn--primary"
-                        onClick={() => {
-                          scan.setTitle(newTitle || "Cycle Test I");
-                          scan.fileInput.current?.click();
-                        }}
-                      >
-                        <Upload size={14} /> Upload paper file
-                      </button>
-                      <button
-                        className="btn"
-                        onClick={() => {
-                          scan.setTitle(newTitle || "Cycle Test I");
-                          scan.setShowCamera(true);
-                        }}
-                      >
-                        <Camera size={14} /> Photograph paper
-                      </button>
-                    </div>
-                  )}
-                  <input
-                    ref={scan.fileInput}
-                    type="file"
-                    accept=".pdf,image/*"
-                    multiple
-                    hidden
-                    onChange={(e) => {
-                      const files = Array.from(e.target.files ?? []);
-                      if (files.length) void scan.onFiles(files);
-                    }}
-                  />
-                  {scan.showCamera && (
-                    <FilePickButtons
-                      accept="image/*"
-                      fileLabel="Choose photo"
-                      onPick={(file) => {
-                        scan.setShowCamera(false);
-                        void scan.onFiles([file]);
-                      }}
-                    />
-                  )}
-                </div>
-
-              {standalonePapers.length > 0 && (
-                <div style={{ display: "grid", gap: 16, marginTop: 16 }}>
-                  {standalonePapers.map((p) => {
-                    // a test that already holds this subject cannot take a second paper of it
-                    const targets = tests.filter((t) => !(papersByExam.get(t.id) ?? []).some((q) => q.subject_code === p.subject_code));
-                    const moving = movingPaper === p.id;
-                    return (
-                      <div key={p.id} style={{ display: "grid", gap: 8 }}>
-                        <button
-                          onClick={() => scan.openPaper(p)}
-                          className="pm-standalone-card"
-                          style={{ width: "100%", textAlign: "left", font: "inherit", color: "inherit" }}
-                        >
-                          <div>
-                            <div className="strong" style={{ fontSize: 15 }}>
-                              {p.title}
-                            </div>
-                            <div className="small muted" style={{ marginTop: 2 }}>
-                              {p.subject_label} · {p.questions} question{p.questions === 1 ? "" : "s"} · {p.mapped_questions} mapped ·{" "}
-                              {p.students_with_marks} student{p.students_with_marks === 1 ? "" : "s"} marked
-                              {p.spend && p.spend.calls > 0 && (
-                                <> · {spendLabel(p.spend)}</>
-                              )}
-                            </div>
-                          </div>
-                          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                            <span className={`tag ${p.stage === "mapped" ? "tag--green" : p.stage === "confirmed" ? "tag--gold" : ""}`}>{p.stage}</span>
-                            <ChevronDown size={16} className="muted" />
-                          </div>
-                        </button>
-                        <DuplicateHold
-                          matches={p.duplicates_pending}
-                          onChoose={(c) => void scan.releaseDuplicate(p.id, p.duplicates_pending ?? [], c)}
-                        />
-                        {targets.length > 0 && (
-                          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", paddingLeft: 4 }}>
-                            {moving ? (
-                              <>
-                                <select
-                                  className="select"
-                                  style={{ maxWidth: 300 }}
-                                  value={moveTarget}
-                                  onChange={(e) => setMoveTarget(e.target.value)}
-                                  aria-label="Test to move this paper into"
-                                >
-                                  <option value="">Choose a test…</option>
-                                  {targets.map((t) => (
-                                    <option key={t.id} value={t.id}>
-                                      {t.name}{t.date ? ` · ${t.date}` : ""}
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  className="btn btn--primary btn--sm"
-                                  disabled={!moveTarget || linkBusy}
-                                  onClick={() => void movePaperIntoTest(p.id, moveTarget)}
-                                >
-                                  {linkBusy ? <Loader2 size={13} className="spin" /> : <ArrowRight size={13} />} Move
-                                </button>
-                                <button className="btn btn--sm" disabled={linkBusy} onClick={() => { setMovingPaper(null); setMoveTarget(""); }}>
-                                  Cancel
-                                </button>
-                                {linkError && <span className="small" style={{ color: "#c2410c" }}>{linkError}</span>}
-                              </>
-                            ) : (
-                              <button className="btn btn--sm" onClick={() => { setMovingPaper(p.id); setMoveTarget(""); setLinkError(null); }}>
-                                <ArrowRight size={13} /> Move into test
-                              </button>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </Reveal>
         </>
       ) : (
         <div className="card">
@@ -1336,100 +1221,224 @@ function PapersTab({ examCell }: { examCell: boolean }) {
 // Enter marks
 // =====================================================================================
 
-function MarksTab() {
-  const grid = useGridSheet({ role: "teacher" });
-  const [notReady, setNotReady] = useState<Set<string>>(new Set());
-  const marksKey = `${grid.paperId}:${grid.sectionId}`;
+function MarksTab({ onGoToPapers }: { onGoToPapers: () => void }) {
+  const board = useTestBoard();
+  const [sections, setSections] = useState<TeacherSectionSummary[]>([]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [answersFor, setAnswersFor] = useState<string | null>(null);
+  const [autoOpened, setAutoOpened] = useState(false);
 
-  // Assessment first, then the subject within it: a test day (exam_id) groups one paper
-  // per subject; a paper never attached to a test is its own single-subject assessment.
-  const assessments = useMemo(() => {
-    const groups = new Map<string, { key: string; label: string; papers: PaperSummary[] }>();
-    for (const p of grid.ready) {
-      const key = p.exam_id ?? `paper:${p.id}`;
-      const g = groups.get(key) ?? { key, label: p.title, papers: [] };
-      g.papers.push(p);
-      groups.set(key, g);
-    }
-    return Array.from(groups.values());
-  }, [grid.ready]);
-  const [assessmentKey, setAssessmentKey] = useState("");
-  const chosen = assessments.find((a) => a.key === assessmentKey) ?? null;
-  // a paper picked elsewhere (or the only paper of a test) keeps the two selects in step
   useEffect(() => {
-    if (!grid.paperId) return;
-    const owner = assessments.find((a) => a.papers.some((p) => p.id === grid.paperId));
-    if (owner && owner.key !== assessmentKey) setAssessmentKey(owner.key);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [grid.paperId, assessments]);
+    const key = getApiKey();
+    if (!key) return;
+    let cancelled = false;
+    void api.teacherSections(key)
+      .then((out) => { if (!cancelled) setSections(out.sections); })
+      .catch(() => { /* the list below still shows; a paper just offers no classes */ });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
-  function pickAssessment(key: string) {
-    setAssessmentKey(key);
-    const group = assessments.find((a) => a.key === key);
-    grid.pickPaper(group && group.papers.length === 1 ? group.papers[0].id : "");
+  // Every test that has at least one paper read or mapped, in the same order as the
+  // Question papers tab: a paper nothing was uploaded for has no questions to mark.
+  const groups = useMemo(() => {
+    const byId = new Map(board.tests.map((t) => [t.id, t]));
+    const out: { test: TestRow; papers: PaperSummary[] }[] = [];
+    for (const [id, all] of board.papersByTest) {
+      const papers = all.filter((p) => p.stage !== "empty");
+      if (papers.length === 0) continue;
+      const test = id === UNSCHEDULED_ID
+        ? { id, name: "Unscheduled papers", date: null, status: "Scheduled" as const }
+        : byId.get(id) ?? { id, name: papers[0].title, date: null, status: "Scheduled" as const };
+      out.push({ test, papers });
+    }
+    return out.sort((a, b) => (a.test.date ?? "9999").localeCompare(b.test.date ?? "9999"));
+  }, [board.tests, board.papersByTest]);
+
+  // open the first test that has something ready, once, so the screen is not a wall of
+  // closed cards
+  useEffect(() => {
+    if (autoOpened || groups.length === 0) return;
+    const first = groups.find((g) => g.papers.some((p) => p.ready_for_answer_sheets)) ?? groups[0];
+    setExpanded(new Set([first.test.id]));
+    setAutoOpened(true);
+  }, [groups, autoOpened]);
+
+  function toggle(id: string) {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function classesFor(p: PaperSummary): SectionOption[] {
+    return sections
+      .filter((s) => s.can_read_all_subjects || s.subjects.includes(p.subject_code))
+      .map((s) => ({ section_id: s.section_id, label: s.label ?? s.section_id }));
+  }
+
+  function testStatus(papers: PaperSummary[]): { label: string; cls: string } {
+    const ready = papers.filter((p) => p.ready_for_answer_sheets);
+    if (ready.length === 0) return { label: "Needs mapping", cls: "pm-status--awaiting" };
+    if (ready.every((p) => p.students_with_marks > 0)) return { label: "Marked", cls: "pm-status--analysed" };
+    return { label: "Awaiting marks", cls: "pm-status--awaiting" };
   }
 
   return (
     <div>
-      <div className="filterbar">
-        <div className="filter">
-          <label htmlFor="marks-assessment">Assessment</label>
-          <select id="marks-assessment" className="select" value={assessmentKey} onChange={(e) => pickAssessment(e.target.value)}>
-            <option value="">Choose a test…</option>
-            {assessments.map((a) => (
-              <option key={a.key} value={a.key}>
-                {a.label}
-              </option>
-            ))}
-          </select>
+      {board.error && (
+        <div className="evidence evidence--gold" style={{ marginBottom: 12 }}>
+          <AlertTriangle size={16} />
+          <div>{board.error}</div>
         </div>
-        <div className="filter">
-          <label htmlFor="marks-paper">Subject</label>
-          <select
-            id="marks-paper"
-            className="select"
-            value={grid.paperId}
-            onChange={(e) => grid.pickPaper(e.target.value)}
-            disabled={!chosen}
-          >
-            <option value="">{chosen ? "Choose a subject…" : "Pick a test first"}</option>
-            {(chosen?.papers ?? []).map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.subject_label.replace(/^Class\s+[A-Z0-9]+\s+/i, "")}
-              </option>
-            ))}
-          </select>
-        </div>
-        <div className="filter">
-          <label htmlFor="marks-section">Section</label>
-          <select id="marks-section" className="select" value={grid.sectionId} onChange={(e) => grid.pickSection(e.target.value)}>
-            <option value="">Choose a class…</option>
-            {grid.sections.map((s) => (
-              <option key={s.section_id} value={s.section_id}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
-
-      {grid.paperId && grid.sectionId && (
-        notReady.has(marksKey) ? (
-          <MarksEntryGrid
-            key={marksKey}
-            subject={grid.ready.find((p) => p.id === grid.paperId)?.subject_code ?? ""}
-            section={grid.sectionId}
-            paperId={grid.paperId}
-          />
-        ) : (
-          <ConfirmedMarksGrid
-            key={marksKey}
-            section={grid.sectionId}
-            assessmentId={grid.paperId}
-            onNotReady={() => setNotReady((prev) => new Set(prev).add(marksKey))}
-          />
-        )
       )}
+      <Stagger style={{ display: "grid", gap: 16 }}>
+        {board.loading && <p className="small muted">Loading tests…</p>}
+
+        {groups.map(({ test: t, papers }) => {
+          const open = expanded.has(t.id);
+          const status = testStatus(papers);
+          const readyCount = papers.filter((p) => p.ready_for_answer_sheets).length;
+          return (
+            <StaggerItem key={t.id}>
+              <div className={`pm-examcard ${open ? "pm-examcard--open" : "pm-examcard--hover"}`}>
+                <button type="button" onClick={() => toggle(t.id)} aria-expanded={open} className="pm-examcard__head">
+                  <div>
+                    <div className="pm-examcard__title">{t.name}</div>
+                    <div className="pm-examcard__meta">
+                      {t.date ?? "no date"} · {papers.length} subject{papers.length === 1 ? "" : "s"} · {readyCount} ready for answer sheets
+                    </div>
+                  </div>
+                  <div className="pm-examcard__right">
+                    <span className={`pm-status ${status.cls}`}>{status.label}</span>
+                    <motion.span
+                      className="pm-examcard__chev"
+                      animate={{ rotate: open ? 180 : 0 }}
+                      transition={{ duration: 0.26, ease: [0.22, 1, 0.36, 1] }}
+                    >
+                      <ChevronDown size={16} />
+                    </motion.span>
+                  </div>
+                </button>
+
+                <AnimatePresence initial={false}>
+                  {open && (
+                    <motion.div
+                      key="body"
+                      initial={{ height: 0, opacity: 0 }}
+                      animate={{ height: "auto", opacity: 1 }}
+                      exit={{ height: 0, opacity: 0 }}
+                      transition={{ duration: 0.34, ease: [0.22, 1, 0.36, 1] }}
+                      style={{ overflow: "hidden" }}
+                    >
+                      <div className="pm-examcard__body">
+                        <div className="pm-table-wrap">
+                          <table className="pm-table">
+                            <thead>
+                              <tr>
+                                <th>Subject</th>
+                                <th>Questions</th>
+                                <th>Marks entered</th>
+                                <th>Status</th>
+                                <th></th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {papers.map((p, i) => {
+                                const ready = p.ready_for_answer_sheets;
+                                const drawerOpen = answersFor === p.id;
+                                return (
+                                  <Fragment key={p.id}>
+                                    <motion.tr
+                                      initial={{ opacity: 0, y: 6 }}
+                                      animate={{ opacity: 1, y: 0 }}
+                                      transition={{ duration: 0.3, delay: 0.05 + i * 0.05, ease: [0.22, 1, 0.36, 1] }}
+                                    >
+                                      <td className="strong">{shortSubject(p.subject_label)}</td>
+                                      <td>
+                                        {p.questions > 0 ? `${p.mapped_questions} of ${p.questions} mapped` : <span className="muted">{p.scanned_questions} read</span>}
+                                      </td>
+                                      <td>
+                                        {p.students_with_marks > 0
+                                          ? `${p.students_with_marks} student${p.students_with_marks === 1 ? "" : "s"}`
+                                          : <span className="muted">None yet</span>}
+                                      </td>
+                                      <td>
+                                        <span className={`pm-pill ${ready ? "pm-pill--mapped" : "pm-pill--needs"}`}>
+                                          {ready ? "Ready for answer sheets" : "Needs mapping"}
+                                        </span>
+                                      </td>
+                                      <td style={{ textAlign: "right" }}>
+                                        {ready ? (
+                                          <button
+                                            className="btn btn--sm btn--primary pm-btn-action"
+                                            aria-expanded={drawerOpen}
+                                            onClick={() => setAnswersFor(drawerOpen ? null : p.id)}
+                                          >
+                                            <Upload size={13} /> {drawerOpen ? "Hide" : "Answer sheets"}
+                                          </button>
+                                        ) : (
+                                          <button className="btn btn--sm pm-btn-action" onClick={onGoToPapers}>
+                                            Finish mapping
+                                          </button>
+                                        )}
+                                      </td>
+                                    </motion.tr>
+                                    {ready && drawerOpen && (
+                                      <tr className="pm-drawer-row">
+                                        <td colSpan={5} style={{ padding: 0 }}>
+                                          <AnimatePresence initial>
+                                            <motion.div
+                                              key="answers"
+                                              initial={{ opacity: 0, height: 0, rotateX: -10 }}
+                                              animate={{ opacity: 1, height: "auto", rotateX: 0 }}
+                                              exit={{ opacity: 0, height: 0 }}
+                                              transition={{ duration: 0.36, ease: [0.22, 1, 0.36, 1] }}
+                                              style={{ overflow: "hidden", transformPerspective: 900, transformOrigin: "top" }}
+                                            >
+                                              <AnswerSheetPanel
+                                                paper={p}
+                                                sections={classesFor(p)}
+                                                onChanged={() => void board.reload()}
+                                              />
+                                            </motion.div>
+                                          </AnimatePresence>
+                                        </td>
+                                      </tr>
+                                    )}
+                                  </Fragment>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </StaggerItem>
+          );
+        })}
+
+        {!board.loading && groups.length === 0 && (
+          <Reveal>
+            <div className="pm-empty">
+              <FileText size={22} />
+              <div className="strong">No question paper has been read yet</div>
+              <p className="small muted" style={{ margin: 0 }}>
+                Upload a question paper under Question papers. Once it is read and mapped it appears here, ready for answer sheets.
+              </p>
+              <button className="btn btn--primary btn--sm" onClick={onGoToPapers}>
+                <ArrowRight size={13} /> Go to Question papers
+              </button>
+            </div>
+          </Reveal>
+        )}
+      </Stagger>
     </div>
   );
 }

@@ -753,7 +753,15 @@ def teacher_roster(
     with 404, the same as a section outside their own school would be."""
     if not staff.is_teacher:
         raise HTTPException(403, "this route is for teacher keys; use /admin/sections/{id}/students")
-    require_teacher_read_scope(staff, db, section_id)
+    if get_settings().teacher_any_subject_uploads:
+        # a common teacher key uploads answer sheets for any class of its school, and a
+        # sheet is matched to students by the roster -- so the roster of any section of
+        # THIS school is readable; another school's (or an unknown) section is a 404
+        section = db.get(Section, section_id)
+        if section is None or section.school_id != _teacher_home(staff).id:
+            raise HTTPException(404, "not found")
+    else:
+        require_teacher_read_scope(staff, db, section_id)
     return _roster_payload(db, _teacher_home(staff), section_id)
 
 
@@ -809,7 +817,7 @@ def teacher_sections(
     if not staff.is_teacher:
         raise HTTPException(403, "this route is for teacher keys")
     assert staff.home is not None
-    if staff.exam_cell:
+    if staff.exam_cell or get_settings().teacher_any_subject_uploads:
         all_sections = list(db.scalars(select(Section).where(Section.school_id == staff.home.id)))
         all_subject_codes = [c.subject_code for g in subject_groups() for c in g.members]
         return {
