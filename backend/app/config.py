@@ -156,6 +156,18 @@ class Settings(BaseSettings):
     chapter_gate: bool = False
     chapter_gate_enforce: bool = False
     chapter_gate_min_margin: float = 0.3
+    #: Confirmed-question memory (app.classify.memory): what this school's teachers have
+    #: already confirmed, recalled for the next paper. ``memory_recall`` alone OBSERVES --
+    #: the job result reports how often a near-identical confirmed question existed and
+    #: whether the judge then agreed. ``memory_reuse`` lets such a question take the
+    #: confirmed chapter, section and tier with no model call at all;
+    #: ``memory_demos`` > 0 shows the chapter judge that many similar confirmed questions
+    #: as worked examples. YAADHUM_MEMORY_RECALL, _REUSE, _MIN_SIMILARITY, _DEMOS.
+    memory_recall: bool = False
+    memory_reuse: bool = False
+    memory_min_similarity: float = 0.9
+    memory_demos: int = 0
+    memory_demo_min_similarity: float = 0.4
     #: A major topic is at most this many levels deep ("4" or "4.1", never "4.1.1") for
     #: every subject listed in topic_max_depth_by_subject, everywhere a section is decided
     #: or stored (app.curriculum.depth.collapse_section). A subject not listed keeps

@@ -20,7 +20,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from app.classify.gate import chapter_gate
-from app.classify.judge import Classification, Evidence
+from app.classify.judge import TIERS, Classification, Evidence
 from app.classify.reconcile import (
     Option,
     QuestionSlot,
@@ -105,6 +105,10 @@ class PlacedQuestion:
     #: the scope named exactly one chapter, so the chapter judge was not asked
     #: (skip_single_chapter_judge); the tier then comes from the topic judge
     chapter_judge_skipped: bool = False
+    #: ...because a person already confirmed a near-identical question in this school
+    #: (app.classify.memory); the confirmed section and tier ride on the placement and the
+    #: topic judge is not asked either. Always also chapter_judge_skipped.
+    memory_reused: bool = False
     #: ...because both retrievers agreed with a clear lead (Tier 0, app.classify.gate), not
     #: because the paper declared the chapter. Always also chapter_judge_skipped.
     chapter_gated: bool = False
@@ -161,6 +165,18 @@ class PassOptions:
     gate_enforce: bool = False
     gate_min_margin: float = 0.3
     gate_log: dict | None = None
+    #: what teachers have already confirmed (app.classify.memory). Giving a memory alone
+    #: only OBSERVES: each question's closest confirmed neighbour is written to
+    #: ``memory_log`` next to the judge's answer. ``memory_reuse`` then lets a question
+    #: that is, to within a few words, one already confirmed in the same school take that
+    #: placement without either judge; ``memory_demos`` shows the judge that many similar
+    #: confirmed questions as worked examples.
+    memory: object | None = None
+    memory_reuse: bool = False
+    memory_min_similarity: float = 0.9
+    memory_demos: int = 0
+    memory_demo_min_similarity: float = 0.4
+    memory_log: dict | None = None
 
 
 #: passages each other book contributes when candidates are balanced across books
@@ -354,6 +370,41 @@ def _pass(
             if on_progress is not None:
                 on_progress(done, total)
             continue
+        if options.memory is not None:
+            recall = options.memory.recall(stem, exclude=question_id)
+            hit = recall.reusable(options.memory_min_similarity)
+            reusable = (
+                hit is not None and not out_of_scope
+                and (not every_label or hit.entry.chapter in every_label or unit_of(hit.entry.chapter))
+                and (q_scope is None or hit.entry.chapter in q_scope)
+            )
+            reused = bool(reusable and options.memory_reuse)
+            if options.memory_log is not None:
+                options.memory_log[question_id] = {
+                    "similarity": recall.best.similarity if recall.best else 0.0,
+                    "chapter": hit.entry.chapter if hit is not None else recall.vote,
+                    "reusable": bool(reusable), "reused": reused,
+                }
+            if reused:
+                tier = hit.entry.tier if hit.entry.tier in TIERS else None
+                judged[question_id] = Classification(
+                    chapter=hit.entry.chapter, curriculum_section=hit.entry.section, tier=tier,
+                    skill_required="",
+                    reasoning=(
+                        f"a teacher already placed a near-identical question "
+                        f"({hit.similarity:.0%} alike) in {hit.entry.chapter}"
+                        + (f", section {hit.entry.section}" if hit.entry.section else "")
+                        + ", so neither judge was asked"
+                    ),
+                    evidence=[], confidence=0.97, alternative_chapter=None,
+                )
+                skipped.add(question_id)
+                slots.append(QuestionSlot(question_id, marks, [
+                    Option(hit.entry.chapter, unit_of(hit.entry.chapter) or "?", 0.97),
+                ]))
+                if on_progress is not None:
+                    on_progress(done, total)
+                continue
         if options.gate and not out_of_scope:
             gate = chapter_gate(
                 verdict, chapter_of(verdict.node_id), min_relative_margin=options.gate_min_margin,
@@ -397,9 +448,21 @@ def _pass(
         )
 
     def classify(item):
+        # worked examples only when there are some, so a judge that predates them is
+        # called exactly as before
+        extra = {}
+        if options.memory is not None and options.memory_demos:
+            shown = options.memory.demonstrations(
+                item[2], options.memory_demos, min_similarity=options.memory_demo_min_similarity,
+                exclude=item[1],
+            )
+            if shown:
+                extra["examples"] = shown
+                if options.memory_log is not None and item[1] in options.memory_log:
+                    options.memory_log[item[1]]["demos"] = len(shown)
         if scoped_call(item):
-            return judge.classify(item[2], item[4], scoped=True)
-        return judge.classify(item[2], item[4])
+            return judge.classify(item[2], item[4], scoped=True, **extra)
+        return judge.classify(item[2], item[4], **extra)
 
     # Phase 2: the judge. A batched judge (see app.llm_batch) is asked every question at
     # once, from one thread each, so the whole paper becomes one batch; a live judge is
@@ -487,6 +550,8 @@ def _pass(
 
         if crossing:
             crossed.add(question_id)
+        if options.memory_log is not None and question_id in options.memory_log:
+            options.memory_log[question_id]["judge_chapter"] = call.chapter
         if options.gate_log is not None and question_id in options.gate_log:
             options.gate_log[question_id]["judge_chapter"] = call.chapter
         if asked is not None:
@@ -629,6 +694,10 @@ def place_paper(
         qid for qid, entry in (options.gate_log or {}).items() if entry.get("enforced")
     } & skipped
 
+    memorised = {
+        qid for qid, entry in (options.memory_log or {}).items() if entry.get("reused")
+    } & skipped
+
     result: Reconciliation = reconcile(slots, declared or {})
     flagged = set(needs_a_human(slots, result))
 
@@ -650,6 +719,7 @@ def place_paper(
             cross_scope=slot.question_id in crossed,
             chapter_judge_skipped=slot.question_id in skipped,
             chapter_gated=slot.question_id in gated,
+            memory_reused=slot.question_id in memorised,
             judge_confidence=asked.get(slot.question_id, (None, 0))[0],
             chapters_shown=asked.get(slot.question_id, (None, 0))[1],
         )

@@ -93,6 +93,7 @@ class AnthropicJudge:
 
     def classify(
         self, question: str, evidence: list[Evidence], *, scoped: bool = False,
+        examples: list | None = None,
     ) -> Classification:
         """``scoped`` (cross_scope_fallback, a question confined to a declared scope):
         also ask whether none of the candidates can answer it -- ScopedClassification.
@@ -109,7 +110,7 @@ class AnthropicJudge:
                     + (CITE_NOTE if getattr(self, "cite_by_number", False) else "")),
             messages=[{
                 "role": "user",
-                "content": build_prompt(question, evidence, self.passage_chars),
+                "content": build_prompt(question, evidence, self.passage_chars, examples),
             }],
             output_format=self._schema(scoped),
             **extra,

@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 from app.api.books import clean_sections
 from app.api.deps import require_admin, require_paper_scope, require_reader, require_scanner
 from app.classify.gate import summarise as summarise_gate
+from app.classify.memory import summarise as summarise_memory
 from app.classify.pipeline import place_paper
 from app.classify.review_rule import ReviewInputs, reason_code, review_reasons
 from app.curriculum import group_subjects
@@ -443,6 +444,14 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             sections_of = family_table.sections_of
         declared = (a.declared or {}).get("board_units")
         paper_kind, subject_code, assessment_id = a.paper_kind, a.subject_code, a.id
+        memory = None
+        if settings.memory_recall or settings.memory_reuse or settings.memory_demos:
+            from app.classify.memory import load_confirmed
+
+            memory = load_confirmed(
+                db, school_id=a.school_id, subject_codes=book_subject_codes,
+                exclude_assessment=a.id,
+            )
     finally:
         db.close()  # released BEFORE the slow classifier calls below, not held across it
 
@@ -467,10 +476,12 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
     pass_options: dict = {}
     gate_log: dict = {}
+    memory_log: dict = {}
     if (
         settings.balanced_group_candidates or settings.cross_scope_fallback
         or settings.skip_single_chapter_judge or settings.topic_depth_cap
         or settings.chapter_gate or settings.chapter_gate_enforce
+        or (memory is not None and len(memory))
     ):
         book_of = {
             nodes[i].label: code
@@ -486,6 +497,12 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             gate_enforce=settings.chapter_gate_enforce,
             gate_min_margin=settings.chapter_gate_min_margin,
             gate_log=gate_log,
+            memory=memory if memory is not None and len(memory) else None,
+            memory_reuse=settings.memory_reuse,
+            memory_min_similarity=settings.memory_min_similarity,
+            memory_demos=settings.memory_demos,
+            memory_demo_min_similarity=settings.memory_demo_min_similarity,
+            memory_log=memory_log,
         )
 
     try:
@@ -536,6 +553,28 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
     def pick_topic(placed):
         chapter_node = by_label.get(placed.chapter)
+        if getattr(placed, "memory_reused", False) and placed.curriculum_section:
+            remembered = headings_of.get(chapter_node.id, {})
+            if placed.curriculum_section in remembered:
+                # a person confirmed this section for a near-identical question: no read
+                from app.classify.topic import TopicPick, grounded_tier
+
+                pick = TopicPick(
+                    section=placed.curriculum_section,
+                    heading=remembered[placed.curriculum_section],
+                    source="memory", agreed=True, retrieval_section=None,
+                    rationale="the section a teacher confirmed for a near-identical question",
+                    verified=True, tier=grounded_tier(placed.tier),
+                )
+                if is_capped(chapter_node.code):
+                    from app.classify.topic import capped
+
+                    pick = capped(
+                        pick,
+                        lambda sec: collapse_section(None, sec, chapter_code=chapter_node.code),
+                        remembered,
+                    )
+                return pick
         # the chapter judge was skipped, so nothing else names the tier: the topic
         # judge's answer read does (skip_single_chapter_judge)
         tiered = {"want_tier": True} if getattr(placed, "chapter_judge_skipped", False) else {}
@@ -978,6 +1017,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             },
             #: Tier 0 gate (shadow or enforced): how often retrieval alone agreed with the judge
             **({"chapter_gate": summarise_gate(gate_log)} if gate_log else {}),
+            #: confirmed-question memory: near-identical confirmed questions found, reused,
+            #: and how often the judge agreed where it was also asked
+            **({"memory": summarise_memory(memory_log, len(memory))} if memory_log else {}),
             "settled": result.settled,
             "needs_review": flagged_rows if settings.review_flag_rule else result.reviewed_count,
             #: review_flag_rule: why the rows this run wrote were flagged, by reason (a row
