@@ -26,6 +26,8 @@ lever; thinking tokens are the next.
 | Reordered re-ask | `YAADHUM_CHAPTER_RECHECK` | A low-confidence answer is re-asked twice with the passages reordered; majority wins; an answer nobody repeats is capped at 0.4 for review | self-consistency and abstention ([survey](https://aclanthology.org/2025.tacl-1.26.pdf)); reordering stands in for sampling temperature |
 | Contextual retrieval prefix | `YAADHUM_RETRIEVAL_CONTEXTUAL_PREFIX` | Each chunk is indexed with its chapter title and section reference; no LLM, no re-embed | [contextual retrieval](https://www.anthropic.com/engineering/contextual-retrieval) (deterministic form) |
 | Memory vote as a fourth reader | with memory + gate | Confirmed similar questions unanimous in another chapter veto the gate | kNN over confirmed labels |
+| Trained classifier as a fifth reader | `YAADHUM_CHAPTER_GATE_CLASSIFIER` | Naive Bayes trained on the book's chunks and confirmed questions; confident about another chapter = the gate does not pass | a cheap model with a different inductive bias from retrieval |
+| Model-written chunk context | `python -m scripts.contextualize_chunks --subject X.MATH --apply` | One model-written sentence per chunk (chapter cached, Haiku), stored in `book_chunk.context` and indexed with the chunk; dry run prints a cost estimate | [contextual retrieval](https://www.anthropic.com/engineering/contextual-retrieval) proper; needs migration `b7d3e1f4a9c2` (additive, runs on boot) |
 | Gold-set export | `python -m scripts.export_gold` | Turns a reviewed paper into a gold key for `eval_mapping` / `eval_dense_retrieval` | evaluation grows with the review queue |
 | Chapter judge batched | `YAADHUM_BATCH_CHAPTER_JUDGE` | Existing flag; half price for an added batch wait | Batches API 50%, stacks with caching |
 
@@ -46,14 +48,11 @@ lever; thinking tokens are the next.
 
 ## Not built, and why
 
-- **Vision cascade is built but not part of this round** and stays off; see its caution above.
-- **LLM-written chunk context.** The deterministic prefix is built. A model-written sentence per
-  chunk needs a paid pass and a re-embed of every book; revisit if the shadow numbers show where
-  retrieval still fails.
-- **A trained classifier.** The nearest-neighbour vote over confirmed questions does the job without
-  a model to retrain; revisit with a few hundred confirmations per subject.
-- **Running the dense-retrieval eval.** It needs the production database; `export_gold` now makes
-  the gold set it reads.
+- **The vision cascade is built but unproven** and stays off; see its caution above.
+- **Re-embedding with context.** The context sentence is indexed by the lexical index only. The
+  stored vectors were made from the passage alone; re-embedding is a separate paid step.
+- **Running the dense-retrieval eval and the context script.** Both need your database and API key;
+  `export_gold` and `contextualize_chunks` (dry run first) are the tools.
 
 ## Reading the results honestly
 

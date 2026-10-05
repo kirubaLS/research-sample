@@ -15,6 +15,9 @@ from __future__ import annotations
 
 
 def chunk_context(chunk, chapter_label_of) -> str:
-    """``chapter_label_of(node_id)`` -> the chapter's title (None when unknown)."""
-    parts = [chapter_label_of(chunk.node_id) or "", getattr(chunk, "reference", "") or ""]
+    """``chapter_label_of(node_id)`` -> the chapter's title (None when unknown). A sentence
+    a model wrote for this chunk (``chunk.context``, scripts/contextualize_chunks.py) is
+    added when there is one."""
+    parts = [chapter_label_of(chunk.node_id) or "", getattr(chunk, "reference", "") or "",
+             getattr(chunk, "context", None) or ""]
     return " ".join(p for p in parts if p)
