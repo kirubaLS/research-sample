@@ -233,7 +233,8 @@ def assessment_summaries(db: Session, assessments: list[Assessment]) -> list[dic
                 continue
             entry["seen"].add(kind)
             part = job.result.get("spend") or {}
-            for key in ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "estimated_usd"):
+            for key in ("calls", "input_tokens", "output_tokens", "cache_read_tokens",
+                        "cache_write_tokens", "estimated_usd"):
                 entry[key] = round(entry.get(key, 0) + (part.get(key) or 0), 4)
             del a_id
 
@@ -2875,11 +2876,13 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             "input_tokens": getattr(topic_judge, "input_tokens", 0),
             "output_tokens": getattr(topic_judge, "output_tokens", 0),
             "cache_read_tokens": getattr(topic_judge, "cache_read_tokens", 0),
+            "cache_write_tokens": getattr(topic_judge, "cache_write_tokens", 0),
             "estimated_usd": estimate_usd(
                 settings.model_classifier,
                 getattr(topic_judge, "input_tokens", 0),
                 getattr(topic_judge, "output_tokens", 0),
                 getattr(topic_judge, "cache_read_tokens", 0),
+                cache_write_tokens=getattr(topic_judge, "cache_write_tokens", 0),
             ),
         },
         "blocked_addresses": blocked[:20],

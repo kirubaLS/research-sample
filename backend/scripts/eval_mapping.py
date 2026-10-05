@@ -200,7 +200,8 @@ def score(gold: dict, predictions: dict) -> dict:
 
 def spend_per_question(spend: dict, questions: int) -> dict:
     """The map and classify jobs' own reported spend, summed, and per question."""
-    keys = ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "estimated_usd")
+    keys = ("calls", "input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens",
+            "estimated_usd")
     total = {k: sum((s or {}).get(k, 0) or 0 for s in spend.values()) for k in keys}
     if not spend:
         return {"reported": False}

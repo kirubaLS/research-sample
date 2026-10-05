@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.api.books import clean_sections
 from app.api.deps import require_admin, require_paper_scope, require_reader, require_scanner
+from app.classify.gate import summarise as summarise_gate
 from app.classify.pipeline import place_paper
 from app.classify.review_rule import ReviewInputs, reason_code, review_reasons
 from app.curriculum import group_subjects
@@ -465,9 +466,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     from app.classify.pipeline import PassOptions
 
     pass_options: dict = {}
+    gate_log: dict = {}
     if (
         settings.balanced_group_candidates or settings.cross_scope_fallback
         or settings.skip_single_chapter_judge or settings.topic_depth_cap
+        or settings.chapter_gate or settings.chapter_gate_enforce
     ):
         book_of = {
             nodes[i].label: code
@@ -479,6 +482,10 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             cross_scope=settings.cross_scope_fallback,
             skip_single_chapter=settings.skip_single_chapter_judge,
             section_cap=cap_for if settings.topic_depth_cap else None,
+            gate=settings.chapter_gate or settings.chapter_gate_enforce,
+            gate_enforce=settings.chapter_gate_enforce,
+            gate_min_margin=settings.chapter_gate_min_margin,
+            gate_log=gate_log,
         )
 
     try:
@@ -590,6 +597,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         for placed in result.questions:
             pick = topic_picks.get(placed.question_id)
             if not (getattr(placed, "chapter_judge_skipped", False)
+                    and not getattr(placed, "chapter_gated", False)
                     and pick is not None and pick.verified is False):
                 replaced.append(placed)
                 continue
@@ -843,6 +851,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 confidence=placed.confidence,
                 source=(
                     "blueprint" if placed.overruled
+                    else "retrieval" if getattr(placed, "chapter_gated", False)
                     else "scope" if getattr(placed, "chapter_judge_skipped", False)
                     else "model"
                 ),
@@ -939,6 +948,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     getattr(judge, "cache_read_tokens", 0)
                     + getattr(topic_judge, "cache_read_tokens", 0)
                 ),
+                #: chapter text written to the prompt cache (billed above plain input)
+                "cache_write_tokens": (
+                    getattr(judge, "cache_write_tokens", 0)
+                    + getattr(topic_judge, "cache_write_tokens", 0)
+                ),
                 "passages_shown": settings.classifier_evidence_passages,
                 "chapters_shown": evidence_chapters,
                 "batched": settings.batch_classify,
@@ -950,16 +964,20 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                         getattr(judge, "input_tokens", 0), getattr(judge, "output_tokens", 0),
                         getattr(judge, "cache_read_tokens", 0),
                         batched=bool(getattr(judge, "batched", False)),
+                        cache_write_tokens=getattr(judge, "cache_write_tokens", 0),
                     )
                     + estimate_usd(
                         settings.model_classifier,
                         getattr(topic_judge, "input_tokens", 0), getattr(topic_judge, "output_tokens", 0),
                         getattr(topic_judge, "cache_read_tokens", 0),
                         batched=bool(getattr(topic_judge, "batched", False)),
+                        cache_write_tokens=getattr(topic_judge, "cache_write_tokens", 0),
                     ),
                     4,
                 ),
             },
+            #: Tier 0 gate (shadow or enforced): how often retrieval alone agreed with the judge
+            **({"chapter_gate": summarise_gate(gate_log)} if gate_log else {}),
             "settled": result.settled,
             "needs_review": flagged_rows if settings.review_flag_rule else result.reviewed_count,
             #: review_flag_rule: why the rows this run wrote were flagged, by reason (a row

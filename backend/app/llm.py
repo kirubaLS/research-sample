@@ -69,15 +69,24 @@ PRICES_PER_MTOK: dict[str, tuple[float, float, float]] = {
 }
 
 
+#: Writing a prefix to the 5-minute prompt cache bills at this multiple of the input rate
+#: (the 1-hour cache is 2x). Every cache_control block in this codebase is the default
+#: 5-minute ephemeral one.
+CACHE_WRITE_MULTIPLIER = 1.25
+
+
 def estimate_usd(
     model: str, input_tokens: int, output_tokens: int, cache_read_tokens: int = 0,
-    *, batched: bool = False,
+    *, batched: bool = False, cache_write_tokens: int = 0,
 ) -> float:
     """What a run cost, from the token counts the responses reported. ``input_tokens``
     is the uncached input the API bills at full rate (the usage field of that name);
-    cache reads are counted separately at their own rate."""
+    cache reads and cache writes are counted separately, each at its own rate -- a write
+    is dearer than plain input, so leaving it out understates exactly the calls that
+    cache."""
     price_in, price_out, price_cache = PRICES_PER_MTOK.get(model, PRICES_PER_MTOK["claude-sonnet-5"])
     usd = (
         input_tokens * price_in + output_tokens * price_out + cache_read_tokens * price_cache
+        + cache_write_tokens * price_in * CACHE_WRITE_MULTIPLIER
     ) / 1_000_000
     return round(usd * (0.5 if batched else 1.0), 4)

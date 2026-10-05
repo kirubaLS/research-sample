@@ -469,6 +469,7 @@ class TopicJudge:
         self.input_tokens = 0
         self.output_tokens = 0
         self.cache_read_tokens = 0
+        self.cache_write_tokens = 0
 
     def _count(self, response) -> None:
         usage = getattr(response, "usage", None)
@@ -476,6 +477,7 @@ class TopicJudge:
             self.input_tokens += getattr(usage, "input_tokens", 0) or 0
             self.output_tokens += getattr(usage, "output_tokens", 0) or 0
             self.cache_read_tokens += getattr(usage, "cache_read_input_tokens", 0) or 0
+            self.cache_write_tokens += getattr(usage, "cache_creation_input_tokens", 0) or 0
         self.calls += 1
 
     def _document_system(self, chapter_label: str, headings: dict[str, str], document: str) -> list:

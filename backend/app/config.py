@@ -148,6 +148,14 @@ class Settings(BaseSettings):
     #: A question whose scope is exactly one chapter skips the chapter judge and goes
     #: straight to the topic judge, which then also returns the tier.
     skip_single_chapter_judge: bool = False
+    #: Tier 0 chapter gate (app.classify.gate). ``chapter_gate`` alone is SHADOW: the chapter
+    #: judge is still asked about everything and the job result reports how often retrieval
+    #: alone would have agreed with it. ``chapter_gate_enforce`` then skips the judge for
+    #: the questions the gate passes -- switch it on only on a measured agreement rate.
+    #: YAADHUM_CHAPTER_GATE, YAADHUM_CHAPTER_GATE_ENFORCE, YAADHUM_CHAPTER_GATE_MIN_MARGIN.
+    chapter_gate: bool = False
+    chapter_gate_enforce: bool = False
+    chapter_gate_min_margin: float = 0.3
     #: A major topic is at most this many levels deep ("4" or "4.1", never "4.1.1") for
     #: every subject listed in topic_max_depth_by_subject, everywhere a section is decided
     #: or stored (app.curriculum.depth.collapse_section). A subject not listed keeps

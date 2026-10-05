@@ -19,6 +19,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
+from app.classify.gate import chapter_gate
 from app.classify.judge import Classification, Evidence
 from app.classify.reconcile import (
     Option,
@@ -104,6 +105,9 @@ class PlacedQuestion:
     #: the scope named exactly one chapter, so the chapter judge was not asked
     #: (skip_single_chapter_judge); the tier then comes from the topic judge
     chapter_judge_skipped: bool = False
+    #: ...because both retrievers agreed with a clear lead (Tier 0, app.classify.gate), not
+    #: because the paper declared the chapter. Always also chapter_judge_skipped.
+    chapter_gated: bool = False
     #: the chapter judge's own confidence, and how many chapters it chose among -- None
     #: and 0 when it was not asked (skipped, failed, nothing retrieved)
     judge_confidence: float | None = None
@@ -149,6 +153,14 @@ class PassOptions:
     #: (chapter label, section) -> the section cut to the subject's depth
     #: (topic_depth_cap): the judge sees one passage per major topic, labelled with it
     section_cap: Callable[[str | None, str | None], str | None] | None = None
+    #: Tier 0 (app.classify.gate): evaluate whether retrieval alone is sure of the chapter.
+    #: ``gate_log`` is filled with question id -> the gate's decision, and later the
+    #: chapter judge's answer for it, so a shadow run can be scored. Without
+    #: ``gate_enforce`` the judge is still asked about every question.
+    gate: bool = False
+    gate_enforce: bool = False
+    gate_min_margin: float = 0.3
+    gate_log: dict | None = None
 
 
 #: passages each other book contributes when candidates are balanced across books
@@ -342,6 +354,38 @@ def _pass(
             if on_progress is not None:
                 on_progress(done, total)
             continue
+        if options.gate and not out_of_scope:
+            gate = chapter_gate(
+                verdict, chapter_of(verdict.node_id), min_relative_margin=options.gate_min_margin,
+            )
+            enforced = options.gate_enforce and gate.passed
+            if options.gate_log is not None:
+                options.gate_log[question_id] = {
+                    "passed": gate.passed, "chapter": gate.chapter,
+                    "relative_margin": round(gate.relative_margin, 3),
+                    "reason": gate.reason, "enforced": enforced,
+                }
+            if enforced:
+                # Retrieval's two readers agree and lead clearly: nothing for the chapter
+                # judge to decide. Placed like a declared single chapter, so the topic
+                # judge reads it next and names the tier.
+                judged[question_id] = Classification(
+                    chapter=gate.chapter, curriculum_section=None, tier=None,
+                    skill_required="",
+                    reasoning=(
+                        f"both retrievers placed this in {gate.chapter} with a "
+                        f"{gate.relative_margin:.0%} lead, so the chapter judge was not asked"
+                    ),
+                    evidence=[], confidence=min(0.9, 0.5 + gate.relative_margin / 2),
+                    alternative_chapter=None,
+                )
+                skipped.add(question_id)
+                slots.append(QuestionSlot(question_id, marks, [
+                    Option(gate.chapter, unit_of(gate.chapter) or "?", judged[question_id].confidence),
+                ]))
+                if on_progress is not None:
+                    on_progress(done, total)
+                continue
         prepared.append((done, question_id, stem, marks, evidence, verdict, q_scope, out_of_scope))
 
     def scoped_call(item) -> bool:
@@ -443,6 +487,8 @@ def _pass(
 
         if crossing:
             crossed.add(question_id)
+        if options.gate_log is not None and question_id in options.gate_log:
+            options.gate_log[question_id]["judge_chapter"] = call.chapter
         if asked is not None:
             asked[question_id] = (call.confidence, len({e.chapter for e in judged_on}))
 
@@ -579,6 +625,10 @@ def place_paper(
             )
             scope_source = "inferred"
 
+    gated = {
+        qid for qid, entry in (options.gate_log or {}).items() if entry.get("enforced")
+    } & skipped
+
     result: Reconciliation = reconcile(slots, declared or {})
     flagged = set(needs_a_human(slots, result))
 
@@ -599,6 +649,7 @@ def place_paper(
             judge_failed=slot.question_id in failed,
             cross_scope=slot.question_id in crossed,
             chapter_judge_skipped=slot.question_id in skipped,
+            chapter_gated=slot.question_id in gated,
             judge_confidence=asked.get(slot.question_id, (None, 0))[0],
             chapters_shown=asked.get(slot.question_id, (None, 0))[1],
         )
