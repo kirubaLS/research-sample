@@ -35,7 +35,7 @@ class Gate:
 
 def chapter_gate(
     verdict, chapter: str | None, *, min_relative_margin: float, reranked=None,
-    remembered=None,
+    remembered=None, classified=None,
 ) -> Gate:
     """Would retrieval alone have placed this question confidently?
 
@@ -46,7 +46,9 @@ def chapter_gate(
     third reader that names a different chapter vetoes the gate. ``remembered``, when given,
     returns the chapter the school's confirmed similar questions unanimously sit in (None
     when there are none close enough): a fourth reader, the nearest-neighbour vote over what
-    teachers have confirmed, with the same veto.
+    teachers have confirmed, with the same veto. ``classified``, when given, returns the
+    chapter the trained classifier (app.classify.bayes) is confident of, or None: a fifth
+    reader with the same veto.
     """
     if verdict.node_id is None or chapter is None:
         return Gate(False, None, 0.0, "nothing retrieved")
@@ -64,6 +66,10 @@ def chapter_gate(
         if fourth is not None and fourth != chapter:
             return Gate(False, chapter, relative,
                         f"teachers placed similar questions in {fourth}")
+    if classified is not None:
+        fifth = classified()
+        if fifth is not None and fifth != chapter:
+            return Gate(False, chapter, relative, f"the classifier prefers {fifth}")
     return Gate(True, chapter, relative)
 
 

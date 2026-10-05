@@ -167,6 +167,10 @@ class PassOptions:
     #: a cross-encoder (app.ingest.rerank.JinaReranker) as the gate's third reader: it must
     #: not prefer another chapter among the verdict's own passages
     gate_reranker: object | None = None
+    #: a trained classifier (app.classify.bayes.NaiveBayesChapters) as a further reader: when
+    #: it is at least ``gate_classifier_min`` sure of a different chapter, the gate fails
+    gate_classifier: object | None = None
+    gate_classifier_min: float = 0.9
     gate_log: dict | None = None
     #: what teachers have already confirmed (app.classify.memory). Giving a memory alone
     #: only OBSERVES: each question's closest confirmed neighbour is written to
@@ -421,6 +425,14 @@ def _pass(
                     on_progress(done, total)
                 continue
         if options.gate and not out_of_scope:
+            def classifier_reader(_stem):
+                def read():
+                    chapter, posterior = options.gate_classifier.predict(
+                        retrieval_query_text(_stem), allowed=q_scope,
+                    )
+                    return chapter if posterior >= options.gate_classifier_min else None
+                return read
+
             def reranked(_verdict=verdict, _stem=stem):
                 # the chapter whose passage the reranker scores highest; None when only one
                 # chapter was shown (nothing to disagree about) or the call failed -- a
@@ -444,6 +456,7 @@ def _pass(
                     (lambda r=recall: r.vote if r.unanimous else None)
                     if options.memory is not None else None
                 ),
+                classified=(classifier_reader(stem) if options.gate_classifier is not None else None),
             )
             enforced = options.gate_enforce and gate.passed
             if options.gate_log is not None:

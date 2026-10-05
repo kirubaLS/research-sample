@@ -484,6 +484,17 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
     pass_options: dict = {}
     gate_log: dict = {}
     gate_reranker = None
+    gate_classifier = None
+    if settings.chapter_gate_classifier:
+        from app.classify.bayes import CONFIRMED_WEIGHT, NaiveBayesChapters
+
+        examples = [
+            (nodes[c.node_id].label, c.text or "", 1)
+            for c in retrieval_chunks if c.node_id in nodes
+        ]
+        if memory is not None:
+            examples += [(e.chapter, e.stem, CONFIRMED_WEIGHT) for e in memory.entries]
+        gate_classifier = NaiveBayesChapters().fit(examples)
     if settings.chapter_gate_reranker and settings.jina_api_key:
         from app.ingest.rerank import JinaReranker
 
@@ -496,6 +507,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         or settings.chapter_gate or settings.chapter_gate_enforce
         or (memory is not None and len(memory))
         or settings.chapter_judge_group_size > 1 or settings.chapter_recheck
+        or settings.chapter_gate_classifier
     ):
         book_of = {
             nodes[i].label: code
@@ -512,6 +524,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             gate_min_margin=settings.chapter_gate_min_margin,
             gate_log=gate_log,
             gate_reranker=gate_reranker,
+            gate_classifier=gate_classifier,
+            gate_classifier_min=settings.chapter_gate_classifier_min,
             memory=memory if memory is not None and len(memory) else None,
             memory_reuse=settings.memory_reuse,
             memory_min_similarity=settings.memory_min_similarity,

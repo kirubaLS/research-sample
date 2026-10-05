@@ -166,6 +166,11 @@ class Settings(BaseSettings):
     #: a cross-encoder reranker (Jina) as the gate's third reader, one small call per
     #: question the two retrievers already agreed on. YAADHUM_CHAPTER_GATE_RERANKER.
     chapter_gate_reranker: bool = False
+    #: a naive-Bayes chapter classifier trained on the book (and confirmed questions) as a
+    #: further reader: confident about another chapter than retrieval chose = no pass.
+    #: YAADHUM_CHAPTER_GATE_CLASSIFIER, _CLASSIFIER_MIN.
+    chapter_gate_classifier: bool = False
+    chapter_gate_classifier_min: float = 0.9
     reranker_model: str = "jina-reranker-v2-base-multilingual"
     #: Confirmed-question memory (app.classify.memory): what this school's teachers have
     #: already confirmed, recalled for the next paper. ``memory_recall`` alone OBSERVES --
