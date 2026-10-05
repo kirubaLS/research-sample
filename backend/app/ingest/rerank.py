@@ -3,7 +3,8 @@
 Retrieval scores a question and a passage separately and compares the numbers; a
 cross-encoder reads the two together, which is why a reranker on a retrieval shortlist
 recovers failures the first stage cannot (Anthropic's contextual-retrieval evaluation:
-reranking took the top-20 failure rate from 3.7% to 1.9% on top of hybrid search). It is
+contextual embeddings, BM25 and a reranker together took the top-20 retrieval failure rate
+from 5.7% to 1.9%). It is
 also the cheap kind of second reader. An LLM used pointwise as a reranker costs about ten
 times as much and is less accurate than a purpose-built cross-encoder, so this is a
 cross-encoder and not a prompt.
