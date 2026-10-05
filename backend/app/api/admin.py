@@ -31,6 +31,7 @@ from app.api.deps import (
 from app.api.academics import _subject_label
 from app.api.schemas import StudentCreateIn, StudentUpdateIn
 from app.curriculum import CURRICULA, group_subjects, subject_groups
+from app.config import get_settings
 from app.db import get_session
 from app.models import (
     TEACHER_ASSIGNMENT_TYPES,
@@ -76,7 +77,10 @@ def whoami(
     # the Insights/My-class tabs. Paper authoring/scanning is no longer gated the same
     # way: every teacher key may act on any subject's paper (see require_paper_scope), so
     # it no longer shares this flag with marks entry.
-    teacher_has_subject = staff.is_teacher and (bool(teacher_subject_codes(staff, db)) or staff.exam_cell)
+    teacher_has_subject = staff.is_teacher and (
+        bool(teacher_subject_codes(staff, db)) or staff.exam_cell
+        or get_settings().teacher_any_subject_uploads
+    )
     out = {
         "school_id": school.id,
         "name": school.name,

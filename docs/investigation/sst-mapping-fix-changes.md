@@ -903,3 +903,12 @@ A code review of the whole branch against production (`4e97dfa`) found three thi
   Dense fusion was not testable offline (no embeddings in the test container).
 * Not yet measured on a paid run: accuracy and spend with card mode on. Compare with the
   card-mode-off numbers from the same paper.
+
+## Any teacher, any subject (default OFF: `YAADHUM_TEACHER_ANY_SUBJECT_UPLOADS`)
+
+Question papers were already open to every teacher key. With the setting on, answer sheets,
+mark grids, single scripts and per-student marks are too: `teacher_can_enter_marks` accepts any
+teacher key for any section of the key's OWN school, and `/admin/me` reports `enter_marks`. A
+section of another school, or one that does not exist, is still a 404. Reading class marks,
+cohort reports and the Insights/My-class subject filter (`teacher_can_read`,
+`teacher_subject_codes`) are unchanged. Off, the subject-assignment rule applies as before.

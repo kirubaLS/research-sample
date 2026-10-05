@@ -9,6 +9,7 @@ from fastapi import Depends, Header, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.config import get_settings
 from app.db import get_session
 from app.models import (
     Assessment,
@@ -16,6 +17,7 @@ from app.models import (
     GridSheetRow,
     School,
     ScanDocument,
+    Section,
     StaffKey,
     StudentProfile,
     TeacherAssignment,
@@ -99,6 +101,12 @@ def teacher_can_enter_marks(staff: Staff, db: Session, section_id: str, subject_
     (spec §10.2's default) -- it never reaches this far."""
     if staff.exam_cell:
         return True
+    if get_settings().teacher_any_subject_uploads and staff.is_teacher and staff.home is not None:
+        # a shared teacher key holds no assignment, and any teacher may upload and enter
+        # marks for any subject; what never widens is the school -- the section named
+        # must be one of this key's own school's
+        section = db.get(Section, section_id)
+        return section is not None and section.school_id == staff.home.id
     return any(
         a.type == "subject" and a.section_id == section_id and a.subject_code == subject_code
         for a in teacher_assignments(staff, db)

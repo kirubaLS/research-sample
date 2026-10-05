@@ -169,6 +169,12 @@ class Settings(BaseSettings):
     #: book's own terms / retrieval agree; every other question reads the whole chapter as
     #: before. Needs topic_major_only_document and the committed section_cards.json.
     topic_card_mode: bool = False
+    #: Any teacher key of a school may upload and enter marks for any section and subject
+    #: of THAT school (answer sheets, mark grids, single scripts, per-student marks), as it
+    #: already may for question papers -- for deployments that give teachers one common key
+    #: and one common dashboard. Off: marks entry needs a subject assignment naming the
+    #: section and subject (or the exam cell), as before. Never crosses a school.
+    teacher_any_subject_uploads: bool = False
     #: For book-map subjects, subtopic nodes come from the book map's printed numbers
     #: only: an existing node is never relabelled, and the ingest-created nodes are never
     #: a fallback topic.
