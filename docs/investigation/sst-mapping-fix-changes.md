@@ -912,3 +912,24 @@ teacher key for any section of the key's OWN school, and `/admin/me` reports `en
 section of another school, or one that does not exist, is still a 404. Reading class marks,
 cohort reports and the Insights/My-class subject filter (`teacher_can_read`,
 `teacher_subject_codes`) are unchanged. Off, the subject-assignment rule applies as before.
+
+## Mapping logic is kept per subject (`YAADHUM_MAPPING_V2_SUBJECTS`)
+
+Every flag that changes how a paper is mapped is also gated by the paper's subject. The list
+is `mapping_v2_subjects`, default `["X.SST","X.HIST","X.GEO","X.POL","X.ECO"]`. For a paper of
+any other subject (Mathematics, Science, English, ...) every flag in
+`app.mapping.subject_scope.SUBJECT_FLAGS` reads False, whatever the environment says, and the
+pipeline runs the path it ran before the rework:
+
+* placement and map take their settings through `for_subject(settings, paper.subject_code)`;
+* the topic depth cap, the major-topic view, book-map-only subtopics and the text-route
+  structure capture check the chapter's or paper's subject themselves;
+* the vision reader's structure capture and the stored `declared` structure follow the subject;
+* the topic judge reads `app/classify/legacy_prompts.py` (the two prompts exactly as they were,
+  verbatim from git, pinned by a test) for a subject outside the list;
+* section cards exist only for the four Social Science subjects.
+
+To bring Science onto the new logic when its own mapping is ready, add `"X.SCI"` to the list;
+Mathematics and Social Science are unaffected. `tests/test_subject_isolation.py` pins all of
+this. Not gated, deliberately: the duplicate-upload hold (it compares papers of one subject
+with each other and changes no mapping), the teacher screens, and anything not in SUBJECT_FLAGS.

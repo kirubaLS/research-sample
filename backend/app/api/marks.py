@@ -867,7 +867,9 @@ def _finish_paper_scan(
         #: reading to it long after this response has scrolled away.
         "total_marks": extract.declared_total,
     }
-    if get_settings().paper_capture_structure:
+    from app.mapping.subject_scope import for_subject as _for_subject
+
+    if _for_subject(get_settings(), assessment.subject_code).paper_capture_structure:
         # Additive keys: every reader of "sections" (marks per letter) is unchanged.
         assessment.declared = {
             **assessment.declared,
@@ -1004,6 +1006,8 @@ def _run_paper_scan_job(job_id: str) -> None:
         if job is None:
             return
         pdf_bytes, school_id, assessment_id = job.pdf_bytes, job.school_id, job.assessment_id
+        owner = db.get(Assessment, assessment_id)
+        paper_subject = owner.subject_code if owner is not None else None
     finally:
         db.close()  # released BEFORE the slow vision call below, not held across it
 
@@ -1019,7 +1023,13 @@ def _run_paper_scan_job(job_id: str) -> None:
 
         settings = get_settings()
         _report_paper_scan_progress(job_id, 0, len(pages))
-        structure = {"capture_structure": True} if settings.paper_capture_structure else {}
+        from app.mapping.subject_scope import applies as _v2_applies
+
+        structure = (
+            {"capture_structure": True}
+            if settings.paper_capture_structure and _v2_applies(paper_subject, settings)
+            else {}
+        )
         def read(pages_, *, model, on_progress, **extra):
             return read_paper_vision(
                 pages_, api_key=settings.anthropic_api_key, model=model,
@@ -2315,8 +2325,10 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     )
     from app.mapping.auto_resolve import resolve_blocked_family
     from app.mapping.family import choose_family
+    from app.mapping.subject_scope import applies as _applies
+    from app.mapping.subject_scope import for_subject
 
-    settings = get_settings()
+    settings = for_subject(get_settings(), assessment.subject_code)
     staged, chunks = _map_inputs(db, assessment)
     book_subject_codes = group_subjects(assessment.subject_code)
     is_book_map_subject = bool(_BOOK_MAP_SUBJECTS.intersection(book_subject_codes))
@@ -2504,6 +2516,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
                 settings.anthropic_api_key, settings.model_classifier,
                 effort=settings.model_effort, passage_chars=settings.classifier_passage_chars,
                 **({"major_only": True} if settings.topic_major_only_document else {}),
+                **({} if _applies(assessment.subject_code, settings) else {"legacy_prompts": True}),
             )
         except Exception:  # noqa: BLE001 -- the retrieval section then stands
             topic_judge = None

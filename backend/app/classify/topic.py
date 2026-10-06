@@ -449,7 +449,7 @@ class TopicJudge:
     def __init__(
         self, api_key: str, model: str, *, effort: str | None = None,
         passage_chars: int = 1200, batched: bool = False, batch_options: dict | None = None,
-        major_only: bool = False,
+        major_only: bool = False, legacy_prompts: bool = False,
     ) -> None:
         import anthropic
 
@@ -465,6 +465,9 @@ class TopicJudge:
         self.passage_chars = passage_chars
         #: topic_major_only_document: the prompts say sub-headings are never an answer
         self.major_only = major_only
+        #: a subject outside mapping_v2_subjects reads the prompts as they were before the
+        #: Social Science rework (app.classify.legacy_prompts), so its mapping does not move
+        self.legacy_prompts = legacy_prompts
         self.calls = 0
         self.input_tokens = 0
         self.output_tokens = 0
@@ -486,7 +489,12 @@ class TopicJudge:
         section_list = "\n".join(
             f"- {n}  {h}" if h and h != n else f"- {n}" for n, h in headings.items()
         )
-        system = _DOCUMENT_SYSTEM_MAJOR if getattr(self, "major_only", False) else _DOCUMENT_SYSTEM
+        if getattr(self, "legacy_prompts", False):
+            from app.classify.legacy_prompts import LEGACY_DOCUMENT_SYSTEM
+
+            system = LEGACY_DOCUMENT_SYSTEM
+        else:
+            system = _DOCUMENT_SYSTEM_MAJOR if getattr(self, "major_only", False) else _DOCUMENT_SYSTEM
         return [
             {"type": "text", "text": system},
             {
@@ -627,6 +635,13 @@ class TopicJudge:
         self._count(response)
         return response.parsed_output
 
+    def _pick_system(self) -> str:
+        if getattr(self, "legacy_prompts", False):
+            from app.classify.legacy_prompts import LEGACY_SYSTEM
+
+            return LEGACY_SYSTEM
+        return _SYSTEM_MAJOR if getattr(self, "major_only", False) else _SYSTEM
+
     def pick(
         self, stem: str, chapter_label: str, headings: dict[str, str],
         passages: list[Candidate],
@@ -635,7 +650,7 @@ class TopicJudge:
         response = self.client.messages.parse(
             model=self.model,
             max_tokens=8000,
-            system=_SYSTEM_MAJOR if getattr(self, "major_only", False) else _SYSTEM,
+            system=self._pick_system(),
             messages=[{
                 "role": "user",
                 "content": _prompt(stem, chapter_label, headings, passages, self.passage_chars),

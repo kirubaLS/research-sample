@@ -22,10 +22,13 @@ from app.classify.gate import summarise as summarise_gate
 from app.classify.memory import summarise as summarise_memory
 from app.classify.pipeline import place_paper
 from app.classify.review_rule import ReviewInputs, reason_code, review_reasons
+from app.config import get_settings
 from app.curriculum import group_subjects
+from app.db import get_session
+from app.ingest.probe import LexicalIndex, SemanticIndex, content_chunks
+from app.llm import estimate_usd
 from app.mapping.auto_resolve import record_family_section, resolve_blocked_family
 from app.mapping.family import Choice, choose_family
-from app.llm import estimate_usd
 from app.mapping.topic_node import (
     assert_topic_matches_section,
     clear_machine_topic,
@@ -34,9 +37,6 @@ from app.mapping.topic_node import (
     set_question_topic,
     topic_headings,
 )
-from app.config import get_settings
-from app.db import get_session
-from app.ingest.probe import LexicalIndex, SemanticIndex, content_chunks
 from app.models import (
     Assessment,
     BookChunk,
@@ -197,7 +197,11 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 error_detail="the paper this job belonged to was removed",
             )
             return
-        settings = get_settings()
+        # mapping flags act only for the subjects listed in mapping_v2_subjects; any other
+        # subject's paper runs the original path (app.mapping.subject_scope)
+        from app.mapping.subject_scope import applies, for_subject
+
+        settings = for_subject(get_settings(), a.subject_code)
 
         questions = db.scalars(
             select(Question).where(Question.assessment_id == a.id).order_by(Question.address)
@@ -419,6 +423,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 effort=settings.model_effort, passage_chars=settings.classifier_passage_chars,
                 batched=settings.batch_classify, batch_options=batch_options,
                 **({"major_only": True} if settings.topic_major_only_document else {}),
+                **({} if applies(a.subject_code, settings) else {"legacy_prompts": True}),
             )
         except Exception:  # noqa: BLE001 -- retrieval within the chapter still decides
             topic_judge = None

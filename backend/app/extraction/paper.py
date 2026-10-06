@@ -578,9 +578,12 @@ def extract_paper(path: str | Path, *, subject_code: str | None = None) -> Paper
     declared_sections, declared_count, declared_total = _declared(lines)
     # paper_capture_structure: off, the text route reads exactly as it did before
     from app.config import get_settings
+    from app.mapping.subject_scope import applies
 
     section_titles, syllabus_lines = (
-        _structure(lines) if get_settings().paper_capture_structure else ({}, [])
+        _structure(lines)
+        if get_settings().paper_capture_structure and applies(subject_code)
+        else ({}, [])
     )
     out = PaperExtract(
         route="text", page_count=pages,

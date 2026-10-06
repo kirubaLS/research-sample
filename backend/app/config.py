@@ -220,6 +220,12 @@ class Settings(BaseSettings):
     #: book's own terms / retrieval agree; every other question reads the whole chapter as
     #: before. Needs topic_major_only_document and the committed section_cards.json.
     topic_card_mode: bool = False
+    #: The subjects the mapping flags above (and the other per-subject ones listed in
+    #: app.mapping.subject_scope.SUBJECT_FLAGS) are allowed to act on. A paper of any other
+    #: subject runs the original path with all of them off, so one subject can be reworked
+    #: while another's finished mapping stays exactly as it is. YAADHUM_MAPPING_V2_SUBJECTS,
+    #: a JSON list. Add "X.SCI" when Science's own mapping is ready.
+    mapping_v2_subjects: list[str] = ["X.SST", "X.HIST", "X.GEO", "X.POL", "X.ECO"]
     #: Any teacher key of a school may upload and enter marks for any section and subject
     #: of THAT school (answer sheets, mark grids, single scripts, per-student marks), as it
     #: already may for question papers -- for deployments that give teachers one common key

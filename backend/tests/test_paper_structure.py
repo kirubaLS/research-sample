@@ -145,7 +145,7 @@ def test_the_text_route_keeps_the_title_printed_after_the_section_letter(tmp_pat
         (60, 220, "2. Describe the distribution of coal deposits across the country."),
         (MARK_X, 220, "2"),
     ])
-    out = extract_paper(path)
+    out = extract_paper(path, subject_code="X.SST")
     assert out.section_titles == {
         "A": "History : Print Culture and the Modern World",
         "B": "Geography : Minerals and Energy Resources",
@@ -166,7 +166,7 @@ def test_a_bare_syllabus_label_collects_the_entries_under_it(tmp_path, capture_o
         (60, 140, "1. Describe the process of unification of a nation-state in Europe."),
         (MARK_X, 140, "2"),
     ])
-    out = extract_paper(path)
+    out = extract_paper(path, subject_code="X.SST")
     assert out.syllabus_lines == ["Syllabus:", "History - Chapter 1, 2", "Economics - Ch 3"]
     assert out.section_titles == {}
 
@@ -179,7 +179,7 @@ def test_a_paper_with_no_titles_and_no_syllabus_records_nothing(tmp_path, captur
         (60, 140, "1. Describe the process of unification of a nation-state in Europe."),
         (MARK_X, 140, "2"),
     ])
-    out = extract_paper(path)
+    out = extract_paper(path, subject_code="X.SST")
     assert out.section_titles == {} and out.syllabus_lines == []
 
 
@@ -198,13 +198,13 @@ def test_with_the_flag_off_the_text_route_never_scans_for_titles(tmp_path, monke
         (60, 140, "1. Explain how print culture shaped the reading habits of the poor."),
         (MARK_X, 140, "2"),
     ])
-    out = paper.extract_paper(path)
+    out = paper.extract_paper(path, subject_code="X.SST")
     assert calls == []
     assert out.section_titles == {} and out.syllabus_lines == []
     assert [q.question_no for q in out.questions] == ["1"]
 
     monkeypatch.setattr(get_settings(), "paper_capture_structure", True)
-    paper.extract_paper(path)
+    paper.extract_paper(path, subject_code="X.SST")
     assert len(calls) == 1, "on, it is called once per read"
 
 
@@ -234,15 +234,22 @@ PAPER = [
 ]
 
 
-@pytest.mark.parametrize("flag", [False, True])
-def test_titles_reach_assessment_declared_only_with_the_flag_on(client, school, monkeypatch, flag):
+@pytest.mark.parametrize("subject, flag, expected", [
+    ("X.SST", False, False),
+    ("X.SST", True, True),
+    # a subject outside mapping_v2_subjects never takes the new path, flag or no flag
+    ("X.MATH", True, False),
+])
+def test_titles_reach_assessment_declared_only_with_the_flag_on_and_a_listed_subject(
+    client, school, monkeypatch, subject, flag, expected,
+):
     from app.db import SessionLocal
     from app.models import Assessment
 
     monkeypatch.setattr(get_settings(), "paper_capture_structure", flag)
     headers = {"X-API-Key": school["api_key"]}
     aid = client.post("/assessments", headers=headers, json={
-        "subject_code": "X.MATH", "title": f"Structure {flag}", "total_marks": 8,
+        "subject_code": subject, "title": f"Structure {subject} {flag}", "total_marks": 8,
     }).json()["assessment_id"]
     r = client.post(
         f"/assessments/{aid}/scan", headers=headers,
@@ -255,7 +262,7 @@ def test_titles_reach_assessment_declared_only_with_the_flag_on(client, school, 
     db.close()
     assert declared["total_marks"] == 8.0
     assert declared["question_count"] == 2
-    if flag:
+    if expected:
         assert declared["section_titles"] == {"A": "Statistics"}
     else:
         assert "section_titles" not in declared and "syllabus_lines" not in declared

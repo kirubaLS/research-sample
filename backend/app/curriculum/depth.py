@@ -32,6 +32,10 @@ def max_depth_for(subject_code: str | None) -> int | None:
     settings = get_settings()
     if not settings.topic_depth_cap or not subject_code:
         return None
+    from app.mapping.subject_scope import applies
+
+    if not applies(subject_code, settings):
+        return None
     subject = subject_of(subject_code) or subject_code
     listed = settings.topic_max_depth_by_subject or {}
     if subject not in listed:

@@ -120,8 +120,9 @@ def major_view(chapter: TaxonomyNode) -> tuple[str, int] | None:
     from app.config import get_settings
     from app.curriculum.book_map import chapter_units
     from app.curriculum.depth import max_depth_for
+    from app.mapping.subject_scope import applies
 
-    if not get_settings().topic_major_only_document:
+    if not get_settings().topic_major_only_document or not applies(chapter.code):
         return None
     depth = max_depth_for(chapter.code)
     if depth is None or chapter_units(chapter.code) is None:
@@ -176,9 +177,10 @@ def _book_map_only(chapter: TaxonomyNode) -> bool:
     labels right once, reviewed)."""
     from app.config import get_settings
     from app.curriculum.depth import subject_of
+    from app.mapping.subject_scope import applies
 
     return bool(get_settings().book_map_only_subtopics) and (
-        subject_of(chapter.code) in BOOK_MAP_SUBJECTS
+        subject_of(chapter.code) in BOOK_MAP_SUBJECTS and applies(chapter.code)
     )
 
 
