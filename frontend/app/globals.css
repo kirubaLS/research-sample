@@ -1837,3 +1837,40 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
 @media (prefers-reduced-motion: reduce) {
   .pu__drop, .pu__drop:hover, .pu__drop--over, .as__chip, .as__chip:hover { transition: none; transform: none; }
 }
+
+/* Right-side drawer (components/SideDrawer). Above the page and the inline drawers, below
+   the .modal-backdrop (z 50) that an edit or review modal opens on top of it. */
+.sd-backdrop {
+  position: fixed; inset: 0; z-index: 45; display: flex; justify-content: flex-end;
+  background: rgba(15, 30, 38, .42); backdrop-filter: blur(2px);
+}
+.sd-panel {
+  width: 100%; height: 100%; display: flex; flex-direction: column; background: var(--bg, #fbf8f2);
+  box-shadow: -24px 0 60px -24px rgba(15, 30, 38, .55); outline: none;
+  border-left: 1px solid var(--line);
+}
+.sd-head {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; padding: 18px 22px;
+  border-bottom: 1px solid var(--line); background: var(--surface);
+}
+.sd-title { font-size: 16.5px; font-weight: 650; letter-spacing: -0.01em; overflow-wrap: anywhere; }
+.sd-sub { margin-top: 3px; }
+.sd-head__right { display: flex; align-items: center; gap: 8px; flex: 0 0 auto; }
+.sd-close {
+  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 10px;
+  border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer;
+  transition: background .15s, color .15s, transform .15s;
+}
+.sd-close:hover { background: var(--surface-2); color: var(--text); transform: rotate(90deg); }
+.sd-body { flex: 1; overflow-y: auto; padding: 18px 22px 28px; overscroll-behavior: contain; }
+.sd-body > .card { box-shadow: none; border-color: var(--line); }
+@media (max-width: 720px) {
+  .sd-head, .sd-body { padding-left: 14px; padding-right: 14px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sd-close:hover { transform: none; }
+}
+/* inside the drawer the drawer itself scrolls; a second scroller around the question table
+   would trap the wheel and clip the last rows */
+.sd-body .pm-flat-scroll { max-height: none !important; overflow-y: visible; }
+.sd-body .pm-flat-scroll thead th { top: -18px; }

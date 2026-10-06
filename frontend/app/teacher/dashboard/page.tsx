@@ -57,6 +57,7 @@ import { DeltaCell } from "@/components/StudentRosterTable";
 import { STATUS_LABEL, STATUS_PILL_KEY } from "@/lib/statusLabels";
 import { Reveal, Stagger, StaggerItem } from "@/components/motion";
 import { PaperUploadDrawer, usePaperUploader } from "@/components/PaperUploadDrawer";
+import { SideDrawer } from "@/components/SideDrawer";
 import { UNSCHEDULED_ID, shortSubject, useTestBoard, type TestRow } from "@/lib/useTestBoard";
 import { AnswerSheetPanel, type SectionOption } from "@/components/AnswerSheetPanel";
 import { getApiKey } from "@/lib/session";
@@ -500,16 +501,14 @@ function PapersTab({ examCell }: { examCell: boolean }) {
   return (
     <div>
       <div className="pm-toolbar">
-        {!scan.assessmentId && (
-          <button
-            className="btn btn--primary"
-            onClick={() => setShowCreate(true)}
-            disabled={pickableSubjects.length === 0}
-            title={pickableSubjects.length === 0 ? "This deployment carries no subjects yet." : undefined}
-          >
-            <Plus size={14} /> Create test
-          </button>
-        )}
+        <button
+          className="btn btn--primary"
+          onClick={() => setShowCreate(true)}
+          disabled={pickableSubjects.length === 0}
+          title={pickableSubjects.length === 0 ? "This deployment carries no subjects yet." : undefined}
+        >
+          <Plus size={14} /> Create test
+        </button>
       </div>
 
       {scan.error && (
@@ -519,8 +518,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
         </div>
       )}
 
-      {!scan.assessmentId ? (
-        <>
+      <>
           <Stagger style={{ display: "grid", gap: 16 }}>
             {examsLoading && <p className="small muted">Loading tests…</p>}
 
@@ -656,7 +654,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                               </button>
                                             ) : (
                                               <button className="btn btn--sm pm-btn-action" onClick={() => void scan.openPaper(p)}>
-                                                View mapping
+                                                {p.stage === "mapped" ? "View mapping" : "View scanned"}
                                               </button>
                                             )}
                                           </td>
@@ -753,26 +751,22 @@ function PapersTab({ examCell }: { examCell: boolean }) {
           </Stagger>
 
         </>
-      ) : (
+
+      <SideDrawer
+        open={!!scan.assessmentId}
+        onClose={() => { scan.closePaper(); void scan.loadPapers(); void loadExams(); }}
+        title={scan.title || "Question paper"}
+        subtitle={`${scan.subject} · ${scan.stage}`}
+        width={1120}
+      >
         <div className="card">
-          <div className="card__head">
-            <div>
-              <div className="strong" style={{ fontSize: 15 }}>
-                {scan.title}
-              </div>
-              <div className="small muted" style={{ marginTop: 2 }}>
-                {scan.subject} · {scan.stage}
-              </div>
-            </div>
+          <div className="card__head" style={{ justifyContent: "flex-end" }}>
             <div style={{ display: "flex", gap: 8 }}>
               <button className="btn btn--sm" onClick={() => scan.onRename()}>
                 Rename
               </button>
               <button className="btn btn--sm" onClick={() => scan.onDelete()}>
                 <Trash2 size={13} /> Delete
-              </button>
-              <button className="btn btn--sm" onClick={() => scan.loadPapers().then(() => scan.setError(null))}>
-                Back to list
               </button>
             </div>
           </div>
@@ -885,7 +879,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                     ))}
                   </div>
                 </div>
-                <div className="table-wrap table-wrap--scroll" style={{ maxHeight: 360 }}>
+                <div className="table-wrap table-wrap--scroll pm-flat-scroll" style={{ maxHeight: 360 }}>
                   <table className="table">
                     <thead>
                       <tr>
@@ -984,7 +978,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
             )}
           </div>
         </div>
-      )}
+      </SideDrawer>
 
       <AnimatePresence>
         {editing && (
@@ -1226,6 +1220,8 @@ function MarksTab({ onGoToPapers }: { onGoToPapers: () => void }) {
   const [sections, setSections] = useState<TeacherSectionSummary[]>([]);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [answersFor, setAnswersFor] = useState<string | null>(null);
+  // the paper whose scanned answer sheets are open in the right-hand drawer
+  const [viewing, setViewing] = useState<PaperSummary | null>(null);
   const [autoOpened, setAutoOpened] = useState(false);
 
   useEffect(() => {
@@ -1373,13 +1369,20 @@ function MarksTab({ onGoToPapers }: { onGoToPapers: () => void }) {
                                       </td>
                                       <td style={{ textAlign: "right" }}>
                                         {ready ? (
-                                          <button
-                                            className="btn btn--sm btn--primary pm-btn-action"
-                                            aria-expanded={drawerOpen}
-                                            onClick={() => setAnswersFor(drawerOpen ? null : p.id)}
-                                          >
-                                            <Upload size={13} /> {drawerOpen ? "Hide" : "Answer sheets"}
-                                          </button>
+                                          <div style={{ display: "inline-flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
+                                            {p.students_with_marks > 0 && (
+                                              <button className="btn btn--sm pm-btn-action" onClick={() => setViewing(p)}>
+                                                <Eye size={13} /> View scanned
+                                              </button>
+                                            )}
+                                            <button
+                                              className="btn btn--sm btn--primary pm-btn-action"
+                                              aria-expanded={drawerOpen}
+                                              onClick={() => setAnswersFor(drawerOpen ? null : p.id)}
+                                            >
+                                              <Upload size={13} /> {drawerOpen ? "Hide" : "Answer sheets"}
+                                            </button>
+                                          </div>
                                         ) : (
                                           <button className="btn btn--sm pm-btn-action" onClick={onGoToPapers}>
                                             Finish mapping
@@ -1439,6 +1442,15 @@ function MarksTab({ onGoToPapers }: { onGoToPapers: () => void }) {
           </Reveal>
         )}
       </Stagger>
+
+      <SideDrawer
+        open={!!viewing}
+        onClose={() => setViewing(null)}
+        title={viewing ? `Scanned answer sheets · ${shortSubject(viewing.subject_label)}` : "Scanned answer sheets"}
+        subtitle={viewing ? `${viewing.title} · ${viewing.students_with_marks} student${viewing.students_with_marks === 1 ? "" : "s"} marked` : undefined}
+      >
+        {viewing && <AnswerSheetPanel key={viewing.id} paper={viewing} sections={classesFor(viewing)} onChanged={() => void board.reload()} mode="view" />}
+      </SideDrawer>
     </div>
   );
 }
