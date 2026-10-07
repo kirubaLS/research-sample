@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { BookOpenCheck, Building2, FlaskConical, LogOut, ShieldCheck, UserPlus } from "lucide-react";
+import { BookOpenCheck, Building2, FileScan, FlaskConical, LogOut, ShieldCheck, UserPlus } from "lucide-react";
 import { Wordmark } from "@/components/Mascot";
 import { api, PlatformSchool } from "@/lib/api";
 import { getPlatformKey, signOutPlatform } from "@/lib/session";
@@ -19,6 +19,7 @@ const nav = [
   { href: "/admin/onboard", label: "Onboarding", icon: UserPlus, match: (p: string) => p.startsWith("/admin/onboard") },
   { href: "/admin/question-lab", label: "Question lab", icon: FlaskConical, match: (p: string) => p.startsWith("/admin/question-lab") },
   { href: "/admin/prompt-lab", label: "Prompt mapper", icon: BookOpenCheck, match: (p: string) => p.startsWith("/admin/prompt-lab") },
+  { href: "/admin/ocr-lab", label: "OCR mapper", icon: FileScan, match: (p: string) => p.startsWith("/admin/ocr-lab") },
 ];
 
 /** Mobile check runs in an effect, so the first client render matches the server. */
@@ -40,6 +41,7 @@ function titleFor(pathname: string, schools: PlatformSchool[]): string {
   if (pathname.startsWith("/admin/onboard")) return "Onboard a school";
   if (pathname.startsWith("/admin/question-lab")) return "Question lab";
   if (pathname.startsWith("/admin/prompt-lab")) return "Prompt mapper";
+  if (pathname.startsWith("/admin/ocr-lab")) return "OCR mapper";
   return "Portfolio";
 }
 
