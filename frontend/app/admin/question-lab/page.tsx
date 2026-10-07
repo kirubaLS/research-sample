@@ -358,6 +358,11 @@ function LabResultView({ result }: { result: LabResult }) {
 
       <div className="evidence" style={{ marginBottom: 12 }}>
         <div>Nothing was saved. This ran against {result.chapters_in_book} chapters ({result.chunks} passages) of {result.books.join(", ")}.</div>
+        {!result.v2_subject && (
+          <div className="small muted" style={{ marginTop: 4 }}>
+            This subject is not listed for the newer mapping logic, so the gate, memory and other gated options were off here, as they are in classify.
+          </div>
+        )}
       </div>
 
       <div className="grid grid--4">

@@ -174,3 +174,15 @@ def test_a_stored_question_can_be_found_and_compared_without_changing_it(client,
 def test_a_search_with_wildcards_does_not_match_everything(client, operator):
     assert client.get("/platform/question-lab/find?q=%25%25%25", headers=HEAD).json()["questions"] == []
     assert client.get("/platform/question-lab/find?q=ab", headers=HEAD).status_code == 422
+
+
+def test_the_lab_says_whether_the_subject_runs_the_newer_mapping_logic(client, book, operator):
+    body = client.post("/platform/question-lab/run", headers=HEAD,
+                       json={"subject_code": "X.MATH", "stem": STEM}).json()
+    assert isinstance(body["v2_subject"], bool)
+    try:
+        from app.mapping.subject_scope import applies
+    except ImportError:
+        assert body["v2_subject"] is True       # no per-subject gating on this branch
+    else:
+        assert body["v2_subject"] == applies("X.MATH")

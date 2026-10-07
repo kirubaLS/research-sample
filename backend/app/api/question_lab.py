@@ -146,8 +146,21 @@ def run_question(body: LabIn, request: Request) -> dict:
         db.close()
 
 
+def _settings_for(settings, subject_code: str):
+    """The settings this subject's paper would really run with. Where the deployment gates
+    new mapping behaviour per subject (``mapping_v2_subjects``), a subject outside the list
+    reads every such flag as off, and the lab must show that, not what a flag would do if it
+    applied. Absent that gating, the settings are returned unchanged."""
+    try:
+        from app.mapping.subject_scope import applies, for_subject
+    except ImportError:
+        return settings, True
+    return for_subject(settings, subject_code), applies(subject_code, settings)
+
+
 def analyse(db, settings, body: LabIn) -> dict:  # noqa: PLR0915 -- one linear walk through the steps
     """The whole lab, against an open session. Never writes; see the module docstring."""
+    settings, v2_subject = _settings_for(settings, body.subject_code)
     codes = group_subjects(body.subject_code)
     chunks = db.scalars(select(BookChunk).where(BookChunk.subject_code.in_(codes))).all()
     if not chunks:
@@ -419,6 +432,9 @@ def analyse(db, settings, body: LabIn) -> dict:  # noqa: PLR0915 -- one linear w
 
     return {
         "mode": body.mode, "subject_code": body.subject_code, "books": codes,
+        #: whether this subject runs the newer mapping logic (mapping_v2_subjects); when it
+        #: does not, the lab ran with every gated flag off, as classify does
+        "v2_subject": v2_subject,
         "chapters_in_book": len(by_label), "chunks": len(chunks),
         "final": final, "retrieval": retrieval, "signals": signals,
         "spend": spend,
