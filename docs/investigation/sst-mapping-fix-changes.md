@@ -929,8 +929,8 @@ pipeline runs the path it ran before the rework:
   verbatim from git, pinned by a test) for a subject outside the list;
 * section cards exist only for the four Social Science subjects.
 
-To bring Science onto the new logic when its own mapping is ready, add `"X.SCI"` to the list;
-Mathematics and Social Science are unaffected. `tests/test_subject_isolation.py` pins all of
+Science is now on the list (see "Science on the same path" below); Mathematics, English and the
+other languages are not, and are unaffected. `tests/test_subject_isolation.py` pins all of
 this. Not gated, deliberately: the duplicate-upload hold (it compares papers of one subject
 with each other and changes no mapping), the teacher screens, and anything not in SUBJECT_FLAGS.
 
@@ -957,3 +957,23 @@ Found on a real Science paper's map output (72 gradable rows: chapter 86% right,
 four instruction-only rows were placed by boilerplate, three questions crossed disciplines, and
 topic mix-ups inside Metals and Light made up most of the rest. Not done here: capping Science
 topics at two levels, tidying its book map, a Science gold key.
+
+
+## Science on the same path
+
+* `mapping_v2_subjects` now includes `X.SCI`, and `topic_max_depth_by_subject` gives it 2: Science
+  topics are the book's numbered sections ("5.2 NUTRITION"), its sub-sections ("5.2.1") fold into
+  them -- the same two-level rule Social Science has. Change it with
+  `YAADHUM_TOPIC_MAX_DEPTH_BY_SUBJECT` / `YAADHUM_MAPPING_V2_SUBJECTS`; Mathematics and the
+  languages stay on the original path regardless.
+* Section cards for the 13 Science chapters (`reference/book_map/section_cards.json`, rebuilt).
+* `clean_book_map_subtopics.py` and `propose_major_topic_families.py` now cover `X.SCI` (dry run
+  by default, undo files, `--i-have-a-backup` to apply). On a fresh database they ran cleanly for
+  Science; their effect on production's existing Science nodes is only visible in a dry run there.
+* `science_section_scope` now also acts in the MAP step: a first look at each row's chapter shows
+  which discipline each section is, then each row is mapped among that discipline's chapters, so
+  the provisional chapter is held too, not only the place step's.
+* An instruction shared by several questions ("For Questions number 8 and 9 ...") is a heading and
+  is skipped, not blocked.
+* Still reading, not mapping, and left alone: production's reader lost the assertion/reason text of
+  B24 and C32 (the text route reads both from this PDF).

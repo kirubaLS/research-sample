@@ -171,3 +171,21 @@ def test_an_instruction_shared_by_several_questions_is_a_heading_not_a_question(
     for text in ("For Questions 5 to 7, two statements are given. Assertion (A) and Reason (R) codes.",
                  "For Questions number 12 & 13, two statements are given. Assertion (A) and Reason (R)."):
         assert sci.instruction_row_action(on, "X.SCI", text, siblings=1) == (sci.SKIP, None)
+
+
+def test_a_rows_chapters_are_its_sections_discipline_cut_by_any_narrower_scope():
+    bio = sci.chapters_of(sci.BIOLOGY)
+    assert sci.discipline_codes(sci.BIOLOGY) == bio
+    assert sci.discipline_codes(None) is None and sci.discipline_codes("") is None
+    # a teacher's scope narrower than the discipline: the discipline cuts inside it
+    teacher = {"X.SCI.LIFEPROC", "X.SCI.METALS"}
+    assert sci.discipline_codes(sci.BIOLOGY, teacher) == frozenset({"X.SCI.LIFEPROC"})
+    # nothing in common: the teacher's scope stands (no narrowing from the discipline)
+    assert sci.discipline_codes(sci.PHYSICS, {"X.SCI.LIFEPROC"}) is None
+
+
+def test_every_discipline_chapter_set_is_a_partition_of_the_books_chapters():
+    from app.curriculum import CURRICULA
+
+    sets = [sci.chapters_of(d) for d in (sci.BIOLOGY, sci.CHEMISTRY, sci.PHYSICS)]
+    assert sum(len(x) for x in sets) == len(set().union(*sets)) == len(CURRICULA["X.SCI"].chapters)

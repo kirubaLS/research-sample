@@ -22,7 +22,7 @@ def test_every_flag_in_the_list_is_a_real_boolean_setting():
 
 
 @pytest.mark.parametrize(
-    "code", ["X.MATH", "X.SCI", "X.ENG", "X.MATH.REAL", "X.SCI.CARBON", "X.TAM", None, ""],
+    "code", ["X.MATH", "X.ENG", "X.MATH.REAL", "X.ENG.FF", "X.HIN.KR", "X.TAM", None, ""],
 )
 def test_a_subject_outside_the_list_sees_every_mapping_flag_off(code):
     s = _everything_on()
@@ -33,10 +33,10 @@ def test_a_subject_outside_the_list_sees_every_mapping_flag_off(code):
 
 
 @pytest.mark.parametrize("code", [
-    "X.SST", "X.HIST", "X.GEO", "X.POL", "X.ECO",
-    "X.GEO.MINERALSENERGY", "X.HIST.PRINTCULTURE", "X.ECO.GLOBALISATION",
+    "X.SST", "X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI",
+    "X.GEO.MINERALSENERGY", "X.HIST.PRINTCULTURE", "X.ECO.GLOBALISATION", "X.SCI.CARBON",
 ])
-def test_the_listed_social_science_subjects_keep_every_flag(code):
+def test_the_listed_subjects_keep_every_flag(code):
     s = _everything_on()
     assert applies(code, s)
     assert for_subject(s, code) is s
@@ -48,10 +48,13 @@ def test_a_prefix_is_not_a_match():
     assert not applies("X.SCIENCEX", s) and not applies("X.SC", s)
 
 
-def test_adding_science_turns_it_on_without_touching_anyone_else():
-    s = _everything_on(mapping_v2_subjects=["X.SST", "X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI"])
+def test_the_default_list_is_social_science_and_science_and_nothing_else():
+    s = _everything_on()
     assert applies("X.SCI.CARBON", s) and applies("X.GEO.WATER", s)
     assert not applies("X.MATH.REAL", s) and not applies("X.ENG", s)
+    assert not applies("X.MATH", Settings(mapping_v2_subjects=["X.SST", "X.HIST"]))
+    assert not applies("X.SCI", Settings(mapping_v2_subjects=["X.SST", "X.HIST"])), \
+        "taking Science off the list is one environment setting"
 
 
 def test_the_depth_cap_follows_the_subject_list(monkeypatch):
@@ -61,14 +64,14 @@ def test_the_depth_cap_follows_the_subject_list(monkeypatch):
     monkeypatch.setattr(live, "topic_depth_cap", True)
     monkeypatch.setattr(live, "topic_max_depth_by_subject", {"X.GEO": 2, "X.SCI": 3, "X.MATH": 3})
     assert max_depth_for("X.GEO.MINERALSENERGY") == 2
-    assert max_depth_for("X.SCI.CARBON") is None, "listed for a depth, but not in mapping_v2_subjects"
-    assert max_depth_for("X.MATH.REAL") is None
-    monkeypatch.setattr(live, "mapping_v2_subjects", ["X.GEO", "X.SCI"])
     assert max_depth_for("X.SCI.CARBON") == 3
-    assert max_depth_for("X.MATH.REAL") is None
+    assert max_depth_for("X.MATH.REAL") is None, "listed for a depth, but not in mapping_v2_subjects"
+    monkeypatch.setattr(live, "mapping_v2_subjects", ["X.GEO"])
+    assert max_depth_for("X.SCI.CARBON") is None
+    assert max_depth_for("X.GEO.WATER") == 2
 
 
-def test_the_major_topic_view_and_book_map_subtopics_are_social_science_only(monkeypatch):
+def test_the_major_topic_view_and_book_map_subtopics_follow_the_subject_list(monkeypatch):
     from types import SimpleNamespace
 
     from app.mapping.topic_node import _book_map_only, major_view
@@ -79,9 +82,11 @@ def test_the_major_topic_view_and_book_map_subtopics_are_social_science_only(mon
     monkeypatch.setattr(live, "book_map_only_subtopics", True)
     geo = SimpleNamespace(code="X.GEO.MINERALSENERGY")
     sci = SimpleNamespace(code="X.SCI.CARBON")
+    maths = SimpleNamespace(code="X.MATH.REAL")
     assert major_view(geo) == ("X.GEO.MINERALSENERGY", 2)
-    assert major_view(sci) is None
-    assert _book_map_only(geo) and not _book_map_only(sci)
+    assert major_view(sci) == ("X.SCI.CARBON", 2)
+    assert major_view(maths) is None
+    assert _book_map_only(geo) and _book_map_only(sci) and not _book_map_only(maths)
 
 
 def test_a_maths_paper_never_reads_structure_or_review_rules(client, school, monkeypatch):
@@ -92,11 +97,12 @@ def test_a_maths_paper_never_reads_structure_or_review_rules(client, school, mon
     assert for_subject(live, "X.SST").review_flag_rule
 
 
-def test_section_cards_exist_only_for_social_science_chapters():
+def test_section_cards_exist_only_for_the_subjects_on_the_list():
     from app.classify.section_cards import load_cards
 
     assert load_cards("X.GEO.MINERALSENERGY") and load_cards("X.HIST.PRINTCULTURE")
-    assert load_cards("X.SCI.CARBON") is None and load_cards("X.MATH.REAL") is None
+    assert load_cards("X.SCI.CARBON") and load_cards("X.SCI.LIFEPROC")
+    assert load_cards("X.MATH.REAL") is None and load_cards("X.ENG.FF") is None
 
 
 def test_a_subject_outside_the_list_reads_the_topic_prompts_it_always_read():

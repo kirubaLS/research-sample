@@ -70,7 +70,7 @@ from app.models import (
 )
 from scripts._row_safety import UndoLog, add_safety_args, require_backup
 
-SUBJECTS = ("X.HIST", "X.GEO", "X.POL", "X.ECO")
+SUBJECTS = ("X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI")
 
 
 def _words(label: str | None) -> str:

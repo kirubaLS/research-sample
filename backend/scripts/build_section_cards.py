@@ -1,5 +1,5 @@
 """Build ``reference/book_map/section_cards.json``: one card per major topic of every
-Social Science chapter (History, Geography, Politics, Economics). Offline and
+Social Science and Science chapter (History, Geography, Politics, Economics, Science). Offline and
 deterministic -- no database, no network, no model call.
 
     python -m scripts.build_section_cards            # write the file
@@ -18,7 +18,7 @@ from app.classify.section_cards import CARDS_FILE, build_cards, tokens
 from app.curriculum.book_map import major_headings, major_of
 from scripts.import_book_map import REFERENCE_DIR, SUBJECT_FILES, _load_chapter, _text_chunks
 
-SUBJECTS = ("X.HIST", "X.GEO", "X.POL", "X.ECO")
+SUBJECTS = ("X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI")
 DEPTH = 2
 
 

@@ -68,11 +68,11 @@ def _choose(judge, stem, card_mode=True):
     )
 
 
-def test_every_major_topic_of_every_social_science_chapter_has_a_card():
+def test_every_major_topic_of_every_listed_chapter_has_a_card():
     data, problems = build()
     assert problems == []
-    assert {c.split(".")[1] for c in data} == {"HIST", "GEO", "POL", "ECO"}
-    assert len(data) == 22
+    assert {c.split(".")[1] for c in data} == {"HIST", "GEO", "POL", "ECO", "SCI"}
+    assert len(data) == 35
     for code, entry in data.items():
         assert set(entry["cards"]) == set(major_headings(code, 2)), code
 
@@ -100,7 +100,7 @@ def test_bm25_ranks_the_section_that_uses_a_rare_name_first():
 
 
 def test_load_cards_is_none_for_a_chapter_without_cards():
-    assert load_cards("X.SCI.CARBON") is None and load_cards(GEO)
+    assert load_cards("X.MATH.REAL") is None and load_cards(GEO) and load_cards("X.SCI.CARBON")
 
 
 def test_a_grounded_card_read_is_one_call_and_never_reads_the_chapter(cards_on):

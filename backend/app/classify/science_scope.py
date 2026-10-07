@@ -120,6 +120,19 @@ def question_scopes(
 #: "For Questions number 8 and 9", "Questions 5 to 7": one instruction shared by several
 #: questions, each of which is a row of its own -- the instruction is a heading, never a question
 _SHARED = re.compile(r"questions?\s+(?:number[s]?\s+)?\d+\s*(?:and|to|-|\u2013|&)\s*\d+", re.I)
+def discipline_codes(discipline: str | None, base: frozenset[str] | set[str] | None = None):
+    """The chapter codes a row of a one-discipline section may be placed in, or None for no
+    narrowing. ``base`` is a narrower scope already decided (a teacher's, a printed title's):
+    the discipline cuts inside it, and when the two share nothing ``base`` stands."""
+    if not discipline:
+        return None
+    codes = chapters_of(discipline)
+    if base:
+        inside = codes & frozenset(base)
+        return frozenset(inside) if inside else None
+    return codes
+
+
 _AR_PREAMBLE = re.compile(r"two\s+statements\s+are\s+given", re.I)
 _AR_STATEMENT = re.compile(r"assertion\s*\(\s*a\s*\)\s*[:：]\s*\S", re.I)
 _EITHER_OR = re.compile(r"^\W*attempt\s+(either|any|one)\b[^.:?]{0,60}[:.]?\W*$", re.I)

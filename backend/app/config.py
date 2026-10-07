@@ -208,7 +208,7 @@ class Settings(BaseSettings):
     #: the depth a listed subject gets when its own entry gives none
     topic_max_depth: int = 2
     topic_max_depth_by_subject: dict[str, int] = {
-        "X.HIST": 2, "X.GEO": 2, "X.POL": 2, "X.ECO": 2,
+        "X.HIST": 2, "X.GEO": 2, "X.POL": 2, "X.ECO": 2, "X.SCI": 2,
     }
     #: The topic judge is offered only major topics (depth <= the subject's cap, boxes
     #: never), deeper sections rendered as plain subheadings inside their parent, and the
@@ -224,8 +224,8 @@ class Settings(BaseSettings):
     #: app.mapping.subject_scope.SUBJECT_FLAGS) are allowed to act on. A paper of any other
     #: subject runs the original path with all of them off, so one subject can be reworked
     #: while another's finished mapping stays exactly as it is. YAADHUM_MAPPING_V2_SUBJECTS,
-    #: a JSON list. Add "X.SCI" when Science's own mapping is ready.
-    mapping_v2_subjects: list[str] = ["X.SST", "X.HIST", "X.GEO", "X.POL", "X.ECO"]
+    #: a JSON list. Science is on it; Mathematics and the languages are not.
+    mapping_v2_subjects: list[str] = ["X.SST", "X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI"]
     #: Any teacher key of a school may upload and enter marks for any section and subject
     #: of THAT school (answer sheets, mark grids, single scripts, per-student marks), as it
     #: already may for question papers -- for deployments that give teachers one common key

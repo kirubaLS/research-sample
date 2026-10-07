@@ -59,9 +59,9 @@ def test_collapse_cuts_to_two_levels_for_capped_subjects_only(cap):
     assert collapse_section(None, "4.1.2", chapter_code=GEO) == "4.1"
     assert collapse_section("X.GEO", None) is None
     assert collapse_section("X.GEO", "none") == "none"
+    assert collapse_section("X.SCI", "9.3.7") == "9.3", "Science is capped at two levels too"
     # subjects not in the map keep today's behaviour
     assert collapse_section("X.MATH", "13.2.1") == "13.2.1"
-    assert collapse_section("X.SCI", "9.3.7") == "9.3.7"
 
 
 def test_a_box_is_never_a_topic_it_collapses_to_its_parent(cap):

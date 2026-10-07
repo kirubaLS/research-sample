@@ -2583,9 +2583,33 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     topic_written: list[str] = []
     from collections import Counter as _Counter
 
-    from app.classify.science_scope import BLOCK, instruction_row_action
+    from app.classify.science_scope import (
+        BLOCK,
+        discipline_codes,
+        instruction_only,
+        instruction_row_action,
+        science_on,
+        section_disciplines,
+    )
 
     sibling_rows = _Counter((r.section, r.question_no) for r in staged)
+
+    # SCIENCE ONLY (science_section_scope): a first look at every row's chapter, only to see
+    # which discipline each section is -- Biology, Chemistry or Physics -- so a row of such a
+    # section is then placed among that discipline's chapters alone. A mixed section gets no
+    # discipline and is mapped over the whole book as before. Acts for subject X.SCI only.
+    science_discipline_of: dict[str, str] = {}
+    if science_on(settings, assessment.subject_code, "science_section_scope"):
+        first_look = []
+        for r in staged:
+            if r.address in context or not (r.stem_text or "").strip() or instruction_only(r.stem_text):
+                continue
+            first = _chapter_of(locate(retrieval_query_text(r.stem_text), indexes).node_id, nodes)
+            if first is not None:
+                first_look.append((r.section, first.code))
+        science_discipline_of = section_disciplines(
+            first_look, (assessment.declared or {}).get("section_titles"),
+        )
     for done, row in enumerate(staged, start=1):
         if on_progress is not None:
             on_progress(done, len(staged))
@@ -2632,6 +2656,14 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             target_subject = _SST_SECTION_SUBJECT.get(row.section.strip().upper())
             if target_subject and target_subject in book_subject_codes:
                 scoped = _indexes_for_subject(target_subject)
+                if scoped is not None:
+                    row_indexes, row_mode = scoped
+
+        if science_discipline_of:
+            base = paper_scope.for_section(row.section).chapter_codes if paper_scope is not None else None
+            narrowed = discipline_codes(science_discipline_of.get((row.section or "").strip().upper()), base)
+            if narrowed:
+                scoped = _indexes_for_chapters(narrowed)
                 if scoped is not None:
                     row_indexes, row_mode = scoped
 

@@ -46,7 +46,7 @@ from app.db import SessionLocal
 from app.models import Assessment, ConceptFamilyProposal, Question, TaxonomyNode
 from scripts._row_safety import UndoLog, add_safety_args, require_backup
 
-SUBJECTS = ("X.HIST", "X.GEO", "X.POL", "X.ECO")
+SUBJECTS = ("X.HIST", "X.GEO", "X.POL", "X.ECO", "X.SCI")
 RUN_ID = "major_topic_families_v1"
 
 
