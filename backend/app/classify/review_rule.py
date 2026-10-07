@@ -14,6 +14,9 @@ so the review screen, the evaluation and a teacher can all see why:
                       answerability did not verify the judge's section
 ``topic_unverified``  the topic judge verified nothing: no section of the chapter could
                       answer the question on its own, or the judge gave no answer at all
+``classifier_differs`` the classify step reached a different chapter or topic than the
+                      mapping step had settled without doubt; the mapping's stands and a
+                      person decides
 
 A citation problem is not one of them (see grounding.resolve_citations), and neither is a
 disagreement that answerability settled, nor a thin margin between the judge's top two
@@ -27,7 +30,7 @@ from dataclasses import dataclass
 #: in priority order -- the order they are stored in
 REASONS = (
     "judge_failed", "cross_scope", "blueprint_overruled", "family", "low_confidence", "topic_differs",
-    "topic_unverified",
+    "topic_unverified", "classifier_differs",
 )
 #: the chapter judge's own confidence below which a choice among chapters is doubted
 LOW_CONFIDENCE = 0.7
@@ -54,6 +57,9 @@ class ReviewInputs:
     retrieval_section: str | None = None
     topic_verified: bool | None = None
     topic_source: str | None = None
+    #: the classify step disagreed with a mapping it left in place (see
+    #: app.api.placement.mapping_hold)
+    classifier_differs: bool = False
 
 
 def _related(a: str | None, b: str | None) -> bool:
@@ -83,6 +89,8 @@ def review_reasons(i: ReviewInputs) -> list[str]:
         out.append("topic_differs")
     if i.topic_verified is False or i.topic_source == "retrieval":
         out.append("topic_unverified")
+    if i.classifier_differs:
+        out.append("classifier_differs")
     return out
 
 
