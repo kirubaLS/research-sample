@@ -25,6 +25,7 @@ from app.api import (
     marks,
     placement,
     platform,
+    prompt_lab,
     question_lab,
     reading,
     remediation,
@@ -119,6 +120,7 @@ app.include_router(books.router)
 app.include_router(placement.router)
 app.include_router(platform.router)
 app.include_router(question_lab.router)
+app.include_router(prompt_lab.router)
 app.include_router(reports.router)
 app.include_router(reports.webhook_router)
 app.include_router(documents.router)

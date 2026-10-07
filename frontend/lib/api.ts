@@ -1596,6 +1596,65 @@ export interface LabRequest {
   question_id?: string | null;
 }
 
+// --- prompt mapper (operator): map questions with one cheap model call, nothing written ---
+export interface PromptLabResult {
+  row: number;
+  text: string;
+  section: string | null;
+  question_id: string | null;
+  chapter: { id: string; code: string; title: string } | null;
+  topic: { id: string; number: string; title: string; major_number: string | null; major_title: string | null } | null;
+  secondary: { id: string; title: string; chapter: string; number: string }[];
+  confidence: "high" | "medium" | "low";
+  syllabus_status: "in_syllabus" | "partial" | "not_found";
+  reason: string;
+  needs_review: boolean;
+  problems: string[];
+  stored: { chapter: string | null; section: string | null; chapter_agrees: boolean; topic_agrees: boolean } | null;
+}
+
+export interface PromptLabRun {
+  model: string;
+  calls: number;
+  errors: string[];
+  results: PromptLabResult[];
+  summary: {
+    questions: number;
+    mapped: number;
+    in_syllabus: number;
+    needs_review: number;
+    high: number;
+    compared: number;
+    chapter_agrees: number;
+    topic_agrees: number;
+  };
+  spend: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    estimated_usd: number;
+  };
+  taxonomy: { chapters: number; topics: number };
+  wrote_nothing: true;
+}
+
+export interface PromptLabTaxonomy {
+  subjects: string[];
+  chapters: number;
+  topics: number;
+  approx_tokens: number;
+  model: string;
+  text: string | null;
+}
+
+export interface PromptLabPaper {
+  assessment_id: string;
+  title: string;
+  subject_code: string;
+  questions: number;
+}
+
 export interface Subject extends SubjectBook {
   group_code: string;
   group_label: string;
@@ -2365,6 +2424,25 @@ export const api = {
    * this exact screen. */
   platformSubjects: (key: string) =>
     operator<{ subjects: Subject[] }>("/platform/subjects", key),
+
+  /** Map questions with one cheap model call per batch, from the book's full topic list.
+   *  Writes nothing. Give `questions`, or an `assessment_id` to map a stored paper and compare. */
+  promptLabRun: (
+    key: string,
+    body: { questions?: { text: string; section?: string | null }[]; assessment_id?: string },
+  ) =>
+    operator<PromptLabRun>("/platform/prompt-lab/run", key, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** What the mapper's model is shown: chapter and topic counts, and (full) the text. */
+  promptLabTaxonomy: (key: string, full = false) =>
+    operator<PromptLabTaxonomy>(`/platform/prompt-lab/taxonomy${full ? "?full=1" : ""}`, key),
+
+  /** A school's Social Science papers, to load into the mapper (read only). */
+  promptLabPapers: (key: string, schoolId: string) =>
+    operator<{ papers: PromptLabPaper[] }>(`/platform/prompt-lab/papers?school_id=${encodeURIComponent(schoolId)}`, key),
 
   /** Put ONE question through the mapping pipeline and see every step. Writes nothing:
    *  "retrieval" is free; "full" also runs the Claude judges and reports the spend. */
