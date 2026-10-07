@@ -1655,6 +1655,74 @@ export interface PromptLabPaper {
   questions: number;
 }
 
+// --- OCR mapper (operator): read a paper like the teacher flow, then map it; nothing stored ---
+export interface PromptLabMapping {
+  chapter: { id: string; code: string; title: string } | null;
+  topic: { id: string; number: string; title: string; major_number: string | null; major_title: string | null } | null;
+  secondary: { id: string; title: string; chapter: string; number: string }[];
+  confidence: "high" | "medium" | "low";
+  syllabus_status: "in_syllabus" | "partial" | "not_found";
+  reason: string;
+  needs_review: boolean;
+  problems: string[];
+}
+
+export interface OcrLabQuestion {
+  address: string;
+  section: string | null;
+  question_no: string;
+  sub_part: string | null;
+  choice_alt: string | null;
+  marks: number | null;
+  text: string;
+  page: number;
+  is_context: boolean;
+  attempt_required: number | null;
+}
+
+export interface OcrLabResult {
+  ocr: {
+    route: "text" | "vision";
+    model: string | null;
+    pages?: number;
+    estimated_usd: number;
+    estimate_note?: string;
+    cascade: { cheap_model: string; strong_model: string; escalated: boolean; reasons: string[] } | null;
+  };
+  checks: {
+    declared_total: number | null;
+    read_total: number;
+    total_matches: boolean | null;
+    declared_count: number | null;
+    read_count: number;
+    declared_sections: Record<string, number>;
+    section_titles: Record<string, string>;
+    problems: string[];
+  };
+  questions: OcrLabQuestion[];
+  mapping: {
+    model: string;
+    calls: number;
+    errors: string[];
+    by_address: Record<string, PromptLabMapping>;
+    summary: { questions: number; mapped: number; needs_review: number; high: number };
+    spend: { input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number; estimated_usd: number };
+  } | null;
+}
+
+export interface OcrLabState {
+  job_id: string;
+  status: "queued" | "reading" | "mapping" | "done" | "failed";
+  route: "text" | "vision";
+  pages: number;
+  phase: string;
+  done: number;
+  total: number;
+  note?: string | null;
+  error?: string;
+  result?: OcrLabResult;
+}
+
 export interface Subject extends SubjectBook {
   group_code: string;
   group_label: string;
@@ -2424,6 +2492,30 @@ export const api = {
    * this exact screen. */
   platformSubjects: (key: string) =>
     operator<{ subjects: Subject[] }>("/platform/subjects", key),
+
+  /** Read a paper (PDF or photographs) the way the teacher flow does, then map its questions.
+   *  Returns the job to poll; nothing is stored. */
+  ocrLabStart: async (key: string, files: File[], mapTopics: boolean) => {
+    const body = new FormData();
+    files.forEach((f) => body.append("files", f));
+    body.append("subject_code", "X.SST");
+    body.append("map_topics", mapTopics ? "true" : "false");
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/platform/ocr-lab/run`, {
+        method: "POST",
+        headers: { "X-Platform-Key": key, "X-API-Key": key },
+        body,
+      });
+    } catch {
+      throw new ApiUnreachable(BASE);
+    }
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return (await res.json()) as { job_id: string; route: "text" | "vision"; pages: number };
+  },
+
+  ocrLabPoll: (key: string, jobId: string) =>
+    operator<OcrLabState>(`/platform/ocr-lab/jobs/${jobId}`, key),
 
   /** Map questions with one cheap model call per batch, from the book's full topic list.
    *  Writes nothing. Give `questions`, or an `assessment_id` to map a stored paper and compare. */
