@@ -1517,6 +1517,8 @@ export interface LabResult {
   books: string[];
   chapters_in_book: number;
   chunks: number;
+  /** false: the deployment gates newer mapping logic per subject and this one is not listed */
+  v2_subject: boolean;
   final: LabFinal;
   retrieval: {
     chapter: string | null;
