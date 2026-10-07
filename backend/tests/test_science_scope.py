@@ -142,8 +142,9 @@ def test_every_science_chapter_has_a_discipline():
 
 def test_the_map_step_blocks_a_lone_instruction_and_skips_a_heading_with_options():
     on = Settings(science_instruction_rows=True)
-    assert sci.instruction_row_action(on, "X.SCI", AR_PREAMBLE, siblings=1)[0] == sci.BLOCK
-    assert sci.instruction_row_action(on, "X.SCI", AR_PREAMBLE, siblings=1)[1]
+    singular = AR_PREAMBLE.replace("Questions number 8 and 9", "Question number 24")
+    assert sci.instruction_row_action(on, "X.SCI", singular, siblings=1)[0] == sci.BLOCK
+    assert sci.instruction_row_action(on, "X.SCI", singular, siblings=1)[1]
     assert sci.instruction_row_action(on, "X.SCI", "Attempt either option (a) or (b) :", siblings=3) \
         == (sci.SKIP, None)
     assert sci.instruction_row_action(on, "X.SCI", "A real question about lymph.", siblings=1) is None
@@ -158,3 +159,15 @@ def test_the_map_step_leaves_every_other_subject_alone(subject):
 
 def test_with_the_flag_off_science_maps_as_before():
     assert sci.instruction_row_action(Settings(), "X.SCI", AR_PREAMBLE, siblings=1) is None
+
+
+def test_an_instruction_shared_by_several_questions_is_a_heading_not_a_question():
+    """"For Questions number 8 and 9 ..." sits in a row of its own, but A8 and A9 are rows of
+    their own too: the heading is skipped, not blocked as if it were a question."""
+    on = Settings(science_instruction_rows=True)
+    assert sci.instruction_row_action(on, "X.SCI", AR_PREAMBLE, siblings=1) == (sci.SKIP, None)
+    singular = AR_PREAMBLE.replace("Questions number 8 and 9", "Question number 24")
+    assert sci.instruction_row_action(on, "X.SCI", singular, siblings=1)[0] == sci.BLOCK
+    for text in ("For Questions 5 to 7, two statements are given. Assertion (A) and Reason (R) codes.",
+                 "For Questions number 12 & 13, two statements are given. Assertion (A) and Reason (R)."):
+        assert sci.instruction_row_action(on, "X.SCI", text, siblings=1) == (sci.SKIP, None)

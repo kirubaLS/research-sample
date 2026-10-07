@@ -117,6 +117,9 @@ def question_scopes(
     return out, sections
 
 
+#: "For Questions number 8 and 9", "Questions 5 to 7": one instruction shared by several
+#: questions, each of which is a row of its own -- the instruction is a heading, never a question
+_SHARED = re.compile(r"questions?\s+(?:number[s]?\s+)?\d+\s*(?:and|to|-|\u2013|&)\s*\d+", re.I)
 _AR_PREAMBLE = re.compile(r"two\s+statements\s+are\s+given", re.I)
 _AR_STATEMENT = re.compile(r"assertion\s*\(\s*a\s*\)\s*[:：]\s*\S", re.I)
 _EITHER_OR = re.compile(r"^\W*attempt\s+(either|any|one)\b[^.:?]{0,60}[:.]?\W*$", re.I)
@@ -158,4 +161,5 @@ def instruction_row_action(
     reason = instruction_only(stem)
     if reason is None:
         return None
-    return (SKIP, None) if siblings > 1 else (BLOCK, reason)
+    shared = bool(_SHARED.search(" ".join((stem or "").split())))
+    return (SKIP, None) if siblings > 1 or shared else (BLOCK, reason)
