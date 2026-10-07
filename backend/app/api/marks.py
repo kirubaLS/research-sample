@@ -18,7 +18,6 @@ from app.api.deps import (
     require_marks_scope_for_student,
     require_paper_scope,
     require_reader,
-    require_scanner,
     school_in_scope,
 )
 from app.api.documents import content_type_for, store_document
@@ -2582,6 +2581,11 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
     deferred: list = []
     mapped, blocked, context_kept, with_topic = 0, [], 0, 0
     topic_written: list[str] = []
+    from collections import Counter as _Counter
+
+    from app.classify.science_scope import BLOCK, instruction_row_action
+
+    sibling_rows = _Counter((r.section, r.question_no) for r in staged)
     for done, row in enumerate(staged, start=1):
         if on_progress is not None:
             on_progress(done, len(staged))
@@ -2598,6 +2602,23 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         if row.max_marks is None:
             row.blocked_reason = "no mark label was read; supply the marks before mapping"
             blocked.append(row.address)
+            continue
+
+        # SCIENCE ONLY (science_instruction_rows): a row that is only an instruction. With
+        # rows after it (the options of "attempt either") it is a heading, skipped like a
+        # case-study stem; on its own (an assertion-reason whose statements were not read)
+        # it is blocked with the reason rather than filed under whatever the boilerplate
+        # resembles. Acts for subject X.SCI and no other.
+        action = instruction_row_action(
+            settings, assessment.subject_code, row.stem_text,
+            sibling_rows[(row.section, row.question_no)],
+        )
+        if action is not None:
+            row.blocked_reason = action[1]
+            if action[0] == BLOCK:
+                blocked.append(row.address)
+            else:
+                context_kept += 1
             continue
 
         row_indexes, row_mode = indexes, mode

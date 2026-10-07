@@ -232,6 +232,18 @@ class Settings(BaseSettings):
     #: and one common dashboard. Off: marks entry needs a subject assignment naming the
     #: section and subject (or the exam cell), as before. Never crosses a school.
     teacher_any_subject_uploads: bool = False
+    #: SCIENCE ONLY (a paper of subject X.SCI; any other subject ignores these). A section
+    #: whose questions are overwhelmingly one discipline (or whose printed title names one)
+    #: may only be placed in that discipline's chapters -- Biology, Chemistry or Physics --
+    #: when the place step chooses a chapter. A mixed section is left alone.
+    #: See app.classify.science_scope. YAADHUM_SCIENCE_SECTION_SCOPE.
+    science_section_scope: bool = False
+    #: SCIENCE ONLY. A row that is only an instruction ("two statements are given ...
+    #: Assertion (A) ... Reason (R)" with no statements, "Attempt either option (a) or (b)")
+    #: is not placed by its boilerplate: a heading that has options after it is skipped like a
+    #: case-study stem, and a question whose own text was not read is blocked with the reason.
+    #: YAADHUM_SCIENCE_INSTRUCTION_ROWS.
+    science_instruction_rows: bool = False
     #: The topic judge skips its second ("taught") read when the first quoted a sentence that
     #: is verbatim in the section it named and both retrieval within the chapter and the
     #: book's own use of the question's terms agree -- one fewer call on the easy questions,

@@ -933,3 +933,27 @@ To bring Science onto the new logic when its own mapping is ready, add `"X.SCI"`
 Mathematics and Social Science are unaffected. `tests/test_subject_isolation.py` pins all of
 this. Not gated, deliberately: the duplicate-upload hold (it compares papers of one subject
 with each other and changes no mapping), the teacher screens, and anything not in SUBJECT_FLAGS.
+
+## Science: section discipline and instruction-only rows (default OFF, Science only)
+
+Two rules in `app/classify/science_scope.py`, each behind its own flag and each acting for a
+paper of subject `X.SCI` and nothing else (`science_on` is False for any other subject, flag or
+no flag; the flags are deliberately NOT in the shared `SUBJECT_FLAGS` list, so turning one on
+changes Science only and no other subject's flags):
+
+* `YAADHUM_SCIENCE_SECTION_SCOPE` -- the place step holds a section to one discipline when the
+  paper says it is one: its printed title names Biology / Chemistry / Physics, or at least 4
+  questions and 75% of them first landed in that discipline's chapters. Such a section's
+  questions may only be placed in that discipline's chapters. A mixed section (a board paper's
+  section A) is left alone. A teacher's paper scope is respected inside it. The place job
+  result gains `science_sections` (letter -> discipline).
+* `YAADHUM_SCIENCE_INSTRUCTION_ROWS` -- in the map step, a row that is only an instruction (an
+  assertion-reason preamble with no assertion or reason, "Attempt either option (a) or (b)",
+  "Read the following passage ..." with no passage) is not placed by its boilerplate: with rows
+  after it (the options) it is skipped like a case-study stem; alone it is blocked with the
+  reason, so a teacher sees it instead of a wrong chapter.
+
+Found on a real Science paper's map output (72 gradable rows: chapter 86% right, topic 71%):
+four instruction-only rows were placed by boilerplate, three questions crossed disciplines, and
+topic mix-ups inside Metals and Light made up most of the rest. Not done here: capping Science
+topics at two levels, tidying its book map, a Science gold key.

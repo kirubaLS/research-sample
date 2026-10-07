@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.books import clean_sections
-from app.api.deps import require_admin, require_paper_scope, require_reader, require_scanner
+from app.api.deps import require_admin, require_paper_scope
 from app.classify.gate import summarise as summarise_gate
 from app.classify.memory import summarise as summarise_memory
 from app.classify.pipeline import place_paper
@@ -401,6 +401,24 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 subject = _SST_SECTION_SUBJECT.get((q.section or "").strip().upper())
                 if subject and labels_of_subject.get(subject):
                     own_scope[q.id] = labels_of_subject[subject]
+
+        # SCIENCE ONLY (science_section_scope): a section that is one discipline -- by its
+        # printed title or by where most of its questions first landed -- is placed only in
+        # that discipline's chapters. Acts for subject X.SCI and no other.
+        science_sections: dict[str, str] = {}
+        from app.classify.science_scope import question_scopes, science_on
+
+        if science_on(settings, a.subject_code, "science_section_scope"):
+            first = [
+                (q.id, q.section, nodes[q.chapter_id].code if q.chapter_id in nodes else None)
+                for q in questions
+            ]
+            narrowed, science_sections = question_scopes(
+                first, {n.code: n.label for n in by_label.values()},
+                paper_scope=scope, titles=(a.declared or {}).get("section_titles"),
+            )
+            for qid, labels in narrowed.items():
+                own_scope[qid] = labels
 
         # The closed set the topic judge chooses from, per chapter: every section the
         # book has for it, with its heading.
@@ -1004,6 +1022,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             #: told is the wrong one
             "family_refused": len(refused),
             "tiers": sum(1 for q in result.questions if tier_code(q.tier)),
+            #: science_section_scope: the discipline each section was held to
+            **({"science_sections": science_sections} if science_sections else {}),
             #: topic_card_mode: how each question's one-call card read ended (accept /
             #: review / fallback / no_quote / ...); every non-accept read the whole chapter
             **({"card_tiers": dict(topic_judge.card_tiers)}
