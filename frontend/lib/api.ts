@@ -1485,6 +1485,115 @@ export interface SubjectChapters {
   books: { subject_code: string; label: string; chapters: ChapterOption[] }[];
 }
 
+// --- question lab (operator): one question through the mapping pipeline, nothing written ---
+export interface LabTopic {
+  section: string | null;
+  heading: string | null;
+  source: string;
+  agreed: boolean;
+  verified: boolean | null;
+  retrieval_section: string | null;
+  rationale: string;
+  secondaries: { section: string; heading: string }[];
+}
+
+export interface LabFinal {
+  source: "retrieval" | "judges";
+  chapter: string | null;
+  chapter_code: string | null;
+  board_unit: string | null;
+  topic: LabTopic | null;
+  tier: string | null;
+  skill_required: string | null;
+  confidence: number;
+  needs_review: boolean;
+  reasoning: string;
+  family: { label: string | null; unsettled: string | null; blocked: string | null } | null;
+}
+
+export interface LabResult {
+  mode: "retrieval" | "full";
+  subject_code: string;
+  books: string[];
+  chapters_in_book: number;
+  chunks: number;
+  final: LabFinal;
+  retrieval: {
+    chapter: string | null;
+    score: number;
+    margin: number;
+    retrievers_agreed: boolean;
+    retrievers: string[];
+    section: string | null;
+    ranking: { chapter: string | null; score: number }[];
+    scope: string | null;
+    evidence: { chapter: string | null; reference: string; section: string | null; text: string }[];
+  };
+  signals: {
+    gate: { would_pass: boolean; relative_margin: number; reason: string | null; min_margin: number };
+    memory: {
+      remembered_questions: number;
+      nearest: { similarity: number; chapter: string; section: string | null; stem: string }[];
+      vote: string | null;
+      unanimous: boolean;
+      would_reuse: boolean;
+      min_similarity: number;
+    } | null;
+    classifier: { chapter: string | null; confidence: number };
+  };
+  spend: {
+    calls: number;
+    models: string[];
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    estimated_usd: number;
+    estimated_usd_topic_batched: number;
+  };
+  stored: {
+    question_id: string;
+    address: string;
+    stem: string | null;
+    chapter: string | null;
+    section: string | null;
+    topics: { label: string | null; source: string }[];
+    placement: {
+      source: string;
+      needs_review: boolean;
+      review_reason: string | null;
+      tier: string | null;
+      chapter: string | null;
+      section: string | null;
+      created_at: string | null;
+    } | null;
+  } | null;
+  wrote_nothing: true;
+}
+
+export interface LabStoredQuestion {
+  question_id: string;
+  assessment: string;
+  subject_code: string;
+  school_id: string;
+  address: string;
+  section: string | null;
+  marks: number;
+  stem: string | null;
+  chapter: string | null;
+  topic_section: string | null;
+}
+
+export interface LabRequest {
+  subject_code: string;
+  stem: string;
+  marks?: number;
+  mode: "retrieval" | "full";
+  section?: string | null;
+  school_id?: string | null;
+  question_id?: string | null;
+}
+
 export interface Subject extends SubjectBook {
   group_code: string;
   group_label: string;
@@ -2254,6 +2363,22 @@ export const api = {
    * this exact screen. */
   platformSubjects: (key: string) =>
     operator<{ subjects: Subject[] }>("/platform/subjects", key),
+
+  /** Put ONE question through the mapping pipeline and see every step. Writes nothing:
+   *  "retrieval" is free; "full" also runs the Claude judges and reports the spend. */
+  questionLabRun: (key: string, body: LabRequest) =>
+    operator<LabResult>("/platform/question-lab/run", key, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+
+  /** Stored questions whose text contains `q`, to load one into the lab (read only). */
+  questionLabFind: (key: string, q: string, schoolId?: string) =>
+    operator<{ questions: LabStoredQuestion[] }>(
+      `/platform/question-lab/find${qs({ q, school_id: schoolId })}`,
+      key,
+    ),
 
   bookStatus: (key: string, subject: string) =>
     operator<BookStatus>(`/platform/books/${subject}`, key),
