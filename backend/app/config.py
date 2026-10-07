@@ -244,6 +244,20 @@ class Settings(BaseSettings):
     #: case-study stem, and a question whose own text was not read is blocked with the reason.
     #: YAADHUM_SCIENCE_INSTRUCTION_ROWS.
     science_instruction_rows: bool = False
+    #: SCIENCE ONLY. After a paper is read (either route), a row whose text is only an
+    #: instruction -- an assertion-reason preamble whose statements ended up on the next page --
+    #: is filled from the PDF's own text layer: the assertion and reason printed under that
+    #: question's number, word for word. Never replaces a stem the reader got; a photographed
+    #: paper has no text layer and is untouched. YAADHUM_SCIENCE_TEXT_LAYER_REPAIR.
+    science_text_layer_repair: bool = False
+    #: A sub-question's chapter search reads the shared stem / passage in front of it, as the
+    #: place step's judge already does. Acts for the subjects in mapping_v2_subjects.
+    #: YAADHUM_SUBPART_RETRIEVAL_WITH_PASSAGE.
+    subpart_retrieval_with_passage: bool = False
+    #: A sub-part with a weak first chapter guess goes to the chapter its sibling sub-parts
+    #: clearly agree on, when that chapter is also among its own top candidates. Acts for the
+    #: subjects in mapping_v2_subjects. YAADHUM_SUBPART_CHAPTER_AGREEMENT.
+    subpart_chapter_agreement: bool = False
     #: The topic judge skips its second ("taught") read when the first quoted a sentence that
     #: is verbatim in the section it named and both retrieval within the chapter and the
     #: book's own use of the question's terms agree -- one fewer call on the easy questions,

@@ -977,3 +977,27 @@ topics at two levels, tidying its book map, a Science gold key.
   is skipped, not blocked.
 * Still reading, not mapping, and left alone: production's reader lost the assertion/reason text of
   B24 and C32 (the text route reads both from this PDF).
+
+## Sub-parts read with their passage, sibling agreement, text-layer repair (all default OFF)
+
+Found on a real Science paper's map output: B28b ("write the balanced chemical equation for the
+reduction of zinc oxide", a sub-part of a metal-extraction passage) went to Chemical Reactions,
+and C38a ("angle of emergence" in a glass-slab passage) to The Human Eye, because the map step
+searched each sub-part on its own words. B24 and C32 lost their assertion and reason when the
+page-by-page vision read met a page break between the instruction and its statements.
+
+* `YAADHUM_SUBPART_RETRIEVAL_WITH_PASSAGE` -- the map step's chapter search reads the shared
+  stem or passage in front of a sub-part, as the place step's judge already does.
+* `YAADHUM_SUBPART_CHAPTER_AGREEMENT` -- a sub-part with a weak first guess (gap to its
+  runner-up under 15% of its score, or the two retrievers disagreeing) goes to the chapter that at
+  least 60% of its question's sub-parts (3 or more) agree on, but only if that chapter is also
+  among its own top 3 candidates. A confident sub-part is never moved. The map job result lists
+  them as `subpart_overrides`. Both flags are in `SUBJECT_FLAGS`, so they act for the subjects in
+  `mapping_v2_subjects` (Social Science and Science) and never for Mathematics or the languages.
+  Offline, reading the passage fixed B28b and B27c; sibling agreement is what fixes C38a.
+* `YAADHUM_SCIENCE_TEXT_LAYER_REPAIR` (Science only, outside the shared list) -- after a paper
+  is read by either route, a row whose text is only an assertion-reason instruction is filled
+  from the PDF's own text layer: the assertion and reason printed under that question's number,
+  word for word, no model call. It fills a gap and never replaces a stem the reader got; a
+  photographed paper has no text layer and is untouched. On the real Science PDF it recovered
+  questions 8, 9, 24 and 32. The job result lists the rows as `repaired_from_text_layer`.

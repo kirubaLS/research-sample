@@ -819,6 +819,16 @@ def _finish_paper_scan(
     # produces one. Caught and resolved here rather than left to the INSERT below, whose
     # failure took every other question read off the same paper down with it in the same
     # transaction.
+    # SCIENCE ONLY (science_text_layer_repair): an instruction-only row (the statements of an
+    # assertion-reason question lost to a page break) is filled from the PDF's own text layer.
+    repaired_from_text: list[str] = []
+    from app.classify.science_scope import science_on as _science_on
+
+    if _science_on(get_settings(), assessment.subject_code, "science_text_layer_repair"):
+        from app.extraction.text_layer_repair import repair_instruction_stems
+
+        repaired_from_text = repair_instruction_stems(extract.questions, originals)
+
     extract.questions, dedupe_problems = dedupe_addresses(extract.questions)
     extract.problems = [*extract.problems, *dedupe_problems]
 
@@ -924,6 +934,8 @@ def _finish_paper_scan(
         #: Every disagreement between the extraction and what the paper says about itself.
         #: Empty means the two agree, which is the only evidence the read is right.
         "problems": extract.problems,
+        #: science_text_layer_repair: rows whose text was filled from the PDF's own text layer
+        **({"repaired_from_text_layer": repaired_from_text} if repaired_from_text else {}),
         "next": f"Review at GET /assessments/{assessment.id}/scan, then POST /map.",
     }
 
@@ -2594,22 +2606,43 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
 
     sibling_rows = _Counter((r.section, r.question_no) for r in staged)
 
-    # SCIENCE ONLY (science_section_scope): a first look at every row's chapter, only to see
-    # which discipline each section is -- Biology, Chemistry or Physics -- so a row of such a
-    # section is then placed among that discipline's chapters alone. A mixed section gets no
-    # discipline and is mapped over the whole book as before. Acts for subject X.SCI only.
+    # A first look at every row's chapter, only for the rules that need to see the paper as a
+    # whole before placing any row of it: SCIENCE ONLY (science_section_scope) -- which
+    # discipline each section is -- and subpart_chapter_agreement -- which chapter a question's
+    # sub-parts agree on. A mixed section gets no discipline and is mapped over the whole book.
+    from app.classify.subparts import FirstLook, sibling_overrides, with_passage
+
     science_discipline_of: dict[str, str] = {}
-    if science_on(settings, assessment.subject_code, "science_section_scope"):
-        first_look = []
+    sibling_override: dict[str, str] = {}
+    want_discipline = science_on(settings, assessment.subject_code, "science_section_scope")
+    if want_discipline or settings.subpart_chapter_agreement:
+        first_look: list[tuple] = []
+        looks: list[FirstLook] = []
         for r in staged:
             if r.address in context or not (r.stem_text or "").strip() or instruction_only(r.stem_text):
                 continue
-            first = _chapter_of(locate(retrieval_query_text(r.stem_text), indexes).node_id, nodes)
-            if first is not None:
-                first_look.append((r.section, first.code))
-        science_discipline_of = section_disciplines(
-            first_look, (assessment.declared or {}).get("section_titles"),
-        )
+            query = r.stem_text
+            if settings.subpart_retrieval_with_passage:
+                query = with_passage(query, passage_of.get((r.section, r.question_no)), r.sub_part)
+            seen = locate(retrieval_query_text(query), indexes)
+            first = _chapter_of(seen.node_id, nodes)
+            if first is None:
+                continue
+            first_look.append((r.section, first.code))
+            ranked = [first.code, *[
+                c.code for c in (_chapter_of(nid, nodes) for nid, _ in seen.runners_up) if c is not None
+            ]]
+            looks.append(FirstLook(
+                r.address, (r.section, r.question_no) if r.sub_part else None, ranked,
+                (seen.margin / seen.score) if seen.score else 1.0, bool(seen.agreed),
+            ))
+        if want_discipline:
+            science_discipline_of = section_disciplines(
+                first_look, (assessment.declared or {}).get("section_titles"),
+            )
+        if settings.subpart_chapter_agreement:
+            sibling_override = sibling_overrides(looks)
+
     for done, row in enumerate(staged, start=1):
         if on_progress is not None:
             on_progress(done, len(staged))
@@ -2659,7 +2692,11 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
                 if scoped is not None:
                     row_indexes, row_mode = scoped
 
-        if science_discipline_of:
+        if row.address in sibling_override:
+            scoped = _indexes_for_chapters(frozenset({sibling_override[row.address]}))
+            if scoped is not None:
+                row_indexes, row_mode = scoped
+        elif science_discipline_of:
             base = paper_scope.for_section(row.section).chapter_codes if paper_scope is not None else None
             narrowed = discipline_codes(science_discipline_of.get((row.section or "").strip().upper()), base)
             if narrowed:
@@ -2667,7 +2704,12 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
                 if scoped is not None:
                     row_indexes, row_mode = scoped
 
-        verdict = locate(retrieval_query_text(row.stem_text), row_indexes)
+        query_text = row.stem_text
+        if settings.subpart_retrieval_with_passage:
+            query_text = with_passage(
+                query_text, passage_of.get((row.section, row.question_no)), row.sub_part,
+            )
+        verdict = locate(retrieval_query_text(query_text), row_indexes)
         chapter = _chapter_of(verdict.node_id, nodes)
         if chapter is None:
             if row.question_no in case_study_question_nos:
@@ -2984,6 +3026,8 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         "blocked_addresses": blocked[:20],
         #: printed section titles the teacher's scope overruled (sst_unified_scope)
         **({"scope_warnings": paper_scope.warnings()} if paper_scope is not None else {}),
+        #: subpart_chapter_agreement: sub-parts held to the chapter their siblings agree on
+        **({"subpart_overrides": sorted(sibling_override)} if sibling_override else {}),
         "needs_review": db.scalar(select(func.count(QuestionPlacement.id)).where(
             QuestionPlacement.needs_review.is_(True),
             QuestionPlacement.question_id.in_(

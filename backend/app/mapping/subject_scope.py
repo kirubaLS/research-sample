@@ -31,6 +31,8 @@ SUBJECT_FLAGS = (
     "topic_adaptive_reads",
     "cite_passages_by_number",
     "review_flag_rule",
+    "subpart_retrieval_with_passage",
+    "subpart_chapter_agreement",
     "chapter_gate",
     "chapter_gate_enforce",
     "chapter_gate_reranker",
