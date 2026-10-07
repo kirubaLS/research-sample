@@ -20,6 +20,7 @@ from app.api.books import clean_sections
 from app.api.deps import require_admin, require_paper_scope
 from app.classify.gate import summarise as summarise_gate
 from app.classify.memory import summarise as summarise_memory
+from app.classify.topic import _related as _topic_related
 from app.classify.pipeline import place_paper
 from app.classify.review_rule import ReviewInputs, reason_code, review_reasons
 from app.config import get_settings
@@ -164,6 +165,53 @@ def _report_placement_progress(job_id: str, done: int, total: int) -> None:
             db.close()
     except Exception:  # noqa: BLE001 -- a progress write must never sink the real run
         pass
+
+
+def mapping_hold(db, question, chapter, placed, nodes, related) -> str | None:
+    """Why this classify result must not replace what the mapping step settled, or None.
+
+    The mapping step places every question from retrieval alone and flags the ones it doubts.
+    A question it did NOT flag was placed by two independent readers agreeing, and the
+    classify step's judges -- which read only a shortlist of chapters -- should refine that,
+    not erase it: a disagreement is information for a person, not a verdict. So a question is
+    held when
+
+    * it already carries a chapter and a section, and
+    * its newest placement was not written by a person (a person's choice has its own guard,
+      ``person_set_topic``), and was either unflagged or itself a held disagreement
+      (``classifier_differs``) -- without that second case the next click on Classify would
+      find the flagged row "unsure" and overwrite it, and
+    * classify names a different chapter, or a section unrelated to the question's own.
+
+    Returns the sentence for the placement's reasoning.
+    """
+    if question.chapter_id is None or question.curriculum_section is None:
+        return None
+    previous = db.scalars(
+        select(QuestionPlacement).where(QuestionPlacement.question_id == question.id)
+        .order_by(QuestionPlacement.created_at.desc()).limit(1)
+    ).first()
+    if previous is None or previous.source == "human":
+        return None
+    if previous.needs_review and previous.review_reason != "classifier_differs":
+        return None
+    kept = nodes.get(question.chapter_id)
+    if kept is None:
+        return None
+    same_chapter = kept.id == chapter.id
+    same_topic = placed.curriculum_section is None or related(
+        placed.curriculum_section, question.curriculum_section,
+    )
+    if same_chapter and same_topic:
+        return None
+    suggested = chapter.label + (
+        f", section {placed.curriculum_section}" if placed.curriculum_section else ""
+    )
+    return (
+        f"Kept the mapping's {kept.label}, section {question.curriculum_section}: the "
+        f"classifier suggested {suggested} (confidence {placed.confidence:.2f}) and a "
+        f"person should decide between them."
+    )
 
 
 def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run, not worth splitting
@@ -739,6 +787,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
         #: rows flagged under review_flag_rule, by reason
         flagged_by_reason: dict[str, int] = {}
         flagged_rows = 0
+        #: addresses classify disagreed on and left as the mapping had them
+        held_mapping: list[str] = []
         for placed in result.questions:
             chapter = by_label.get(placed.chapter) if placed.chapter is not None else None
             unit_id = _unit_node_id(db, nodes, placed.board_unit) if placed.board_unit else None
@@ -753,6 +803,9 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             choice = Choice(None)
             auto_resolved: str | None = None
             held: str | None = None
+            #: classify disagreed with a mapping it left in place (mapping_hold): the sentence
+            differs: str | None = None
+            suggested_chapter: str | None = None
             pick = topic_picks.get(placed.question_id)
             if pick is not None and pick.section is not None:
                 import dataclasses
@@ -810,6 +863,32 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 if placed.skill_required:
                     question.skill_required = placed.skill_required
                 settled += 1
+            elif (
+                question is not None and chapter is not None
+                and settings.classify_protects_mapping
+                and (hold := mapping_hold(db, question, chapter, placed, nodes, _topic_related))
+                is not None
+            ):
+                # The mapping step settled this question without doubt and the classifier
+                # disagrees. The question keeps the mapping's chapter, section, topic and
+                # family; the classifier's tier and skill are still recorded, and the row is
+                # flagged with both answers for a person.
+                import dataclasses
+
+                kept = nodes[question.chapter_id]
+                differs = hold
+                suggested_chapter = chapter.label
+                held_mapping.append(question.address)
+                placed = dataclasses.replace(
+                    placed, chapter=kept.label, curriculum_section=question.curriculum_section,
+                    needs_review=True,
+                )
+                chapter = kept
+                unit_id = question.board_unit_id
+                pick = None
+                fine_section = None
+                if placed.skill_required:
+                    question.skill_required = placed.skill_required
             elif question is not None and chapter is not None:
                 chapter_families = families.get(chapter.id, [])
                 if family_table is not None:
@@ -919,6 +998,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             new_rule = None
             if settings.review_flag_rule:
                 new_rule = [] if held is not None else review_reasons(ReviewInputs(
+                    classifier_differs=differs is not None,
                     judge_failed=placed.judge_failed,
                     cross_scope=bool(getattr(placed, "cross_scope", False)),
                     blueprint_overruled=bool(placed.overruled),
@@ -955,9 +1035,12 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 cross_scope=True if getattr(placed, "cross_scope", False) else None,
                 review_reason=(
                     reason_code(new_rule) if new_rule is not None
+                    else "classifier_differs" if differs is not None
                     else "cross_scope" if getattr(placed, "cross_scope", False) else None
                 ),
-                needs_review=bool(new_rule) if new_rule is not None else held is None and (
+                needs_review=bool(new_rule) if new_rule is not None else (
+                    differs is not None
+                ) or held is None and (
                     placed.needs_review
                     or getattr(placed, "cross_scope", False)
                     or (pick is not None and pick.section is not None and not pick.agreed)
@@ -969,6 +1052,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                 ),
                 reasoning=" ".join(filter(None, [
                     held,
+                    differs,
                     placed.reasoning,
                     (
                         f"Topic {pick.section} ({pick.heading}): {pick.rationale}"
@@ -978,7 +1062,8 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
                     f"Auto-resolved: {auto_resolved}" if auto_resolved else None,
                 ])),
                 evidence=placed.evidence,
-                candidates=[placed.chapter] if placed.chapter is not None else [],
+                candidates=[c for c in dict.fromkeys(
+                    [placed.chapter, suggested_chapter]) if c is not None],
             ))
             # The tier belongs on its own append-only row too. Reports read it from
             # there, so writing it only onto the placement meant the judge decided the
@@ -1015,6 +1100,10 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             #: questions whose chapter, topic and sub-topic the judge settled on the
             #: question itself, which is what every report reads
             "labelled": settled,
+            #: questions where the classifier disagreed with a confident mapping and the
+            #: mapping was kept (classify_protects_mapping); each is flagged for a person
+            "kept_mapping": len(held_mapping),
+            "kept_mapping_addresses": held_mapping[:30],
             #: settled, but more than one family had an equal claim on the section
             "unsettled_family": unsettled,
             #: the judge moved the question to a chapter whose families cannot place it,

@@ -133,6 +133,12 @@ class Settings(BaseSettings):
     #: nothing waits on a review. Off only for a deployment that wants a person in the
     #: loop (and in the test suite, which exercises each step on its own).
     auto_pipeline: bool = True
+    #: Classify never silently replaces a chapter and topic the mapping step settled without
+    #: doubt: where its judges disagree, the mapping's placement stays on the question and
+    #: the row is flagged "classifier_differs" with both answers in its reasoning, for a
+    #: person to decide. The classify step still records the tier and skill. Off, classify
+    #: overwrites as it used to. YAADHUM_CLASSIFY_PROTECTS_MAPPING.
+    classify_protects_mapping: bool = True
 
     # --- Social Science mapping (branch sst-mapping-fix); every flag OFF by default ------
     #: The vision reader also copies each section header's printed title and any printed
