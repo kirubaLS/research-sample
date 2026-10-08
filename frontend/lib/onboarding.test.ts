@@ -171,3 +171,23 @@ describe("other fields", () => {
     expect(rules.address("abc")).toMatch(/short/);
   });
 });
+
+describe("gibberish and bad types", () => {
+  it("flags names with digits, keyboard-mash and filler", () => {
+    expect(rules.personName("Ravi123")).not.toBeNull();
+    expect(rules.personName("aaaaaa")).not.toBeNull();
+    expect(rules.personName("qwrtpsdfg")).not.toBeNull();
+    expect(rules.personName("S. Ravi Kumar")).toBeNull();
+    expect(rules.personName("Krishnamurthy")).toBeNull();
+  });
+  it("flags school names that are only digits or mash", () => {
+    expect(rules.schoolName("12345")).not.toBeNull();
+    expect(rules.schoolName("xxxxxx school")).not.toBeNull();
+    expect(rules.schoolName("Bharathi Vidyalaya")).toBeNull();
+  });
+  it("flags letters and wrong lengths in numbers", () => {
+    expect(rules.mobile("98a6543210", true)).not.toBeNull();
+    expect(rules.mobile("12345", true)).not.toBeNull();
+    expect(rules.mobile("98765 43210", true)).toBeNull();
+  });
+});
