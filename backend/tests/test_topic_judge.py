@@ -976,3 +976,42 @@ def test_adaptive_reads_do_not_skip_when_the_books_terms_name_another_section():
     choose_topic(INDEX_STEM, STATS, "Print Culture", chunks, PRINT_HEADINGS, judge,
                  adaptive_reads=True)
     assert [c[3] for c in judge.calls][:2] == ["answer", "taught"]
+
+
+# --- topic_apply_all_sections: nobody reviews the row, so no claimed section is dropped -------
+
+def _disagreeing_judge():
+    return _DocumentJudge([
+        ("3.2", "The Church feared that printed books would spread rebellious ideas"),  # answer
+        ("3.2", "The Church feared that printed books would spread rebellious ideas"),  # taught
+        ("3.3", "maintained an Index of Prohibited Books from 1558"),                   # confirm
+    ])
+
+
+def test_without_the_flag_the_losing_claimant_is_not_kept():
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", [FEAR, DISSENT, CHUNKS[4]],
+                        PRINT_HEADINGS, _disagreeing_judge())
+    assert pick.section == "3.3" and pick.secondaries == ()
+
+
+def test_with_the_flag_every_section_that_laid_a_claim_is_applied():
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", [FEAR, DISSENT, CHUNKS[4]],
+                        PRINT_HEADINGS, _disagreeing_judge(), all_sections=True)
+    assert pick.section == "3.3"
+    assert [s for s, _ in pick.secondaries] == ["3.2"]
+
+
+def test_with_the_flag_a_settled_single_section_question_gains_nothing():
+    quote = "maintained an Index of Prohibited Books from 1558"
+    judge = _VerifyingJudge([("3.3", quote), ("3.3", quote)], {"3.3": (True, quote)})
+    pick = choose_topic(INDEX_STEM, STATS, "Print Culture", [FEAR, DISSENT, CHUNKS[4]],
+                        PRINT_HEADINGS, judge, all_sections=True)
+    assert pick.section == "3.3" and pick.secondaries == ()
+
+
+def test_the_flag_is_a_per_subject_mapping_flag_and_defaults_off():
+    from app.config import Settings
+    from app.mapping.subject_scope import SUBJECT_FLAGS
+
+    assert "topic_apply_all_sections" in SUBJECT_FLAGS
+    assert Settings().topic_apply_all_sections is False

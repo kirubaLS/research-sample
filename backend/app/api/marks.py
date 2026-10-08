@@ -2566,6 +2566,7 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
             lexical_index=topic_index,
             card_mode=settings.topic_card_mode,
             adaptive_reads=settings.topic_adaptive_reads,
+            all_sections=settings.topic_apply_all_sections,
             **({"major": view} if (view := major_view(chapter)) is not None else {}),
         )
         if deferred_to_classify:

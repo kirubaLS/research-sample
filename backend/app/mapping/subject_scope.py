@@ -29,6 +29,7 @@ SUBJECT_FLAGS = (
     "book_map_only_subtopics",
     "topic_card_mode",
     "topic_adaptive_reads",
+    "topic_apply_all_sections",
     "cite_passages_by_number",
     "review_flag_rule",
     "subpart_retrieval_with_passage",

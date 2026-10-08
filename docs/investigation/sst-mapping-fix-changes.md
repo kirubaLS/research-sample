@@ -1001,3 +1001,11 @@ page-by-page vision read met a page break between the instruction and its statem
   word for word, no model call. It fills a gap and never replaces a stem the reader got; a
   photographed paper has no text layer and is untouched. On the real Science PDF it recovered
   questions 8, 9, 24 and 32. The job result lists the rows as `repaired_from_text_layer`.
+
+## Apply every section a question is answered in (`YAADHUM_TOPIC_APPLY_ALL_SECTIONS`, default off)
+
+Per-subject flag (listed in `SUBJECT_FLAGS`). The topic judge still picks one primary section
+(weight 1.0). With the flag on, up to five other sections are written beside it at
+`SECONDARY_WEIGHT`: the judge's `also` list, every section the answer read's quotes sit in, and,
+when the reads did not agree or the section could not be verified, every section that laid a
+claim. No extra model call. Off: at most three, from `also` only, as before.

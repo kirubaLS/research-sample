@@ -269,6 +269,12 @@ class Settings(BaseSettings):
     #: book's own use of the question's terms agree -- one fewer call on the easy questions,
     #: with the answerability check still run. YAADHUM_TOPIC_ADAPTIVE_READS.
     topic_adaptive_reads: bool = False
+    #: A question whose parts are answered in several sections is filed under ALL of them:
+    #: the section the judge chose at full weight, and beside it (at SECONDARY_WEIGHT) every
+    #: other section its quoted sentences sit in, plus -- when the judge's reads disagree
+    #: and nobody will review the row -- every section that laid a claim, up to five. No
+    #: extra model call. YAADHUM_TOPIC_APPLY_ALL_SECTIONS.
+    topic_apply_all_sections: bool = False
     #: For book-map subjects, subtopic nodes come from the book map's printed numbers
     #: only: an existing node is never relabelled, and the ingest-created nodes are never
     #: a fallback topic.

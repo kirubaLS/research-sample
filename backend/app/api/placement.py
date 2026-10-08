@@ -693,6 +693,7 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
             lexical_index=topic_index,
             card_mode=settings.topic_card_mode,
             adaptive_reads=settings.topic_adaptive_reads,
+            all_sections=settings.topic_apply_all_sections,
             **tiered,
             **({"major": view} if (view := major_view(chapter_node)) is not None else {}),
         )

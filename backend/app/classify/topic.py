@@ -796,6 +796,7 @@ def choose_topic(
     major: tuple[str, int] | None = None,
     card_mode: bool = False,
     adaptive_reads: bool = False,
+    all_sections: bool = False,
 ) -> TopicPick:
     """Decide the section within ``chapter_id`` that ``stem`` tests.
 
@@ -902,6 +903,7 @@ def choose_topic(
             quick = _choose_by_cards(
                 stem, chapter_label, chapter_chunks, headings, judge, cards,
                 retrieval_section=retrieval_section, named=named, want_tier=want_tier,
+                all_sections=all_sections,
             )
             judge.card_hits = getattr(judge, "card_hits", 0) + (quick is not None)
             judge.card_escalations = getattr(judge, "card_escalations", 0) + (quick is None)
@@ -912,6 +914,7 @@ def choose_topic(
             stem, chapter_label, chapter_chunks, headings, judge, document,
             retrieval_section=retrieval_section, named=named, votes=votes,
             fallback=fall_back, want_tier=want_tier, adaptive_reads=adaptive_reads,
+            all_sections=all_sections,
         )
 
     shown = [
@@ -1025,6 +1028,8 @@ def _section_texts(chapter_chunks: list, headings: dict[str, str]) -> dict[str, 
 CARD_SECTION_CHARS = 7000
 #: a card read is taken at this many signals of ``CARD_SIGNALS``
 CARD_ACCEPT = 6
+#: secondaries kept when topic_apply_all_sections is on (three otherwise)
+MAX_SECONDARIES = 5
 CARD_SIGNALS = 7
 
 
@@ -1059,7 +1064,7 @@ def card_signals(
 def _choose_by_cards(
     stem: str, chapter_label: str, chapter_chunks: list, headings: dict[str, str],
     judge, cards: dict[str, str], *, retrieval_section: str | None, named: str | None,
-    want_tier: bool = False,
+    want_tier: bool = False, all_sections: bool = False,
 ) -> TopicPick | None:
     """The cheap path: ONE call that reads every section's card and the full text of the
     sections BM25 ranks first -- one when retrieval is clear, two when likely, three when
@@ -1133,7 +1138,7 @@ def _choose_by_cards(
             x for x in (normalise_section(str(a), headings)
                         for a in (getattr(choice, "also", None) or [])) if x is not None
         ) if not _related(s, section)
-    )[:3]
+    )[:MAX_SECONDARIES if all_sections else 3]
     rationale = str(getattr(choice, "rationale", "") or getattr(choice, "answer", "") or "")
     return done("accept", TopicPick(
         section, headings.get(section), "judge", True, retrieval_section,
@@ -1150,7 +1155,7 @@ def _choose_from_whole_chapter(
     stem: str, chapter_label: str, chapter_chunks: list, headings: dict[str, str],
     judge, document: str, *, retrieval_section: str | None, named: str | None,
     votes: dict[str, list[str]], fallback, want_tier: bool = False,
-    adaptive_reads: bool = False,
+    adaptive_reads: bool = False, all_sections: bool = False,
 ) -> TopicPick:
     """The judge reads the entire chapter. Its quote, not its number, is the answer; the
     independent votes (retrieval within the chapter, the book's own use of the
@@ -1203,6 +1208,7 @@ def _choose_from_whole_chapter(
     reads: dict[str, tuple[str | None, str]] = {}
     notes: list[str] = []
     also: list[str] = []
+    answer_quoted: list[str] = []
     tier: str | None = None
     answer_is_settled = False
     for mode in ("answer", "taught"):
@@ -1240,6 +1246,7 @@ def _choose_from_whole_chapter(
                         retrieval_section is None or _related(sec, retrieval_section)))
                 )
             if mode == "answer":
+                answer_quoted = quote_sections(choice)
                 also = [
                     s for s in (
                         normalise_section(str(a), headings)
@@ -1322,10 +1329,17 @@ def _choose_from_whole_chapter(
             [c for c in claimants if not _related(c, section)], named, agreed, notes,
             anchor,
         )
+    limit = 3
+    if all_sections:
+        # Every section the answer read's quotes sit in is one a part of the question is
+        # answered in, and so is every section that laid a claim when the reads did not
+        # settle on one: nobody reviews the row, so none of them is dropped.
+        also = also + answer_quoted + (claimants if not agreed or verified is not True else [])
+        limit = MAX_SECONDARIES
     secondaries = tuple(
         (s, headings.get(s, s)) for s in dict.fromkeys(also)
         if not _related(s, section)
-    )[:3]
+    )[:limit]
     text = rationale
     if notes:
         text = " ".join([rationale, *[n[0].upper() + n[1:] + "." for n in notes]]).strip()
