@@ -147,6 +147,16 @@ export function classSuggestions(query: string, existing: ClassSpec[], limit = 1
 
 // --- field rules -------------------------------------------------------------------------------
 
+/** Whole years between a YYYY-MM-DD birth date and today, null when it is not a date. */
+export function ageOn(dob: string, today: Date = new Date()): number | null {
+  const d = new Date(dob);
+  if (Number.isNaN(d.getTime())) return null;
+  let age = today.getFullYear() - d.getUTCFullYear();
+  const m = today.getMonth() - d.getUTCMonth();
+  if (m < 0 || (m === 0 && today.getDate() < d.getUTCDate())) age--;
+  return age;
+}
+
 /** Keyboard-mash and filler: four of the same character in a row, or a long word with no vowel. */
 export function looksLikeGibberish(s: string): boolean {
   if (/(.)\1{3,}/i.test(s)) return true;
@@ -224,6 +234,34 @@ export const rules = {
     if (!s) return null;
     if (s.length < 5) return "The address is too short.";
     return s.length > 500 ? "The address is too long." : null;
+  },
+  /** A date of birth as the browser's date box gives it (YYYY-MM-DD): a real date, not in the
+   * future, for a student between 8 and 25 (the range the server accepts). */
+  dob(v: string, today: Date = new Date()): string | null {
+    if (!v) return "Enter your date of birth.";
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
+    if (!m) return "Enter a valid date of birth.";
+    const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+    const date = new Date(Date.UTC(y, mo - 1, d));
+    if (date.getUTCFullYear() !== y || date.getUTCMonth() !== mo - 1 || date.getUTCDate() !== d) {
+      return "That date does not exist.";
+    }
+    if (date.getTime() > Date.UTC(today.getFullYear(), today.getMonth(), today.getDate())) {
+      return "Date of birth cannot be in the future.";
+    }
+    const age = ageOn(v, today);
+    if (age === null || age < 8 || age > 25) return "Check the date of birth. It should make you between 8 and 25 years old.";
+    return null;
+  },
+  /** What a student wants to be: words, or the "Not sure yet" choice. */
+  career(v: string): string | null {
+    const s = v.trim();
+    if (!s) return "Tell us, or choose \"Not sure yet\".";
+    if (s === "Not sure yet") return null;
+    if (s.length < 2) return "That is too short.";
+    if (!/^[A-Za-z][A-Za-z .,'&/()-]*$/.test(s)) return "Use words only, no digits or symbols.";
+    if (looksLikeGibberish(s)) return "That does not look like a real answer.";
+    return s.length > 120 ? "That is too long." : null;
   },
   academicYear(v: string, options: { value: string }[]): string | null {
     return options.some((o) => o.value === v) ? null : "Choose the academic year.";

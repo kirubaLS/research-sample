@@ -192,3 +192,23 @@ describe("gibberish and bad types", () => {
     expect(rules.mobile("98765 43210", true)).toBeNull();
   });
 });
+
+describe("student date of birth and career", () => {
+  const today = new Date(2026, 9, 8);
+  it("accepts a real date for a student aged 8 to 25", () => {
+    expect(rules.dob("2011-03-14", today)).toBeNull();
+  });
+  it("flags impossible, future and out-of-range dates", () => {
+    expect(rules.dob("", today)).not.toBeNull();
+    expect(rules.dob("2011-02-30", today)).toMatch(/does not exist/);
+    expect(rules.dob("2027-01-01", today)).toMatch(/future/);
+    expect(rules.dob("2022-01-01", today)).toMatch(/between 8 and 25/);
+    expect(rules.dob("1980-01-01", today)).toMatch(/between 8 and 25/);
+  });
+  it("checks the career answer", () => {
+    expect(rules.career("Doctor")).toBeNull();
+    expect(rules.career("Not sure yet")).toBeNull();
+    expect(rules.career("1234")).not.toBeNull();
+    expect(rules.career("")).not.toBeNull();
+  });
+});
