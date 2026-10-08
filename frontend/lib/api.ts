@@ -1485,6 +1485,244 @@ export interface SubjectChapters {
   books: { subject_code: string; label: string; chapters: ChapterOption[] }[];
 }
 
+// --- question lab (operator): one question through the mapping pipeline, nothing written ---
+export interface LabTopic {
+  section: string | null;
+  heading: string | null;
+  source: string;
+  agreed: boolean;
+  verified: boolean | null;
+  retrieval_section: string | null;
+  rationale: string;
+  secondaries: { section: string; heading: string }[];
+}
+
+export interface LabFinal {
+  source: "retrieval" | "judges";
+  chapter: string | null;
+  chapter_code: string | null;
+  board_unit: string | null;
+  topic: LabTopic | null;
+  tier: string | null;
+  skill_required: string | null;
+  confidence: number;
+  needs_review: boolean;
+  reasoning: string;
+  family: { label: string | null; unsettled: string | null; blocked: string | null } | null;
+}
+
+export interface LabResult {
+  mode: "retrieval" | "full";
+  subject_code: string;
+  books: string[];
+  chapters_in_book: number;
+  chunks: number;
+  /** false: the deployment gates newer mapping logic per subject and this one is not listed */
+  v2_subject: boolean;
+  final: LabFinal;
+  retrieval: {
+    chapter: string | null;
+    score: number;
+    margin: number;
+    retrievers_agreed: boolean;
+    retrievers: string[];
+    section: string | null;
+    ranking: { chapter: string | null; score: number }[];
+    scope: string | null;
+    evidence: { chapter: string | null; reference: string; section: string | null; text: string }[];
+  };
+  signals: {
+    gate: { would_pass: boolean; relative_margin: number; reason: string | null; min_margin: number };
+    memory: {
+      remembered_questions: number;
+      nearest: { similarity: number; chapter: string; section: string | null; stem: string }[];
+      vote: string | null;
+      unanimous: boolean;
+      would_reuse: boolean;
+      min_similarity: number;
+    } | null;
+    classifier: { chapter: string | null; confidence: number };
+  };
+  spend: {
+    calls: number;
+    models: string[];
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    estimated_usd: number;
+    estimated_usd_topic_batched: number;
+  };
+  stored: {
+    question_id: string;
+    address: string;
+    stem: string | null;
+    chapter: string | null;
+    section: string | null;
+    topics: { label: string | null; source: string }[];
+    placement: {
+      source: string;
+      needs_review: boolean;
+      review_reason: string | null;
+      tier: string | null;
+      chapter: string | null;
+      section: string | null;
+      created_at: string | null;
+    } | null;
+  } | null;
+  wrote_nothing: true;
+}
+
+export interface LabStoredQuestion {
+  question_id: string;
+  assessment: string;
+  subject_code: string;
+  school_id: string;
+  address: string;
+  section: string | null;
+  marks: number;
+  stem: string | null;
+  chapter: string | null;
+  topic_section: string | null;
+}
+
+export interface LabRequest {
+  subject_code: string;
+  stem: string;
+  marks?: number;
+  mode: "retrieval" | "full";
+  section?: string | null;
+  school_id?: string | null;
+  question_id?: string | null;
+}
+
+// --- prompt mapper (operator): map questions with one cheap model call, nothing written ---
+export interface PromptLabResult {
+  row: number;
+  text: string;
+  section: string | null;
+  question_id: string | null;
+  chapter: { id: string; code: string; title: string } | null;
+  topic: { id: string; number: string; title: string; major_number: string | null; major_title: string | null } | null;
+  secondary: { id: string; title: string; chapter: string; number: string }[];
+  confidence: "high" | "medium" | "low";
+  syllabus_status: "in_syllabus" | "partial" | "not_found";
+  reason: string;
+  needs_review: boolean;
+  problems: string[];
+  stored: { chapter: string | null; section: string | null; chapter_agrees: boolean; topic_agrees: boolean } | null;
+}
+
+export interface PromptLabRun {
+  model: string;
+  calls: number;
+  errors: string[];
+  results: PromptLabResult[];
+  summary: {
+    questions: number;
+    mapped: number;
+    in_syllabus: number;
+    needs_review: number;
+    high: number;
+    compared: number;
+    chapter_agrees: number;
+    topic_agrees: number;
+  };
+  spend: {
+    input_tokens: number;
+    output_tokens: number;
+    cache_read_tokens: number;
+    cache_write_tokens: number;
+    estimated_usd: number;
+  };
+  taxonomy: { chapters: number; topics: number };
+  wrote_nothing: true;
+}
+
+export interface PromptLabTaxonomy {
+  subjects: string[];
+  chapters: number;
+  topics: number;
+  approx_tokens: number;
+  model: string;
+  text: string | null;
+}
+
+export interface PromptLabPaper {
+  assessment_id: string;
+  title: string;
+  subject_code: string;
+  questions: number;
+}
+
+// --- OCR mapper (operator): read a paper like the teacher flow, then map it; nothing stored ---
+export interface PromptLabMapping {
+  chapter: { id: string; code: string; title: string } | null;
+  topic: { id: string; number: string; title: string; major_number: string | null; major_title: string | null } | null;
+  secondary: { id: string; title: string; chapter: string; number: string }[];
+  confidence: "high" | "medium" | "low";
+  syllabus_status: "in_syllabus" | "partial" | "not_found";
+  reason: string;
+  needs_review: boolean;
+  problems: string[];
+}
+
+export interface OcrLabQuestion {
+  address: string;
+  section: string | null;
+  question_no: string;
+  sub_part: string | null;
+  choice_alt: string | null;
+  marks: number | null;
+  text: string;
+  page: number;
+  is_context: boolean;
+  attempt_required: number | null;
+}
+
+export interface OcrLabResult {
+  ocr: {
+    route: "text" | "vision";
+    model: string | null;
+    pages?: number;
+    estimated_usd: number;
+    estimate_note?: string;
+    cascade: { cheap_model: string; strong_model: string; escalated: boolean; reasons: string[] } | null;
+  };
+  checks: {
+    declared_total: number | null;
+    read_total: number;
+    total_matches: boolean | null;
+    declared_count: number | null;
+    read_count: number;
+    declared_sections: Record<string, number>;
+    section_titles: Record<string, string>;
+    problems: string[];
+  };
+  questions: OcrLabQuestion[];
+  mapping: {
+    model: string;
+    calls: number;
+    errors: string[];
+    by_address: Record<string, PromptLabMapping>;
+    summary: { questions: number; mapped: number; needs_review: number; high: number };
+    spend: { input_tokens: number; output_tokens: number; cache_read_tokens: number; cache_write_tokens: number; estimated_usd: number };
+  } | null;
+}
+
+export interface OcrLabState {
+  job_id: string;
+  status: "queued" | "reading" | "mapping" | "done" | "failed";
+  route: "text" | "vision";
+  pages: number;
+  phase: string;
+  done: number;
+  total: number;
+  note?: string | null;
+  error?: string;
+  result?: OcrLabResult;
+}
+
 export interface Subject extends SubjectBook {
   group_code: string;
   group_label: string;
@@ -2254,6 +2492,65 @@ export const api = {
    * this exact screen. */
   platformSubjects: (key: string) =>
     operator<{ subjects: Subject[] }>("/platform/subjects", key),
+
+  /** Read a paper (PDF or photographs) the way the teacher flow does, then map its questions.
+   *  Returns the job to poll; nothing is stored. */
+  ocrLabStart: async (key: string, files: File[], mapTopics: boolean) => {
+    const body = new FormData();
+    files.forEach((f) => body.append("files", f));
+    body.append("subject_code", "X.SST");
+    body.append("map_topics", mapTopics ? "true" : "false");
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/platform/ocr-lab/run`, {
+        method: "POST",
+        headers: { "X-Platform-Key": key, "X-API-Key": key },
+        body,
+      });
+    } catch {
+      throw new ApiUnreachable(BASE);
+    }
+    if (!res.ok) throw new ApiError(res.status, await res.text());
+    return (await res.json()) as { job_id: string; route: "text" | "vision"; pages: number };
+  },
+
+  ocrLabPoll: (key: string, jobId: string) =>
+    operator<OcrLabState>(`/platform/ocr-lab/jobs/${jobId}`, key),
+
+  /** Map questions with one cheap model call per batch, from the book's full topic list.
+   *  Writes nothing. Give `questions`, or an `assessment_id` to map a stored paper and compare. */
+  promptLabRun: (
+    key: string,
+    body: { questions?: { text: string; section?: string | null }[]; assessment_id?: string },
+  ) =>
+    operator<PromptLabRun>("/platform/prompt-lab/run", key, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /** What the mapper's model is shown: chapter and topic counts, and (full) the text. */
+  promptLabTaxonomy: (key: string, full = false) =>
+    operator<PromptLabTaxonomy>(`/platform/prompt-lab/taxonomy${full ? "?full=1" : ""}`, key),
+
+  /** A school's Social Science papers, to load into the mapper (read only). */
+  promptLabPapers: (key: string, schoolId: string) =>
+    operator<{ papers: PromptLabPaper[] }>(`/platform/prompt-lab/papers?school_id=${encodeURIComponent(schoolId)}`, key),
+
+  /** Put ONE question through the mapping pipeline and see every step. Writes nothing:
+   *  "retrieval" is free; "full" also runs the Claude judges and reports the spend. */
+  questionLabRun: (key: string, body: LabRequest) =>
+    operator<LabResult>("/platform/question-lab/run", key, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+
+  /** Stored questions whose text contains `q`, to load one into the lab (read only). */
+  questionLabFind: (key: string, q: string, schoolId?: string) =>
+    operator<{ questions: LabStoredQuestion[] }>(
+      `/platform/question-lab/find${qs({ q, school_id: schoolId })}`,
+      key,
+    ),
 
   bookStatus: (key: string, subject: string) =>
     operator<BookStatus>(`/platform/books/${subject}`, key),

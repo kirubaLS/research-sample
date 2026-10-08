@@ -242,6 +242,9 @@ def test_a_confirmed_question_is_reused_end_to_end_with_no_model_call(
     settings = get_settings()
     monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
     monkeypatch.setattr(settings, "memory_reuse", True)
+    if hasattr(settings, "mapping_v2_subjects"):
+        # a deployment that gates new mapping logic per subject must list the subject too
+        monkeypatch.setattr(settings, "mapping_v2_subjects", [*settings.mapping_v2_subjects, "X.MATH"])
     headers = {"X-API-Key": school["api_key"]}
     tag = uuid.uuid4().hex[:8]
 
