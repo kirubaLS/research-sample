@@ -2,6 +2,7 @@
 
 import { Brain, Compass, IdCard, Sparkles, Target } from "lucide-react";
 import type { WizardAnswers } from "@/lib/attendState";
+import { rules } from "@/lib/onboarding";
 import {
   careersKnownOptions,
   class11GroupOptions,
@@ -41,7 +42,19 @@ export interface ClassContext {
 // Step 1: Basic Info
 // ---------------------------------------------------------------------------
 export function isBasicInfoValid(a: WizardAnswers): boolean {
-  return Boolean(a.name?.trim()) && Boolean(a.roll_no?.trim()) && Boolean(a.gender) && Boolean(a.dob);
+  return Object.keys(basicInfoErrors(a)).length === 0 && Boolean(a.gender);
+}
+
+/** Every Basic Info field that breaks its rule, with the message to show. */
+export function basicInfoErrors(a: WizardAnswers): Record<string, string> {
+  const e: Record<string, string> = {};
+  const name = rules.personName(a.name ?? "");
+  if (name) e.name = name;
+  const roll = rules.rollNo(a.roll_no ?? "");
+  if (roll) e.roll_no = roll;
+  const dob = rules.dob(a.dob ?? "");
+  if (dob) e.dob = dob;
+  return e;
 }
 
 export function StepBasicInfo({
@@ -56,6 +69,8 @@ export function StepBasicInfo({
   showErrors: boolean;
 }) {
   const age = answers.dob ? ageFromDob(answers.dob) : answers.age;
+  const err = basicInfoErrors(answers);
+  const today = new Date().toISOString().slice(0, 10);
   return (
     <StepCard icon={IdCard} eyebrow="STEP 1 OF 6" title="Basic Info" accent={STEP_META[0].accent}>
       <div style={{ display: "grid", gap: 14, gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))" }}>
@@ -73,10 +88,10 @@ export function StepBasicInfo({
             className="input"
             autoComplete="name"
             value={answers.name ?? ""}
-            aria-invalid={showErrors && !answers.name?.trim()}
+            aria-invalid={(showErrors || !!answers.name) && !!err.name}
             onChange={(e) => patch({ name: e.target.value })}
           />
-          <FieldError show={showErrors && !answers.name?.trim()}>Enter your full name.</FieldError>
+          <FieldError show={(showErrors || !!answers.name) && !!err.name}>{err.name}</FieldError>
         </div>
         <div className="field">
           <label htmlFor="p-roll">Roll Number</label>
@@ -85,10 +100,11 @@ export function StepBasicInfo({
             className="input"
             inputMode="numeric"
             value={answers.roll_no ?? ""}
-            aria-invalid={showErrors && !answers.roll_no?.trim()}
+            aria-invalid={(showErrors || !!answers.roll_no) && !!err.roll_no}
+            maxLength={6}
             onChange={(e) => patch({ roll_no: e.target.value })}
           />
-          <FieldError show={showErrors && !answers.roll_no?.trim()}>Enter your roll number.</FieldError>
+          <FieldError show={(showErrors || !!answers.roll_no) && !!err.roll_no}>{err.roll_no}</FieldError>
         </div>
         <div className="field">
           <label htmlFor="p-dob">Date of Birth</label>
@@ -96,14 +112,15 @@ export function StepBasicInfo({
             id="p-dob"
             className="input"
             type="date"
+            max={today}
             value={answers.dob ?? ""}
-            aria-invalid={showErrors && !answers.dob}
+            aria-invalid={(showErrors || !!answers.dob) && !!err.dob}
             onChange={(e) => {
               const dob = e.target.value;
               patch({ dob, age: dob ? ageFromDob(dob) : answers.age });
             }}
           />
-          <FieldError show={showErrors && !answers.dob}>Enter your date of birth.</FieldError>
+          <FieldError show={(showErrors || !!answers.dob) && !!err.dob}>{err.dob}</FieldError>
         </div>
         <LockedField label="Age" value={age ? String(age) : "—"} />
       </div>
@@ -222,7 +239,7 @@ export function StepInterests({ answers, patch, showErrors }: { answers: WizardA
 // Step 5: Future Plans
 // ---------------------------------------------------------------------------
 export function isFuturePlansValid(a: WizardAnswers): boolean {
-  return Boolean(a.future_career?.trim()) && Boolean(a.class11_group) && Boolean(a.group_reason?.length) && Boolean(a.confidence);
+  return !rules.career(a.future_career ?? "") && Boolean(a.class11_group) && Boolean(a.group_reason?.length) && Boolean(a.confidence);
 }
 
 export function StepFuturePlans({ answers, patch, showErrors }: { answers: WizardAnswers; patch: Patch; showErrors: boolean }) {
@@ -237,7 +254,7 @@ export function StepFuturePlans({ answers, patch, showErrors }: { answers: Wizar
             value={notSure ? "Not sure yet" : answers.future_career ?? ""}
             disabled={notSure}
             placeholder="e.g. Software engineer, Doctor, Designer…"
-            aria-invalid={showErrors && !answers.future_career?.trim()}
+            aria-invalid={(showErrors || !!answers.future_career) && !!rules.career(answers.future_career ?? "")}
             onChange={(e) => patch({ future_career: e.target.value })}
           />
           <button
@@ -249,7 +266,7 @@ export function StepFuturePlans({ answers, patch, showErrors }: { answers: Wizar
             Not sure yet
           </button>
         </div>
-        <FieldError show={showErrors && !answers.future_career?.trim()}>Tell us, or choose &quot;Not sure yet&quot;.</FieldError>
+        <FieldError show={(showErrors || !!answers.future_career) && !!rules.career(answers.future_career ?? "")}>{rules.career(answers.future_career ?? "")}</FieldError>
       </Question>
 
       <Question label="Which Class 11 group are you thinking about?">
