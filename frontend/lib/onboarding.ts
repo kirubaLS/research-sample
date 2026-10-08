@@ -147,6 +147,12 @@ export function classSuggestions(query: string, existing: ClassSpec[], limit = 1
 
 // --- field rules -------------------------------------------------------------------------------
 
+/** Keyboard-mash and filler: four of the same character in a row, or a long word with no vowel. */
+export function looksLikeGibberish(s: string): boolean {
+  if (/(.)\1{3,}/i.test(s)) return true;
+  return s.split(/[\s.'-]+/).some((w) => w.length >= 5 && !/[aeiouy]/i.test(w));
+}
+
 const PERSON = /^[A-Za-z][A-Za-z .'-]*$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
@@ -173,6 +179,8 @@ export const rules = {
     if (!s) return "Enter the school's name.";
     if (s.length < 3) return "The school's name is too short.";
     if (!/[A-Za-z]{2}/.test(s)) return "The name must contain letters.";
+    if (/^\d+$/.test(s.replace(/[^A-Za-z0-9]/g, ""))) return "A school name cannot be only digits.";
+    if (looksLikeGibberish(s)) return "That does not look like a real school name.";
     if (!/^[A-Za-z0-9 .,'&()/-]+$/.test(s)) return "The name has a character that cannot be used (letters, digits and . , ' & ( ) / - only).";
     if (s.length > 200) return "The name is too long.";
     return null;
@@ -208,6 +216,7 @@ export const rules = {
     if (!s) return required ? "Enter the name." : null;
     if (s.length < 3) return "The name is too short.";
     if (!PERSON.test(s)) return "A name has letters only (spaces, . ' - are fine), no digits.";
+    if (looksLikeGibberish(s)) return "That does not look like a real name.";
     return null;
   },
   address(v: string): string | null {

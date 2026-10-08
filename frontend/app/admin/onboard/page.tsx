@@ -396,7 +396,7 @@ function SchoolStep(props: {
         <div className="field field--wide">
           <label htmlFor="s-name">School name</label>
           <input id="s-name" className="input" value={name} placeholder="Sri Vidya Mandir Senior Secondary School" onChange={(e) => setName(e.target.value)} />
-          <FieldError>{tried && errors.name}</FieldError>
+          <FieldError>{(tried || !!name) && errors.name}</FieldError>
         </div>
         <div className="field">
           <label htmlFor="s-state">State</label>
@@ -434,13 +434,13 @@ function SchoolStep(props: {
           <label htmlFor="s-phone">Contact number</label>
           <input id="s-phone" className="input" inputMode="tel" value={contactPhone} placeholder="98765 43210"
             onChange={(e) => setContactPhone(phoneInput(e.target.value))} />
-          <FieldError>{tried && errors.contactPhone}</FieldError>
+          <FieldError>{(tried || !!contactPhone) && errors.contactPhone}</FieldError>
         </div>
         <div className="field">
           <label htmlFor="s-email">Email <span className="muted">(optional)</span></label>
           <input id="s-email" className="input" type="email" value={contactEmail} placeholder="office@school.in"
             onChange={(e) => setContactEmail(e.target.value)} />
-          <FieldError>{tried && errors.contactEmail}</FieldError>
+          <FieldError>{(tried || !!contactEmail) && errors.contactEmail}</FieldError>
         </div>
         <div className="field">
           <label htmlFor="s-year">Academic year</label>
@@ -452,7 +452,7 @@ function SchoolStep(props: {
         <div className="field field--wide">
           <label htmlFor="s-address">Address</label>
           <input id="s-address" className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
-          <FieldError>{tried && errors.address}</FieldError>
+          <FieldError>{(tried || !!address) && errors.address}</FieldError>
         </div>
         <div className="field field--wide">
           <label htmlFor="s-class">Classes</label>
@@ -559,12 +559,12 @@ function PrincipalStep({
         <label className="field">
           <span className="field__label">Full name</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-          <FieldError>{tried && errors.name}</FieldError>
+          <FieldError>{(tried || !!name) && errors.name}</FieldError>
         </label>
         <label className="field">
           <span className="field__label">Contact number (WhatsApp)</span>
           <input className="input" inputMode="tel" placeholder="98765 43210" value={mobile} onChange={(e) => setMobile(phoneInput(e.target.value))} />
-          <FieldError>{tried && errors.mobile}</FieldError>
+          <FieldError>{(tried || !!mobile) && errors.mobile}</FieldError>
         </label>
       </div>
       <div className="card__foot" style={{ justifyContent: "space-between" }}>
@@ -741,12 +741,12 @@ function AddTeacherModal({
             <label className="field">
               <span className="field__label">Full name</span>
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-              <FieldError>{triedT && tErr.name}</FieldError>
+              <FieldError>{(triedT || !!name) && tErr.name}</FieldError>
             </label>
             <label className="field">
               <span className="field__label">Contact number (WhatsApp)</span>
               <input className="input" inputMode="tel" placeholder="98765 43210" value={mobile} onChange={(e) => setMobile(phoneInput(e.target.value))} />
-              <FieldError>{triedT && tErr.mobile}</FieldError>
+              <FieldError>{(triedT || !!mobile) && tErr.mobile}</FieldError>
             </label>
           </div>
 
@@ -931,10 +931,10 @@ function StudentsStep({
               <tbody>
                 {filtered.map((r) => (
                   <tr key={r.key}>
-                    <td><input className="input" value={r.roll_no} onChange={(e) => updateRow(r.key, { roll_no: e.target.value })} /><FieldError>{tried && studentIssues(r).roll_no}</FieldError></td>
-                    <td><input className="input" value={r.name} onChange={(e) => updateRow(r.key, { name: e.target.value })} /><FieldError>{tried && studentIssues(r).name}</FieldError></td>
-                    <td><input className="input" value={r.parent_name} onChange={(e) => updateRow(r.key, { parent_name: e.target.value })} /><FieldError>{tried && studentIssues(r).parent_name}</FieldError></td>
-                    <td><input className="input" value={r.parent_whatsapp} onChange={(e) => updateRow(r.key, { parent_whatsapp: phoneInput(e.target.value) })} /><FieldError>{tried && studentIssues(r).parent_whatsapp}</FieldError></td>
+                    <td><input className="input" value={r.roll_no} onChange={(e) => updateRow(r.key, { roll_no: e.target.value })} /><FieldError>{(tried || !!r.roll_no) && studentIssues(r).roll_no}</FieldError></td>
+                    <td><input className="input" value={r.name} onChange={(e) => updateRow(r.key, { name: e.target.value })} /><FieldError>{(tried || !!r.name) && studentIssues(r).name}</FieldError></td>
+                    <td><input className="input" value={r.parent_name} onChange={(e) => updateRow(r.key, { parent_name: e.target.value })} /><FieldError>{(tried || !!r.parent_name) && studentIssues(r).parent_name}</FieldError></td>
+                    <td><input className="input" value={r.parent_whatsapp} onChange={(e) => updateRow(r.key, { parent_whatsapp: phoneInput(e.target.value) })} /><FieldError>{(tried || !!r.parent_whatsapp) && studentIssues(r).parent_whatsapp}</FieldError></td>
                     <td>
                       <button className="btn btn--ghost btn--sm" onClick={() => removeRow(r.key)} aria-label="Remove student">
                         <Trash2 size={12} />
