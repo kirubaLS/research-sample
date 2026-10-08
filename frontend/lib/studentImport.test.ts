@@ -29,7 +29,7 @@ describe("importStudents", () => {
   it("rejects wrong types and says why, row by row", () => {
     const r = importStudents([
       ["Roll", "Name", "Parent", "WhatsApp"],
-      ["A12", "Aditi", "Meera", "9876543210"],
+      ["A 12", "Aditi", "Meera", "9876543210"],
       ["13", "Kiran99", "Deepak", "9876543210"],
       ["14", "Riya Shah", "Neha123", "9876543210"],
       ["15", "Zoya Khan", "Sana Khan", "12345"],

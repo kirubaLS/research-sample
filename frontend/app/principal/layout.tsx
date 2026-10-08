@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CalendarClock, HelpCircle, LayoutGrid, Send, Users } from "lucide-react";
+import { CalendarClock, HelpCircle, KeyRound, LayoutGrid, Send, Users } from "lucide-react";
 import { RoleGuard, StaffShell, type NavItem } from "@/components/Shell";
 import { api, type SectionSummary } from "@/lib/api";
 import { getApiKey } from "@/lib/session";
@@ -29,6 +29,7 @@ export default function PrincipalLayout({ children }: { children: React.ReactNod
     })),
     { href: "/principal/exams", label: "Exams", icon: CalendarClock },
     { href: "/principal/share", label: "Share reports", icon: Send },
+    { href: "/principal/account", label: "Change password", icon: KeyRound },
     { href: "/principal/help", label: "Help & Contact", icon: HelpCircle },
   ];
 

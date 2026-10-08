@@ -1156,6 +1156,8 @@ export interface StaffKeySummary {
   created_at: string | null;
   revoked_at: string | null;
   last_used_at: string | null;
+  /** When the holder chose their own key from inside the dashboard; null = still the issued one. */
+  credential_changed_at?: string | null;
 }
 
 export interface OnboardingChecklistStep {
@@ -1999,6 +2001,13 @@ export const api = {
       board?: string | null;
       academic_year?: string | null;
     }>("/admin/me", key),
+
+  /** A principal sets their own key (password). The old one stops working at once. */
+  changeOwnPassword: (key: string, newPassword: string) =>
+    authed<{ ok: boolean; changed_at: string }>("/admin/me/password", key, {
+      method: "POST",
+      body: JSON.stringify({ new_password: newPassword }),
+    }),
 
   overview: (key: string) => authed<Overview>("/admin/overview", key),
 
