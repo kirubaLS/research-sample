@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { ArrowLeft, Check, CheckCircle2, Pencil, Plus, Search, Trash2, UserPlus, X } from "lucide-react";
 import { Reveal } from "@/components/motion";
@@ -13,20 +13,14 @@ import {
   TeacherAssignmentInput,
 } from "@/lib/api";
 import { getPlatformKey } from "@/lib/session";
+import {
+  academicYearOptions, classLabel, classSuggestions, DEFAULT_STATE, firstErrors, generateSchoolCode,
+  INDIAN_STATES, normalisePhone, parseClass, phoneInput, rules, TN_DISTRICTS,
+} from "@/lib/onboarding";
 import { CopySecret } from "../ui";
 import { FieldError } from "../directory";
 
-const CONSENT = [
-  ["operational_only", "Operational only: run the product, no model training"],
-  ["improve_models", "Improve models: anonymised work may train recognition"],
-  ["research", "Research: as above, plus aggregate study"],
-] as const;
-
 const BOARDS = ["CBSE", "ICSE", "State Board"];
-const INDIAN_STATES = [
-  "Andhra Pradesh", "Delhi", "Goa", "Gujarat", "Haryana", "Karnataka", "Kerala", "Madhya Pradesh", "Maharashtra",
-  "Odisha", "Punjab", "Rajasthan", "Tamil Nadu", "Telangana", "Uttar Pradesh", "West Bengal",
-];
 
 const STEP_META = ["School", "Principal", "Teachers", "Students", "Review"];
 
@@ -103,15 +97,20 @@ export default function OnboardSchoolPage() {
   // ---- Step 1: School -----------------------------------------------------
   const [name, setName] = useState("");
   const [board, setBoard] = useState<string>(BOARDS[0]);
-  const [state, setState] = useState(INDIAN_STATES[0]);
-  const [consent, setConsent] = useState<string>(CONSENT[0][0]);
+  const [state, setState] = useState(DEFAULT_STATE);
   const [sections, setSections] = useState<Section[]>([{ grade: 10, name: "A" }, { grade: 10, name: "B" }]);
   const [newSectionSpec, setNewSectionSpec] = useState("");
-  const [code, setCode] = useState("");
-  const [city, setCity] = useState("");
+  const [city, setCity] = useState(""); // the district; the column is still called city
   const [address, setAddress] = useState("");
-  const [academicYear, setAcademicYear] = useState("");
+  const yearOptions = useMemo(() => academicYearOptions(), []);
+  const [academicYear, setAcademicYear] = useState(yearOptions[0].value);
+  const [contactPhone, setContactPhone] = useState("");
+  const [contactEmail, setContactEmail] = useState("");
+  const [existingCodes, setExistingCodes] = useState<string[]>([]);
   const [tried, setTried] = useState(false);
+  const [pTried, setPTried] = useState(false);
+  const [sTried, setSTried] = useState(false);
+  const code = useMemo(() => generateSchoolCode(city, name, existingCodes), [city, name, existingCodes]);
 
   // ---- Step 2: Principal --------------------------------------------------
   const [pName, setPName] = useState("");
@@ -127,22 +126,30 @@ export default function OnboardSchoolPage() {
     const key = getPlatformKey();
     if (!key) return;
     api.platformSubjects(key).then((r) => setSubjects(r.subjects)).catch(() => {});
+    api.listSchools(key).then((r) => setExistingCodes(r.map((x) => x.code ?? "").filter(Boolean))).catch(() => {});
   }, []);
 
   // ---- Step 4: Students -----------------------------------------------------
   const [studentDrafts, setStudentDrafts] = useState<StudentDraft[]>([]);
 
-  const errors: Record<string, string> = {};
-  if (!name.trim()) errors.name = "Enter the school's name.";
-  if (sections.length === 0) errors.sections = "Add at least one class.";
+  const errors = firstErrors({
+    name: rules.schoolName(name),
+    state: state.trim() ? null : "Choose the state.",
+    city: rules.district(city, state === DEFAULT_STATE),
+    contactPhone: rules.contactNumber(contactPhone),
+    contactEmail: rules.email(contactEmail, false),
+    academicYear: rules.academicYear(academicYear, yearOptions),
+    address: rules.address(address),
+    sections: rules.classes(sections),
+  });
+  const principalErrors = firstErrors({
+    name: rules.personName(pName),
+    mobile: rules.mobile(pMobile, true),
+    email: rules.email(pEmail, true),
+  });
 
-  function addSection() {
-    const spec = newSectionSpec.trim();
-    const m = /^(\d{1,2})-([A-Za-z0-9]{1,3})$/.exec(spec);
-    if (!m) return;
-    const sec = { grade: Number(m[1]), name: m[2].toUpperCase() };
-    if (!sections.some((s) => sectionKey(s) === sectionKey(sec))) setSections([...sections, sec]);
-    setNewSectionSpec("");
+  function addSection(sec: Section) {
+    setSections((cur) => (cur.some((c) => sectionKey(c) === sectionKey(sec)) ? cur : [...cur, sec]));
   }
   function removeSection(i: number) {
     const removed = sections[i];
@@ -158,7 +165,10 @@ export default function OnboardSchoolPage() {
   }
 
   function describe(err: unknown, fallback: string): string {
-    if (err instanceof ApiError && err.status === 409) return "That name (or code) is already in use.";
+    if (err instanceof ApiError && err.status === 409) {
+      api.listSchools(getPlatformKey() ?? "").then((r) => setExistingCodes(r.map((x) => x.code ?? "").filter(Boolean))).catch(() => {});
+      return "That school name or code is already in use. The code has been regenerated, so try again.";
+    }
     return fallback;
   }
 
@@ -172,6 +182,8 @@ export default function OnboardSchoolPage() {
   async function runCreation() {
     setTried(true);
     if (Object.keys(errors).length) { setStep(0); return; }
+    if (Object.keys(principalErrors).length) { setPTried(true); setStep(1); return; }
+    if (studentProblems(studentDrafts) > 0) { setSTried(true); setStep(3); return; }
     const key = getPlatformKey();
     if (!key) {
       setError("You're not signed in to the operator console any more. Sign in again.");
@@ -187,19 +199,19 @@ export default function OnboardSchoolPage() {
         name: name.trim(),
         board,
         state,
-        training_consent: consent,
+        training_consent: "operational_only",
         sections,
       });
       schoolKey = { api_key: created.api_key, notice: created.api_key_notice };
       school = created;
-      if (code.trim() || city.trim() || address.trim() || academicYear.trim()) {
-        school = await api.patchSchool(key, created.id, {
-          ...(code.trim() && { code: code.trim() }),
-          ...(city.trim() && { city: city.trim() }),
-          ...(address.trim() && { address: address.trim() }),
-          ...(academicYear.trim() && { academic_year: academicYear.trim() }),
-        });
-      }
+      school = await api.patchSchool(key, created.id, {
+        code,
+        city: city.trim(),
+        academic_year: academicYear,
+        contact_phone: normalisePhone(contactPhone),
+        ...(address.trim() && { address: address.trim() }),
+        ...(contactEmail.trim() && { contact_email: contactEmail.trim() }),
+      });
 
       const sectionIdByLocalKey = new Map<string, string>();
       for (const sec of sections) {
@@ -210,7 +222,7 @@ export default function OnboardSchoolPage() {
       // 2. Principal
       const issuedPrincipal = await api.issueStaffKey(key, school.id, "principal", pName.trim() || "Principal");
       await api.patchStaffKey(key, school.id, issuedPrincipal.id, {
-        name: pName.trim(), email: pEmail.trim(), phone: pMobile.trim(),
+        name: pName.trim(), email: pEmail.trim(), phone: normalisePhone(pMobile),
       });
 
       // 3. Teachers
@@ -218,7 +230,7 @@ export default function OnboardSchoolPage() {
       for (const draft of teacherDrafts) {
         const createdTeacher = await api.issueStaffKey(key, school.id, "teacher", draft.name.trim() || "Teacher", draft.examCell);
         await api.patchStaffKey(key, school.id, createdTeacher.id, {
-          name: draft.name.trim(), email: draft.email.trim(), phone: draft.mobile.trim(),
+          name: draft.name.trim(), email: draft.email.trim(), phone: normalisePhone(draft.mobile),
         });
         const assignments: TeacherAssignmentInput[] = [];
         const classSectionId = draft.classTeacherOf ? sectionIdByLocalKey.get(draft.classTeacherOf) : undefined;
@@ -245,7 +257,7 @@ export default function OnboardSchoolPage() {
           roll_no: r.roll_no.trim(),
           section_id: sectionIdByLocalKey.get(r.sectionKey) ?? "",
           parent_name: r.parent_name.trim() || null,
-          parent_whatsapp: r.parent_whatsapp.trim() || null,
+          parent_whatsapp: r.parent_whatsapp.trim() ? normalisePhone(r.parent_whatsapp) : null,
         }))
         .filter((r) => r.section_id);
       if (rows.length) await api.bulkAddStudents(key, school.id, rows);
@@ -299,16 +311,17 @@ export default function OnboardSchoolPage() {
       <div style={{ marginTop: 16 }}>
         {step === 0 && (
           <SchoolStep
-            {...{ name, setName, board, setBoard, state, setState, consent, setConsent, sections, addSection,
-              removeSection, newSectionSpec, setNewSectionSpec, code, setCode, city, setCity, address, setAddress,
-              academicYear, setAcademicYear, tried, errors }}
+            {...{ name, setName, board, setBoard, state, setState, sections, addSection,
+              removeSection, city, setCity, code, address, setAddress, academicYear, setAcademicYear, yearOptions,
+              contactPhone, setContactPhone, contactEmail, setContactEmail, tried, errors }}
             onNext={() => { setTried(true); if (!Object.keys(errors).length) goToStep(1); }}
           />
         )}
         {step === 1 && (
           <PrincipalStep
             name={pName} setName={setPName} email={pEmail} setEmail={setPEmail} mobile={pMobile} setMobile={setPMobile}
-            onBack={() => goToStep(0)} onNext={() => goToStep(2)}
+            tried={pTried} errors={principalErrors}
+            onBack={() => goToStep(0)} onNext={() => { setPTried(true); if (!Object.keys(principalErrors).length) goToStep(2); }}
           />
         )}
         {step === 2 && (
@@ -329,8 +342,9 @@ export default function OnboardSchoolPage() {
             sections={sections}
             drafts={studentDrafts}
             setDrafts={setStudentDrafts}
+            tried={sTried}
             onBack={() => goToStep(2)}
-            onNext={() => goToStep(4)}
+            onNext={() => { setSTried(true); if (studentProblems(studentDrafts) === 0) goToStep(4); }}
           />
         )}
         {step === 4 && (
@@ -361,23 +375,25 @@ function SchoolStep(props: {
   name: string; setName: (v: string) => void;
   board: string; setBoard: (v: string) => void;
   state: string; setState: (v: string) => void;
-  consent: string; setConsent: (v: string) => void;
-  sections: Section[]; addSection: () => void; removeSection: (i: number) => void;
-  newSectionSpec: string; setNewSectionSpec: (v: string) => void;
-  code: string; setCode: (v: string) => void;
+  sections: Section[]; addSection: (s: Section) => void; removeSection: (i: number) => void;
+  code: string;
   city: string; setCity: (v: string) => void;
   address: string; setAddress: (v: string) => void;
   academicYear: string; setAcademicYear: (v: string) => void;
+  yearOptions: { value: string; label: string }[];
+  contactPhone: string; setContactPhone: (v: string) => void;
+  contactEmail: string; setContactEmail: (v: string) => void;
   tried: boolean; errors: Record<string, string>;
   onNext: () => void;
 }) {
   const {
-    name, setName, board, setBoard, state, setState, consent, setConsent, sections, addSection, removeSection,
-    newSectionSpec, setNewSectionSpec, code, setCode, city, setCity, address, setAddress, academicYear, setAcademicYear,
-    tried, errors, onNext,
+    name, setName, board, setBoard, state, setState, sections, addSection, removeSection,
+    code, city, setCity, address, setAddress, academicYear, setAcademicYear, yearOptions,
+    contactPhone, setContactPhone, contactEmail, setContactEmail, tried, errors, onNext,
   } = props;
+  const inTamilNadu = state === DEFAULT_STATE;
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="card">
+    <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="card" noValidate>
       <div className="card__body ops-form-grid">
         <div className="field field--wide">
           <label htmlFor="s-name">School name</label>
@@ -385,18 +401,30 @@ function SchoolStep(props: {
           <FieldError>{tried && errors.name}</FieldError>
         </div>
         <div className="field">
-          <label htmlFor="s-code">School code</label>
-          <input id="s-code" className="input" value={code} placeholder="e.g. BISS-TN" onChange={(e) => setCode(e.target.value)} />
-        </div>
-        <div className="field">
-          <label htmlFor="s-city">City</label>
-          <input id="s-city" className="input" value={city} onChange={(e) => setCity(e.target.value)} />
-        </div>
-        <div className="field">
           <label htmlFor="s-state">State</label>
-          <select id="s-state" className="select" value={state} onChange={(e) => setState(e.target.value)}>
-            {INDIAN_STATES.map((s) => (<option key={s}>{s}</option>))}
+          <select id="s-state" className="select" value={state} onChange={(e) => { setState(e.target.value); setCity(""); }}>
+            {INDIAN_STATES.map((st) => (<option key={st}>{st}</option>))}
           </select>
+          <FieldError>{tried && errors.state}</FieldError>
+        </div>
+        <div className="field">
+          <label htmlFor="s-district">District</label>
+          {inTamilNadu ? (
+            <select id="s-district" className="select" value={city} onChange={(e) => setCity(e.target.value)}>
+              <option value="">Choose the district</option>
+              {TN_DISTRICTS.map((d) => (<option key={d.name} value={d.name}>{d.name}</option>))}
+            </select>
+          ) : (
+            <input id="s-district" className="input" value={city} onChange={(e) => setCity(e.target.value)} />
+          )}
+          <FieldError>{tried && errors.city}</FieldError>
+        </div>
+        <div className="field">
+          <label htmlFor="s-code">School code</label>
+          <input id="s-code" className="input" value={code} readOnly placeholder="Made from the district and school name" />
+          <span className="small muted">
+            {code ? "Made automatically; the last number keeps it unique." : "Appears once the district and name are filled."}
+          </span>
         </div>
         <div className="field">
           <label htmlFor="s-board">Board</label>
@@ -405,15 +433,31 @@ function SchoolStep(props: {
           </select>
         </div>
         <div className="field">
+          <label htmlFor="s-phone">Contact number</label>
+          <input id="s-phone" className="input" inputMode="tel" value={contactPhone} placeholder="98765 43210"
+            onChange={(e) => setContactPhone(phoneInput(e.target.value))} />
+          <FieldError>{tried && errors.contactPhone}</FieldError>
+        </div>
+        <div className="field">
+          <label htmlFor="s-email">Email <span className="muted">(optional)</span></label>
+          <input id="s-email" className="input" type="email" value={contactEmail} placeholder="office@school.in"
+            onChange={(e) => setContactEmail(e.target.value)} />
+          <FieldError>{tried && errors.contactEmail}</FieldError>
+        </div>
+        <div className="field">
           <label htmlFor="s-year">Academic year</label>
-          <input id="s-year" className="input" value={academicYear} placeholder="e.g. 2026-27" onChange={(e) => setAcademicYear(e.target.value)} />
+          <select id="s-year" className="select" value={academicYear} onChange={(e) => setAcademicYear(e.target.value)}>
+            {yearOptions.map((o) => (<option key={o.value} value={o.value}>{o.label}</option>))}
+          </select>
+          <FieldError>{tried && errors.academicYear}</FieldError>
         </div>
         <div className="field field--wide">
           <label htmlFor="s-address">Address</label>
           <input id="s-address" className="input" value={address} onChange={(e) => setAddress(e.target.value)} />
+          <FieldError>{tried && errors.address}</FieldError>
         </div>
         <div className="field field--wide">
-          <label>Classes</label>
+          <label htmlFor="s-class">Classes</label>
           <div className="chip-row">
             {sections.map((sec, i) => (
               <span key={sectionKey(sec)} className="chip-tag">
@@ -423,27 +467,9 @@ function SchoolStep(props: {
                 </button>
               </span>
             ))}
-            <span className="chip-tag chip-tag--input">
-              <input
-                value={newSectionSpec}
-                placeholder="10-C"
-                aria-label="New class, e.g. 10-C"
-                onChange={(e) => setNewSectionSpec(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addSection())}
-              />
-              <button type="button" onClick={addSection} aria-label="Add class">
-                <Plus size={12} />
-              </button>
-            </span>
           </div>
-          <span className="small muted">Written as grade-section, e.g. 10-A. You can add more later.</span>
+          <ClassPicker sections={sections} onAdd={addSection} />
           <FieldError>{tried && errors.sections}</FieldError>
-        </div>
-        <div className="field field--wide">
-          <label htmlFor="s-consent">What the school has agreed to</label>
-          <select id="s-consent" className="select" value={consent} onChange={(e) => setConsent(e.target.value)}>
-            {CONSENT.map(([value, label]) => (<option key={value} value={value}>{label}</option>))}
-          </select>
         </div>
       </div>
       <div className="card__foot" style={{ justifyContent: "flex-end" }}>
@@ -453,20 +479,82 @@ function SchoolStep(props: {
   );
 }
 
+/** Type a class ("10", "10b", "10-C") and pick from the suggestions, or press Enter / Add. */
+function ClassPicker({ sections, onAdd }: { sections: Section[]; onAdd: (s: Section) => void }) {
+  const [text, setText] = useState("");
+  const [open, setOpen] = useState(false);
+  const [hint, setHint] = useState<string | null>(null);
+  const options = classSuggestions(text, sections);
+
+  function add(sec: Section | null) {
+    if (!sec) {
+      setHint(text.trim() ? "Type a grade 1 to 12 and a section, like 10 or 10B." : null);
+      return;
+    }
+    if (sections.some((c) => sectionKey(c) === sectionKey(sec))) {
+      setHint(`Class ${classLabel(sec)} is already added.`);
+      return;
+    }
+    onAdd(sec);
+    setText("");
+    setHint(null);
+  }
+  function submit() {
+    add(parseClass(text) ?? (options.length === 1 ? options[0] : null));
+  }
+
+  return (
+    <div className="combo">
+      <div style={{ display: "flex", gap: 8 }}>
+        <input
+          id="s-class"
+          className="input"
+          value={text}
+          autoComplete="off"
+          placeholder="Type a class, like 10"
+          onChange={(e) => { setText(e.target.value); setOpen(true); setHint(null); }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 120)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") { e.preventDefault(); submit(); }
+            if (e.key === "Escape") setOpen(false);
+          }}
+        />
+        <button type="button" className="btn btn--sm" onClick={submit}><Plus size={12} /> Add</button>
+      </div>
+      {open && options.length > 0 && (
+        <ul className="combo__list" role="listbox">
+          {options.map((o) => (
+            <li key={sectionKey(o)}>
+              <button type="button" className="combo__opt" role="option" aria-selected={false}
+                onMouseDown={(e) => e.preventDefault()} onClick={() => add(o)}>
+                Class {classLabel(o)}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <span className="small muted">Type 10 to see 10A, 10B, 10C... and pick the ones you need.</span>
+      <FieldError>{hint}</FieldError>
+    </div>
+  );
+}
+
 // ============================================================
 // Step 2: Principal
 // ============================================================
 
 function PrincipalStep({
-  name, setName, email, setEmail, mobile, setMobile, onBack, onNext,
+  name, setName, email, setEmail, mobile, setMobile, tried, errors, onBack, onNext,
 }: {
+  tried: boolean; errors: Record<string, string>;
   name: string; setName: (v: string) => void;
   email: string; setEmail: (v: string) => void;
   mobile: string; setMobile: (v: string) => void;
   onBack: () => void; onNext: () => void;
 }) {
   return (
-    <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="card">
+    <form onSubmit={(e) => { e.preventDefault(); onNext(); }} className="card" noValidate>
       <div className="card__body" style={{ display: "grid", gap: 14, maxWidth: 460 }}>
         <p className="small muted" style={{ margin: 0 }}>
           The principal's key is issued when the school is created, at the end of this wizard.
@@ -474,14 +562,17 @@ function PrincipalStep({
         <label className="field">
           <span className="field__label">Full name</span>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          <FieldError>{tried && errors.name}</FieldError>
         </label>
         <label className="field">
           <span className="field__label">Email</span>
           <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+          <FieldError>{tried && errors.email}</FieldError>
         </label>
         <label className="field">
           <span className="field__label">Mobile</span>
-          <input className="input" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+          <input className="input" inputMode="tel" value={mobile} onChange={(e) => setMobile(phoneInput(e.target.value))} />
+          <FieldError>{tried && errors.mobile}</FieldError>
         </label>
       </div>
       <div className="card__foot" style={{ justifyContent: "space-between" }}>
@@ -629,8 +720,15 @@ function AddTeacherModal({
     });
   }
 
+  const [triedT, setTriedT] = useState(false);
+  const tErr = firstErrors({
+    name: rules.personName(name),
+    mobile: rules.mobile(mobile, false),
+    email: rules.email(email, false),
+  });
   function save() {
-    if (!name.trim()) return;
+    setTriedT(true);
+    if (Object.keys(tErr).length) return;
     onSave({
       key: editing?.key ?? `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       name, mobile, email,
@@ -654,14 +752,17 @@ function AddTeacherModal({
             <label className="field">
               <span className="field__label">Full name</span>
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+              <FieldError>{triedT && tErr.name}</FieldError>
             </label>
             <label className="field">
               <span className="field__label">Mobile</span>
-              <input className="input" value={mobile} onChange={(e) => setMobile(e.target.value)} />
+              <input className="input" inputMode="tel" value={mobile} onChange={(e) => setMobile(phoneInput(e.target.value))} />
+              <FieldError>{triedT && tErr.mobile}</FieldError>
             </label>
             <label className="field">
               <span className="field__label">Email</span>
               <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <FieldError>{triedT && tErr.email}</FieldError>
             </label>
             <label className="field">
               <span className="field__label">Login type</span>
@@ -722,7 +823,7 @@ function AddTeacherModal({
         </div>
         <div className="modal__foot">
           <button className="btn btn--ghost btn--sm" onClick={onClose}>Cancel</button>
-          <button className="btn btn--sm" disabled={!name.trim()} onClick={save}>{editing ? "Save changes" : "Add teacher"}</button>
+          <button className="btn btn--sm" onClick={save}>{editing ? "Save changes" : "Add teacher"}</button>
         </div>
       </div>
     </div>
@@ -733,9 +834,24 @@ function AddTeacherModal({
 // Step 4: Students
 // ============================================================
 
+/** How many student rows break a rule. A row left completely empty is ignored, as it is on save. */
+function studentIssues(r: StudentDraft): Record<string, string> {
+  if (!r.name.trim() && !r.roll_no.trim() && !r.parent_name.trim() && !r.parent_whatsapp.trim()) return {};
+  return firstErrors({
+    roll_no: rules.rollNo(r.roll_no),
+    name: rules.personName(r.name),
+    parent_name: rules.personName(r.parent_name, false),
+    parent_whatsapp: rules.mobile(r.parent_whatsapp, false),
+  });
+}
+function studentProblems(rows: StudentDraft[]): number {
+  return rows.filter((r) => Object.keys(studentIssues(r)).length > 0).length;
+}
+
 function StudentsStep({
-  sections, drafts, setDrafts, onBack, onNext,
+  sections, drafts, setDrafts, tried, onBack, onNext,
 }: {
+  tried: boolean;
   sections: Section[];
   drafts: StudentDraft[];
   setDrafts: (fn: (d: StudentDraft[]) => StudentDraft[]) => void;
@@ -842,10 +958,10 @@ function StudentsStep({
               <tbody>
                 {filtered.map((r) => (
                   <tr key={r.key}>
-                    <td><input className="input" value={r.roll_no} onChange={(e) => updateRow(r.key, { roll_no: e.target.value })} /></td>
-                    <td><input className="input" value={r.name} onChange={(e) => updateRow(r.key, { name: e.target.value })} /></td>
-                    <td><input className="input" value={r.parent_name} onChange={(e) => updateRow(r.key, { parent_name: e.target.value })} /></td>
-                    <td><input className="input" value={r.parent_whatsapp} onChange={(e) => updateRow(r.key, { parent_whatsapp: e.target.value })} /></td>
+                    <td><input className="input" value={r.roll_no} onChange={(e) => updateRow(r.key, { roll_no: e.target.value })} /><FieldError>{tried && studentIssues(r).roll_no}</FieldError></td>
+                    <td><input className="input" value={r.name} onChange={(e) => updateRow(r.key, { name: e.target.value })} /><FieldError>{tried && studentIssues(r).name}</FieldError></td>
+                    <td><input className="input" value={r.parent_name} onChange={(e) => updateRow(r.key, { parent_name: e.target.value })} /><FieldError>{tried && studentIssues(r).parent_name}</FieldError></td>
+                    <td><input className="input" value={r.parent_whatsapp} onChange={(e) => updateRow(r.key, { parent_whatsapp: phoneInput(e.target.value) })} /><FieldError>{tried && studentIssues(r).parent_whatsapp}</FieldError></td>
                     <td>
                       <button className="btn btn--ghost btn--sm" onClick={() => removeRow(r.key)} aria-label="Remove student">
                         <Trash2 size={12} />
@@ -862,6 +978,11 @@ function StudentsStep({
         <button type="button" className="btn btn--ghost btn--sm" onClick={onBack}><ArrowLeft size={13} /> Back</button>
         <button type="button" className="btn btn--blue" onClick={onNext}>Continue</button>
       </div>
+      {tried && studentProblems(drafts) > 0 && (
+        <div className="small" style={{ padding: "0 16px 14px", color: "var(--danger, #b42318)" }}>
+          {studentProblems(drafts)} student row(s) need fixing (marked above, in any class) before you continue.
+        </div>
+      )}
 
       {pasteOpen && (
         <div className="modal-backdrop" role="dialog" aria-modal="true" onClick={() => setPasteOpen(false)}>

@@ -37,6 +37,10 @@ class School(Base, PkMixin, TimestampMixin):
     city: Mapped[str | None] = mapped_column(String(120), nullable=True)
     address: Mapped[str | None] = mapped_column(String(500), nullable=True)
     academic_year: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    #: The school's office contact, collected when it is onboarded: digits only (a 10-digit
+    #: mobile, or a landline with its STD code), and an optional email.
+    contact_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    contact_email: Mapped[str | None] = mapped_column(String(200), nullable=True)
 
     sections: Mapped[list[Section]] = relationship(back_populates="school")
 

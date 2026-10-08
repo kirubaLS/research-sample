@@ -1759,3 +1759,17 @@ button.pillnum--solid:hover { background: linear-gradient(180deg, color-mix(in s
   background: var(--brand-teal); border-color: var(--brand-teal); color: #fff;
   box-shadow: 0 4px 10px -4px color-mix(in srgb, var(--brand-teal) 60%, transparent);
 }
+
+/* Type-ahead list under an input (onboarding class picker). */
+.combo { position: relative; display: grid; gap: 6px; }
+.combo__list {
+  position: absolute; top: 44px; left: 0; z-index: 20; margin: 0; padding: 6px; list-style: none;
+  display: flex; flex-wrap: wrap; gap: 6px; max-width: 100%;
+  background: #fff; border: 1px solid var(--line-strong, #d0d5dd); border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(16, 24, 40, .12);
+}
+.combo__opt {
+  border: 1px solid var(--line-strong, #d0d5dd); background: #fff; border-radius: 999px;
+  padding: 4px 12px; font-size: 13px; cursor: pointer;
+}
+.combo__opt:hover { background: #eef4ff; }
