@@ -87,7 +87,7 @@ export default function TeacherDashboardPage() {
     () => (user?.role === "teacher" ? user.assignments.filter((a) => a.type === "class") : []),
     [user],
   );
-  type MainTab = "papers" | "marks" | "insights" | "myclass";
+  type MainTab = "papers" | "marks"; // Insights and My class are no longer offered here
   const [tab, setTab] = useState<MainTab>("papers");
 
   return (
@@ -104,23 +104,11 @@ export default function TeacherDashboardPage() {
         <button role="tab" aria-selected={tab === "marks"} className={`tab ${tab === "marks" ? "tab--active" : ""}`} onClick={() => setTab("marks")}>
           Enter marks
         </button>
-        {subjectAssignments.length > 0 && (
-          <button role="tab" aria-selected={tab === "insights"} className={`tab ${tab === "insights" ? "tab--active" : ""}`} onClick={() => setTab("insights")}>
-            Insights
-          </button>
-        )}
-        {classAssignments.length > 0 && (
-          <button role="tab" aria-selected={tab === "myclass"} className={`tab ${tab === "myclass" ? "tab--active" : ""}`} onClick={() => setTab("myclass")}>
-            My class
-          </button>
-        )}
       </div>
 
       <div style={{ marginTop: 18 }}>
         {tab === "papers" && <PapersTab examCell={!!examCell} />}
         {tab === "marks" && <MarksTab />}
-        {tab === "insights" && <InsightsTab assignments={subjectAssignments} />}
-        {tab === "myclass" && <MyClassTab assignments={classAssignments} />}
       </div>
     </>
   );
