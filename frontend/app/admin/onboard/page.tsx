@@ -114,7 +114,6 @@ export default function OnboardSchoolPage() {
 
   // ---- Step 2: Principal --------------------------------------------------
   const [pName, setPName] = useState("");
-  const [pEmail, setPEmail] = useState("");
   const [pMobile, setPMobile] = useState("");
 
   // ---- Step 3: Teachers ----------------------------------------------------
@@ -145,7 +144,6 @@ export default function OnboardSchoolPage() {
   const principalErrors = firstErrors({
     name: rules.personName(pName),
     mobile: rules.mobile(pMobile, true),
-    email: rules.email(pEmail, true),
   });
 
   function addSection(sec: Section) {
@@ -222,7 +220,7 @@ export default function OnboardSchoolPage() {
       // 2. Principal
       const issuedPrincipal = await api.issueStaffKey(key, school.id, "principal", pName.trim() || "Principal");
       await api.patchStaffKey(key, school.id, issuedPrincipal.id, {
-        name: pName.trim(), email: pEmail.trim(), phone: normalisePhone(pMobile),
+        name: pName.trim(), phone: normalisePhone(pMobile),
       });
 
       // 3. Teachers
@@ -270,7 +268,7 @@ export default function OnboardSchoolPage() {
     }
   }
 
-  if (result) return <SuccessScreen result={result} principalContact={{ name: pName, email: pEmail, mobile: pMobile }} />;
+  if (result) return <SuccessScreen result={result} principalContact={{ name: pName, mobile: pMobile }} />;
 
   const studentsBySection = (key: string) => studentDrafts.filter((r) => r.sectionKey === key);
   const anyParentWhatsapp = studentDrafts.some((r) => r.parent_whatsapp.trim());
@@ -319,7 +317,7 @@ export default function OnboardSchoolPage() {
         )}
         {step === 1 && (
           <PrincipalStep
-            name={pName} setName={setPName} email={pEmail} setEmail={setPEmail} mobile={pMobile} setMobile={setPMobile}
+            name={pName} setName={setPName} mobile={pMobile} setMobile={setPMobile}
             tried={pTried} errors={principalErrors}
             onBack={() => goToStep(0)} onNext={() => { setPTried(true); if (!Object.keys(principalErrors).length) goToStep(2); }}
           />
@@ -350,7 +348,7 @@ export default function OnboardSchoolPage() {
         {step === 4 && (
           <ReviewStep
             name={name} board={board} state={state} city={city} code={code} sections={sections}
-            principalName={pName} principalEmail={pEmail} principalMobile={pMobile}
+            principalName={pName} principalMobile={pMobile}
             teacherCount={teacherDrafts.length}
             examCellCount={teacherDrafts.filter((t) => t.examCell).length}
             totalStudents={totalStudents}
@@ -545,11 +543,10 @@ function ClassPicker({ sections, onAdd }: { sections: Section[]; onAdd: (s: Sect
 // ============================================================
 
 function PrincipalStep({
-  name, setName, email, setEmail, mobile, setMobile, tried, errors, onBack, onNext,
+  name, setName, mobile, setMobile, tried, errors, onBack, onNext,
 }: {
   tried: boolean; errors: Record<string, string>;
   name: string; setName: (v: string) => void;
-  email: string; setEmail: (v: string) => void;
   mobile: string; setMobile: (v: string) => void;
   onBack: () => void; onNext: () => void;
 }) {
@@ -565,13 +562,8 @@ function PrincipalStep({
           <FieldError>{tried && errors.name}</FieldError>
         </label>
         <label className="field">
-          <span className="field__label">Email</span>
-          <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-          <FieldError>{tried && errors.email}</FieldError>
-        </label>
-        <label className="field">
-          <span className="field__label">Mobile</span>
-          <input className="input" inputMode="tel" value={mobile} onChange={(e) => setMobile(phoneInput(e.target.value))} />
+          <span className="field__label">Contact number (WhatsApp)</span>
+          <input className="input" inputMode="tel" placeholder="98765 43210" value={mobile} onChange={(e) => setMobile(phoneInput(e.target.value))} />
           <FieldError>{tried && errors.mobile}</FieldError>
         </label>
       </div>
@@ -1021,13 +1013,13 @@ function StudentsStep({
 
 function ReviewStep({
   name, board, state, city, code, sections,
-  principalName, principalEmail, principalMobile,
+  principalName, principalMobile,
   teacherCount, examCellCount, totalStudents, sectionCounts,
   anyParentWhatsapp, withWhatsapp,
   creating, onEdit, onCreate,
 }: {
   name: string; board: string; state: string; city: string; code: string; sections: Section[];
-  principalName: string; principalEmail: string; principalMobile: string;
+  principalName: string; principalMobile: string;
   teacherCount: number; examCellCount: number;
   totalStudents: number; sectionCounts: { label: string; count: number }[];
   anyParentWhatsapp: boolean; withWhatsapp: number;
@@ -1039,7 +1031,7 @@ function ReviewStep({
     { label: "School", value: `${name || "—"} · ${board} · ${[city, state].filter(Boolean).join(", ")}`, step: 0 },
     ...(code.trim() ? [{ label: "School code", value: code.trim(), step: 0 }] : []),
     { label: `Class ${sections[0]?.grade ?? 10} sections`, value: sections.map(sectionLabel).join(", ") || "none", step: 0 },
-    { label: "Principal", value: `${principalName || "—"} · ${[principalMobile, principalEmail].filter(Boolean).join(" · ")}`, step: 1 },
+    { label: "Principal", value: `${principalName || "—"} · ${principalMobile}`, step: 1 },
     { label: "Teachers", value: `${teacherCount}${examCellCount ? ` (${examCellCount} exam-cell)` : ""}`, step: 2 },
     { label: "Students", value: `${totalStudents} across ${sections.length} section${sections.length === 1 ? "" : "s"} · ${sectionCounts.map((c) => `${c.label}: ${c.count}`).join(", ")}`, step: 3 },
   ];
@@ -1089,7 +1081,7 @@ function SuccessScreen({
   result, principalContact,
 }: {
   result: CreationResult;
-  principalContact: { name: string; email: string; mobile: string };
+  principalContact: { name: string; mobile: string };
 }) {
   const { school, schoolKey, principalKey, teachers, studentsAdded } = result;
   return (
