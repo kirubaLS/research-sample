@@ -234,7 +234,7 @@ export const rules = {
   rollNo(v: string): string | null {
     const s = v.trim();
     if (!s) return "Roll number needed.";
-    return /^[A-Za-z0-9/-]{1,12}$/.test(s) ? null : "Roll number: letters and digits only.";
+    return /^\d{1,6}$/.test(s) ? null : "Roll number is digits only (up to 6).";
   },
 };
 
