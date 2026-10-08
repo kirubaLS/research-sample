@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { ArrowLeft, Check, CheckCircle2, Pencil, Plus, Search, Trash2, UserPlus, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, CheckCircle2, Pencil, Plus, Search, Trash2, Upload, UserPlus, X } from "lucide-react";
 import { Reveal } from "@/components/motion";
 import {
   api,
@@ -17,6 +17,7 @@ import {
   academicYearOptions, classLabel, classSuggestions, DEFAULT_STATE, firstErrors, generateSchoolCode,
   INDIAN_STATES, normalisePhone, parseClass, phoneInput, rules, TN_DISTRICTS,
 } from "@/lib/onboarding";
+import { classKey, cellText, importStudents, parseDelimited, type ImportResult, type RejectedRow } from "@/lib/studentImport";
 import { CopySecret } from "../ui";
 import { FieldError } from "../directory";
 
@@ -358,6 +359,7 @@ export default function OnboardSchoolPage() {
             creating={creating}
             onEdit={goToStep}
             onCreate={runCreation}
+            onBack={() => goToStep(3)}
           />
         )}
       </div>
@@ -835,6 +837,8 @@ function StudentsStep({
   const [query, setQuery] = useState("");
   const [pasteOpen, setPasteOpen] = useState(false);
   const [pasteText, setPasteText] = useState("");
+  const [report, setReport] = useState<{ added: number; rejected: RejectedRow[] } | null>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!sections.some((s) => sectionKey(s) === activeKey) && sections[0]) setActiveKey(sectionKey(sections[0]));
@@ -853,22 +857,67 @@ function StudentsStep({
   function removeRow(key: string) {
     setDrafts((d) => d.filter((r) => r.key !== key));
   }
+  /** Adds what passed the checks, reports what did not, then moves on to the next class. */
+  function applyImport(result: ImportResult) {
+    const rejected: RejectedRow[] = [...result.rejected];
+    const have = new Set(drafts.map((d) => `${d.sectionKey}|${d.roll_no}`));
+    const fresh: StudentDraft[] = [];
+    for (const st of result.accepted) {
+      const target = st.className
+        ? sections.find((sec) => classKey(sectionLabel(sec)) === classKey(st.className))
+        : sections.find((sec) => sectionKey(sec) === activeKey);
+      if (!target) {
+        rejected.push({ row: 0, reasons: [`${st.name}: class "${st.className}" is not one of this school's classes.`] });
+        continue;
+      }
+      const k = `${sectionKey(target)}|${st.roll_no}`;
+      if (have.has(k)) {
+        rejected.push({ row: 0, reasons: [`${st.name}: roll ${st.roll_no} is already in Class ${sectionLabel(target)}.`] });
+        continue;
+      }
+      have.add(k);
+      fresh.push({
+        key: `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}-${fresh.length}`,
+        sectionKey: sectionKey(target), roll_no: st.roll_no, name: st.name,
+        parent_name: st.parent_name, parent_whatsapp: st.parent_whatsapp,
+      });
+    }
+    if (fresh.length) setDrafts((d) => [...d, ...fresh]);
+    setReport({ added: fresh.length, rejected });
+    if (fresh.length) goNextClass();
+  }
+  function goNextClass() {
+    const i = sections.findIndex((sec) => sectionKey(sec) === activeKey);
+    if (i >= 0 && i < sections.length - 1) setActiveKey(sectionKey(sections[i + 1]));
+  }
   function applyPaste() {
-    const rows = pasteText
-      .split("\n")
-      .map((line) => line.split(/\t|,/).map((c) => c.trim()))
-      .filter((cols) => cols[0] && cols[1])
-      .map((cols) => ({
-        key: `s-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        sectionKey: activeKey,
-        name: cols[0] ?? "",
-        roll_no: cols[1] ?? "",
-        parent_name: cols[2] ?? "",
-        parent_whatsapp: cols[3] ?? "",
-      }));
-    if (rows.length) setDrafts((d) => [...d, ...rows]);
+    applyImport(importStudents(parseDelimited(pasteText)));
     setPasteText("");
     setPasteOpen(false);
+  }
+  async function onFile(file: File | undefined) {
+    if (!file) return;
+    try {
+      let rows: string[][];
+      if (/\.xlsx$/i.test(file.name)) {
+        const { default: readXlsx } = await import("read-excel-file");
+        rows = (await readXlsx(file)).map((row) => row.map(cellText));
+      } else if (/\.(csv|tsv|txt)$/i.test(file.name)) {
+        rows = parseDelimited(await file.text());
+      } else {
+        setReport({ added: 0, rejected: [{ row: 0, reasons: ["Upload a .csv or .xlsx file (an older .xls: save it as .xlsx or .csv first)."] }] });
+        return;
+      }
+      if (rows.length === 0) {
+        setReport({ added: 0, rejected: [{ row: 0, reasons: ["The file is empty."] }] });
+        return;
+      }
+      applyImport(importStudents(rows));
+    } catch {
+      setReport({ added: 0, rejected: [{ row: 0, reasons: ["That file could not be read. Check it is a real .csv or .xlsx."] }] });
+    } finally {
+      if (fileRef.current) fileRef.current.value = "";
+    }
   }
 
   const activeLabel = sections.find((s) => sectionKey(s) === activeKey);
@@ -890,6 +939,10 @@ function StudentsStep({
             ))}
           </div>
           <div style={{ display: "flex", gap: 8 }}>
+            <input ref={fileRef} type="file" accept=".csv,.tsv,.xlsx" hidden onChange={(e) => onFile(e.target.files?.[0])} />
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => fileRef.current?.click()} disabled={!activeKey}>
+              <Upload size={12} /> Upload CSV / Excel
+            </button>
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => setPasteOpen(true)} disabled={!activeKey}>
               Paste from sheet
             </button>
@@ -905,6 +958,19 @@ function StudentsStep({
             <input className="input" style={{ paddingLeft: 32 }} placeholder="Search this class" value={query} onChange={(e) => setQuery(e.target.value)} />
           </span>
         </div>
+
+        {report && (
+          <div className="evidence evidence--gold" style={{ marginTop: 12 }}>
+            <div>
+              <strong>{report.added} student{report.added === 1 ? "" : "s"} added.</strong>
+              {report.rejected.length > 0 && ` ${report.rejected.length} row${report.rejected.length === 1 ? "" : "s"} skipped, fix and upload again:`}
+              {report.rejected.slice(0, 8).map((x, i) => (
+                <div key={i} className="small">{x.row ? `Row ${x.row}: ` : ""}{x.reasons.join(" ")}</div>
+              ))}
+              {report.rejected.length > 8 && <div className="small">...and {report.rejected.length - 8} more.</div>}
+            </div>
+          </div>
+        )}
 
         {rowsForActive.length === 0 ? (
           <div style={{ marginTop: 14 }}>
@@ -949,7 +1015,14 @@ function StudentsStep({
       </div>
       <div className="card__foot" style={{ justifyContent: "space-between" }}>
         <button type="button" className="btn btn--ghost btn--sm" onClick={onBack}><ArrowLeft size={13} /> Back</button>
-        <button type="button" className="btn btn--blue" onClick={onNext}>Continue</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          {sections.findIndex((sec) => sectionKey(sec) === activeKey) < sections.length - 1 && (
+            <button type="button" className="btn btn--ghost" onClick={goNextClass}>
+              Next class <ArrowRight size={13} />
+            </button>
+          )}
+          <button type="button" className="btn btn--blue" onClick={onNext}>Continue</button>
+        </div>
       </div>
       {tried && studentProblems(drafts) > 0 && (
         <div className="small" style={{ padding: "0 16px 14px", color: "var(--danger, #b42318)" }}>
@@ -966,13 +1039,14 @@ function StudentsStep({
             </div>
             <div className="modal__body">
               <p className="small muted" style={{ margin: 0 }}>
-                One student per line: name, roll no, parent name, parent WhatsApp -- tab or comma separated. Added to
-                Class {activeLabel ? sectionLabel(activeLabel) : ""}.
+                One student per line: roll no, student name, parent name, parent WhatsApp -- tab or comma separated, or
+                copied straight from a sheet (a header row is fine). Roll no and WhatsApp must be numbers, names must be
+                names; rows that fail are skipped and listed. Added to Class {activeLabel ? sectionLabel(activeLabel) : ""}.
               </p>
               <textarea
                 className="input"
                 style={{ minHeight: 160, fontFamily: "var(--font-mono, monospace)", fontSize: 12.5 }}
-                placeholder={"Aditi Rao, 12, Meera Rao, 9876543210\nKiran Shah, 13, Deepak Shah, 9876500001"}
+                placeholder={"12, Aditi Rao, Meera Rao, 9876543210\n13, Kiran Shah, Deepak Shah, 9876500001"}
                 value={pasteText}
                 onChange={(e) => setPasteText(e.target.value)}
               />
@@ -997,7 +1071,7 @@ function ReviewStep({
   principalName, principalMobile,
   teacherCount, examCellCount, totalStudents, sectionCounts,
   anyParentWhatsapp, withWhatsapp,
-  creating, onEdit, onCreate,
+  creating, onEdit, onCreate, onBack,
 }: {
   name: string; board: string; state: string; city: string; code: string; sections: Section[];
   principalName: string; principalMobile: string;
@@ -1007,6 +1081,7 @@ function ReviewStep({
   creating: boolean;
   onEdit: (step: number) => void;
   onCreate: () => void;
+  onBack: () => void;
 }) {
   const rows: { label: string; value: string; step: number }[] = [
     { label: "School", value: `${name || "—"} · ${board} · ${[city, state].filter(Boolean).join(", ")}`, step: 0 },
@@ -1045,7 +1120,8 @@ function ReviewStep({
           ))}
         </div>
       </div>
-      <div className="card__foot" style={{ justifyContent: "flex-end" }}>
+      <div className="card__foot" style={{ justifyContent: "space-between" }}>
+        <button type="button" className="btn btn--ghost btn--sm" disabled={creating} onClick={onBack}><ArrowLeft size={13} /> Back</button>
         <button type="button" className="btn btn--blue" disabled={creating} onClick={onCreate}>
           <CheckCircle2 size={15} /> {creating ? "Creating…" : "Create school and generate keys"}
         </button>
