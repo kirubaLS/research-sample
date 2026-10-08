@@ -14,6 +14,7 @@ Two rules the routes here are built around:
 
 from __future__ import annotations
 
+import re
 import secrets
 from datetime import UTC, date, datetime
 
@@ -142,6 +143,42 @@ class SchoolIn(BaseModel):
         return _validate_consent(v)
 
 
+#: a 10-digit Indian mobile (starts 6-9), or a landline written with its STD code (0 + 9-10 digits)
+_MOBILE = re.compile(r"^[6-9]\d{9}$")
+_LANDLINE = re.compile(r"^0\d{9,10}$")
+_EMAIL = re.compile(r"^[^\s@]+@[^\s@]+\.[^\s@]{2,}$")
+
+
+def normalise_phone(raw: str) -> str:
+    """Digits only; a +91 or a leading 0 before a mobile number is dropped."""
+    digits = re.sub(r"\D", "", raw or "")
+    if len(digits) == 12 and digits.startswith("91"):
+        digits = digits[2:]
+    if len(digits) == 11 and digits.startswith("0") and digits[1] in "6789":
+        digits = digits[1:]
+    return digits
+
+
+def _phone(v: str | None) -> str | None:
+    if v is None or not v.strip():
+        return None
+    if re.search(r"[A-Za-z]", v):
+        raise ValueError("a contact number is digits only")
+    digits = normalise_phone(v)
+    if not (_MOBILE.match(digits) or _LANDLINE.match(digits)):
+        raise ValueError("enter a 10-digit mobile number, or a landline with its STD code")
+    return digits
+
+
+def _email(v: str | None) -> str | None:
+    if v is None or not v.strip():
+        return None
+    v = v.strip()
+    if not _EMAIL.match(v):
+        raise ValueError("that is not a valid email address")
+    return v.lower()
+
+
 class SchoolPatchIn(BaseModel):
     """Every field the "School details" tab can edit. Every field is optional -- a PATCH
     only touches what it sends."""
@@ -154,11 +191,23 @@ class SchoolPatchIn(BaseModel):
     city: str | None = Field(default=None, max_length=120)
     address: str | None = Field(default=None, max_length=500)
     academic_year: str | None = Field(default=None, max_length=16)
+    contact_phone: str | None = Field(default=None, max_length=24)
+    contact_email: str | None = Field(default=None, max_length=200)
 
     @field_validator("training_consent")
     @classmethod
     def _consent(cls, v: str | None) -> str | None:
         return v if v is None else _validate_consent(v)
+
+    @field_validator("contact_phone")
+    @classmethod
+    def _contact_phone(cls, v: str | None) -> str | None:
+        return _phone(v)
+
+    @field_validator("contact_email")
+    @classmethod
+    def _contact_email(cls, v: str | None) -> str | None:
+        return _email(v)
 
 
 class StaffKeyPatchIn(BaseModel):
@@ -234,6 +283,8 @@ def _school_view(db: Session, school: School) -> dict:
         "city": school.city,
         "address": school.address,
         "academic_year": school.academic_year,
+        "contact_phone": school.contact_phone,
+        "contact_email": school.contact_email,
         "students": students or 0,
         "sections": [_section_view(s) for s in sections],
         "hidden_from_directory": school.hidden_from_directory,
@@ -337,6 +388,14 @@ def patch_school(school_id: str, body: SchoolPatchIn, db: Session = Depends(get_
     if school is None:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no such school")
     changes = body.model_dump(exclude_unset=True)
+    code = changes.get("code")
+    if code is not None and code.strip():
+        # a school code names one school: two schools sharing one could not be told apart
+        clash = db.scalar(select(School).where(
+            func.lower(School.code) == code.strip().lower(), School.id != school.id))
+        if clash is not None:
+            raise HTTPException(status.HTTP_409_CONFLICT, "that school code is already in use")
+        changes["code"] = code.strip()
     for field, value in changes.items():
         if field == "name" and value is not None:
             value = value.strip()

@@ -1040,6 +1040,8 @@ export interface PlatformSchool {
   city: string | null;
   address: string | null;
   academic_year: string | null;
+  contact_phone: string | null;
+  contact_email: string | null;
   students: number;
   sections: PlatformSection[];
   hidden_from_directory: boolean;
@@ -1055,6 +1057,8 @@ export interface SchoolPatch {
   city?: string;
   address?: string;
   academic_year?: string;
+  contact_phone?: string;
+  contact_email?: string;
 }
 
 export interface TeacherAssignmentRow {
