@@ -630,7 +630,7 @@ function TeachersStep({
                     {d.examCell && <span className="tag" style={{ marginLeft: 8 }}>Exam cell</span>}
                   </div>
                   <div className="small muted" style={{ marginTop: 2 }}>
-                    {[d.mobile, d.email].filter(Boolean).join(" · ") || "No contact details"}
+                    {d.mobile || "No contact number"}
                   </div>
                   <div className="small muted" style={{ marginTop: 2 }}>
                     {teacherSummaryLine(d, sections, subjects)}
@@ -694,8 +694,6 @@ function AddTeacherModal({
 }) {
   const [name, setName] = useState(editing?.name ?? "");
   const [mobile, setMobile] = useState(editing?.mobile ?? "");
-  const [email, setEmail] = useState(editing?.email ?? "");
-  const [loginType, setLoginType] = useState<"regular" | "exam_cell">(editing?.examCell ? "exam_cell" : "regular");
   const [classTeacherOf, setClassTeacherOf] = useState(editing?.classTeacherOf ?? "");
   const [cells, setCells] = useState<Set<string>>(new Set(editing?.subjectCells ?? []));
 
@@ -715,16 +713,15 @@ function AddTeacherModal({
   const [triedT, setTriedT] = useState(false);
   const tErr = firstErrors({
     name: rules.personName(name),
-    mobile: rules.mobile(mobile, false),
-    email: rules.email(email, false),
+    mobile: rules.mobile(mobile, true),
   });
   function save() {
     setTriedT(true);
     if (Object.keys(tErr).length) return;
     onSave({
       key: editing?.key ?? `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      name, mobile, email,
-      examCell: loginType === "exam_cell",
+      name, mobile, email: "",
+      examCell: false,
       classTeacherOf,
       subjectCells: cells,
     });
@@ -747,21 +744,9 @@ function AddTeacherModal({
               <FieldError>{triedT && tErr.name}</FieldError>
             </label>
             <label className="field">
-              <span className="field__label">Mobile</span>
-              <input className="input" inputMode="tel" value={mobile} onChange={(e) => setMobile(phoneInput(e.target.value))} />
+              <span className="field__label">Contact number (WhatsApp)</span>
+              <input className="input" inputMode="tel" placeholder="98765 43210" value={mobile} onChange={(e) => setMobile(phoneInput(e.target.value))} />
               <FieldError>{triedT && tErr.mobile}</FieldError>
-            </label>
-            <label className="field">
-              <span className="field__label">Email</span>
-              <input className="input" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <FieldError>{triedT && tErr.email}</FieldError>
-            </label>
-            <label className="field">
-              <span className="field__label">Login type</span>
-              <select className="select" value={loginType} onChange={(e) => setLoginType(e.target.value as "regular" | "exam_cell")}>
-                <option value="regular">Regular teacher</option>
-                <option value="exam_cell">Exam cell (papers &amp; marks, every subject)</option>
-              </select>
             </label>
           </div>
 
@@ -773,11 +758,7 @@ function AddTeacherModal({
             </select>
           </label>
 
-          {loginType === "exam_cell" ? (
-            <p className="small muted">
-              Exam cell access already covers papers and marks for every subject and section -- no grid needed.
-            </p>
-          ) : subjectRows.length === 0 ? (
+          {subjectRows.length === 0 ? (
             <p className="small muted">No subjects loaded on this deployment yet -- assignments can be added later.</p>
           ) : sections.length === 0 ? (
             <p className="small muted">Add a class on the School step first to assign subjects.</p>
