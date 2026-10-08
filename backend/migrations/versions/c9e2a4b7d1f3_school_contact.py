@@ -19,8 +19,13 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column("school", sa.Column("contact_phone", sa.String(length=20), nullable=True))
-    op.add_column("school", sa.Column("contact_email", sa.String(length=200), nullable=True))
+    # Safe to re-run: a column that is already there (a database touched by hand or by an
+    # earlier partial run) is left alone.
+    have = {c["name"] for c in sa.inspect(op.get_bind()).get_columns("school")}
+    if "contact_phone" not in have:
+        op.add_column("school", sa.Column("contact_phone", sa.String(length=20), nullable=True))
+    if "contact_email" not in have:
+        op.add_column("school", sa.Column("contact_email", sa.String(length=200), nullable=True))
 
 
 def downgrade() -> None:
