@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowDown, ArrowUp, ChevronsUpDown, Check, Copy, Loader2 } from "lucide-react";
 import { EASE_OUT } from "@/components/motion";
+import { copyText } from "@/lib/copy";
 
 /**
  * Small shared pieces for the AVAI operator console, trimmed to what the
@@ -214,27 +215,30 @@ export function OpsEmpty({ children }: { children: React.ReactNode }) {
 // ------------------------------------------------------------
 
 export function CopySecret({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false);
+  const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
+  const codeRef = useRef<HTMLElement>(null);
+  async function copy() {
+    const ok = await copyText(value);
+    if (!ok && codeRef.current) {
+      // Nothing could write to the clipboard: select the key so Ctrl+C / long-press copies it.
+      const range = document.createRange();
+      range.selectNodeContents(codeRef.current);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    }
+    setState(ok ? "copied" : "failed");
+    setTimeout(() => setState("idle"), ok ? 1800 : 4000);
+  }
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6 }}>
-      <code className="mono" style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", fontSize: 12.5, background: "var(--surface-2)", padding: "6px 9px", borderRadius: 6 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 6, flexWrap: "wrap" }}>
+      <code ref={codeRef} className="mono" style={{ flex: 1, minWidth: 0, overflowWrap: "anywhere", fontSize: 12.5, background: "var(--surface-2)", padding: "6px 9px", borderRadius: 6, userSelect: "all" }}>
         {value}
       </code>
-      <button
-        type="button"
-        className="btn btn--ghost btn--sm"
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(value);
-            setCopied(true);
-            setTimeout(() => setCopied(false), 1800);
-          } catch {
-            /* clipboard blocked, the value is still selectable text */
-          }
-        }}
-      >
-        {copied ? <Check size={12} /> : <Copy size={12} />} {copied ? "Copied" : "Copy"}
+      <button type="button" className="btn btn--ghost btn--sm" onClick={copy}>
+        {state === "copied" ? <Check size={12} /> : <Copy size={12} />} {state === "copied" ? "Copied" : "Copy"}
       </button>
+      {state === "failed" && <span className="small muted">Could not copy automatically. The key is selected, press Ctrl+C.</span>}
     </div>
   );
 }
