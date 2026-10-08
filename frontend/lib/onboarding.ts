@@ -272,7 +272,9 @@ export const rules = {
   rollNo(v: string): string | null {
     const s = v.trim();
     if (!s) return "Roll number needed.";
-    return /^\d{1,6}$/.test(s) ? null : "Roll number is digits only (up to 6).";
+    // Any mix of letters and digits, with the separators schools use (10A-12, 2024/015); the
+    // server stores up to 16 characters.
+    return /^[A-Za-z0-9][A-Za-z0-9/._-]{0,15}$/.test(s) ? null : "Roll number: letters and digits only (also - / . _), up to 16 characters.";
   },
 };
 

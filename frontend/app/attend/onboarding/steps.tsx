@@ -101,7 +101,7 @@ export function StepBasicInfo({
             inputMode="numeric"
             value={answers.roll_no ?? ""}
             aria-invalid={(showErrors || !!answers.roll_no) && !!err.roll_no}
-            maxLength={6}
+            maxLength={16}
             onChange={(e) => patch({ roll_no: e.target.value })}
           />
           <FieldError show={(showErrors || !!answers.roll_no) && !!err.roll_no}>{err.roll_no}</FieldError>

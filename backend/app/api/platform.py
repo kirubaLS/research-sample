@@ -76,6 +76,7 @@ def _key_view(k: StaffKey) -> dict:
         "created_at": k.created_at.isoformat() if k.created_at else None,
         "revoked_at": k.revoked_at.isoformat() if k.revoked_at else None,
         "last_used_at": k.last_used_at.isoformat() if k.last_used_at else None,
+        "credential_changed_at": k.credential_changed_at.isoformat() if k.credential_changed_at else None,
     }
 
 

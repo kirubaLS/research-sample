@@ -1040,7 +1040,7 @@ function StudentsStep({
             <div className="modal__body">
               <p className="small muted" style={{ margin: 0 }}>
                 One student per line: roll no, student name, parent name, parent WhatsApp -- tab or comma separated, or
-                copied straight from a sheet (a header row is fine). Roll no and WhatsApp must be numbers, names must be
+                copied straight from a sheet (a header row is fine). Roll no can be digits or letters, WhatsApp must be a mobile number, names must be
                 names; rows that fail are skipped and listed. Added to Class {activeLabel ? sectionLabel(activeLabel) : ""}.
               </p>
               <textarea

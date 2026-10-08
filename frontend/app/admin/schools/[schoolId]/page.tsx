@@ -789,6 +789,7 @@ function PrincipalTab({
               <CopySecret value={principal.api_key} />
               <p className="small muted" style={{ marginTop: 6 }}>
                 Last used: {principal.last_used_at ? new Date(principal.last_used_at).toLocaleString() : "never"}
+                {principal.credential_changed_at && ` · Password set by the principal on ${new Date(principal.credential_changed_at).toLocaleString()}`}
               </p>
             </div>
           )}

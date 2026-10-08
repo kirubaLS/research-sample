@@ -166,8 +166,11 @@ describe("other fields", () => {
   it("checks roll numbers and addresses", () => {
     expect(rules.rollNo("12")).toBeNull();
     expect(rules.rollNo("")).toMatch(/needed/);
-    expect(rules.rollNo("a b")).toMatch(/digits only/);
-    expect(rules.rollNo("12A")).not.toBeNull();
+    expect(rules.rollNo("a b")).toMatch(/letters and digits/);
+    expect(rules.rollNo("12A")).toBeNull();
+    expect(rules.rollNo("2024/015")).toBeNull();
+    expect(rules.rollNo("10A-12")).toBeNull();
+    expect(rules.rollNo("12345678901234567")).not.toBeNull();
     expect(rules.address("")).toBeNull();
     expect(rules.address("abc")).toMatch(/short/);
   });

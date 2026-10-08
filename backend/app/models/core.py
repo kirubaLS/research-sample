@@ -99,6 +99,9 @@ class StaffKey(Base, PkMixin, TimestampMixin):
     #: Set on every successful X-API-Key authentication (see app.api.deps.current_staff).
     #: Lets the ops console show "last active" rather than only "issued on".
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Set when the holder chose their own key (password) from inside the dashboard, so the
+    #: ops console can say "changed by the principal on ...". NULL = still the issued key.
+    credential_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     #: The exam cell: papers-and-marks rights across every subject in the school, and no
     #: teaching duty of their own. Only meaningful for role == "teacher" -- a principal or

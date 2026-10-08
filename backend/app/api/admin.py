@@ -7,10 +7,11 @@ Without these there is no way to answer the two questions a principal opens the 
 from __future__ import annotations
 
 import hashlib
+import re
 import secrets
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -36,6 +37,7 @@ from app.db import get_session
 from app.models import (
     TEACHER_ASSIGNMENT_TYPES,
     Assessment,
+    AuditLog,
     BookChunk,
     DataQualityFlag,
     GridSheetRow,
@@ -57,6 +59,79 @@ from app.models import (
 )
 
 router = APIRouter(prefix="/admin", tags=["dashboard"])
+
+
+_COMMON_PASSWORDS = {
+    "password", "password1", "password123", "qwerty123", "qwertyuiop", "123456789", "1234567890",
+    "iloveyou1", "admin12345", "welcome123", "school1234", "principal1", "principal123",
+}
+
+
+def check_new_password(pw: str) -> str | None:
+    """Why a chosen password is not acceptable, or None when it is.
+
+    The key a person signs in with is their password and nothing else names them, so it has
+    to be hard to guess: 10 to 64 characters, no spaces, letters and digits both, not a
+    well-known one. (64 is the column's width.)
+    """
+    if len(pw) < 10:
+        return "Use at least 10 characters."
+    if len(pw) > 64:
+        return "Use at most 64 characters."
+    if re.search(r"\s", pw):
+        return "No spaces."
+    if not re.fullmatch(r"[\x21-\x7e]+", pw):
+        return "Use only letters, digits and the usual symbols on a keyboard."
+    if not re.search(r"[A-Za-z]", pw) or not re.search(r"\d", pw):
+        return "Use both letters and digits."
+    if pw.lower() in _COMMON_PASSWORDS or len(set(pw.lower())) < 4:
+        return "That is too easy to guess. Choose something less common."
+    return None
+
+
+class PasswordChangeIn(BaseModel):
+    new_password: str = Field(max_length=200)
+
+
+@router.post("/me/password")
+def change_own_password(
+    body: PasswordChangeIn,
+    staff: Staff = Depends(require_staff),
+    db: Session = Depends(get_session),
+) -> dict:
+    """A principal replaces the key they sign in with by one they chose and can remember.
+
+    The key is the credential (there is no separate username), so this swaps StaffKey.api_key:
+    the old one stops working at once and the new one works from the next request. The ops
+    console reads the same column, so it shows the new key and when it was changed.
+    Principals only, and only their own key: who it changes comes from the key that signed
+    the request, never from anything in the body.
+    """
+    if staff.role != "principal" or not staff.staff_key_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "only a principal can change their own password here")
+    problem = check_new_password(body.new_password)
+    if problem:
+        raise HTTPException(422, problem)
+    key = db.get(StaffKey, staff.staff_key_id)
+    if key is None or key.revoked_at is not None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "not found")
+    if body.new_password == key.api_key:
+        raise HTTPException(422, "That is already your password. Choose a new one.")
+    taken = db.scalar(select(StaffKey.id).where(StaffKey.api_key == body.new_password)) or db.scalar(
+        select(School.id).where(School.api_key == body.new_password)
+    )
+    if taken:
+        raise HTTPException(status.HTTP_409_CONFLICT, "That password cannot be used. Choose a different one.")
+    key.api_key = body.new_password
+    key.credential_changed_at = datetime.now(UTC)
+    db.add(
+        AuditLog(
+            school_id=key.school_id, actor_role="principal", actor_label=key.name or key.label or "",
+            action="key_changed_by_holder", detail=f"key_id={key.id}",
+        )
+    )
+    db.commit()
+    return {"ok": True, "changed_at": key.credential_changed_at.isoformat()}
 
 
 @router.get("/me")
