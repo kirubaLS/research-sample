@@ -43,7 +43,7 @@ from fastapi import (
 )
 
 from app.api.deps import require_platform_admin
-from app.api.prompt_lab import BATCH, _Row, map_batch, resolve
+from app.api.prompt_lab import resolve
 from app.api.upload import pages_to_pdf
 from app.config import get_settings
 from app.extraction.paper import context_addresses, extract_paper
@@ -273,6 +273,16 @@ def _read_with_vision(job_id: str, paper: Path, settings):
     }
 
 
+def _looks_cut_off(text: str) -> bool:
+    """A stem that stops on a lone letter or a bare list marker ("IV. E"): the read lost its end."""
+    t = text.rstrip()
+    return bool(
+        re.search(r"(^|\s)[A-Za-z]$", t)
+        or re.search(r"(^|\s)([IVXivx]+|[A-Da-d])[.)]$", t)
+        or re.search(r"\([a-dA-D]\)$", t)
+    )
+
+
 def _map(questions, context: set, passage_of: dict, settings) -> dict:
     """Map every real question (not a shared passage) with the prompt mapper."""
     from app.api import prompt_lab
@@ -281,30 +291,28 @@ def _map(questions, context: set, passage_of: dict, settings) -> dict:
     model = settings.model_high_volume
     client = prompt_lab._client(settings)
     real = [q for q in questions if q.address not in context and not q.is_context]
-    answers: dict[int, _Row] = {}
-    usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
-    errors: list[str] = []
-    calls = 0
-    for start in range(0, len(real), BATCH):
-        chunk = [
-            {"row": start + i, "text": _mapping_text(q, passage_of).strip()[:4000],
-             **({"section": q.section.strip().upper()} if q.section and q.section.strip() else {})}
-            for i, q in enumerate(real[start:start + BATCH])
-        ]
-        try:
-            mapped, u = map_batch(client, model, chunk, settings)
-        except Exception as exc:  # noqa: BLE001 -- one batch failing must not lose the others
-            errors.append(
-                f"questions {start + 1}-{start + len(chunk)}: {type(exc).__name__}: {str(exc)[:200]}")
-            continue
-        calls += 1
-        for k in usage:
-            usage[k] += u[k]
-        for m in mapped:
-            answers.setdefault(m.row, m)
+    # The reader sometimes returns the same question twice (one copy without its statements or
+    # options). Map the fuller one; the other would only overwrite it under the same address.
+    fullest: dict[tuple, object] = {}
+    for q in real:
+        k = (q.section, q.question_no, q.sub_part, q.choice_alt)
+        if k not in fullest or len(q.stem_text or "") > len(fullest[k].stem_text or ""):
+            fullest[k] = q
+    real = [q for q in real if fullest[(q.section, q.question_no, q.sub_part, q.choice_alt)] is q]
+    rows = [
+        {"row": i, "text": _mapping_text(q, passage_of).strip()[:4000],
+         **({"section": q.section.strip().upper()} if q.section and q.section.strip() else {})}
+        for i, q in enumerate(real)
+    ]
+    answers, usage, calls, errors = prompt_lab.map_rows(client, model, rows, settings, taxonomy)
     results = {
         q.address: resolve(taxonomy, answers.get(i), q.section) for i, q in enumerate(real)
     }
+    for q in real:
+        if _looks_cut_off(q.stem_text or ""):
+            r = results[q.address]
+            r["problems"].append("the question text looks cut off; check the scan")
+            r["needs_review"] = True
     usd = estimate_usd(model, usage["input_tokens"], usage["output_tokens"], usage["cache_read_tokens"],
                        cache_write_tokens=usage["cache_write_tokens"])
     mapped_n = sum(1 for r in results.values() if r["topic"])

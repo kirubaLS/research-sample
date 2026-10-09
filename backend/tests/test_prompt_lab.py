@@ -87,11 +87,24 @@ def test_a_boxs_title_is_a_hint_for_its_parent_not_a_topic():
     assert "Sardar Sarovar Dam" in parent.keywords
 
 
-def test_hints_are_names_dates_and_figures_not_ordinary_words():
+def test_hints_are_short_specific_terms_and_every_topic_has_some():
+    bare = 0
     for c in pt.build().chapters:
         for x in c.topics:
+            assert len(x.keywords) <= pt.KEYWORDS_PER_TOPIC, x.id
+            bare += not x.keywords
             for k in x.keywords:
-                assert len(k.split()) <= 5 and (k[0].isupper() or any(ch.isdigit() for ch in k)), (x.id, k)
+                assert len(k.split()) <= 6 and len(k) >= 3, (x.id, k)
+                assert k.split()[0].lower() not in pt._SENTENCE_STARTERS, (x.id, k)
+    assert bare == 0, "every topic carries hints, so none is described by its title alone"
+    t = pt.build()
+    assert len(t.topic("H5.3.3").keywords) >= pt.MIN_TERMS
+
+
+def test_hints_come_from_the_sections_own_text():
+    t = pt.build()
+    assert "Index of Prohibited Books" in t.topic("H5.3.3").keywords
+    assert any("luvial" in k or k in {"Khadar", "bangar"} for k in t.topic("G1.7.1.1").keywords)
 
 
 def test_the_rendered_taxonomy_is_cacheable_size_and_indented_by_depth():
@@ -209,14 +222,17 @@ def test_a_run_maps_questions_with_haiku_and_a_cached_taxonomy_and_writes_nothin
         {"text": "Explain the Rowlatt Act of 1919."}]})
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["model"] == "claude-haiku-4-5" and body["calls"] == 1
+    # one call for the History row (shown only History's list), one for the row with no section
+    assert body["model"] == "claude-haiku-4-5" and body["calls"] == 2
     assert body["results"][0]["topic"]["title"] == "The Rowlatt Act"
     assert body["summary"]["questions"] == 2 and body["summary"]["in_syllabus"] == 2
     assert body["spend"]["estimated_usd"] > 0 and body["wrote_nothing"] is True
-    request = messages.requests[0]
+    request = next(r for r in messages.requests if "H5.3.2" in r["system"][1]["text"]
+                   and "G1.7.1.1" not in r["system"][1]["text"])
     assert request["model"] == "claude-haiku-4-5"
     taxonomy_block = request["system"][1]
-    assert taxonomy_block["cache_control"] == {"type": "ephemeral"} and "H5.3.2" in taxonomy_block["text"]
+    assert taxonomy_block["cache_control"] == {"type": "ephemeral"}
+    assert any("G1.7.1.1" in r["system"][1]["text"] for r in messages.requests), "no section: the whole list"
     assert _counts() == before
 
 
@@ -290,3 +306,33 @@ def test_a_stored_paper_is_mapped_and_compared_with_its_saved_mapping(
     assert row["stored"]["chapter_agrees"] is False
     assert body["summary"]["compared"] == 1 and body["summary"]["chapter_agrees"] == 0
     assert _counts() == before
+
+
+def test_the_rules_state_the_closed_list_and_do_not_tell_the_model_nobody_checks():
+    assert "CLOSED list" in lab.RULES and "differ from the numbers printed" in lab.RULES
+    assert "H5.3.3 are valid" in lab.RULES and "opening text" in lab.RULES
+    assert "E4.4" in lab.RULES and "E4.5" in lab.RULES
+    assert "Nobody will review" not in lab.RULES and "## Before you answer" in lab.RULES
+    assert "describes the TEXTBOOK" in lab.RULES and "describes YOUR certainty" in lab.RULES
+    t = pt.build()
+    for tid in ("E4.4", "E4.5", "H5.3.3"):
+        assert t.topic(tid) is not None, tid
+
+
+def test_an_answer_with_an_id_the_list_does_not_have_is_asked_again_once(client, operator, monkeypatch):
+    seen = []
+
+    def answer(r):
+        seen.append(r.get("note"))
+        good = r.get("note") is not None
+        return lab._Row(row=r["row"], chapter_id="G5", topic_id="G5.9.9" if not good else "G5.2",
+                        confidence="high", syllabus_status="in_syllabus", reason="x",
+                        considered=["G5.2", "NOPE9"])
+
+    _stub(monkeypatch, answer)
+    body = client.post("/platform/prompt-lab/run", headers=HEAD, json={"questions": [
+        {"text": "Which mineral is the chief source of aluminium?", "section": "B"}]}).json()
+    assert body["calls"] == 2 and any(n and "G5.9.9" in n for n in seen)
+    r = body["results"][0]
+    assert r["topic"]["id"] == "G5.2" and not r["problems"]
+    assert r["considered"] == ["G5.2"], "an unknown ID in considered is dropped, not shown"
