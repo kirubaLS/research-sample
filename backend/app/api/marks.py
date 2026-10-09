@@ -2238,7 +2238,8 @@ def _run_map_job(job_id: str) -> None:
         job = db.get(PlacementJob, job_id)
         if job is None:
             return
-        assessment = db.get(Assessment, job.assessment_id)
+        assessment_id = job.assessment_id
+        assessment = db.get(Assessment, assessment_id)
         if assessment is None:
             finish("failed", error_status=404, error_detail="the paper this job belonged to was removed")
             return
@@ -2254,6 +2255,10 @@ def _run_map_job(job_id: str) -> None:
     finally:
         db.close()
     finish("succeeded", result=result)
+    # answer sheets uploaded while this paper was still being read can now be marked
+    from app.api.gridsheets import map_waiting_answer_sheets_now
+
+    map_waiting_answer_sheets_now(assessment_id)
 
 
 def _no_cap(section):

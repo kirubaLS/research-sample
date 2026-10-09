@@ -530,6 +530,8 @@ export interface StudentReportDetail extends StudentReportRow {
 // --- class mark-entry sheet: one photograph, many students ----------------------------
 
 export interface GridUploadResult {
+  /** True while the question paper is not mapped yet: the sheet is read, its marks attach on their own later. */
+  awaiting_paper?: boolean;
   document_id: string;
   rows: number;
   clean: number;

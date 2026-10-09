@@ -9,6 +9,7 @@ import {
   ApiUnreachable,
   GridSheetReview,
   GridSheetRowView,
+  GridUploadResult,
   JobProgress,
   PaperSummary,
   RosterRow,
@@ -46,6 +47,14 @@ export interface UseGridSheetOptions {
   /** Pin the class picker to this section (subject-scoped embed) -- the picker is not
    * shown at all and every load is scoped to this section from the start. */
   fixedSectionId?: string;
+}
+
+function photoSummary(out: GridUploadResult): string {
+  const found = `${out.rows} row${out.rows === 1 ? "" : "s"} read`;
+  if (out.awaiting_paper) {
+    return `${found}. The question paper is still being read. These marks will be attached and confirmed automatically as soon as it is mapped.`;
+  }
+  return `${found}: ${out.clean} ready, ${out.name_mismatch} with a name to check, ${out.unmatched} with no matching student.`;
 }
 
 export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheetOptions) {
@@ -178,10 +187,7 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
         : await api.uploadSingleScript(key, paperId, sectionId, files, onJobQueued, setProgress);
       clearJob("gridsheet", scope);
       setDocumentId(out.document_id);
-      setUploadSummary(
-        `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
-          `${out.name_mismatch} with a name to check, ${out.unmatched} with no matching student.`,
-      );
+      setUploadSummary(photoSummary(out));
       await loadReview(out.document_id);
     } catch (err) {
       setError(explain(err));
@@ -211,10 +217,7 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
         if (cancelled) return;
         clearJob("gridsheet", scope);
         setDocumentId(out.document_id);
-        setUploadSummary(
-          `${out.rows} row${out.rows === 1 ? "" : "s"} read: ${out.clean} ready, ` +
-            `${out.name_mismatch} with a name to check, ${out.unmatched} with no matching student.`,
-        );
+        setUploadSummary(photoSummary(out));
         await loadReview(out.document_id);
       } catch (err) {
         if (cancelled) return;
@@ -393,7 +396,11 @@ export function useGridSheet({ role, subjectCode, fixedSectionId }: UseGridSheet
     setReview(null);
   }
 
-  const ready = papers.filter((p) => p.ready_for_answer_sheets && (!subjectCode || p.subject_code === subjectCode));
+  // A paper whose question paper is uploaded but still being read is listed too: its answer
+  // sheets are read now and marked automatically once the paper is mapped.
+  const ready = papers.filter(
+    (p) => (p.ready_for_answer_sheets || p.stage !== "empty") && (!subjectCode || p.subject_code === subjectCode),
+  );
 
   // See usePaperScan's own busyLabel: the plain label with real "X of Y" appended
   // whenever the job currently running has reported any, falling back to the plain

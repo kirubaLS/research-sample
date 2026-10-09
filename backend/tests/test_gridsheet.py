@@ -734,3 +734,38 @@ def test_an_unknown_roll_with_a_known_name_is_suggested_not_matched(
         assert db.get(StudentProfile, roster["2"]).roll_no == "2"   # the roster is untouched
     finally:
         db.close()
+
+
+def test_a_sheet_uploaded_before_its_paper_is_mapped_is_read_now_and_marked_later(
+    client, school, roster, stub_grid
+):
+    aid = client.post(
+        "/assessments", headers=_auth(school),
+        json={"subject_code": "X.MATH", "title": "Both at once", "total_marks": 10},
+    ).json()["assessment_id"]
+
+    out = _upload(client, school, aid, school["section_id"])
+    assert out.status_code == 202, out.text  # no longer refused for want of questions
+    job_id = out.json()["job_id"]
+    waiting = client.get(f"/assessments/{aid}/gridsheet/jobs/{job_id}", headers=_auth(school)).json()
+    assert waiting["status"] == "succeeded" and waiting["awaiting_paper"] is True
+    assert waiting["rows"] == 3
+    assert client.get(f"/assessments/{aid}/answers/{roster['1']}/reading", headers=_auth(school)).json()["read"] == 0
+
+    # the paper finishes mapping: its questions now exist
+    made = client.post(
+        f"/assessments/{aid}/questions", headers=_auth(school),
+        json={"questions": [
+            {"section": "A", "question_no": "1", "max_marks": 2, "board_unit": "X.MATH.U.STATSPROB",
+             "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"both-{aid}-1"},
+            {"section": "B", "question_no": "2", "max_marks": 3, "board_unit": "X.MATH.U.STATSPROB",
+             "concept_family": "X.MATH.CF.VOLUME", "concept_variant": f"both-{aid}-2"},
+        ]},
+    )
+    assert made.status_code == 200, made.text
+
+    done = client.get(f"/assessments/{aid}/gridsheet/jobs/{job_id}", headers=_auth(school)).json()
+    assert done["awaiting_paper"] is False
+    review = client.get(f"/assessments/{aid}/gridsheet/{done['document_id']}", headers=_auth(school)).json()
+    row = next(r for r in review["rows"] if r["roll_no"] == "1")
+    assert {m["address"] for m in row["marks"]} == {"A/1//", "B/2//"}

@@ -541,7 +541,7 @@ def _run_gridsheet_job(job_id: str) -> None:
             _suggest_for(grid_row, roster)
             db.add(grid_row)
             db.flush()
-            if student is not None:
+            if student is not None and questions:
                 _write_proposed_marks(db, school, assessment, questions, student, grid_row, source_name)
             rows.append(grid_row)
         db.commit()
@@ -554,8 +554,11 @@ def _run_gridsheet_job(job_id: str) -> None:
             "unmatched": sum(1 for r in rows if r.status == "unmatched"),
             "problems": reading.problems,
             "next": f"/assessments/{assessment.id}/gridsheet/{document.id}",
+            #: the question paper is not mapped yet, so there is nothing for these marks to
+            #: attach to; map_waiting_answer_sheets does it once the paper is ready
+            "awaiting_paper": not questions,
         }
-        if settings.auto_pipeline:
+        if settings.auto_pipeline and questions:
             # Zero-touch: what a person would have done row by row, done now. A roll that
             # matched but whose name reads differently is that student; an unmatched row
             # with one clear name suggestion is that student. Then every resolved row's
@@ -594,6 +597,77 @@ def _run_gridsheet_job(job_id: str) -> None:
     _finish_gridsheet_job(job_id, status_value="succeeded", result=result)
 
 
+def map_waiting_answer_sheets(db: Session, assessment_id: str) -> int:
+    """Attach the marks of answer sheets that were read before their question paper was mapped.
+
+    Called when a paper's mapping finishes, and again (harmlessly) whenever a waiting sheet is
+    looked at. For every sheet read while the paper had no questions it does what the read
+    itself would have done had the paper been ready: attach each matched student's cells to
+    the paper's questions and, in the zero-touch pipeline, settle the easy name cases and
+    confirm. Returns how many sheets were mapped; 0 when the paper is still not ready.
+    """
+    questions = list(db.scalars(select(Question).where(Question.assessment_id == assessment_id)))
+    if not questions:
+        return 0
+    assessment = db.get(Assessment, assessment_id)
+    if assessment is None:
+        return 0
+    school = db.get(School, assessment.school_id)
+    jobs = [
+        j for j in db.scalars(select(GridSheetJob).where(
+            GridSheetJob.assessment_id == assessment_id, GridSheetJob.status == "succeeded"))
+        if (j.result or {}).get("awaiting_paper")
+    ]
+    mapped = 0
+    settings = get_settings()
+    for job in jobs:
+        locked = db.get(GridSheetJob, job.id, with_for_update=True)
+        if locked is None or not (locked.result or {}).get("awaiting_paper"):
+            continue  # another request got there first
+        rows = list(db.scalars(select(GridSheetRow).where(GridSheetRow.document_id == job.document_id)))
+        source_name = "class mark-entry sheet" if job.kind == "class_photo" else "answer script"
+        auto_resolved = 0
+        for r in rows:
+            if r.status == "name_mismatch" and r.student_id is not None and settings.auto_pipeline:
+                r.status, r.note = "clean", "auto: roll matched; the name on the sheet reads differently"
+                auto_resolved += 1
+            elif r.status == "unmatched" and r.suggested_student_id and settings.auto_pipeline:
+                student = db.get(StudentProfile, r.suggested_student_id)
+                if student is not None:
+                    r.student_id, r.status = student.id, "clean"
+                    r.note = (f"auto: matched by name; the sheet's roll {r.roll_no!r} "
+                              f"is not {student.roll_no!r}")
+                    auto_resolved += 1
+            if r.student_id is not None:
+                student = db.get(StudentProfile, r.student_id)
+                if student is not None:
+                    _write_proposed_marks(db, school, assessment, questions, student, r, source_name)
+        db.flush()
+        result = {**(locked.result or {}), "awaiting_paper": False, "auto_resolved": auto_resolved}
+        if settings.auto_pipeline:
+            confirmed, skipped = _confirm_grid_rows(db, assessment, rows, by="auto", excuse_problems=True)
+            result.update({"auto_confirmed": len(confirmed), "auto_skipped": skipped})
+        locked.result = result
+        db.commit()
+        mapped += 1
+    return mapped
+
+
+def map_waiting_answer_sheets_now(assessment_id: str) -> None:
+    """The same, for a caller with no request session (the end of a background mapping job).
+    Never raises: the paper's own mapping succeeded and must stay succeeded."""
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    try:
+        map_waiting_answer_sheets(db, assessment_id)
+    except Exception:  # noqa: BLE001
+        logger.exception("mapping waiting answer sheets failed for assessment %s", assessment_id)
+        db.rollback()
+    finally:
+        db.close()
+
+
 async def _queue_vision_reading(
     assessment_id: str,
     section_id: str,
@@ -616,13 +690,9 @@ async def _queue_vision_reading(
     assessment = _assessment(db, school, assessment_id)
     section = _section(db, school, section_id)
 
-    questions = list(db.scalars(select(Question).where(Question.assessment_id == assessment.id)))
-    if not questions:
-        raise HTTPException(
-            422,
-            "this paper has no questions yet. Scan it, confirm the extraction and map it "
-            "to the book first, so a mark has something to attach to.",
-        )
+    # No longer refused while the question paper is still being read: the sheet is stored and
+    # read now, and its marks are attached to the paper's questions the moment the paper is
+    # mapped (see map_waiting_answer_sheets). Uploading both together is the normal case.
     if not files:
         raise HTTPException(422, "no file was sent")
 
@@ -715,6 +785,10 @@ def get_gridsheet_job(
     job = db.get(GridSheetJob, job_id)
     if job is None or job.assessment_id != assessment_id or job.school_id != school.id:
         raise HTTPException(404, f"no job {job_id!r} for this paper")
+    if job.status == "succeeded" and (job.result or {}).get("awaiting_paper"):
+        # the paper may have been mapped since this sheet was read
+        if map_waiting_answer_sheets(db, assessment_id):
+            db.refresh(job)
     if job.status == "failed":
         raise HTTPException(job.error_status or 500, job.error_detail or "the job failed")
     if job.status != "succeeded":
@@ -738,6 +812,7 @@ def review_gridsheet(
 ) -> dict:
     """Every row this sheet produced, with what would be confirmed for it."""
     assessment = _assessment(db, school, assessment_id)
+    map_waiting_answer_sheets(db, assessment.id)  # no-op unless a sheet is waiting on a now-mapped paper
     rows = list(db.scalars(
         select(GridSheetRow)
         .where(GridSheetRow.document_id == document_id, GridSheetRow.assessment_id == assessment.id)
