@@ -527,7 +527,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
 
   function statusTag(p: PaperSummary): { label: string; cls: string } {
     if (p.stage === "mapped") return { label: "Mapped", cls: "pm-pill--mapped" };
-    if (p.stage === "confirmed" || p.stage === "scanned") return { label: "Needs mapping", cls: "pm-pill--needs" };
+    if (p.stage === "confirmed" || p.stage === "scanned") return { label: "In progress", cls: "pm-pill--needs" };
     return { label: "Not uploaded", cls: "pm-pill--not" };
   }
   function coveragePct(p: PaperSummary): number {
