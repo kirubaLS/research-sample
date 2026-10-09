@@ -24,6 +24,7 @@ from app.api import (
     interest,
     marks,
     ocr_lab,
+    paper_intake,
     placement,
     platform,
     prompt_lab,
@@ -123,6 +124,7 @@ app.include_router(platform.router)
 app.include_router(question_lab.router)
 app.include_router(prompt_lab.router)
 app.include_router(ocr_lab.router)
+app.include_router(paper_intake.router)
 app.include_router(reports.router)
 app.include_router(reports.webhook_router)
 app.include_router(documents.router)
