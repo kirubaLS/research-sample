@@ -767,9 +767,10 @@ export function usePaperScan(opts: {
   // hasn't (an old job, or a moment before the first commit lands), never showing a
   // broken "undefined of undefined". Whether this reads as pages or questions follows
   // from which action set `busy`: a scan reports pages, a classify run reports questions.
-  const busyLabel = busy && progress?.progress_total != null
-    ? `${busy} (${progress.progress_done ?? 0} of ${progress.progress_total})`
-    : busy;
+  // Not the step or the count ("1 of 5 pages", "matching every question..."): while the paper is
+  // being worked on the screen only says so, and says "Mapped" once it is done. The real
+  // progress is still tracked above for anything that wants it.
+  const busyLabel = busy ? "In progress…" : busy;
 
   return {
     // data
