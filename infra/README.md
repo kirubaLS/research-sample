@@ -1,7 +1,7 @@
 # Moving to AWS (ap-south-1, minimal cost)
 
 One Lightsail VM running Docker Compose (Caddy + Next.js + FastAPI+Tesseract + Postgres),
-one S3 bucket for scanned pages with a 30-day lifecycle rule. Everything for this lives in
+one S3 bucket for scanned pages, kept indefinitely (no expiry rule). Everything for this lives in
 this directory: `docker-compose.yml`, `Caddyfile`, `s3-lifecycle.json`,
 `backup-postgres.sh`.
 
@@ -37,7 +37,8 @@ aws s3api put-bucket-encryption --bucket yaadhum-scans-prod \
 aws s3api put-public-access-block --bucket yaadhum-scans-prod \
   --public-access-block-configuration BlockPublicAcls=true,IgnorePublicAcls=true,BlockPublicPolicy=true,RestrictPublicBuckets=true
 
-# The 30-day auto-delete on scanned pages, and a housekeeping rule for abandoned uploads.
+# Scanned question papers and answer sheets are kept indefinitely: the only rule is a
+# housekeeping one for abandoned uploads. Applying this also removes any older 30-day expiry rule.
 aws s3api put-bucket-lifecycle-configuration --bucket yaadhum-scans-prod \
   --lifecycle-configuration file://infra/s3-lifecycle.json
 ```
@@ -163,9 +164,8 @@ sudo crontab -e
 0 2 * * * /srv/yaadhum/infra/backup-postgres.sh >> /var/log/yaadhum-backup.log 2>&1
 ```
 
-This pushes a nightly `pg_dump` to `s3://yaadhum-scans-prod/db-backups/` — a prefix the
-30-day lifecycle rule (scoped to `scans/` only) never touches, so backups accumulate
-until you prune them yourself. `aws configure` needs to have run once for the `yaadhum-app`
+This pushes a nightly `pg_dump` to `s3://yaadhum-scans-prod/db-backups/` — a prefix with
+no expiry rule, so backups accumulate until you prune them yourself. `aws configure` needs to have run once for the `yaadhum-app`
 IAM user's own session too, or attach an instance role instead of a static key — either
 way, that user's policy above only covers `scans/*`; widen it to include `db-backups/*`
 if you keep the same scoped user for backups.
