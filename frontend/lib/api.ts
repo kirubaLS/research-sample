@@ -2620,6 +2620,27 @@ export const api = {
     ),
 
   // --- question papers ---
+  /** Read a question paper's heading (subject, test name, date, marks) from its first page.
+   * Stores nothing: the exam card and the full read are separate calls. */
+  detectPaper: async (key: string, files: File[]) => {
+    const form = new FormData();
+    for (const f of files) form.append("files", f);
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}/paper-intake/detect`, { method: "POST", headers: { "X-API-Key": key, ...scopeHeader() }, body: form });
+    } catch {
+      throw new ApiUnreachable(BASE);
+    }
+    if (!res.ok) throw new ApiError(res.status, (await res.text()) || res.statusText);
+    return (await res.json()) as {
+      detected: {
+        subject: string | null; class: string | null; title: string | null; date: string | null;
+        total_marks: number | null; duration: string | null;
+      };
+      model: string | null; estimated_usd: number; note: string | null;
+    };
+  },
+
   createAssessment: (key: string, body: Record<string, unknown>) =>
     authed<{ assessment_id: string; status: string }>("/assessments", key, {
       method: "POST",

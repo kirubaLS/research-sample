@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useCallback, useEffect, useMemo, useState, type CSSProperties, type FormEvent } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type FormEvent } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -46,6 +46,7 @@ import {
 } from "@/lib/api";
 import { Stat } from "@/components/Stat";
 import { usePaperScan } from "@/lib/usePaperScan";
+import { fallbackTitle, findExistingTest, matchSubject, summarise, today, type Detected } from "@/lib/paperIntake";
 import { usePageHeader } from "@/lib/pageHeader";
 import { ChapterPicker } from "@/components/ChapterPicker";
 import { SubjectRoster } from "@/components/SubjectRoster";
@@ -452,6 +453,73 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     }
   }
 
+  // ---- Upload a paper first: read its heading, make the exam card, then run the usual read ----
+  // The paper's own heading names the subject, the test and what it is worth; those make the
+  // card. Everything after that is the existing pipeline (scan, confirm, map, classify), so a
+  // paper uploaded here behaves exactly like one uploaded to a card's own Upload button.
+  type Intake =
+    | { phase: "idle" }
+    | { phase: "reading"; names: string }
+    | { phase: "review"; files: File[]; detected: Detected; subject: string; title: string; date: string }
+    | { phase: "building"; message: string }
+    | { phase: "done"; message: string }
+    | { phase: "failed"; message: string };
+  const [intake, setIntake] = useState<Intake>({ phase: "idle" });
+  const [dragOver, setDragOver] = useState(false);
+  const intakeInput = useRef<HTMLInputElement>(null);
+
+  async function buildFromPaper(files: File[], subjectCode: string, title: string, date: string, detected: Detected) {
+    const key = getApiKey();
+    if (!key) return;
+    const subjectLabel = pickableSubjects.find((s) => s.subject_code === subjectCode)?.label ?? subjectCode;
+    setIntake({ phase: "building", message: "Making the exam card…" });
+    try {
+      const existing = findExistingTest(title, detected.date ? date : null, tests);
+      const examId = existing?.id ?? (await api.createExam(key, { name: title, scheduled_date: date })).id;
+      // an empty row for this subject already on that card is filled rather than doubled
+      const spare = (papersByExam.get(examId) ?? []).find((p) => p.subject_code === subjectCode && p.stage === "empty");
+      const assessmentId = spare?.id ?? (await api.createAssessment(key, { subject_code: subjectCode, title, exam_id: examId })).assessment_id;
+      setExpanded((prev) => new Set(prev).add(examId));
+      await Promise.all([loadExams(), scan.loadPapers()]);
+      setIntake({ phase: "done", message: `Exam card ready: ${summarise({ ...detected, title, date }, subjectLabel)}. Reading the questions now.` });
+      await scan.submitScan(subjectCode, title, assessmentId, files, null);
+    } catch (err) {
+      setIntake({ phase: "failed", message: err instanceof ApiError ? `Could not make the exam card: ${err.message}` : "Could not reach the API." });
+    }
+  }
+
+  async function startIntake(picked: File[]) {
+    const key = getApiKey();
+    const files = picked.filter((f) => /\.(pdf|png|jpe?g|webp|heic)$/i.test(f.name) || f.type.startsWith("image/") || f.type === "application/pdf");
+    if (!key || files.length === 0) {
+      setIntake({ phase: "failed", message: "Choose a PDF or photographs of the question paper." });
+      return;
+    }
+    setIntake({ phase: "reading", names: files.length === 1 ? files[0].name : `${files.length} pages` });
+    let detected: Detected = { subject: null, class: null, title: null, date: null, total_marks: null, duration: null };
+    try {
+      detected = (await api.detectPaper(key, files)).detected;
+    } catch {
+      /* the form below still lets the teacher fill the card by hand */
+    }
+    const subject = matchSubject(detected.subject, pickableSubjects);
+    const date = detected.date ?? today();
+    const label = pickableSubjects.find((s) => s.subject_code === subject)?.label;
+    const title = detected.title ?? (label ? fallbackTitle(label, date) : "");
+    // sure enough to go straight on: the subject was found and the heading gave a test name
+    if (subject && detected.title) {
+      await buildFromPaper(files, subject, title, date, detected);
+      return;
+    }
+    setIntake({ phase: "review", files, detected, subject: subject ?? "", title, date });
+  }
+
+  function onDropPaper(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault();
+    setDragOver(false);
+    void startIntake(Array.from(e.dataTransfer.files));
+  }
+
   /** "180 model calls · ≈ $0.42": what the latest map and classify runs cost. */
   function spendLabel(spend: NonNullable<PaperSummary["spend"]>): string {
     return `${spend.calls} model call${spend.calls === 1 ? "" : "s"} · ≈ $${spend.estimated_usd.toFixed(2)}`;
@@ -488,6 +556,82 @@ function PapersTab({ examCell }: { examCell: boolean }) {
 
   return (
     <div>
+      {!scan.assessmentId && (
+        <div style={{ marginBottom: 18 }}>
+          <div
+            className={`pm-dropzone ${dragOver ? "pm-dropzone--over" : ""}`}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={onDropPaper}
+            onClick={() => intakeInput.current?.click()}
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") intakeInput.current?.click(); }}
+            aria-label="Upload question paper"
+          >
+            <input
+              ref={intakeInput} type="file" hidden multiple accept=".pdf,image/*"
+              onChange={(e) => { void startIntake(Array.from(e.target.files ?? [])); e.target.value = ""; }}
+            />
+            <Upload size={34} />
+            <div className="pm-dropzone__title">Upload question paper</div>
+            <div className="pm-dropzone__sub">
+              Drop a PDF or photographs of the paper here, or click to choose. We read the subject, test name and marks from it and make the exam card for you.
+            </div>
+          </div>
+
+          {intake.phase === "reading" && (
+            <p className="small muted" style={{ marginTop: 10 }}><Loader2 size={13} className="spin" /> Reading the heading of {intake.names}…</p>
+          )}
+          {intake.phase === "building" && <p className="small muted" style={{ marginTop: 10 }}><Loader2 size={13} className="spin" /> {intake.message}</p>}
+          {intake.phase === "done" && <div className="evidence" style={{ marginTop: 10 }}><div>{intake.message}</div></div>}
+          {intake.phase === "failed" && (
+            <div className="evidence evidence--gold" style={{ marginTop: 10 }}><AlertTriangle size={16} /><div>{intake.message}</div></div>
+          )}
+          {intake.phase === "review" && (
+            <div className="card" style={{ marginTop: 12 }}>
+              <div className="card__body" style={{ display: "grid", gap: 12 }}>
+                <p className="small" style={{ margin: 0 }}>
+                  {intake.subject
+                    ? "We could not find the test's name on the paper. Check these details, then make the card."
+                    : "We could not tell the subject from the paper. Pick it, then make the card."}
+                </p>
+                <div style={{ display: "grid", gap: 12, gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))" }}>
+                  <div className="field">
+                    <label htmlFor="in-subject">Subject</label>
+                    <select id="in-subject" className="select" value={intake.subject}
+                      onChange={(e) => setIntake({ ...intake, subject: e.target.value })}>
+                      <option value="">Choose the subject</option>
+                      {pickableSubjects.map((sj) => (<option key={sj.subject_code} value={sj.subject_code}>{sj.label}</option>))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor="in-title">Test name</label>
+                    <input id="in-title" className="input" value={intake.title} placeholder="Unit Test 1"
+                      onChange={(e) => setIntake({ ...intake, title: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor="in-date">Date</label>
+                    <input id="in-date" className="input" type="date" value={intake.date}
+                      onChange={(e) => setIntake({ ...intake, date: e.target.value })} />
+                  </div>
+                </div>
+              </div>
+              <div className="card__foot" style={{ justifyContent: "space-between" }}>
+                <button type="button" className="btn btn--ghost btn--sm" onClick={() => setIntake({ phase: "idle" })}>Cancel</button>
+                <button
+                  type="button" className="btn btn--primary"
+                  disabled={!intake.subject || intake.title.trim().length < 2 || !intake.date}
+                  onClick={() => void buildFromPaper(intake.files, intake.subject, intake.title.trim(), intake.date, intake.detected)}
+                >
+                  Make exam card and read paper
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="pm-toolbar">
         <button
           className="btn btn--primary"
