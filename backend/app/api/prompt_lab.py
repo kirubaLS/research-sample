@@ -48,22 +48,31 @@ MAX_ROWS = 80
 
 RULES = """You are an expert CBSE Class X Social Science curriculum mapper. You map exam questions to the exact chapter and topic of the NCERT 2026-27 textbooks where the tested concept is TAUGHT.
 
-## Mapping rules
-1. Map to the section where the concept is explained, not where a keyword merely appears. Example: a question on the Rowlatt Act maps to the Rowlatt Act section, not to a later section that mentions it.
-2. Choose the MOST SPECIFIC topic that teaches the concept: a sub-section over its parent section when one fits. Use the parent only when the question spans the whole section.
-3. MCQ: map the concept tested by the correct answer and the stem. Ignore distractor options.
-4. Assertion-Reason: map the topic of the Assertion as primary. If the Reason comes from a different section, list that section as secondary.
-5. Case-based: use the passage context. A sub-question is mapped on its own words and its passage.
-6. Map questions: map each item to the chapter where that place is taught. Items can come from different chapters.
-7. Chronology or multi-concept questions: give one primary topic and list all other topics as secondary.
-8. Alternative (OR) questions: map the first alternative; list the other's topic as secondary.
-9. Use ONLY the IDs in the TAXONOMY below. Never invent, merge or renumber an ID. The words in square brackets after a topic are hints about what it contains.
-10. A "section" letter on a question fixes its subject: A = History (H chapters), B = Geography (G), C = Political Science (P), D = Economics (E). When one is given, choose only from that subject.
-11. syllabus_status: "in_syllabus" when a topic teaches the concept; "partial" when it is only touched on indirectly; "not_found" when no topic does (then topic_id and chapter_id may be null).
-12. confidence: "high" when one topic clearly teaches it, "medium" when two could, "low" when you are guessing.
-13. reason: one short sentence naming the concept and why that topic teaches it.
+## The taxonomy
+The TAXONOMY below is a CLOSED list. Its numbers (H5.3, G4.2.1.1, ...) are this list's own and differ from the numbers printed in the textbook, so never use a number from your memory of the book. Copy every ID exactly as it is written below. Never invent, merge, shorten or renumber an ID. Nothing deeper than the listed levels exists: H5.3 and H5.3.3 are valid IDs, a further level under H5.3.3 is not.
+The words in square brackets after a topic are key terms from that section's own text: names, dates and words a question about it is likely to contain. Use them to tell neighbouring topics apart.
 
-Answer for every row, by its "row" number, with chapter_id, topic_id, secondary_topic_ids, confidence, syllabus_status and reason."""
+## Mapping rules
+1. Map to the section where the concept is explained, not where a keyword merely appears. A question on the Rowlatt Act maps to the section that teaches the Rowlatt Act, not to a later section that only mentions it.
+2. Choose the MOST SPECIFIC section that teaches the concept. A parent ID (for example H5.1) covers the text before its first sub-topic (H5.1.1). If the answer is in that opening text, or the question spans the whole section, use the parent; otherwise use the sub-topic.
+3. Before you choose, compare the neighbours: the sibling and parent topics and any similar topic in another chapter. Put the IDs you compared in "considered". Distinguish close topics by what the question actually asks, for example "What is globalisation?" (E4.4) is a different topic from "Factors that have enabled globalisation" (E4.5).
+4. MCQ: map the concept tested by the correct answer and the stem. Ignore distractor options.
+5. Assertion-Reason: map the topic of the Assertion as primary. Add the Reason's topic as secondary only if it comes from a different section and a student must know it to answer.
+6. Case-based: use the passage. A sub-question is mapped on its own words and its passage.
+7. Match-the-following and "correctly matched pair" questions: a student must know every pair to eliminate the wrong options, so tag every item in the columns: the first as primary, the rest as secondary. This applies only to matching questions; in an ordinary MCQ ignore the distractors.
+8. Map-based questions: map each item to the chapter where that place is taught. Items can come from different chapters.
+9. Chronology or multi-concept questions: one primary topic and the other topics as secondary.
+10. Secondary topics: add one only if a student must use content from that section to answer. A shared keyword is not enough. When a question depends on a resource, crop, mineral or place that is taught in another chapter, add that topic as a secondary.
+11. Alternatives (OR): if (a) and (b) arrive as separate rows, map each row on its own and do not add the other alternative's topic. If both alternatives are inside one row, map the first as primary and list the other's topic as secondary.
+12. A "section" letter on a question fixes its subject: A = History (H chapters), B = Geography (G), C = Political Science (P), D = Economics (E). When one is given, choose only from that subject.
+13. syllabus_status describes the TEXTBOOK, not you: "in_syllabus" when a topic teaches the concept; "partial" when the textbook only touches it in passing; "not_found" when no topic covers it (then topic_id and chapter_id may be null).
+14. confidence describes YOUR certainty only: "high" when one topic clearly teaches it, "medium" when two could, "low" when you are guessing.
+15. reason: one short sentence naming the concept and why that topic teaches it.
+
+## Before you answer
+For every row check: each ID exists exactly in the TAXONOMY; chapter_id is the chapter that topic_id belongs to; no secondary equals the primary; every secondary passes rule 10; the subject matches the section letter.
+
+Answer for every row, by its "row" number, with considered, chapter_id, topic_id, secondary_topic_ids, confidence, syllabus_status and reason."""
 
 
 class QuestionIn(BaseModel):
@@ -80,6 +89,9 @@ class RunIn(BaseModel):
 
 class _Row(BaseModel):
     row: int
+    #: the topic IDs compared before choosing (neighbours, parent, look-alikes): written first so
+    #: the comparison happens before the answer
+    considered: list[str] = Field(default_factory=list, max_length=8)
     chapter_id: str | None = None
     topic_id: str | None = None
     secondary_topic_ids: list[str] = Field(default_factory=list)
@@ -108,12 +120,12 @@ def _system(subjects: set[str] | None = None) -> list[dict]:
     ]
 
 
-def map_batch(client, model: str, rows: list[dict], settings) -> tuple[list[_Row], dict]:
+def map_batch(client, model: str, rows: list[dict], settings, subjects: set[str] | None = None) -> tuple[list[_Row], dict]:
     """One call for up to BATCH rows ``{"row", "text", "section"?}``. Returns the answers and
     the usage."""
     extra = {"output_config": cfg} if (cfg := output_config(model, settings.model_effort)) else {}
     response = client.messages.parse(
-        model=model, max_tokens=8000, system=_system(),
+        model=model, max_tokens=8000, system=_system(subjects),
         messages=[{"role": "user", "content": "Map the following questions.\n\n<questions>\n"
                    + json.dumps(rows, ensure_ascii=False) + "\n</questions>"}],
         output_format=_Out, **extra,
@@ -127,13 +139,76 @@ def map_batch(client, model: str, rows: list[dict], settings) -> tuple[list[_Row
     }
 
 
+def invalid_ids(taxonomy: pt.Taxonomy, row: _Row) -> list[str]:
+    """Every ID in an answer that is not in the taxonomy."""
+    bad = []
+    if row.chapter_id and taxonomy.chapter(row.chapter_id) is None:
+        bad.append(row.chapter_id)
+    for tid in [row.topic_id, *row.secondary_topic_ids]:
+        if tid and taxonomy.topic(tid) is None:
+            bad.append(tid)
+    return bad
+
+
+def map_rows(client, model: str, rows: list[dict], settings, taxonomy: pt.Taxonomy | None = None):
+    """Map every row ``{"row", "text", "section"?}``: returns ``(answers by row, usage, calls, errors)``.
+
+    Two things a single batch call does not do. Rows are grouped by the subject their section
+    letter fixes, so each call shows only that subject's chapters (a History question never
+    pays for, or is tempted by, the Geography list). And an answer that uses an ID not in the
+    list is asked again, once, with the bad IDs named, rather than accepted or dropped."""
+    taxonomy = taxonomy or pt.build()
+    usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
+    answers: dict[int, _Row] = {}
+    errors: list[str] = []
+    calls = 0
+
+    def run(chunk: list[dict], subjects: set[str] | None, label: str) -> list[_Row]:
+        nonlocal calls
+        try:
+            mapped, u = map_batch(client, model, chunk, settings, subjects)
+        except Exception as exc:  # noqa: BLE001 -- one batch failing must not lose the others
+            errors.append(f"{label}: {type(exc).__name__}: {str(exc)[:200]}")
+            return []
+        calls += 1
+        for k in usage:
+            usage[k] += u[k]
+        return mapped
+
+    groups: dict[str | None, list[dict]] = {}
+    for r in rows:
+        groups.setdefault(pt.SECTION_SUBJECT.get((r.get("section") or "").strip().upper()), []).append(r)
+    by_row = {r["row"]: r for r in rows}
+    for subject, members in groups.items():
+        for start in range(0, len(members), BATCH):
+            chunk = members[start:start + BATCH]
+            label = f"rows {chunk[0]['row']}-{chunk[-1]['row']}"
+            for m in run(chunk, {subject} if subject else None, label):
+                answers.setdefault(m.row, m)
+    # one more try for every answer that used an ID the list does not have
+    again = [
+        {**by_row[r], "note": "Your previous answer used IDs that are not in the TAXONOMY: "
+         + ", ".join(invalid_ids(taxonomy, a)) + ". Choose again, copying IDs exactly from the TAXONOMY."}
+        for r, a in answers.items() if r in by_row and invalid_ids(taxonomy, a)
+    ]
+    for subject in {pt.SECTION_SUBJECT.get((r.get("section") or "").strip().upper()) for r in again}:
+        members = [r for r in again if pt.SECTION_SUBJECT.get((r.get("section") or "").strip().upper()) == subject]
+        for start in range(0, len(members), BATCH):
+            chunk = members[start:start + BATCH]
+            for m in run(chunk, {subject} if subject else None, f"retry rows {chunk[0]['row']}-{chunk[-1]['row']}"):
+                old = answers.get(m.row)
+                if old is None or len(invalid_ids(taxonomy, m)) < len(invalid_ids(taxonomy, old)):
+                    answers[m.row] = m
+    return answers, usage, calls, errors
+
+
 def resolve(taxonomy: pt.Taxonomy, row: _Row | None, section: str | None) -> dict:
     """An answer, checked against the taxonomy and translated to the real chapter and section.
 
     The model may only choose from the list, but it is checked anyway: an ID not in the list is
     reported as invalid and the row is flagged, never trusted."""
     if row is None:
-        return {"chapter": None, "topic": None, "secondary": [], "confidence": "low",
+        return {"chapter": None, "topic": None, "secondary": [], "considered": [], "confidence": "low",
                 "syllabus_status": "not_found", "reason": "the model gave no answer for this row",
                 "needs_review": True, "problems": ["no answer"]}
     problems: list[str] = []
@@ -171,6 +246,7 @@ def resolve(taxonomy: pt.Taxonomy, row: _Row | None, section: str | None) -> dic
             "major_number": pt.major_topic(chapter, topic),
             "major_title": _major_title(taxonomy, chapter, pt.major_topic(chapter, topic)),
         },
+        "considered": [tid for tid in row.considered if taxonomy.topic(tid) is not None][:8],
         "secondary": secondary, "confidence": row.confidence,
         "syllabus_status": row.syllabus_status, "reason": (row.reason or "")[:300],
         "needs_review": needs_review, "problems": problems,
@@ -273,27 +349,12 @@ def run(body: RunIn, request: Request) -> dict:
 
         model = settings.model_high_volume
         client = _client(settings)
-        answers: dict[int, _Row] = {}
-        usage = {"input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0, "cache_write_tokens": 0}
-        calls = 0
-        errors: list[str] = []
-        for start in range(0, len(questions), BATCH):
-            chunk = [
-                {"row": start + i, "text": q.text.strip(),
-                 **({"section": q.section.strip().upper()} if q.section and q.section.strip() else {})}
-                for i, q in enumerate(questions[start:start + BATCH])
-            ]
-            try:
-                mapped, u = map_batch(client, model, chunk, settings)
-            except Exception as exc:  # noqa: BLE001 -- one batch failing must not lose the others
-                errors.append(
-                    f"rows {start}-{start + len(chunk) - 1}: {type(exc).__name__}: {str(exc)[:200]}")
-                continue
-            calls += 1
-            for k in usage:
-                usage[k] += u[k]
-            for m in mapped:
-                answers.setdefault(m.row, m)
+        rows = [
+            {"row": i, "text": q.text.strip(),
+             **({"section": q.section.strip().upper()} if q.section and q.section.strip() else {})}
+            for i, q in enumerate(questions)
+        ]
+        answers, usage, calls, errors = map_rows(client, model, rows, settings, taxonomy)
 
         saved = _stored_for(db, taxonomy, [q.question_id for q in questions if q.question_id])
         results = []

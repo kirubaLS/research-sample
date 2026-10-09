@@ -230,3 +230,12 @@ def test_old_jobs_are_swept(client, operator):
     os.utime(d, (old, old))
     lab._sweep()
     assert not d.exists()
+
+
+def test_a_question_that_stops_on_a_stray_letter_is_flagged_as_cut_off():
+    from app.api.ocr_lab import _looks_cut_off
+
+    assert _looks_cut_off("Match the following: I. Tilak II. Gandhi III. Nehru IV. E")
+    assert _looks_cut_off("Choose the correct option: A. Hindi B.")
+    assert not _looks_cut_off("Why did Gandhiji oppose the Rowlatt Act?")
+    assert not _looks_cut_off("Name the movement started in 1930 (a) Dandi")
