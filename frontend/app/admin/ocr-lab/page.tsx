@@ -21,6 +21,7 @@ function money(n: number): string {
 export default function OcrLabPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [mapTopics, setMapTopics] = useState(true);
+  const [subject, setSubject] = useState<"X.SST" | "X.SCI">("X.SST");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<OcrLabState | null>(null);
@@ -62,7 +63,7 @@ export default function OcrLabPage() {
     setError(null);
     setJob(null);
     try {
-      const { job_id } = await api.ocrLabStart(key, files, mapTopics);
+      const { job_id } = await api.ocrLabStart(key, files, mapTopics, subject);
       watch(job_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "The upload failed.");
@@ -120,13 +121,24 @@ export default function OcrLabPage() {
                   ))}
                 </ul>
               )}
-              <span className="small muted">Social Science papers. Pages are read in the order chosen. Up to 30 pages.</span>
+              <span className="small muted">Pages are read in the order chosen. Up to 30 pages.</span>
+            </div>
+
+            <div className="field" style={{ maxWidth: 280 }}>
+              <label htmlFor="ocr-subject">Subject</label>
+              <select
+                id="ocr-subject" className="select" value={subject} disabled={running}
+                onChange={(e) => setSubject(e.target.value as "X.SST" | "X.SCI")}
+              >
+                <option value="X.SST">Social Science</option>
+                <option value="X.SCI">Science (Chemistry, Biology, Physics, Environment)</option>
+              </select>
             </div>
 
             <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
               <input type="checkbox" checked={mapTopics} disabled={running} onChange={(e) => setMapTopics(e.target.checked)} />
               <span>
-                Also map each question to chapter and topic <span className="muted">(Haiku, from the book&apos;s full topic list)</span>
+                Also map each question to chapter and topic <span className="muted">(Haiku reads the book&apos;s own text, and a stronger model rechecks doubtful answers)</span>
               </span>
             </label>
 

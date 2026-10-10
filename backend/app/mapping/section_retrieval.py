@@ -61,49 +61,23 @@ class Hit:
 
 
 class SectionIndex:
-    def __init__(self) -> None:
+    """BM25 over ``docs``: topic id -> (subject, the section's own text)."""
+
+    def __init__(self, docs: dict[str, tuple[str, str]]) -> None:
         self.text: dict[str, str] = {}
         self.subject: dict[str, str] = {}
         self._tf: dict[str, Counter] = {}
         self._len: dict[str, int] = {}
         self._df: Counter = Counter()
-        self._build()
-
-    def _build(self) -> None:
-        import json
-
-        taxonomy = pt.build()
-        for subject, prefix in pt.SUBJECTS:
-            data = json.loads((REFERENCE / UNIT_FILES[subject]).read_text(encoding="utf-8"))
-            for index, ch in enumerate(data, start=1):
-                chapter_id = f"{prefix}{index}"
-                units = ch.get("units", [])
-                extra: dict[str, list[str]] = {}
-                for u in units:
-                    number = str(u.get("number") or "")
-                    if u.get("kind") == "box" and "." in number:
-                        owner = extra.setdefault(number.rsplit(".", 1)[0], [])
-                        owner.extend(pt._strings(u.get("body") or []))
-                        owner.append(u.get("title") or "")
-                for u in units:
-                    number = u.get("number")
-                    if not number or u.get("kind") in pt._NOT_TOPICS:
-                        continue
-                    tid = f"{chapter_id}.{number}"
-                    if taxonomy.topic(tid) is None:
-                        continue
-                    title = pt._title(u.get("title") or "")
-                    parts = [title] * 3 + pt._strings(u.get("body") or []) + extra.get(str(number), [])
-                    parts += pt._strings(u.get("activities") or [])
-                    text = " ".join(pt._clean(p) for p in parts if p)
-                    self.text[tid] = text
-                    self.subject[tid] = subject
-                    tf = Counter(tokens(text))
-                    # adjacent word pairs: "print censorship", "hot springs" say more than either word
-                    toks = tokens(text)
-                    tf.update(f"{a}_{b}" for a, b in zip(toks, toks[1:], strict=False))
-                    self._tf[tid] = tf
-                    self._len[tid] = sum(tf.values())
+        for tid, (subject, text) in docs.items():
+            self.text[tid] = text
+            self.subject[tid] = subject
+            toks = tokens(text)
+            tf = Counter(toks)
+            # adjacent word pairs: "print censorship", "hot springs" say more than either word
+            tf.update(f"{a}_{b}" for a, b in zip(toks, toks[1:], strict=False))
+            self._tf[tid] = tf
+            self._len[tid] = sum(tf.values())
         for tf in self._tf.values():
             self._df.update(tf.keys())
         self._n = max(1, len(self._tf))
@@ -141,6 +115,47 @@ class SectionIndex:
         return " … ".join(best)[:limit]
 
 
+def social_docs() -> dict[str, tuple[str, str]]:
+    """Social Science: every section of the four books, by the taxonomy's own IDs."""
+    import json
+
+    taxonomy = pt.build()
+    docs: dict[str, tuple[str, str]] = {}
+    for subject, prefix in pt.SUBJECTS:
+        data = json.loads((REFERENCE / UNIT_FILES[subject]).read_text(encoding="utf-8"))
+        for index, ch in enumerate(data, start=1):
+            chapter_id = f"{prefix}{index}"
+            units = ch.get("units", [])
+            extra: dict[str, list[str]] = {}
+            for u in units:
+                number = str(u.get("number") or "")
+                if u.get("kind") == "box" and "." in number:
+                    owner = extra.setdefault(number.rsplit(".", 1)[0], [])
+                    owner.extend(pt._strings(u.get("body") or []))
+                    owner.append(u.get("title") or "")
+            for u in units:
+                number = u.get("number")
+                if not number or u.get("kind") in pt._NOT_TOPICS:
+                    continue
+                tid = f"{chapter_id}.{number}"
+                if taxonomy.topic(tid) is None:
+                    continue
+                title = pt._title(u.get("title") or "")
+                parts = [title] * 3 + pt._strings(u.get("body") or []) + extra.get(str(number), [])
+                parts += pt._strings(u.get("activities") or [])
+                docs[tid] = (subject, " ".join(pt._clean(p) for p in parts if p))
+    return docs
+
+
 @lru_cache(maxsize=1)
 def index() -> SectionIndex:
-    return SectionIndex()
+    """The Social Science books."""
+    return SectionIndex(social_docs())
+
+
+@lru_cache(maxsize=1)
+def science_index() -> SectionIndex:
+    """The Science book, by the Science topic list's IDs."""
+    from app.mapping import science_taxonomy
+
+    return SectionIndex(science_taxonomy.docs())

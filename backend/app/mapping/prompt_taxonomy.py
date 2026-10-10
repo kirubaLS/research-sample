@@ -229,7 +229,9 @@ def _candidates(unit: dict) -> Counter:
     return found
 
 
-def _derive_hints(units: list[dict]) -> dict[str, tuple[str, ...]]:
+def _derive_hints(
+    units: list[dict], *, word_min_tf: int = 3, word_max_df: int = 2,
+) -> dict[str, tuple[str, ...]]:
     """Section number -> the 4 to 8 most telling terms of that section's own text."""
     cands: dict[str, Counter] = {}
     for u in units:
@@ -259,7 +261,7 @@ def _derive_hints(units: list[dict]) -> dict[str, tuple[str, ...]]:
         for term, tf in c.items():
             is_year = term.isdigit()
             is_word = term.islower()
-            if is_word and (tf < 3 or len(term) < 6 or df[term] > 2):
+            if is_word and (tf < word_min_tf or len(term) < 6 or df[term] > word_max_df):
                 continue                    # a plain word must be frequent here and rare elsewhere
             idf = math.log(1 + n / df[term])
             weight = 0.6 if is_year else (0.7 if is_word else 1.0)

@@ -1,0 +1,191 @@
+# The Class X Science topic list the OCR mapper chooses from (chapter and section titles from
+# the school's "science topics" document). One line per topic: "ID | title", two spaces of
+# indent per level. A "# SUBJECT" line starts a subject. IDs are this list's own numbering and
+# do not follow the textbook's printed numbers.
+
+# CHEMISTRY
+C1 | Chemical Reactions and Equations
+  C1.1 | Chemical Equations
+  C1.2 | Writing a Chemical Equation
+  C1.3 | Balanced Chemical Equations
+  C1.4 | Types of Chemical Reactions
+    C1.4.1 | Combination Reaction
+    C1.4.2 | Decomposition Reaction
+    C1.4.3 | Displacement Reaction
+    C1.4.4 | Double Displacement Reaction
+  C1.5 | Oxidation and Reduction
+  C1.6 | Effects of Oxidation Reactions in Everyday Life
+    C1.6.1 | Corrosion
+    C1.6.2 | Rancidity
+
+C2 | Acids, Bases and Salts
+  C2.1 | Understanding the Chemical Properties of Acids and Bases
+  C2.2 | Acids and Bases in the Laboratory
+  C2.3 | How do Acids and Bases React with Metals?
+  C2.4 | How do Metal Carbonates and Metal Hydrogencarbonates React with Acids?
+  C2.5 | How do Acids and Bases React with each other?
+  C2.6 | Reaction of Metallic Oxides with Acids
+  C2.7 | Reaction of a Non-metallic Oxide with Base
+  C2.8 | What do all Acids and all Bases have in Common?
+  C2.9 | What Happens to an Acid or a Base in a Water Solution?
+  C2.10 | How Strong are Acid or Base Solutions?
+  C2.11 | Importance of pH in Everyday Life
+  C2.12 | More about Salts
+    C2.12.1 | Family of Salts
+    C2.12.2 | pH of Salts
+    C2.12.3 | Chemicals from Common Salt
+    C2.12.4 | Are the Crystals of Salts really Dry?
+
+C3 | Metals and Non-metals
+  C3.1 | Physical Properties
+    C3.1.1 | Metals
+    C3.1.2 | Non-metals
+  C3.2 | Chemical Properties of Metals
+    C3.2.1 | What happens when Metals are burnt in Air?
+    C3.2.2 | What happens when Metals react with Water?
+    C3.2.3 | What happens when Metals react with Acids?
+    C3.2.4 | How do Metals react with Solutions of other Metal Salts?
+    C3.2.5 | The Reactivity Series
+  C3.3 | How do Metals and Non-metals React?
+  C3.4 | Properties of Ionic Compounds
+  C3.5 | Occurrence of Metals
+  C3.6 | Extraction of Metals
+    C3.6.1 | Enrichment of Ores
+    C3.6.2 | Extracting Metals Low in the Activity Series
+    C3.6.3 | Extracting Metals in the Middle of the Activity Series
+    C3.6.4 | Extracting Metals towards the Top of the Activity Series
+    C3.6.5 | Refining of Metals
+  C3.7 | Corrosion
+  C3.8 | Prevention of Corrosion
+
+C4 | Carbon and its Compounds
+  C4.1 | Bonding in Carbon – The Covalent Bond
+  C4.2 | Versatile Nature of Carbon
+  C4.3 | Saturated and Unsaturated Carbon Compounds
+  C4.4 | Chains, Branches and Rings
+  C4.5 | Will you be my Friend?
+  C4.6 | Homologous Series
+  C4.7 | Nomenclature of Carbon Compounds
+  C4.8 | Chemical Properties of Carbon Compounds
+    C4.8.1 | Combustion
+    C4.8.2 | Oxidation
+    C4.8.3 | Addition Reaction
+    C4.8.4 | Substitution Reaction
+  C4.9 | Some Important Carbon Compounds – Ethanol
+    C4.9.1 | Properties of Ethanol
+    C4.9.2 | Properties of Ethanoic Acid
+  C4.10 | Soaps and Detergents
+
+# BIOLOGY
+B1 | Life Processes
+  B1.1 | What are Life Processes?
+  B1.2 | Nutrition
+    B1.2.1 | Autotrophic Nutrition
+    B1.2.2 | Heterotrophic Nutrition
+    B1.2.3 | How do Organisms obtain their Nutrition?
+    B1.2.4 | Nutrition in Human Beings
+  B1.3 | Respiration
+  B1.4 | Transportation
+    B1.4.1 | Transportation in Human Beings
+    B1.4.2 | Transportation in Plants
+  B1.5 | Excretion
+    B1.5.1 | Excretion in Human Beings
+    B1.5.2 | Excretion in Plants
+
+B2 | Control and Coordination
+  B2.1 | Animals – Nervous System
+    B2.1.1 | What happens in Reflex Actions?
+    B2.1.2 | Human Brain
+    B2.1.3 | How are these Tissues protected?
+    B2.1.4 | How does the Nervous Tissue cause Action?
+  B2.2 | Coordination in Plants
+    B2.2.1 | Immediate Response to Stimulus
+    B2.2.2 | Movement Due to Growth
+  B2.3 | Hormones in Animals
+
+B3 | How do Organisms Reproduce?
+  B3.1 | Do Organisms Create Exact Copies of Themselves?
+  B3.2 | The Importance of Variation
+  B3.3 | Modes of Reproduction Used by Single Organisms
+    B3.3.1 | Fission
+    B3.3.2 | Fragmentation
+    B3.3.3 | Regeneration
+    B3.3.4 | Budding
+    B3.3.5 | Vegetative Propagation
+    B3.3.6 | Spore Formation
+  B3.4 | Sexual Reproduction
+    B3.4.1 | Why the Sexual Mode of Reproduction?
+    B3.4.2 | Sexual Reproduction in Flowering Plants
+    B3.4.3 | Reproduction in Human Beings
+    B3.4.4 | Male Reproductive System
+    B3.4.5 | Female Reproductive System
+    B3.4.6 | What happens when the Egg is not Fertilised?
+    B3.4.7 | Reproductive Health
+
+B4 | Heredity
+  B4.1 | Accumulation of Variation During Reproduction
+  B4.2 | Heredity
+    B4.2.1 | Inherited Traits
+    B4.2.2 | Rules for the Inheritance of Traits – Mendel’s Contributions
+    B4.2.3 | How do these Traits get Expressed?
+    B4.2.4 | Sex Determination
+
+# PHYSICS
+P1 | Light – Reflection and Refraction
+  P1.1 | Reflection of Light
+  P1.2 | Spherical Mirrors
+  P1.3 | Image Formation by Spherical Mirrors
+  P1.4 | Representation of Images Formed by Spherical Mirrors Using Ray Diagrams
+  P1.5 | Sign Convention for Reflection by Spherical Mirrors
+  P1.6 | Mirror Formula and Magnification
+  P1.7 | Refraction of Light
+  P1.8 | Refraction through a Rectangular Glass Slab
+  P1.9 | The Refractive Index
+  P1.10 | Refraction by Spherical Lenses
+  P1.11 | Image Formation by Lenses
+  P1.12 | Image Formation in Lenses Using Ray Diagrams
+  P1.13 | Sign Convention for Spherical Lenses
+  P1.14 | Lens Formula and Magnification
+  P1.15 | Power of a Lens
+
+P2 | The Human Eye and the Colourful World
+  P2.1 | The Human Eye
+  P2.2 | Power of Accommodation
+  P2.3 | Defects of Vision and their Correction
+  P2.4 | Refraction of Light through a Prism
+  P2.5 | Dispersion of White Light by a Glass Prism
+  P2.6 | Atmospheric Refraction
+  P2.7 | Scattering of Light
+    P2.7.1 | Tyndall Effect
+    P2.7.2 | Why is the colour of the clear Sky Blue?
+
+P3 | Electricity
+  P3.1 | Electric Current and Circuit
+  P3.2 | Electric Potential and Potential Difference
+  P3.3 | Circuit Diagram
+  P3.4 | Ohm’s Law
+  P3.5 | Factors on Which the Resistance of a Conductor Depends
+  P3.6 | Resistance of a System of Resistors
+    P3.6.1 | Resistors in Series
+    P3.6.2 | Resistors in Parallel
+  P3.7 | Heating Effect of Electric Current
+    P3.7.1 | Practical Applications of Heating Effect of Electric Current
+  P3.8 | Electric Power
+
+P4 | Magnetic Effects of Electric Current
+  P4.1 | Magnetic Field and Field Lines
+  P4.2 | Magnetic Field Due to a Current-Carrying Conductor
+    P4.2.1 | Magnetic Field due to a Current through a Straight Conductor
+    P4.2.2 | Right-Hand Thumb Rule
+    P4.2.3 | Magnetic Field due to a Current through a Circular Loop
+    P4.2.4 | Magnetic Field due to a Current in a Solenoid
+  P4.3 | Force on a Current-Carrying Conductor in a Magnetic Field
+  P4.4 | Domestic Electric Circuits
+
+# ENVIRONMENT
+ENV1 | Our Environment
+  ENV1.1 | Eco-System — What are its Components?
+  ENV1.2 | Food Chains and Webs
+  ENV1.3 | How do Our Activities Affect the Environment?
+    ENV1.3.1 | Ozone Layer and How it is Getting Depleted
+    ENV1.3.2 | Managing the Garbage we Produce

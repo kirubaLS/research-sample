@@ -243,3 +243,29 @@ def test_a_question_that_stops_on_a_stray_letter_is_flagged_as_cut_off():
     assert _looks_cut_off("Choose the correct option: A. Hindi B.")
     assert not _looks_cut_off("Why did Gandhiji oppose the Rowlatt Act?")
     assert not _looks_cut_off("Name the movement started in 1930 (a) Dandi")
+
+
+def test_a_science_paper_is_mapped_against_the_science_list(client, operator, monkeypatch):
+    class Science:
+        def parse(self, **kw):
+            body = kw["messages"][0]["content"]
+            rows = json.loads(body.split("<questions>\n")[1].split("\n</questions>")[0])
+            assert "CBSE Class X Science" in kw["system"][0]["text"] and "C2.10" in kw["system"][1]["text"]
+            assert all("section" not in r for r in rows)
+            out = [pl._Row(row=r["row"], chapter_id="C2", topic_id="C2.10", confidence="high",
+                           syllabus_status="in_syllabus", reason="pH") for r in rows]
+            usage = SimpleNamespace(input_tokens=900, output_tokens=300, cache_read_input_tokens=0,
+                                    cache_creation_input_tokens=0)
+            return SimpleNamespace(parsed_output=pl._Out(mappings=out), usage=usage)
+
+    monkeypatch.setattr(pl, "_client", lambda settings: SimpleNamespace(messages=Science()))
+    before = _counts()
+    r = _upload(client, _text_pdf(), subject_code="X.SCI")
+    assert r.status_code == 202, r.text
+    job = client.get(f"/platform/ocr-lab/jobs/{r.json()['job_id']}", headers=HEAD).json()
+    assert job["status"] == "done", job
+    mapping = job["result"]["mapping"]
+    assert mapping["subject"] == "science"
+    first = next(iter(mapping["by_address"].values()))
+    assert first["chapter"]["title"] == "Acids, Bases and Salts" and first["topic"]["id"] == "C2.10"
+    assert _counts() == before
