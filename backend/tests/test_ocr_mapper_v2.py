@@ -225,3 +225,58 @@ def test_science_answers_resolve_against_the_science_list(v2):
 def test_the_profile_follows_the_subject_code(v2):
     assert v2.profile_for("X.SCI") is v2.SCIENCE and v2.profile_for("X.SCI.ANY") is v2.SCIENCE
     assert v2.profile_for("X.SST") is v2.SOCIAL and v2.profile_for(None) is v2.SOCIAL
+
+
+# ---------------------------------------------------------------------------- Mathematics
+
+MATH_CASES = [
+    ("Find the HCF and LCM of 96 and 404 by the prime factorisation method.", "M1.1"),
+    ("Prove that 3 + 2 root 5 is an irrational number.", "M1.2"),
+    ("If alpha and beta are the zeroes of the polynomial x^2 - 5x + 6, find alpha + beta and alpha beta.", "M2.2"),
+    ("Solve the following pair of linear equations by the elimination method: 3x + 4y = 10, 2x - 2y = 2.", "M3.2.2"),
+    ("Find the value of k for which the quadratic equation kx^2 - 6x + 1 = 0 has equal roots. Find the discriminant.", "M4.2"),
+    ("Which term of the AP 3, 8, 13, 18, ... is 78? Find the common difference.", "M5.1"),
+    ("Find the sum of the first 22 terms of the AP 8, 3, -2, ...", "M5.2"),
+    ("In triangle ABC, DE is parallel to BC and AD/DB = 3/5. Find AE/EC.", "M6.2"),
+    ("Find the coordinates of the point which divides the segment joining A(4, -3) and B(8, 5) in the ratio 3:1.", "M7.2"),
+    ("Prove that (sec A + tan A)(1 - sin A) = cos A.", "M8.3"),
+    ("From the top of a 7 m high building the angle of elevation of the top of a tower is 60. Find the height of the tower.", "M9.1"),
+    ("Prove that the lengths of tangents drawn from an external point to a circle are equal.", "M10.2"),
+    ("A bag contains 3 red and 5 blue balls. A ball is drawn at random. Find the probability that it is red.", "M14.1"),
+]
+
+
+def test_the_maths_list_is_the_schools_own_and_complete():
+    from app.mapping import math_taxonomy as mt
+
+    t = mt.build()
+    assert [c.id for c in t.chapters] == [f"M{i}" for i in range(1, 15)]
+    assert t.topic_count == 33
+    assert t.topic("M8.2.3").title == "Trigonometric Ratios of 0° and 90°"
+    assert t.topic("M3.2.1").depth == 2 and t.topic("M14.1").title == "Probability — A Theoretical Approach"
+    assert all(x.keywords for c in t.chapters for x in c.topics), "every topic carries key terms"
+
+
+def test_maths_searches_its_own_key_terms(sr):
+    ix = sr.math_index()
+    found = sum(want in [h.topic_id for h in ix.search(q, None, 5)] for q, want in MATH_CASES)
+    assert found >= len(MATH_CASES) - 1
+
+
+def test_a_maths_paper_uses_the_maths_prompt_and_ignores_the_section_letter(v2):
+    client = _Client("M2.2", "M2.2")
+    rows = [{"row": 0, "text": "If alpha and beta are the zeroes of x^2 - 5x + 6, find alpha + beta.", "section": "B"}]
+    answers, _usage, _calls, errors, _meta = v2.map_rows_v2(client, _settings(), rows, profile=v2.MATHS)
+    _model, sent, rules = client.calls[0]
+    assert "CBSE Class X Mathematics" in rules and "Social" not in rules and "Science" not in rules
+    assert "section" not in sent[0] and sent[0]["candidates"][0]["id"] == "M2.2"
+    assert errors == [] and answers[0].topic_id == "M2.2"
+
+
+def test_each_subject_keeps_its_own_prompt_and_list(v2):
+    names = {p.name: p for p in (v2.SOCIAL, v2.SCIENCE, v2.MATHS)}
+    assert set(names) == {"social", "science", "maths"}
+    assert len({p.rules for p in names.values()}) == 3 and len({p.verify for p in names.values()}) == 3
+    assert v2.profile_for("X.MATH") is v2.MATHS and v2.profile_for("X.SCI") is v2.SCIENCE
+    assert v2.profile_for("X.SST") is v2.SOCIAL and v2.profile_for("") is v2.SOCIAL
+    assert [c.id[0] for c in v2.MATHS.taxonomy().chapters] == ["M"] * 14

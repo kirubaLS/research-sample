@@ -1,0 +1,65 @@
+# The Class X Mathematics topic list the OCR mapper chooses from (chapter and section titles
+# from the school's list). One line per topic: "ID | title", two spaces of indent per level.
+# IDs are this list's own numbering and do not follow the textbook's printed numbers.
+
+# MATHEMATICS
+M1 | Real Numbers
+  M1.1 | The Fundamental Theorem of Arithmetic
+  M1.2 | Revisiting Irrational Numbers
+
+M2 | Polynomials
+  M2.1 | Geometrical Meaning of the Zeroes of a Polynomial
+  M2.2 | Relationship between Zeroes and Coefficients of a Polynomial
+
+M3 | Pair of Linear Equations in Two Variables
+  M3.1 | Graphical Method of Solution of a Pair of Linear Equations
+  M3.2 | Algebraic Methods of Solving a Pair of Linear Equations
+    M3.2.1 | Substitution Method
+    M3.2.2 | Elimination Method
+
+M4 | Quadratic Equations
+  M4.1 | Solution of a Quadratic Equation by Factorisation
+  M4.2 | Nature of Roots
+
+M5 | Arithmetic Progressions
+  M5.1 | nth Term of an AP
+  M5.2 | Sum of First n Terms of an AP
+
+M6 | Triangles
+  M6.1 | Similar Figures
+  M6.2 | Similarity of Triangles
+  M6.3 | Criteria for Similarity of Triangles
+
+M7 | Coordinate Geometry
+  M7.1 | Distance Formula
+  M7.2 | Section Formula
+
+M8 | Introduction to Trigonometry
+  M8.1 | Trigonometric Ratios
+  M8.2 | Trigonometric Ratios of Some Specific Angles
+    M8.2.1 | Trigonometric Ratios of 45°
+    M8.2.2 | Trigonometric Ratios of 30° and 60°
+    M8.2.3 | Trigonometric Ratios of 0° and 90°
+  M8.3 | Trigonometric Identities
+
+M9 | Some Applications of Trigonometry
+  M9.1 | Heights and Distances
+
+M10 | Circles
+  M10.1 | Tangent to a Circle
+  M10.2 | Number of Tangents from a Point on a Circle
+
+M11 | Areas Related to Circles
+  M11.1 | Areas of Sector and Segment of a Circle
+
+M12 | Surface Areas and Volumes
+  M12.1 | Surface Area of a Combination of Solids
+  M12.2 | Volume of a Combination of Solids
+
+M13 | Statistics
+  M13.1 | Mean of Grouped Data
+  M13.2 | Mode of Grouped Data
+  M13.3 | Median of Grouped Data
+
+M14 | Probability
+  M14.1 | Probability — A Theoretical Approach

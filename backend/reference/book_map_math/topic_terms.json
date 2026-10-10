@@ -1,0 +1,340 @@
+{
+  "_note": "Written for the OCR mapper, not copied from the textbook: key terms and the way exam questions on each topic are usually worded. Edit freely; the mapper reads this file. 'terms' are shown to the model after each topic, 'text' is what the question is searched against.",
+  "M1.1": {
+    "terms": [
+      "HCF",
+      "LCM",
+      "prime factorisation",
+      "composite number",
+      "product of primes",
+      "co-prime"
+    ],
+    "text": "Every composite number can be expressed as a product of primes and this factorisation is unique apart from the order. Finding the HCF and LCM of numbers by prime factorisation. HCF times LCM equals the product of two numbers. Whether a number such as 6 to the power n or 4 to the power n can end with the digit 0. Prime factors, composite numbers, co-prime numbers, find the HCF and LCM of 96 and 404. Euclid's division lemma and algorithm."
+  },
+  "M1.2": {
+    "terms": [
+      "irrational number",
+      "prove irrational",
+      "root 2",
+      "root 3",
+      "rational p/q",
+      "non-terminating non-repeating"
+    ],
+    "text": "Irrational numbers and proofs that the square root of 2, 3, 5 is irrational by contradiction. Rational number in the form p by q. The sum or difference of a rational and an irrational number is irrational, and so is the product. Decimal expansion that is non-terminating and non-repeating. Terminating decimal expansion of a rational number. Show that 3 plus 2 root 5 is irrational. Decimal expansion of rational numbers, terminating or recurring."
+  },
+  "M2.1": {
+    "terms": [
+      "zero of a polynomial",
+      "graph",
+      "parabola",
+      "x-axis",
+      "linear quadratic cubic",
+      "degree"
+    ],
+    "text": "The graph of a polynomial and its zeroes. The zeroes are the x-coordinates of the points where the graph cuts the x-axis. The graph of a linear polynomial is a straight line, of a quadratic polynomial a parabola opening upwards or downwards, of a cubic polynomial a curve. The number of zeroes from a graph, degree of a polynomial, find the zeroes of a polynomial, how many zeroes does the polynomial have, the graph of y equals p of x."
+  },
+  "M2.2": {
+    "terms": [
+      "sum of zeroes",
+      "product of zeroes",
+      "alpha beta",
+      "-b/a",
+      "c/a",
+      "coefficients"
+    ],
+    "text": "Relationship between the zeroes and the coefficients of a polynomial. For a quadratic polynomial ax squared plus bx plus c the sum of the zeroes is minus b by a and the product of the zeroes is c by a. Verify the relationship between zeroes and coefficients. Find a quadratic polynomial whose sum and product of zeroes are given. If alpha and beta are the zeroes of the polynomial find the value of alpha squared plus beta squared, 1 by alpha plus 1 by beta. Find the value of k if one zero is given or the sum of zeroes equals the product. Cubic polynomial zeroes."
+  },
+  "M3.1": {
+    "terms": [
+      "graphical method",
+      "intersecting lines",
+      "parallel lines",
+      "coincident lines",
+      "consistent",
+      "inconsistent"
+    ],
+    "text": "Graphical method of solution of a pair of linear equations in two variables. Draw the graphs of the two equations; the lines intersect at one point (unique solution, consistent), are parallel (no solution, inconsistent) or coincide (infinitely many solutions). Condition for a pair of linear equations to have a unique solution, no solution or infinitely many solutions in terms of a1 by a2, b1 by b2, c1 by c2. Represent the situation algebraically and graphically. Find the point of intersection, vertices of the triangle formed by the lines and the x-axis."
+  },
+  "M3.2": {
+    "terms": [
+      "algebraic methods",
+      "solve the pair of equations",
+      "word problem"
+    ],
+    "text": "Algebraic methods of solving a pair of linear equations. Solve the pair of linear equations. Word problems on two variables such as ages, fractions, digits of a number, cost of articles, speed of a boat in still water upstream and downstream, distance speed and time."
+  },
+  "M3.2.1": {
+    "terms": [
+      "substitution method",
+      "express x in terms of y",
+      "substitute"
+    ],
+    "text": "Substitution method: express one variable in terms of the other from one equation and substitute it in the other equation to get a linear equation in one variable. Solve by the substitution method."
+  },
+  "M3.2.2": {
+    "terms": [
+      "elimination method",
+      "multiply to equalise coefficients",
+      "add or subtract equations"
+    ],
+    "text": "Elimination method: multiply the equations so that the coefficients of one variable become equal, then add or subtract the equations to eliminate that variable. Solve by the elimination method. Equations that can be reduced to a pair of linear equations."
+  },
+  "M4.1": {
+    "terms": [
+      "factorisation",
+      "splitting the middle term",
+      "roots",
+      "ax^2+bx+c=0",
+      "quadratic equation"
+    ],
+    "text": "Solution of a quadratic equation by factorisation: write in standard form ax squared plus bx plus c equals 0, split the middle term, find the roots. Find the roots of the quadratic equation. Represent a situation as a quadratic equation: consecutive integers, product of two numbers, the area of a rectangle, speed and time of a train or a boat, age problems, a right triangle with sides in terms of x. Check whether the equation is quadratic."
+  },
+  "M4.2": {
+    "terms": [
+      "discriminant",
+      "b^2-4ac",
+      "real and equal roots",
+      "distinct real roots",
+      "no real roots",
+      "quadratic formula"
+    ],
+    "text": "Nature of roots of a quadratic equation using the discriminant b squared minus 4ac. If the discriminant is positive there are two distinct real roots, if zero two equal real roots, if negative no real roots. Find the value of k for which the equation has equal roots or real roots. The quadratic formula, completing the square, roots given by minus b plus or minus root of b squared minus 4ac over 2a. Find the nature of the roots without solving."
+  },
+  "M5.1": {
+    "terms": [
+      "first term a",
+      "common difference d",
+      "nth term",
+      "a + (n-1)d",
+      "which term",
+      "number of terms"
+    ],
+    "text": "nth term of an arithmetic progression: a sub n equals a plus n minus 1 times d. Find the common difference, find the 10th term of the AP, which term of the AP is a given number, is a number a term of the AP, number of terms in a finite AP, the last term l, the nth term from the end. Check whether a list of numbers forms an AP. Terms of an AP given two terms."
+  },
+  "M5.2": {
+    "terms": [
+      "sum of n terms",
+      "S_n",
+      "n/2[2a+(n-1)d]",
+      "first n natural numbers",
+      "last term"
+    ],
+    "text": "Sum of the first n terms of an AP: S n equals n by 2 times 2a plus n minus 1 times d, or n by 2 times first term plus last term. Find the sum of the first 20 terms, the sum of the first n natural numbers, the sum of odd numbers, how many terms must be taken for the sum to be a given value, sum of all two-digit numbers divisible by a number. Word problems on the sum of an AP: saving money, rows of seats, pipes stacked, prizes."
+  },
+  "M6.1": {
+    "terms": [
+      "similar figures",
+      "congruent",
+      "same shape",
+      "corresponding angles",
+      "scale factor"
+    ],
+    "text": "Similar figures have the same shape but not necessarily the same size. Two polygons of the same number of sides are similar if their corresponding angles are equal and their corresponding sides are in the same ratio (proportional). All circles are similar, all squares, all equilateral triangles are similar. Difference between similar and congruent figures."
+  },
+  "M6.2": {
+    "terms": [
+      "basic proportionality theorem",
+      "Thales theorem",
+      "DE parallel to BC",
+      "converse of BPT",
+      "divides the sides in the same ratio"
+    ],
+    "text": "Similarity of triangles. The basic proportionality theorem (Thales theorem): if a line is drawn parallel to one side of a triangle to intersect the other two sides in distinct points, it divides the two sides in the same ratio. The converse of the basic proportionality theorem. In triangle ABC, DE is parallel to BC, find AD or EC. The mid-point theorem, prove that a line is parallel using ratios of sides."
+  },
+  "M6.3": {
+    "terms": [
+      "AA similarity",
+      "SSS similarity",
+      "SAS similarity",
+      "prove similar",
+      "ratio of areas",
+      "corresponding sides proportional"
+    ],
+    "text": "Criteria for similarity of triangles: AA (angle angle angle) similarity, SSS (side side side) similarity, SAS (side angle side) similarity. Prove that the two triangles are similar. Perpendicular drawn from the vertex of the right angle to the hypotenuse. The ratio of the areas of two similar triangles is equal to the square of the ratio of their corresponding sides. Shadow of a pole and a tower, height of a building using similar triangles, a ladder, the Pythagoras theorem proved using similar triangles."
+  },
+  "M7.1": {
+    "terms": [
+      "distance formula",
+      "root of (x2-x1)^2+(y2-y1)^2",
+      "collinear",
+      "equidistant",
+      "vertices of a triangle",
+      "origin"
+    ],
+    "text": "Distance formula: the distance between the points (x1, y1) and (x2, y2) is the square root of (x2 minus x1) squared plus (y2 minus y1) squared. Distance of a point from the origin. Find the distance between two points, show that the points are collinear, find the point on the x-axis or y-axis equidistant from two points, find the value of x if the distance between two points is given. Show that the points are the vertices of an isosceles triangle, right triangle, square, rhombus or parallelogram. Radius of a circle through points."
+  },
+  "M7.2": {
+    "terms": [
+      "section formula",
+      "internal division",
+      "ratio m:n",
+      "mid-point",
+      "points of trisection",
+      "divides the line segment"
+    ],
+    "text": "Section formula: the coordinates of the point P dividing the line segment joining A(x1, y1) and B(x2, y2) internally in the ratio m1 to m2 are (m1 x2 plus m2 x1) by (m1 plus m2). The mid-point of a line segment. Find the coordinates of the point which divides the line segment in the ratio. In what ratio does a point or the x-axis or the y-axis divide the line segment. Points of trisection. Find the fourth vertex of a parallelogram using mid-points, the centre of a circle with a given diameter."
+  },
+  "M8.1": {
+    "terms": [
+      "sin cos tan",
+      "cosec sec cot",
+      "opposite adjacent hypotenuse",
+      "right-angled triangle",
+      "ratio of sides"
+    ],
+    "text": "Trigonometric ratios of an acute angle in a right-angled triangle: sine, cosine, tangent, cosecant, secant, cotangent as ratios of the sides opposite, adjacent and the hypotenuse. If sin A equals 3 by 5 find cos A and tan A. If tan A equals 4 by 3 find the other ratios. Find the value of the trigonometric ratio from the given ratio. Reciprocal relations. Right triangle with the right angle at B, find sin and cos."
+  },
+  "M8.2": {
+    "terms": [
+      "values of trigonometric ratios",
+      "0 30 45 60 90 degrees",
+      "table of values",
+      "evaluate the expression"
+    ],
+    "text": "Trigonometric ratios of some specific angles: 0, 30, 45, 60 and 90 degrees. The table of values. Evaluate the expression such as sin 30 plus cos 60, 2 tan squared 45 plus cos squared 30 minus sin squared 60. Find the value of x from an equation using the values of standard angles."
+  },
+  "M8.2.1": {
+    "terms": [
+      "45 degrees",
+      "sin 45 = 1/root 2",
+      "tan 45 = 1",
+      "isosceles right triangle"
+    ],
+    "text": "Trigonometric ratios of 45 degrees from an isosceles right-angled triangle: sin 45 equals cos 45 equals 1 by root 2, tan 45 equals 1."
+  },
+  "M8.2.2": {
+    "terms": [
+      "30 and 60 degrees",
+      "sin 30 = 1/2",
+      "cos 30 = root 3/2",
+      "tan 60 = root 3",
+      "equilateral triangle"
+    ],
+    "text": "Trigonometric ratios of 30 and 60 degrees from an equilateral triangle: sin 30 equals 1 by 2, cos 30 equals root 3 by 2, tan 30 equals 1 by root 3, sin 60, cos 60, tan 60 equals root 3."
+  },
+  "M8.2.3": {
+    "terms": [
+      "0 and 90 degrees",
+      "sin 0 = 0",
+      "cos 0 = 1",
+      "tan 90 not defined"
+    ],
+    "text": "Trigonometric ratios of 0 and 90 degrees: sin 0 equals 0, cos 0 equals 1, tan 0 equals 0, sin 90 equals 1, cos 90 equals 0, tan 90 and sec 90 are not defined."
+  },
+  "M8.3": {
+    "terms": [
+      "trigonometric identity",
+      "sin^2 + cos^2 = 1",
+      "1 + tan^2 = sec^2",
+      "1 + cot^2 = cosec^2",
+      "prove that",
+      "simplify"
+    ],
+    "text": "Trigonometric identities: sin squared theta plus cos squared theta equals 1, 1 plus tan squared theta equals sec squared theta, 1 plus cot squared theta equals cosec squared theta. Prove the identity, prove that (sec theta plus tan theta) is equal to, simplify the expression, express all the trigonometric ratios in terms of sec A or tan A, evaluate the expression using identities, complementary angles sin(90 minus A)."
+  },
+  "M9.1": {
+    "terms": [
+      "angle of elevation",
+      "angle of depression",
+      "line of sight",
+      "height of a tower",
+      "shadow",
+      "horizontal"
+    ],
+    "text": "Heights and distances: angle of elevation and angle of depression, line of sight, horizontal level. Find the height of a tower, a building, a tree, a pole, a kite or a flagpole, the distance of a ship or a car from the foot of a lighthouse or a bridge, the width of a river, the length of a shadow when the sun's elevation is given, a ladder leaning against a wall, a man observing the top of a building, the angle of elevation of the top of a tower from a point on the ground. Use of tan 30 and tan 60."
+  },
+  "M10.1": {
+    "terms": [
+      "tangent",
+      "point of contact",
+      "radius perpendicular to tangent",
+      "secant",
+      "touches the circle"
+    ],
+    "text": "Tangent to a circle: a line that touches the circle at exactly one point, the point of contact. The tangent at any point of a circle is perpendicular to the radius through the point of contact. A secant intersects the circle at two points. Prove that the tangent at any point is perpendicular to the radius. Tangents drawn at the ends of a diameter are parallel. Find the angle, find the length of the radius or the tangent using the right angle at the point of contact."
+  },
+  "M10.2": {
+    "terms": [
+      "two tangents from an external point",
+      "length of tangents equal",
+      "circumscribing",
+      "angle between the tangents",
+      "AB + CD = AD + BC"
+    ],
+    "text": "Number of tangents from a point on a circle: from an external point exactly two tangents can be drawn, from a point on the circle one, from a point inside the circle none. The lengths of the tangents drawn from an external point to a circle are equal. Prove that the tangents are equal in length. A quadrilateral circumscribing a circle: the sum of opposite sides is equal. Tangents PA and PB from a point P, find the angle APB, find the perimeter of a triangle circumscribing a circle, centre lies on the bisector of the angle between the tangents."
+  },
+  "M11.1": {
+    "terms": [
+      "sector",
+      "segment",
+      "arc length",
+      "area of sector",
+      "angle theta/360",
+      "minor segment"
+    ],
+    "text": "Areas of a sector and a segment of a circle. Area of a sector equals theta by 360 times pi r squared, length of an arc equals theta by 360 times 2 pi r. Area of a segment equals the area of the sector minus the area of the triangle. Minor and major sector, minor and major segment. Find the area swept by the minute hand of a clock or by a wiper, the area a horse tied to a rope can graze, the area of a design or a shaded region made of circles, the perimeter of a sector, quadrant of a circle."
+  },
+  "M12.1": {
+    "terms": [
+      "combination of solids",
+      "total surface area",
+      "curved surface area",
+      "cone surmounted on a hemisphere",
+      "cylinder with hemispherical ends",
+      "slant height"
+    ],
+    "text": "Surface area of a combination of solids: a solid formed by joining a cone and a hemisphere, a cylinder with hemispherical ends, a toy, a capsule, a tent made of a cylinder and a cone, a wooden article, a cylindrical vessel with a hemispherical depression. Find the total surface area, the curved surface area, the cost of painting or canvas, slant height, radius, height."
+  },
+  "M12.2": {
+    "terms": [
+      "volume of a combination of solids",
+      "melted and recast",
+      "sphere into cylinder",
+      "water displaced",
+      "number of spheres"
+    ],
+    "text": "Volume of a combination of solids: a cone, a hemisphere, a cylinder, a sphere put together. A solid metallic sphere or cylinder is melted and recast into another solid, find the number of spheres or bullets or coins formed, the volume of water displaced when a solid is immersed in a cylindrical vessel, a glass with a hemispherical bottom, a hemispherical bowl, water flowing through a pipe, how many cones can be filled, find the volume of the toy."
+  },
+  "M13.1": {
+    "terms": [
+      "mean of grouped data",
+      "class mark",
+      "direct method",
+      "assumed mean method",
+      "step deviation method",
+      "f_i x_i"
+    ],
+    "text": "Mean of grouped data: the class mark of each class interval, the direct method, the assumed mean method, the step-deviation method. Find the mean of the following frequency distribution, find the missing frequency when the mean is given, the mean of the marks, ages, weekly pocket money, daily wages, number of plants, heights of students given in a class interval table. sum of f i x i divided by sum of f i."
+  },
+  "M13.2": {
+    "terms": [
+      "mode of grouped data",
+      "modal class",
+      "l + (f1-f0)/(2f1-f0-f2) x h",
+      "class interval",
+      "highest frequency"
+    ],
+    "text": "Mode of grouped data: the modal class is the class with the highest frequency. Mode equals l plus f1 minus f0 over 2 f1 minus f0 minus f2 times h, where l is the lower limit of the modal class, h the class size, f1 the frequency of the modal class and f0 and f2 the frequencies before and after it. Find the mode of the following data, the modal age, the modal marks."
+  },
+  "M13.3": {
+    "terms": [
+      "median of grouped data",
+      "cumulative frequency",
+      "median class",
+      "l + (n/2 - cf)/f x h",
+      "less than type"
+    ],
+    "text": "Median of grouped data: the cumulative frequency, the median class is the class whose cumulative frequency is greater than n by 2. Median equals l plus n by 2 minus cf over f times h. Find the median of the data, the missing frequencies when the median is given, median age, median marks, the relationship between the mean, median and mode, three median equals mode plus two mean, less than and more than cumulative frequency tables."
+  },
+  "M14.1": {
+    "terms": [
+      "probability",
+      "equally likely outcomes",
+      "sample space",
+      "P(E) = favourable/total",
+      "random",
+      "pack of 52 cards"
+    ],
+    "text": "Probability, a theoretical approach: the probability of an event E equals the number of outcomes favourable to E divided by the total number of equally likely outcomes. The probability of an impossible event is 0, of a sure event 1, the probability of not E equals 1 minus P(E), complementary events. A coin tossed, a die thrown once or twice, a card drawn at random from a well shuffled pack of 52 cards, a bag containing red and blue balls, a ball drawn at random, a number selected from the first 20 numbers, find the probability that, sample space."
+  }
+}

@@ -34,16 +34,19 @@ def _key(title: str) -> str:
     return re.sub(r"[^a-z0-9]+", " ", (title or "").lower()).strip()
 
 
-def _parse() -> list[tuple[str, str, str, str]]:
-    """``(subject, chapter id, topic id, title)`` for every line; chapters have topic id == chapter id."""
+def parse_list(path, subjects: dict[str, str]) -> list[tuple[str, str, str, str]]:
+    """``(subject, chapter id, topic id, title)`` for every line of a topic-list file; a chapter's
+    own line has topic id == chapter id. ``subjects`` maps the file's "# HEADING" lines to codes."""
     out: list[tuple[str, str, str, str]] = []
     subject = ""
-    for raw in LIST_FILE.read_text(encoding="utf-8").splitlines():
+    for raw in path.read_text(encoding="utf-8").splitlines():
         line = raw.rstrip()
-        if not line or line.startswith("# ") and line[2:].strip() not in SUBJECTS:
+        if not line:
             continue
         if line.startswith("# "):
-            subject = SUBJECTS[line[2:].strip()]
+            heading = line[2:].strip()
+            if heading in subjects:
+                subject = subjects[heading]
             continue
         m = _LINE.match(line)
         if not m:
@@ -51,6 +54,10 @@ def _parse() -> list[tuple[str, str, str, str]]:
         tid = m.group("id")
         out.append((subject, tid.split(".")[0], tid, m.group("title")))
     return out
+
+
+def _parse() -> list[tuple[str, str, str, str]]:
+    return parse_list(LIST_FILE, SUBJECTS)
 
 
 def _units_by_chapter() -> list[dict]:
