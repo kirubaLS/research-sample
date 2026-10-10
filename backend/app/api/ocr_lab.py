@@ -43,13 +43,11 @@ from fastapi import (
 )
 
 from app.api.deps import require_platform_admin
-from app.api.prompt_lab import resolve
 from app.api.upload import pages_to_pdf
 from app.config import get_settings
 from app.extraction.paper import context_addresses, extract_paper
 from app.llm import estimate_usd
 from app.mapping import ocr_mapper_v2
-from app.mapping import prompt_taxonomy as pt
 from app.ratelimit import FixedWindowLimiter, client_key
 
 router = APIRouter(
@@ -218,7 +216,7 @@ def _run(job_id: str, text_extract, needs_vision: bool, subject_code: str, map_t
 
         if map_topics:
             _write(job_id, status="mapping", phase="mapping topics")
-            result["mapping"] = _map(questions, context, passage_of, settings)
+            result["mapping"] = _map(questions, context, passage_of, settings, subject_code)
             _write(job_id, result=result)
         _write(job_id, status="done", phase="done")
     except Exception as exc:  # noqa: BLE001 -- the job's state is the only place it can be seen
@@ -284,11 +282,12 @@ def _looks_cut_off(text: str) -> bool:
     )
 
 
-def _map(questions, context: set, passage_of: dict, settings) -> dict:
+def _map(questions, context: set, passage_of: dict, settings, subject_code: str = "X.SST") -> dict:
     """Map every real question (not a shared passage) with the prompt mapper."""
     from app.api import prompt_lab
 
-    taxonomy = pt.build()
+    profile = ocr_mapper_v2.profile_for(subject_code)
+    taxonomy = profile.taxonomy()
     model = settings.model_high_volume
     client = prompt_lab._client(settings)
     real = [q for q in questions if q.address not in context and not q.is_context]
@@ -307,9 +306,10 @@ def _map(questions, context: set, passage_of: dict, settings) -> dict:
     ]
     # the book's own text finds candidate sections, a cheap model chooses among them, and a strong
     # model rereads the doubtful answers (app.mapping.ocr_mapper_v2)
-    answers, usage_by_model, calls, errors, meta = ocr_mapper_v2.map_rows_v2(client, settings, rows, taxonomy)
+    answers, usage_by_model, calls, errors, meta = ocr_mapper_v2.map_rows_v2(
+        client, settings, rows, taxonomy, profile)
     results = {
-        q.address: resolve(taxonomy, answers.get(i), q.section) for i, q in enumerate(real)
+        q.address: profile.resolve(taxonomy, answers.get(i), q.section) for i, q in enumerate(real)
     }
     for i, q in enumerate(real):
         r = results[q.address]
@@ -336,7 +336,7 @@ def _map(questions, context: set, passage_of: dict, settings) -> dict:
                            cache_write_tokens=u["cache_write_tokens"]) for m, u in usage_by_model.items())
     mapped_n = sum(1 for r in results.values() if r["topic"])
     return {
-        "model": model, "second_reader_model": settings.model_high_stakes,
+        "subject": profile.name, "model": model, "second_reader_model": settings.model_high_stakes,
         "calls": calls, "errors": errors, "by_address": results,
         "summary": {
             "questions": len(real), "mapped": mapped_n,

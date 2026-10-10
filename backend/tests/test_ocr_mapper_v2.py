@@ -148,3 +148,80 @@ def test_only_a_bounded_number_of_rows_go_to_the_strong_model(monkeypatch, v2):
 
 def test_the_taxonomy_still_closes_the_list(pt):
     assert pt.build().topic("H5.4") is not None
+
+
+# ---------------------------------------------------------------------------- Science
+
+SCIENCE_CASES = [
+    ("State Ohm's law and write the relation between potential difference and current.", "P3.4"),
+    ("Why does silver chloride turn grey in sunlight? Name the type of reaction.", "C1.4.2"),
+    ("Why is the colour of the clear sky blue? Explain scattering of light.", "P2.7.2"),
+    ("What is the function of the alveoli in the lungs? Write about respiration.", "B1.3"),
+    ("Define a homologous series of carbon compounds with an example.", "C4.6"),
+    ("Mendel crossed tall and short pea plants. State the ratio in the F2 generation.", "B4.2.2"),
+    ("An object is placed at 30 cm from a concave mirror of focal length 15 cm. Use the mirror formula to find the image distance.", "P1.6"),
+    ("What is the effect of depletion of the ozone layer on the environment?", "ENV1.3.1"),
+    ("Explain the extraction of a metal low in the reactivity series, such as mercury from cinnabar.", "C3.6.2"),
+    ("Soaps and detergents: explain the cleansing action of soap with micelles.", "C4.10"),
+    ("Draw a ray diagram for image formation by a convex lens when the object is beyond 2F.", "P1.12"),
+    ("What is the pH of salts formed from strong acid and strong base?", "C2.12.2"),
+]
+
+
+def test_the_science_list_is_the_schools_own_and_complete():
+    from app.mapping import science_taxonomy as st
+
+    t = st.build()
+    assert [c.id for c in t.chapters] == ["C1", "C2", "C3", "C4", "B1", "B2", "B3", "B4", "P1", "P2", "P3", "P4", "ENV1"]
+    assert t.topic_count == 157
+    assert t.topic("C2.10").title == "How Strong are Acid or Base Solutions?"
+    assert t.topic("P3.6.1").title == "Resistors in Series" and t.topic("ENV1.3.2").title == "Managing the Garbage we Produce"
+    assert t.topic("C1.4.1").chapter_id == "C1" and t.topic("C1.4.1").depth == 2
+    assert all(x.keywords for c in t.chapters for x in c.topics), "every topic carries hints"
+
+
+def test_science_ids_are_not_mixed_up_with_social_sciences():
+    from app.mapping import prompt_taxonomy as pt
+    from app.mapping import science_taxonomy as st
+
+    assert pt.build().topic("P4.1").title.startswith("Why do we need political")
+    assert st.build().topic("P4.1").title == "Magnetic Field and Field Lines"
+
+
+def test_the_science_book_text_finds_the_section(sr):
+    ix = sr.science_index()
+    found = sum(want in [h.topic_id for h in ix.search(q, None, 5)] for q, want in SCIENCE_CASES)
+    assert found >= len(SCIENCE_CASES) - 2, f"{found} of {len(SCIENCE_CASES)} in the top five"
+
+
+def test_a_science_paper_uses_the_science_list_and_ignores_the_section_letter(v2):
+    from app.mapping import ocr_mapper_v2
+
+    client = _Client("P3.4", "P3.4")
+    rows = [{"row": 0, "text": "State Ohm's law and write the relation between potential difference and current.",
+             "section": "A"}]
+    answers, usage, calls, errors, meta = v2.map_rows_v2(
+        client, _settings(), rows, profile=ocr_mapper_v2.SCIENCE)
+    model, sent, rules = client.calls[0]
+    assert "CBSE Class X Science" in rules and "Social" not in rules
+    assert "section" not in sent[0], "a Science section letter is not a subject"
+    assert sent[0]["candidates"][0]["id"] == "P3.4"
+    taxonomy_text = ""
+    assert errors == [] and answers[0].topic_id == "P3.4" and taxonomy_text == ""
+
+
+def test_science_answers_resolve_against_the_science_list(v2):
+    from app.api import prompt_lab as pl
+
+    ok = pl._Row(row=0, chapter_id="C2", topic_id="C2.10", secondary_topic_ids=["C2.11", "NOPE"],
+                 confidence="high", syllabus_status="in_syllabus", reason="pH", considered=["C2.10", "ZZ9"])
+    r = v2.SCIENCE.resolve(v2.SCIENCE.taxonomy(), ok, "A")
+    assert r["topic"]["id"] == "C2.10" and r["chapter"]["title"] == "Acids, Bases and Salts"
+    assert r["topic"]["major_number"] == "10" and [s["id"] for s in r["secondary"]] == ["C2.11"]
+    assert "unknown secondary id NOPE" in r["problems"] and r["considered"] == ["C2.10"]
+    assert v2.SCIENCE.resolve(v2.SCIENCE.taxonomy(), None, None)["needs_review"] is True
+
+
+def test_the_profile_follows_the_subject_code(v2):
+    assert v2.profile_for("X.SCI") is v2.SCIENCE and v2.profile_for("X.SCI.ANY") is v2.SCIENCE
+    assert v2.profile_for("X.SST") is v2.SOCIAL and v2.profile_for(None) is v2.SOCIAL
