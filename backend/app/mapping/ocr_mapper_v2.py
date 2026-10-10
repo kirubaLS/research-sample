@@ -26,6 +26,7 @@ from dataclasses import dataclass
 
 from app.api import prompt_lab as pl
 from app.llm import output_config
+from app.mapping import math_taxonomy as mt
 from app.mapping import prompt_taxonomy as pt
 from app.mapping import science_taxonomy as st
 from app.mapping import section_retrieval as sr
@@ -90,9 +91,37 @@ For every row check: each ID exists exactly in the TAXONOMY; chapter_id is the c
 Answer for every row, by its "row" number, with considered, chapter_id, topic_id, secondary_topic_ids, confidence, syllabus_status and reason."""
 
 
-def _science_resolve(taxonomy: pt.Taxonomy, row, section=None) -> dict:
-    """An answer, checked against the Science list: unknown IDs reported, the topic's own chapter
-    used when the two disagree. (``prompt_lab.resolve`` is the Social Science version.)"""
+MATH_RULES = """You are an expert CBSE Class X Mathematics curriculum mapper. You map exam questions to the exact chapter and topic of the NCERT 2026-27 Mathematics textbook that teaches the method, theorem or formula the question needs.
+
+## The taxonomy
+The TAXONOMY below is a CLOSED list of the Mathematics chapters (M1 to M14) and their sections. Its numbers (M3.2.1, M8.2.3, ...) are this list's own and differ from the numbers printed in the textbook, so never use a number from your memory of the book. Copy every ID exactly as it is written below. Never invent, merge, shorten or renumber an ID. Nothing deeper than the listed levels exists.
+The words in square brackets after a topic are its key terms: formulas, results and the words an exam question on it uses. Use them to tell neighbouring topics apart.
+
+## Mapping rules
+1. Map to the topic whose method, theorem or formula the question needs to be solved, not to the setting of the story. A word problem about ages or a boat in a stream belongs where its equations are solved; a problem about a tower belongs to heights and distances.
+2. Choose the MOST SPECIFIC section that teaches it. A parent ID (for example M3.2) covers the text before its first sub-topic (M3.2.1). Use the parent when the question spans the section or does not name a method; use the sub-topic when the question names or clearly needs it (for example "by the substitution method").
+3. Before you choose, compare the neighbours and put the IDs you compared in "considered". Close pairs: zeroes of a polynomial from a graph (M2.1) versus the sum and product of zeroes (M2.2); solving a quadratic by factorisation (M4.1) versus the discriminant and the quadratic formula (M4.2); the nth term of an AP (M5.1) versus the sum of n terms (M5.2); the distance formula (M7.1) versus the section formula (M7.2); the basic proportionality theorem (M6.2) versus the similarity criteria (M6.3); tangent perpendicular to the radius (M10.1) versus equal tangents from an external point (M10.2); surface area of a combination of solids (M12.1) versus volume (M12.2).
+4. MCQ: map the concept tested by the correct answer and the stem. Ignore distractor options.
+5. Assertion-Reason: map the topic of the Assertion as primary. Add the Reason's topic as secondary only if it comes from a different section and a student must know it to answer.
+6. Proofs ("prove that", "show that"): map to the theorem or result being proved or used (for example M1.2 for proving a number irrational, M8.3 for proving a trigonometric identity, M10.2 for proving that tangents are equal).
+7. Case-study and source-based questions: use the passage. A sub-question is mapped on its own words and its passage.
+8. A question that combines two topics: one primary (the one the main step needs) and the other as secondary, only if a student must use it. A shared word is not enough.
+9. Alternatives (OR): if (a) and (b) arrive as separate rows, map each row on its own and do not add the other alternative's topic. If both are inside one row, map the first as primary and list the other's topic as secondary.
+10. The section letter of a Mathematics question (A, B, C, ...) only says the question type and its marks, never the chapter: ignore it.
+11. syllabus_status describes the TEXTBOOK, not you: "in_syllabus" when a topic teaches the method; "partial" when the textbook only touches it in passing; "not_found" when no topic covers it (then topic_id and chapter_id may be null).
+12. confidence describes YOUR certainty only: "high" when one topic clearly teaches it, "medium" when two could, "low" when you are guessing.
+13. reason: one short sentence naming the method or result and why that topic teaches it.
+
+## Before you answer
+For every row check: each ID exists exactly in the TAXONOMY; chapter_id is the chapter that topic_id belongs to; no secondary equals the primary; every secondary passes rule 8.
+
+Answer for every row, by its "row" number, with considered, chapter_id, topic_id, secondary_topic_ids, confidence, syllabus_status and reason."""
+
+
+def _list_resolve(taxonomy: pt.Taxonomy, row, section=None) -> dict:
+    """An answer, checked against a school-supplied list (Science, Mathematics): unknown IDs
+    reported, the topic's own chapter used when the two disagree. (``prompt_lab.resolve`` is the
+    Social Science version.)"""
     if row is None:
         return {"chapter": None, "topic": None, "secondary": [], "considered": [], "confidence": "low",
                 "syllabus_status": "not_found", "reason": "the model gave no answer for this row",
@@ -149,6 +178,8 @@ class Profile:
     #: a Social Science question's section letter fixes its subject; a Science one's does not
     subject_of_section: Callable[[str | None], str | None]
     resolve: Callable
+    #: True when the paper's section letter says only the question type, so it is not sent
+    ignore_section: bool = False
 
 
 SOCIAL = Profile(
@@ -160,12 +191,25 @@ SCIENCE = Profile(
     "science", st.build, sr.science_index, SCIENCE_RULES,
     verify_rules("Science", "Ignore a section letter: it names the question type, not the subject."),
     lambda section: None,
-    lambda taxonomy, row, section: _science_resolve(taxonomy, row, section),
+    lambda taxonomy, row, section: _list_resolve(taxonomy, row, section),
+    ignore_section=True,
+)
+MATHS = Profile(
+    "maths", mt.build, sr.math_index, MATH_RULES,
+    verify_rules("Mathematics", "Ignore a section letter: it names the question type, not the chapter."),
+    lambda section: None,
+    lambda taxonomy, row, section: _list_resolve(taxonomy, row, section),
+    ignore_section=True,
 )
 
 
 def profile_for(subject_code: str | None) -> Profile:
-    return SCIENCE if (subject_code or "").upper().startswith("X.SCI") else SOCIAL
+    code = (subject_code or "").upper()
+    if code.startswith("X.SCI"):
+        return SCIENCE
+    if code.startswith("X.MATH"):
+        return MATHS
+    return SOCIAL
 
 
 def _candidate(ix: sr.SectionIndex, taxonomy: pt.Taxonomy, hit: sr.Hit, full: bool = False) -> dict:
@@ -219,7 +263,7 @@ def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None
     # 1. find: the sections whose own text talks about each question
     hits = {r["row"]: ix.search(r["text"], subject_of[r["row"]], CANDIDATES) for r in rows}
     with_candidates = [
-        {**({k: v for k, v in r.items() if k != "section"} if profile is SCIENCE else r),
+        {**({k: v for k, v in r.items() if k != "section"} if profile.ignore_section else r),
          "candidates": [_candidate(ix, taxonomy, h) for h in hits[r["row"]]]} for r in rows]
     by_row = {r["row"]: r for r in with_candidates}
 

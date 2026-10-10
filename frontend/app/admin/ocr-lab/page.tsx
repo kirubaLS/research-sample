@@ -21,7 +21,7 @@ function money(n: number): string {
 export default function OcrLabPage() {
   const [files, setFiles] = useState<File[]>([]);
   const [mapTopics, setMapTopics] = useState(true);
-  const [subject, setSubject] = useState<"X.SST" | "X.SCI">("X.SST");
+  const [subject, setSubject] = useState<"X.SST" | "X.SCI" | "X.MATH">("X.SST");
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<OcrLabState | null>(null);
@@ -128,10 +128,11 @@ export default function OcrLabPage() {
               <label htmlFor="ocr-subject">Subject</label>
               <select
                 id="ocr-subject" className="select" value={subject} disabled={running}
-                onChange={(e) => setSubject(e.target.value as "X.SST" | "X.SCI")}
+                onChange={(e) => setSubject(e.target.value as "X.SST" | "X.SCI" | "X.MATH")}
               >
                 <option value="X.SST">Social Science</option>
                 <option value="X.SCI">Science (Chemistry, Biology, Physics, Environment)</option>
+                <option value="X.MATH">Mathematics</option>
               </select>
             </div>
 

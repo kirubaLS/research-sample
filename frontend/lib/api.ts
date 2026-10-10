@@ -1709,7 +1709,7 @@ export interface OcrLabResult {
   };
   questions: OcrLabQuestion[];
   mapping: {
-    /** "social" or "science": which book and topic list the questions were mapped against */
+    /** "social", "science" or "maths": which topic list the questions were mapped against */
     subject?: string;
     model: string;
     second_reader_model?: string;
@@ -2513,7 +2513,7 @@ export const api = {
 
   /** Read a paper (PDF or photographs) the way the teacher flow does, then map its questions.
    *  Returns the job to poll; nothing is stored. */
-  ocrLabStart: async (key: string, files: File[], mapTopics: boolean, subject: "X.SST" | "X.SCI" = "X.SST") => {
+  ocrLabStart: async (key: string, files: File[], mapTopics: boolean, subject: "X.SST" | "X.SCI" | "X.MATH" = "X.SST") => {
     const body = new FormData();
     files.forEach((f) => body.append("files", f));
     body.append("subject_code", subject);

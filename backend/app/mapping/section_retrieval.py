@@ -159,3 +159,11 @@ def science_index() -> SectionIndex:
     from app.mapping import science_taxonomy
 
     return SectionIndex(science_taxonomy.docs())
+
+
+@lru_cache(maxsize=1)
+def math_index() -> SectionIndex:
+    """Mathematics, by the Mathematics topic list's IDs (searched on its key terms and wording)."""
+    from app.mapping import math_taxonomy
+
+    return SectionIndex(math_taxonomy.docs())
