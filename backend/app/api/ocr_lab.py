@@ -48,6 +48,7 @@ from app.api.upload import pages_to_pdf
 from app.config import get_settings
 from app.extraction.paper import context_addresses, extract_paper
 from app.llm import estimate_usd
+from app.mapping import ocr_mapper_v2
 from app.mapping import prompt_taxonomy as pt
 from app.ratelimit import FixedWindowLimiter, client_key
 
@@ -304,20 +305,39 @@ def _map(questions, context: set, passage_of: dict, settings) -> dict:
          **({"section": q.section.strip().upper()} if q.section and q.section.strip() else {})}
         for i, q in enumerate(real)
     ]
-    answers, usage, calls, errors = prompt_lab.map_rows(client, model, rows, settings, taxonomy)
+    # the book's own text finds candidate sections, a cheap model chooses among them, and a strong
+    # model rereads the doubtful answers (app.mapping.ocr_mapper_v2)
+    answers, usage_by_model, calls, errors, meta = ocr_mapper_v2.map_rows_v2(client, settings, rows, taxonomy)
     results = {
         q.address: resolve(taxonomy, answers.get(i), q.section) for i, q in enumerate(real)
     }
+    for i, q in enumerate(real):
+        r = results[q.address]
+        m = meta.get(i, {})
+        r["book_check"] = {
+            "candidates": m.get("candidates", []), "supported_by_book": m.get("supported_by_book"),
+            "first_pass": m.get("first_pass"), "second_reader": bool(m.get("verified")),
+            "second_reader_changed": bool(m.get("changed")),
+        }
+        if m.get("changed") and m.get("second_reader_confidence") != "high":
+            r["problems"].append("the two readers disagreed and the second is not sure")
+            r["needs_review"] = True
+        elif m.get("candidates") and not m.get("supported_by_book") and not m.get("verified"):
+            r["problems"].append("the textbook text does not clearly point to this topic")
+            r["needs_review"] = True
     for q in real:
         if _looks_cut_off(q.stem_text or ""):
             r = results[q.address]
             r["problems"].append("the question text looks cut off; check the scan")
             r["needs_review"] = True
-    usd = estimate_usd(model, usage["input_tokens"], usage["output_tokens"], usage["cache_read_tokens"],
-                       cache_write_tokens=usage["cache_write_tokens"])
+    usage = {k: sum(u[k] for u in usage_by_model.values())
+             for k in ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens")}
+    usd = sum(estimate_usd(m, u["input_tokens"], u["output_tokens"], u["cache_read_tokens"],
+                           cache_write_tokens=u["cache_write_tokens"]) for m, u in usage_by_model.items())
     mapped_n = sum(1 for r in results.values() if r["topic"])
     return {
-        "model": model, "calls": calls, "errors": errors, "by_address": results,
+        "model": model, "second_reader_model": settings.model_high_stakes,
+        "calls": calls, "errors": errors, "by_address": results,
         "summary": {
             "questions": len(real), "mapped": mapped_n,
             "needs_review": sum(1 for r in results.values() if r["needs_review"]),

@@ -136,6 +136,10 @@ def test_a_text_paper_is_read_then_mapped_and_nothing_is_stored(client, operator
     first = next(iter(by.values()))
     assert first["topic"]["title"] == "The Rowlatt Act"
     assert result["mapping"]["model"] == "claude-haiku-4-5" and result["mapping"]["summary"]["questions"] == 2
+    # every answer says which book sections the textbook text pointed to, and whether a second reader looked
+    check = first["book_check"]
+    assert check["candidates"] and "second_reader" in check and "supported_by_book" in check
+    assert result["mapping"]["second_reader_model"]
     assert _counts() == before, "nothing may be written to the database"
 
 
