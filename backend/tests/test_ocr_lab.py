@@ -299,3 +299,33 @@ def test_a_maths_paper_is_mapped_against_the_maths_list(client, operator, monkey
     first = next(iter(mapping["by_address"].values()))
     assert first["chapter"]["title"] == "Arithmetic Progressions" and first["topic"]["id"] == "M5.1"
     assert _counts() == before
+
+
+def test_pasted_questions_are_split_and_mapped_without_a_paper(client, operator, monkeypatch):
+    class Stub:
+        def parse(self, **kw):
+            body = kw["messages"][0]["content"]
+            rows = json.loads(body.split("<questions>\n")[1].split("\n</questions>")[0])
+            out = [pl._Row(row=r["row"], chapter_id="C2", topic_id="C2.10", confidence="high",
+                           syllabus_status="in_syllabus", reason="pH") for r in rows]
+            usage = SimpleNamespace(input_tokens=900, output_tokens=300, cache_read_input_tokens=0,
+                                    cache_creation_input_tokens=0)
+            return SimpleNamespace(parsed_output=pl._Out(mappings=out), usage=usage)
+
+    monkeypatch.setattr(pl, "_client", lambda settings: SimpleNamespace(messages=Stub()))
+    before = _counts()
+    text = "1. What is the pH of pure water?\n(a) 7 (b) 1\n2. Define a base.\nQ3) Why is HCl a strong acid?"
+    r = client.post("/platform/ocr-lab/paste", json={"text": text, "subject_code": "X.SCI"}, headers=HEAD)
+    assert r.status_code == 202 and r.json()["questions"] == 3, r.text
+    job = client.get(f"/platform/ocr-lab/jobs/{r.json()['job_id']}", headers=HEAD).json()
+    assert job["status"] == "done" and job["route"] == "paste", job
+    assert [q["text"][:2] for q in job["result"]["questions"]] == ["1.", "2.", "Q3"]
+    assert job["result"]["mapping"]["summary"]["mapped"] == 3
+    assert client.post("/platform/ocr-lab/paste", json={"text": "  "}, headers=HEAD).status_code == 422
+    assert _counts() == before
+
+
+def test_pasted_text_splits_by_number_then_blank_line():
+    assert lab.split_pasted("1. A?\n(a) x\n2. B?") == ["1. A?\n(a) x", "2. B?"]
+    assert lab.split_pasted("What is A?\n\nDefine B.") == ["What is A?", "Define B."]
+    assert lab.split_pasted("Just one\nquestion") == ["Just one\nquestion"]

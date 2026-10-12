@@ -29,6 +29,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
+from types import SimpleNamespace
 
 from fastapi import (
     APIRouter,
@@ -41,6 +42,7 @@ from fastapi import (
     UploadFile,
     status,
 )
+from pydantic import BaseModel, Field
 
 from app.api.deps import require_platform_admin
 from app.api.upload import pages_to_pdf
@@ -164,6 +166,79 @@ async def start(
     background_tasks.add_task(_run, job_id, extract if not needs_vision else None, needs_vision,
                               subject_code, map_topics)
     return {"job_id": job_id, "route": "vision" if needs_vision else "text", "pages": extract.page_count}
+
+
+#: pasted questions per run, and characters per question: a map is paid per question
+MAX_PASTED = 100
+MAX_PASTED_CHARS = 4000
+_NUMBERED = re.compile(r"^\s*(?:Q(?:uestion)?\.?\s*)?\d{1,3}\s*[.)]\s+\S", re.IGNORECASE)
+
+
+def split_pasted(text: str) -> list[str]:
+    """The questions in pasted text: split at each numbered line ("1." / "Q2)"), else at blank
+    lines, else the whole text as one question."""
+    lines = (text or "").replace("\r\n", "\n").split("\n")
+    starts = [i for i, ln in enumerate(lines) if _NUMBERED.match(ln)]
+    if len(starts) >= 2:
+        bounds = starts + [len(lines)]
+        parts = ["\n".join(lines[a:b]) for a, b in zip(bounds, bounds[1:], strict=False)]
+        lead = "\n".join(lines[:starts[0]]).strip()
+        if lead:                                  # text before the first number belongs with it
+            parts[0] = lead + "\n" + parts[0]
+    else:
+        parts = re.split(r"\n\s*\n", "\n".join(lines))
+    return [p.strip() for p in parts if p.strip()]
+
+
+class PasteBody(BaseModel):
+    text: str = Field(min_length=1, max_length=200_000)
+    subject_code: str = "X.SST"
+
+
+@router.post("/paste", status_code=status.HTTP_202_ACCEPTED)
+def paste(body: PasteBody, request: Request, background_tasks: BackgroundTasks) -> dict:
+    """Map questions that were typed or pasted instead of read from a paper: the same mapping
+    step and result as an upload, without the reading."""
+    settings = get_settings()
+    if not settings.anthropic_api_key:
+        raise HTTPException(status.HTTP_409_CONFLICT, "no YAADHUM_ANTHROPIC_API_KEY: mapping needs it")
+    texts = split_pasted(body.text)
+    if not texts:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "no question found in the pasted text")
+    if len(texts) > MAX_PASTED:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"{len(texts)} questions; at most {MAX_PASTED} per run")
+    _limiter.check(client_key(request))
+    _sweep()
+    job_id = uuid.uuid4().hex
+    _write(job_id, status="mapping", created=time.time(), pages=0, route="paste", phase="mapping topics",
+           done=0, total=len(texts))
+    background_tasks.add_task(_run_paste, job_id, texts, body.subject_code)
+    return {"job_id": job_id, "questions": len(texts)}
+
+
+def _run_paste(job_id: str, texts: list[str], subject_code: str) -> None:
+    """The background job for pasted questions. Never raises: a failure is written to the state."""
+    try:
+        questions = [
+            SimpleNamespace(
+                address=f"P:{i + 1}", section="", question_no=str(i + 1), sub_part=None, choice_alt=None,
+                max_marks=None, stem_text=t[:MAX_PASTED_CHARS], logical_page=1, is_context=False,
+                attempt_required=None)
+            for i, t in enumerate(texts)
+        ]
+        result = {
+            "ocr": {"route": "paste", "model": None, "estimated_usd": 0.0, "cascade": None},
+            "checks": {"declared_total": None, "read_total": 0, "total_matches": None, "declared_count": None,
+                       "read_count": len(questions), "declared_sections": {}, "section_titles": {},
+                       "problems": []},
+            "questions": [_row(q) for q in questions], "mapping": None,
+        }
+        _write(job_id, result=result)
+        result["mapping"] = _map(questions, set(), {}, get_settings(), subject_code)
+        _write(job_id, result=result, status="done", phase="done")
+    except Exception as exc:  # noqa: BLE001 -- the job's state is the only place it can be seen
+        _write(job_id, status="failed", error=f"{type(exc).__name__}: {str(exc)[:400]}")
 
 
 @router.get("/jobs/{job_id}")

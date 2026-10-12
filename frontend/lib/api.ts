@@ -1690,7 +1690,7 @@ export interface OcrLabQuestion {
 
 export interface OcrLabResult {
   ocr: {
-    route: "text" | "vision";
+    route: "text" | "vision" | "paste";
     model: string | null;
     pages?: number;
     estimated_usd: number;
@@ -1724,7 +1724,7 @@ export interface OcrLabResult {
 export interface OcrLabState {
   job_id: string;
   status: "queued" | "reading" | "mapping" | "done" | "failed";
-  route: "text" | "vision";
+  route: "text" | "vision" | "paste";
   pages: number;
   phase: string;
   done: number;
@@ -2531,6 +2531,13 @@ export const api = {
     if (!res.ok) throw new ApiError(res.status, await res.text());
     return (await res.json()) as { job_id: string; route: "text" | "vision"; pages: number };
   },
+
+  /** Map pasted questions (no paper to read): one or many, split by number or blank line. */
+  ocrLabPaste: (key: string, text: string, subject: "X.SST" | "X.SCI" | "X.MATH" = "X.SST") =>
+    operator<{ job_id: string; questions: number }>("/platform/ocr-lab/paste", key, {
+      method: "POST",
+      body: JSON.stringify({ text, subject_code: subject }),
+    }),
 
   ocrLabPoll: (key: string, jobId: string) =>
     operator<OcrLabState>(`/platform/ocr-lab/jobs/${jobId}`, key),
