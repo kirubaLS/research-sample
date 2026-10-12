@@ -250,7 +250,8 @@ def test_a_science_paper_is_mapped_against_the_science_list(client, operator, mo
         def parse(self, **kw):
             body = kw["messages"][0]["content"]
             rows = json.loads(body.split("<questions>\n")[1].split("\n</questions>")[0])
-            assert "CBSE Class X Science" in kw["system"][0]["text"] and "C2.10" in kw["system"][1]["text"]
+            assert "CBSE Class X Science" in kw["system"][0]["text"] and "C2.10 |" in kw["system"][0]["text"]
+            assert len(kw["system"]) == 1
             assert all("section" not in r for r in rows)
             out = [pl._Row(row=r["row"], chapter_id="C2", topic_id="C2.10", confidence="high",
                            syllabus_status="in_syllabus", reason="pH") for r in rows]

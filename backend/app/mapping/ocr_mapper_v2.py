@@ -20,9 +20,13 @@ of them.
 from __future__ import annotations
 
 import json
+import re
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
+
+from pydantic import BaseModel, Field
 
 from app.api import prompt_lab as pl
 from app.llm import output_config
@@ -62,33 +66,55 @@ Answer every row by its "row" number with considered, chapter_id, topic_id, seco
 
 VERIFY_RULES = verify_rules("Social Science", "A section letter fixes the subject.")
 
-SCIENCE_RULES = """You are an expert CBSE Class X Science curriculum mapper. You map exam questions to the exact chapter and topic of the NCERT 2026-27 Science textbook where the tested concept is TAUGHT.
+SCIENCE_PROMPT = st.prompt_text()
 
-## The taxonomy
-The TAXONOMY below is a CLOSED list of the Chemistry (C), Biology (B), Physics (P) and Environment (ENV) chapters. Its numbers (C2.10, P3.6.1, ...) are this list's own and differ from the numbers printed in the textbook, so never use a number from your memory of the book. Copy every ID exactly as it is written below. Never invent, merge, shorten or renumber an ID. Nothing deeper than the listed levels exists.
-The words in square brackets after a topic are key terms from that section's own text. Use them to tell neighbouring topics apart.
 
-## Mapping rules
-1. Map to the section where the concept is explained, not where a keyword merely appears.
-2. Choose the MOST SPECIFIC section that teaches the concept. A parent ID (for example C1.4) covers the text before its first sub-topic (C1.4.1). If the answer is in that opening text, or the question spans the whole section, use the parent; otherwise use the sub-topic.
-3. Before you choose, compare the neighbours: sibling and parent topics and similar topics in other chapters. Put the IDs you compared in "considered". Some concepts are taught in two chapters, for example corrosion (C1.6.1 and C3.7) and the reaction of acids with metals (C2.3 and C3.2.3). Choose the one whose framing matches the question, and add the other as a secondary only if the question needs both.
-4. MCQ: map the concept tested by the correct answer and the stem. Ignore distractor options.
-5. Assertion-Reason: map the topic of the Assertion as primary. Add the Reason's topic as secondary only if it comes from a different section and a student must know it to answer.
-6. Numerical problems: map the concept or formula the working uses (the mirror formula, Ohm's law, the lens formula), not the setting of the story.
-7. Diagram and ray-diagram questions: map the topic that teaches that diagram or construction. Chemical-equation questions: balancing is C1.3, naming a type of reaction is C1.4.x, writing an equation for a particular reaction goes to the topic about that reaction.
-8. Practical and experiment-based questions: map the concept the experiment demonstrates.
-9. Case-based and source-based questions: use the passage. A sub-question is mapped on its own words and its passage.
-10. Secondary topics: add one only if a student must use content from that section to answer. A shared keyword is not enough.
-11. Alternatives (OR): if (a) and (b) arrive as separate rows, map each row on its own and do not add the other alternative's topic. If both are inside one row, map the first as primary and list the other's topic as secondary.
-12. The section letter of a Science question (A, B, C, ...) only says the question type, never the subject: ignore it and choose the chapter from the question itself.
-13. syllabus_status describes the TEXTBOOK, not you: "in_syllabus" when a topic teaches the concept; "partial" when the textbook only touches it in passing; "not_found" when no topic covers it (then topic_id and chapter_id may be null).
-14. confidence describes YOUR certainty only: "high" when one topic clearly teaches it, "medium" when two could, "low" when you are guessing.
-15. reason: one short sentence naming the concept and why that topic teaches it.
+class _ScienceRow(BaseModel):
+    """One Science answer, fields in the order the Science prompt asks for them."""
 
-## Before you answer
-For every row check: each ID exists exactly in the TAXONOMY; chapter_id is the chapter that topic_id belongs to; no secondary equals the primary; every secondary passes rule 10.
+    row: int
+    question_kind: Literal["mcq", "mcq_matching", "assertion_reason", "numerical", "diagram", "equation",
+                           "short_answer", "long_answer", "case_subpart", "stem"] = "short_answer"
+    tested_concept: str = ""
+    considered: list[str] = Field(default_factory=list, max_length=8)
+    chapter_id: str | None = None
+    topic_id: str | None = None
+    secondary_topic_ids: list[str] = Field(default_factory=list)
+    evidence_quote: str = ""
+    evidence_source: Literal["candidate", "key_terms", "none"] = "none"
+    candidate_miss: bool = False
+    confidence: Literal["high", "medium", "low"]
+    syllabus_status: Literal["in_syllabus", "partial", "not_found"]
+    out_of_book_note: str = ""
+    needs_review: bool = False
+    reason: str = ""
 
-Answer for every row, by its "row" number, with considered, chapter_id, topic_id, secondary_topic_ids, confidence, syllabus_status and reason."""
+
+class _ScienceOut(BaseModel):
+    mappings: list[_ScienceRow]
+
+
+def _norm(text: str) -> str:
+    return " ".join(re.findall(r"[a-z0-9]+", (text or "").lower()))
+
+
+def _science_resolve(taxonomy: pt.Taxonomy, row, section=None) -> dict:
+    """``_list_resolve`` plus the Science prompt's extra fields. An evidence quote that is not in
+    the chosen section's text or key terms is a problem: the model must quote, not recall."""
+    out = _list_resolve(taxonomy, row, section)
+    if row is None:
+        return out
+    for k in ("question_kind", "tested_concept", "evidence_quote", "evidence_source", "candidate_miss",
+              "out_of_book_note"):
+        out[k] = getattr(row, k, None)
+    quote = _norm(getattr(row, "evidence_quote", ""))
+    if quote and out["topic"] is not None and getattr(row, "evidence_source", "none") != "none":
+        if quote not in _norm(sr.science_index().text.get(out["topic"]["id"], "")):
+            out["problems"].append("the evidence quote is not in the chosen section's text or key terms")
+            out["needs_review"] = True
+    if getattr(row, "needs_review", False):
+        out["needs_review"] = True
+    return out
 
 
 def _list_resolve(taxonomy: pt.Taxonomy, row, section=None) -> dict:
@@ -155,6 +181,9 @@ class Profile:
     ignore_section: bool = False
     #: the prompt already carries the topic list and the candidate-section rules (Mathematics)
     self_contained: bool = False
+    #: the structured answer the model fills, and the name its question text goes under
+    output: type = pl._Out
+    question_key: str = "text"
 
 
 SOCIAL = Profile(
@@ -163,11 +192,16 @@ SOCIAL = Profile(
     lambda taxonomy, row, section: pl.resolve(taxonomy, row, section),
 )
 SCIENCE = Profile(
-    "science", st.build, sr.science_index, SCIENCE_RULES,
-    verify_rules("Science", "Ignore a section letter: it names the question type, not the subject."),
+    "science", st.build, sr.science_index, SCIENCE_PROMPT,
+    verify_rules("Science", "Ignore a section letter: it names the question type, not the subject.")
+    + "\n\n# The prompt the first reader followed\nApply the same taxonomy, mapping rules and decision rules.\n\n"
+    + SCIENCE_PROMPT,
     lambda section: None,
-    lambda taxonomy, row, section: _list_resolve(taxonomy, row, section),
+    lambda taxonomy, row, section: _science_resolve(taxonomy, row, section),
     ignore_section=True,
+    self_contained=True,
+    output=_ScienceOut,
+    question_key="question",
 )
 MATH_PROMPT = mt.prompt_text()
 MATHS = Profile(
@@ -199,7 +233,7 @@ def _candidate(ix: sr.SectionIndex, taxonomy: pt.Taxonomy, hit: sr.Hit, full: bo
 
 
 def _call(client, model: str, system_rules: str, taxonomy: pt.Taxonomy, subjects: set[str] | None,
-          rows: list[dict], settings, self_contained: bool = False):
+          rows: list[dict], settings, self_contained: bool = False, output=pl._Out):
     extra = {"output_config": cfg} if (cfg := output_config(model, settings.model_effort)) else {}
     if self_contained:
         # the prompt carries its own topic list: one cached block, sent as written
@@ -214,7 +248,7 @@ def _call(client, model: str, system_rules: str, taxonomy: pt.Taxonomy, subjects
         model=model, max_tokens=8000, system=system,
         messages=[{"role": "user", "content": "Map the following questions.\n\n<questions>\n"
                    + json.dumps(rows, ensure_ascii=False) + "\n</questions>"}],
-        output_format=pl._Out, **extra,
+        output_format=output, **extra,
     )
     usage = getattr(response, "usage", None)
     return response.parsed_output.mappings, {
@@ -246,14 +280,16 @@ def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None
     # 1. find: the sections whose own text talks about each question
     hits = {r["row"]: ix.search(r["text"], subject_of[r["row"]], CANDIDATES) for r in rows}
     with_candidates = [
-        {**({k: v for k, v in r.items() if k != "section"} if profile.ignore_section else r),
+        {**{("question" if k == "text" and profile.question_key == "question" else k): v
+            for k, v in r.items() if not (k == "section" and profile.ignore_section)},
          "candidates": [_candidate(ix, taxonomy, h) for h in hits[r["row"]]]} for r in rows]
     by_row = {r["row"]: r for r in with_candidates}
+    text_of = {r["row"]: r["text"] for r in rows}
 
     def run(model, rules, chunk, subjects, label):
         nonlocal calls
         try:
-            mapped, u = _call(client, model, rules, taxonomy, subjects, chunk, settings, profile.self_contained)
+            mapped, u = _call(client, model, rules, taxonomy, subjects, chunk, settings, profile.self_contained, profile.output)
         except Exception as exc:  # noqa: BLE001 -- one batch failing must not lose the others
             errors.append(f"{label}: {type(exc).__name__}: {str(exc)[:200]}")
             return []
@@ -264,7 +300,7 @@ def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None
 
     # 2. choose
     first_pass_rules = profile.rules if profile.self_contained else profile.rules + CANDIDATE_RULES
-    answers: dict[int, pl._Row] = {}
+    answers: dict[int, object] = {}
     groups: dict[str | None, list[dict]] = {}
     for r in with_candidates:
         groups.setdefault(subject_of[r["row"]], []).append(r)
@@ -318,7 +354,7 @@ def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None
                 a = answers[i]
                 cands = [_candidate(ix, taxonomy, h, full=True) for h in hits[i][:5]]
                 if a.topic_id and a.topic_id not in {c["id"] for c in cands}:
-                    qterms = set(sr.tokens(by_row[i]["text"]))
+                    qterms = set(sr.tokens(text_of[i]))
                     t = taxonomy.topic(a.topic_id)
                     cands.append({"id": a.topic_id, "title": t.title if t else "",
                                   "matches": ix.snippet(a.topic_id, qterms, 700)})
