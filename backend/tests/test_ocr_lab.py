@@ -276,7 +276,10 @@ def test_a_maths_paper_is_mapped_against_the_maths_list(client, operator, monkey
         def parse(self, **kw):
             body = kw["messages"][0]["content"]
             rows = json.loads(body.split("<questions>\n")[1].split("\n</questions>")[0])
-            assert "CBSE Class X Mathematics" in kw["system"][0]["text"] and "M5.1" in kw["system"][1]["text"]
+            # the Mathematics prompt carries its own topic list: one cached block, sent as written
+            assert len(kw["system"]) == 1 and kw["system"][0]["cache_control"] == {"type": "ephemeral"}
+            assert "CBSE Class X Mathematics" in kw["system"][0]["text"]
+            assert "M5.1 | nth Term of an AP [" in kw["system"][0]["text"]
             assert all("section" not in r for r in rows)
             out = [pl._Row(row=r["row"], chapter_id="M5", topic_id="M5.1", confidence="high",
                            syllabus_status="in_syllabus", reason="nth term") for r in rows]
