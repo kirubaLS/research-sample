@@ -20,6 +20,8 @@ function money(n: number): string {
 
 export default function OcrLabPage() {
   const [files, setFiles] = useState<File[]>([]);
+  const [mode, setMode] = useState<"upload" | "paste">("upload");
+  const [pasted, setPasted] = useState("");
   const [mapTopics, setMapTopics] = useState(true);
   const [subject, setSubject] = useState<"X.SST" | "X.SCI" | "X.MATH">("X.SST");
   const [starting, setStarting] = useState(false);
@@ -58,12 +60,16 @@ export default function OcrLabPage() {
 
   async function start() {
     const key = getPlatformKey();
-    if (!key || files.length === 0 || running) return;
+    const ready = mode === "paste" ? pasted.trim().length > 0 : files.length > 0;
+    if (!key || !ready || running) return;
     setStarting(true);
     setError(null);
     setJob(null);
     try {
-      const { job_id } = await api.ocrLabStart(key, files, mapTopics, subject);
+      const { job_id } =
+        mode === "paste"
+          ? await api.ocrLabPaste(key, pasted, subject)
+          : await api.ocrLabStart(key, files, mapTopics, subject);
       watch(job_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "The upload failed.");
@@ -102,7 +108,32 @@ export default function OcrLabPage() {
         </div>
         <div className="card">
           <div className="card__body" style={{ display: "grid", gap: 14 }}>
-            <div className="field field--wide">
+            <div style={{ display: "flex", gap: 8 }}>
+              <button type="button" className={`btn btn--sm${mode === "upload" ? " btn--blue" : ""}`} disabled={running} onClick={() => setMode("upload")}>
+                Upload a paper
+              </button>
+              <button type="button" className={`btn btn--sm${mode === "paste" ? " btn--blue" : ""}`} disabled={running} onClick={() => setMode("paste")}>
+                Paste questions
+              </button>
+            </div>
+
+            {mode === "paste" && (
+              <div className="field field--wide">
+                <label htmlFor="oc-paste">Questions, exactly as they appear on the paper</label>
+                <textarea
+                  id="oc-paste"
+                  className="input"
+                  rows={10}
+                  value={pasted}
+                  disabled={running}
+                  onChange={(e) => setPasted(e.target.value)}
+                  placeholder={"Paste one question, or many. Number each (1. 2. 3. or Q1) Q2)) or leave a blank line between them.\nInclude MCQ options and both statements of an Assertion-Reason question."}
+                />
+                <span className="small muted">Up to 100 questions. Nothing is read or stored; only the topic mapping runs.</span>
+              </div>
+            )}
+
+            <div className="field field--wide" hidden={mode === "paste"}>
               <label htmlFor="oc-files">PDF, or photographs of the pages in order</label>
               <input
                 id="oc-files"
@@ -136,7 +167,7 @@ export default function OcrLabPage() {
               </select>
             </div>
 
-            <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <label style={{ display: "flex", gap: 8, alignItems: "center" }} hidden={mode === "paste"}>
               <input type="checkbox" checked={mapTopics} disabled={running} onChange={(e) => setMapTopics(e.target.checked)} />
               <span>
                 Also map each question to chapter and topic <span className="muted">(Haiku reads the book&apos;s own text, and a stronger model rechecks doubtful answers)</span>
@@ -144,11 +175,16 @@ export default function OcrLabPage() {
             </label>
 
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <button type="button" className="btn btn--blue" disabled={files.length === 0 || running} onClick={() => void start()}>
+              <button type="button" className="btn btn--blue" disabled={(mode === "paste" ? pasted.trim().length === 0 : files.length === 0) || running} onClick={() => void start()}>
                 {running ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
-                {running ? "Working…" : "Read and map"}
+                {running ? "Working…" : mode === "paste" ? "Map questions" : "Read and map"}
               </button>
-              {files.length > 0 && !running && (
+              {mode === "paste" && pasted.length > 0 && !running && (
+                <button type="button" className="btn btn--sm" onClick={() => { setPasted(""); setJob(null); setError(null); }}>
+                  <X size={13} /> Clear
+                </button>
+              )}
+              {mode === "upload" && files.length > 0 && !running && (
                 <button
                   type="button"
                   className="btn btn--sm"
@@ -220,7 +256,9 @@ function ResultView({ result, finished }: { result: OcrLabResult; finished: bool
           What was read
         </h2>
         <span style={{ display: "inline-flex", gap: 8 }}>
-          <span className="tag">{ocr.route === "text" ? "Text layer (no OCR)" : `Vision OCR · ${ocr.model}`}</span>
+          <span className="tag">
+            {ocr.route === "paste" ? "Pasted text" : ocr.route === "text" ? "Text layer (no OCR)" : `Vision OCR · ${ocr.model}`}
+          </span>
           <span className="tag">
             {money(ocr.estimated_usd + (mapping?.spend.estimated_usd ?? 0))}
             {ocr.route === "vision" ? " (estimate)" : ""}
@@ -228,7 +266,7 @@ function ResultView({ result, finished }: { result: OcrLabResult; finished: bool
         </span>
       </div>
 
-      <div className="card">
+      {ocr.route !== "paste" && <div className="card">
         <div className="card__body" style={{ display: "grid", gap: 12 }}>
           <div className="grid grid--2">
             <Check
@@ -260,7 +298,7 @@ function ResultView({ result, finished }: { result: OcrLabResult; finished: bool
           ))}
           {ocr.estimate_note && <div className="small muted">OCR cost is {ocr.estimate_note}.</div>}
         </div>
-      </div>
+      </div>}
 
       {mapping && (
         <div className="grid grid--4" style={{ marginTop: 12 }}>
