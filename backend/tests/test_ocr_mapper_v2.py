@@ -255,6 +255,8 @@ def test_the_maths_list_is_the_schools_own_and_complete():
     assert t.topic("M8.2.3").title == "Trigonometric Ratios of 0° and 90°"
     assert t.topic("M3.2.1").depth == 2 and t.topic("M14.1").title == "Probability — A Theoretical Approach"
     assert all(x.keywords for c in t.chapters for x in c.topics), "every topic carries key terms"
+    assert "α + β = −b/a" in t.topic("M2.2").keywords, "key terms come from the prompt, brackets inside them included"
+    assert any("k[x² − (sum)x + product]" in k for k in t.topic("M2.2").keywords)
 
 
 def test_maths_searches_its_own_key_terms(sr):
@@ -270,6 +272,7 @@ def test_a_maths_paper_uses_the_maths_prompt_and_ignores_the_section_letter(v2):
     _model, sent, rules = client.calls[0]
     assert "CBSE Class X Mathematics" in rules and "Social" not in rules and "Science" not in rules
     assert "section" not in sent[0] and sent[0]["candidates"][0]["id"] == "M2.2"
+    assert rules.count("## Candidate sections") == 1, "the prompt's own candidate rules, not a second copy"
     assert errors == [] and answers[0].topic_id == "M2.2"
 
 
@@ -280,3 +283,41 @@ def test_each_subject_keeps_its_own_prompt_and_list(v2):
     assert v2.profile_for("X.MATH") is v2.MATHS and v2.profile_for("X.SCI") is v2.SCIENCE
     assert v2.profile_for("X.SST") is v2.SOCIAL and v2.profile_for("") is v2.SOCIAL
     assert [c.id[0] for c in v2.MATHS.taxonomy().chapters] == ["M"] * 14
+
+
+def test_the_maths_prompt_is_used_exactly_as_written(v2):
+    from app.mapping import math_taxonomy as mt
+
+    text = mt.prompt_text()
+    assert v2.MATHS.rules == text
+    for part in ("## How to map a question", "## Decision rules for close neighbours",
+                 "## Content that is not in this textbook edition", "## Confidence, status and reason",
+                 "M6.3 vs M9.1", "KEY TERMS"):
+        assert part in text, part
+    assert text.count("\nTAXONOMY\n") == 1
+
+
+def test_the_maths_second_reader_follows_the_same_prompt(v2):
+    assert "second reader" in v2.MATHS.verify and v2.MATHS.rules in v2.MATHS.verify
+    assert "Decision rules for close neighbours" in v2.MATHS.verify
+
+
+def test_a_maths_call_is_one_cached_block_and_the_other_subjects_still_two(v2):
+    seen = {}
+
+    class Spy:
+        messages = None
+
+        def __init__(self):
+            self.messages = self
+
+        def parse(self, **kw):
+            seen.setdefault(len(seen), kw["system"])
+            raise RuntimeError("stop after the first call")
+
+    for profile in (v2.MATHS, v2.SCIENCE):
+        seen.clear()
+        v2.map_rows_v2(Spy(), _settings(), [{"row": 0, "text": "Find the HCF of 12 and 18."}], profile=profile)
+        system = seen[0]
+        assert len(system) == (1 if profile is v2.MATHS else 2)
+        assert system[-1]["cache_control"] == {"type": "ephemeral"}
