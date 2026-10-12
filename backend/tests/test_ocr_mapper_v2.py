@@ -177,7 +177,8 @@ def test_the_science_list_is_the_schools_own_and_complete():
     assert t.topic("C2.10").title == "How Strong are Acid or Base Solutions?"
     assert t.topic("P3.6.1").title == "Resistors in Series" and t.topic("ENV1.3.2").title == "Managing the Garbage we Produce"
     assert t.topic("C1.4.1").chapter_id == "C1" and t.topic("C1.4.1").depth == 2
-    assert all(x.keywords for c in t.chapters for x in c.topics), "every topic carries hints"
+    bare = [x.id for c in t.chapters for x in c.topics if not x.keywords]
+    assert bare == ["C1.6", "C3.2", "C4.8", "B1.4"], "only the prompt's four bare parent headings lack key terms"
 
 
 def test_science_ids_are_not_mixed_up_with_social_sciences():
@@ -205,9 +206,9 @@ def test_a_science_paper_uses_the_science_list_and_ignores_the_section_letter(v2
     model, sent, rules = client.calls[0]
     assert "CBSE Class X Science" in rules and "Social" not in rules
     assert "section" not in sent[0], "a Science section letter is not a subject"
+    assert "question" in sent[0] and "text" not in sent[0], "the Science prompt calls it `question`"
     assert sent[0]["candidates"][0]["id"] == "P3.4"
-    taxonomy_text = ""
-    assert errors == [] and answers[0].topic_id == "P3.4" and taxonomy_text == ""
+    assert errors == [] and answers[0].topic_id == "P3.4"
 
 
 def test_science_answers_resolve_against_the_science_list(v2):
@@ -302,7 +303,7 @@ def test_the_maths_second_reader_follows_the_same_prompt(v2):
     assert "Decision rules for close neighbours" in v2.MATHS.verify
 
 
-def test_a_maths_call_is_one_cached_block_and_the_other_subjects_still_two(v2):
+def test_a_maths_or_science_call_is_one_cached_block(v2):
     seen = {}
 
     class Spy:
@@ -319,5 +320,41 @@ def test_a_maths_call_is_one_cached_block_and_the_other_subjects_still_two(v2):
         seen.clear()
         v2.map_rows_v2(Spy(), _settings(), [{"row": 0, "text": "Find the HCF of 12 and 18."}], profile=profile)
         system = seen[0]
-        assert len(system) == (1 if profile is v2.MATHS else 2)
+        assert len(system) == 1
         assert system[-1]["cache_control"] == {"type": "ephemeral"}
+
+
+# ---------------------------------------------------------------------------- the Science prompt
+def test_the_science_prompt_is_used_exactly_as_written(v2):
+    from app.mapping import science_taxonomy as st
+
+    text = st.prompt_text()
+    assert v2.SCIENCE.rules == text and v2.SCIENCE.self_contained
+    for part in ("## 7. CONFUSABLE PAIRS", "## 8. NOT IN THIS BOOK", "## 9. TAXONOMY", "evidence_quote",
+                 "(PARENT of B3.4.4 to B3.4.7)"):
+        assert part in text, part
+    assert v2.SCIENCE.rules in v2.SCIENCE.verify and "second reader" in v2.SCIENCE.verify
+
+
+def test_the_science_key_terms_come_from_the_prompt(v2):
+    from app.mapping import science_taxonomy as st
+
+    t = st.build()
+    assert "[H]" in t.topic("C3.2.5").keywords, "a key term may hold brackets"
+    assert "Mg + O2 → MgO" in t.topic("C1.2").keywords
+    assert t.topic("B3.4.4").title == "Male Reproductive System", "the (inside X) note is not part of the title"
+    assert t.topic("B3.4.3").title == "Reproduction in Human Beings"
+
+
+def test_the_science_answer_carries_the_prompts_fields_and_checks_the_quote(v2):
+    row = v2._ScienceRow(row=0, question_kind="numerical", tested_concept="Ohm's law", chapter_id="P3",
+                         topic_id="P3.4", evidence_quote="Ohm's law", evidence_source="candidate",
+                         confidence="high", syllabus_status="in_syllabus", reason="x")
+    r = v2.SCIENCE.resolve(v2.SCIENCE.taxonomy(), row, None)
+    assert r["question_kind"] == "numerical" and r["tested_concept"] == "Ohm's law"
+    assert r["topic"]["id"] == "P3.4"
+    bad = row.model_copy(update={"evidence_quote": "zebra stripes migrate nightly"})
+    r = v2.SCIENCE.resolve(v2.SCIENCE.taxonomy(), bad, None)
+    assert r["needs_review"] and any("evidence quote" in p for p in r["problems"])
+    flagged = row.model_copy(update={"needs_review": True, "evidence_source": "none"})
+    assert v2.SCIENCE.resolve(v2.SCIENCE.taxonomy(), flagged, None)["needs_review"]
