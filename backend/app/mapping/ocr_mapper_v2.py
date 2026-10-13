@@ -23,7 +23,7 @@ import json
 import re
 from collections import defaultdict
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Literal
 
 from pydantic import BaseModel, Field
@@ -214,6 +214,18 @@ MATHS = Profile(
     ignore_section=True,
     self_contained=True,
 )
+
+
+def with_prompt(profile: Profile, prompt: str | None) -> Profile:
+    """The same profile reading ``prompt`` instead of its built-in one (a trial from the admin
+    console; nothing is saved). The topic list the answers are checked against does not change,
+    so a trial prompt must keep using the list's IDs."""
+    prompt = (prompt or "").strip()
+    if not prompt or prompt == profile.rules.strip():
+        return profile
+    # a self-contained profile's second-reader prompt carries the first reader's prompt verbatim
+    verify = profile.verify.replace(profile.rules, prompt) if profile.self_contained else profile.verify
+    return replace(profile, rules=prompt, verify=verify)
 
 
 def profile_for(subject_code: str | None) -> Profile:

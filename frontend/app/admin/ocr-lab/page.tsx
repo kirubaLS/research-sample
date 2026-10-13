@@ -24,6 +24,10 @@ export default function OcrLabPage() {
   const [pasted, setPasted] = useState("");
   const [mapTopics, setMapTopics] = useState(true);
   const [subject, setSubject] = useState<"X.SST" | "X.SCI" | "X.MATH">("X.SST");
+  // a trial prompt per subject, kept in this browser only; used for the next run when switched on
+  const [trial, setTrial] = useState<Record<string, string>>({});
+  const [useTrial, setUseTrial] = useState(false);
+  const [loadingPrompt, setLoadingPrompt] = useState(false);
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [job, setJob] = useState<OcrLabState | null>(null);
@@ -58,18 +62,54 @@ export default function OcrLabPage() {
     timer.current = setInterval(() => void tick(), 2000);
   }
 
+  useEffect(() => {
+    try {
+      const saved = window.localStorage.getItem("ocr-lab-trial-prompts");
+      if (saved) setTrial(JSON.parse(saved) as Record<string, string>);
+    } catch {
+      /* no saved drafts */
+    }
+  }, []);
+
+  function editTrial(text: string) {
+    const next = { ...trial, [subject]: text };
+    setTrial(next);
+    try {
+      window.localStorage.setItem("ocr-lab-trial-prompts", JSON.stringify(next));
+    } catch {
+      /* the draft stays in memory */
+    }
+  }
+
+  async function loadBuiltIn() {
+    const key = getPlatformKey();
+    if (!key) return;
+    setLoadingPrompt(true);
+    setError(null);
+    try {
+      editTrial((await api.ocrLabPrompt(key, subject)).prompt);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not load the prompt.");
+    } finally {
+      setLoadingPrompt(false);
+    }
+  }
+
+  const trialText = (trial[subject] ?? "").trim();
+  const sendPrompt = useTrial ? trialText : "";
+
   async function start() {
     const key = getPlatformKey();
     const ready = mode === "paste" ? pasted.trim().length > 0 : files.length > 0;
-    if (!key || !ready || running) return;
+    if (!key || !ready || running || (useTrial && !trialText)) return;
     setStarting(true);
     setError(null);
     setJob(null);
     try {
       const { job_id } =
         mode === "paste"
-          ? await api.ocrLabPaste(key, pasted, subject)
-          : await api.ocrLabStart(key, files, mapTopics, subject);
+          ? await api.ocrLabPaste(key, pasted, subject, sendPrompt)
+          : await api.ocrLabStart(key, files, mapTopics, subject, sendPrompt);
       watch(job_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "The upload failed.");
@@ -167,6 +207,41 @@ export default function OcrLabPage() {
               </select>
             </div>
 
+            <details className="field field--wide" open={useTrial}>
+              <summary className="small" style={{ cursor: "pointer" }}>
+                Prompt {useTrial ? <strong>· trial prompt on</strong> : <span className="muted">· built-in</span>}
+              </summary>
+              <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
+                <label style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input type="checkbox" checked={useTrial} disabled={running} onChange={(e) => setUseTrial(e.target.checked)} />
+                  <span>Use my edited prompt for the next run <span className="muted">(this subject only; nothing is saved on the server)</span></span>
+                </label>
+                <textarea
+                  className="input"
+                  rows={16}
+                  spellCheck={false}
+                  style={{ fontFamily: "ui-monospace, monospace", fontSize: 12 }}
+                  value={trial[subject] ?? ""}
+                  disabled={running}
+                  onChange={(e) => editTrial(e.target.value)}
+                  placeholder="Load the built-in prompt for this subject, then edit it."
+                />
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <button type="button" className="btn btn--sm" disabled={running || loadingPrompt} onClick={() => void loadBuiltIn()}>
+                    {loadingPrompt ? <Loader2 size={13} className="spin" /> : null} Load the built-in prompt
+                  </button>
+                  <button type="button" className="btn btn--sm" disabled={running || !trial[subject]} onClick={() => { editTrial(""); setUseTrial(false); }}>
+                    <X size={13} /> Discard my edits
+                  </button>
+                </div>
+                <span className="small muted">
+                  The topic list the answers are checked against is the built-in one, so keep using its IDs. To change the
+                  list itself, change the prompt file. Edits are kept in this browser, per subject.
+                </span>
+                {useTrial && !trialText && <span className="small" style={{ color: "var(--gold, #a8741a)" }}>Switched on, but the prompt is empty.</span>}
+              </div>
+            </details>
+
             <label style={{ display: "flex", gap: 8, alignItems: "center" }} hidden={mode === "paste"}>
               <input type="checkbox" checked={mapTopics} disabled={running} onChange={(e) => setMapTopics(e.target.checked)} />
               <span>
@@ -175,7 +250,7 @@ export default function OcrLabPage() {
             </label>
 
             <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-              <button type="button" className="btn btn--blue" disabled={(mode === "paste" ? pasted.trim().length === 0 : files.length === 0) || running} onClick={() => void start()}>
+              <button type="button" className="btn btn--blue" disabled={(mode === "paste" ? pasted.trim().length === 0 : files.length === 0) || running || (useTrial && !trialText)} onClick={() => void start()}>
                 {running ? <Loader2 size={14} className="spin" /> : <Play size={14} />}
                 {running ? "Working…" : mode === "paste" ? "Map questions" : "Read and map"}
               </button>
@@ -321,7 +396,10 @@ function ResultView({ result, finished }: { result: OcrLabResult; finished: bool
             <div className="kpi__text">
               <div className="kpi__label">Mapping cost</div>
               <div className="kpi__value" style={{ fontSize: 20 }}>{money(mapping.spend.estimated_usd)}</div>
-              <div className="kpi__sub">{mapping.model} · {mapping.calls} call{mapping.calls === 1 ? "" : "s"}</div>
+              <div className="kpi__sub">
+                {mapping.model} · {mapping.calls} call{mapping.calls === 1 ? "" : "s"}
+                {mapping.custom_prompt ? " · trial prompt" : ""}
+              </div>
             </div>
           </div>
           <div className="kpi">

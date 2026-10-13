@@ -329,3 +329,48 @@ def test_pasted_text_splits_by_number_then_blank_line():
     assert lab.split_pasted("1. A?\n(a) x\n2. B?") == ["1. A?\n(a) x", "2. B?"]
     assert lab.split_pasted("What is A?\n\nDefine B.") == ["What is A?", "Define B."]
     assert lab.split_pasted("Just one\nquestion") == ["Just one\nquestion"]
+
+
+def test_a_trial_prompt_replaces_the_built_in_one_for_one_run(client, operator, monkeypatch):
+    seen = []
+
+    class Stub:
+        def parse(self, **kw):
+            seen.append(kw["system"][0]["text"])
+            body = kw["messages"][0]["content"]
+            rows = json.loads(body.split("<questions>\n")[1].split("\n</questions>")[0])
+            out = [pl._Row(row=r["row"], chapter_id="C2", topic_id="C2.10", confidence="high",
+                           syllabus_status="in_syllabus", reason="pH") for r in rows]
+            usage = SimpleNamespace(input_tokens=1, output_tokens=1, cache_read_input_tokens=0,
+                                    cache_creation_input_tokens=0)
+            return SimpleNamespace(parsed_output=pl._Out(mappings=out), usage=usage)
+
+    monkeypatch.setattr(pl, "_client", lambda settings: SimpleNamespace(messages=Stub()))
+    built_in = client.get("/platform/ocr-lab/prompt", params={"subject_code": "X.SCI"}, headers=HEAD).json()
+    assert built_in["subject"] == "science" and "CBSE Class X Science" in built_in["prompt"]
+    assert "## 9. TAXONOMY" in built_in["prompt"] and built_in["self_contained"] is True
+
+    q = {"text": "What is the pH of water?", "subject_code": "X.SCI"}
+    r = client.post("/platform/ocr-lab/paste", headers=HEAD, json={**q, "prompt": "MY TRIAL PROMPT"})
+    job = client.get(f"/platform/ocr-lab/jobs/{r.json()['job_id']}", headers=HEAD).json()
+    assert job["status"] == "done" and job["result"]["mapping"]["custom_prompt"] is True
+    assert seen[0] == "MY TRIAL PROMPT"
+    # the built-in prompt is untouched afterwards, and an unchanged prompt is not "custom"
+    r = client.post("/platform/ocr-lab/paste", headers=HEAD, json={**q, "prompt": built_in["prompt"]})
+    job = client.get(f"/platform/ocr-lab/jobs/{r.json()['job_id']}", headers=HEAD).json()
+    assert job["result"]["mapping"]["custom_prompt"] is False
+    assert built_in["prompt"] in seen
+    too_long = "x" * (lab.MAX_PROMPT_CHARS + 1)
+    r = client.post("/platform/ocr-lab/paste", headers=HEAD, json={"text": "q", "prompt": too_long})
+    assert r.status_code == 422
+
+
+def test_a_trial_prompt_also_reaches_the_second_reader(operator):
+    from app.mapping import ocr_mapper_v2 as v2
+
+    trial = v2.with_prompt(v2.MATHS, "TRIAL RULES")
+    assert trial.rules == "TRIAL RULES" and "TRIAL RULES" in trial.verify
+    assert v2.MATHS.rules not in trial.verify
+    assert v2.with_prompt(v2.MATHS, "  ") is v2.MATHS and v2.with_prompt(v2.MATHS, v2.MATHS.rules) is v2.MATHS
+    social = v2.with_prompt(v2.SOCIAL, "TRIAL")
+    assert social.rules == "TRIAL" and social.verify == v2.SOCIAL.verify
