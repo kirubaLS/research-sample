@@ -131,8 +131,10 @@ async def start(
     files: list[UploadFile] = File(...),
     subject_code: str = Form("X.SST"),
     map_topics: bool = Form(True),
+    prompt: str = Form(""),
 ) -> dict:
     settings = get_settings()
+    _check_prompt(prompt)
     if map_topics and not settings.anthropic_api_key:
         raise HTTPException(status.HTTP_409_CONFLICT, "no YAADHUM_ANTHROPIC_API_KEY: mapping needs it")
     _limiter.check(client_key(request))
@@ -164,7 +166,7 @@ async def start(
     if needs_vision:
         (_job_dir(job_id) / "paper.pdf").write_bytes(raw)
     background_tasks.add_task(_run, job_id, extract if not needs_vision else None, needs_vision,
-                              subject_code, map_topics)
+                              subject_code, map_topics, prompt)
     return {"job_id": job_id, "route": "vision" if needs_vision else "text", "pages": extract.page_count}
 
 
@@ -190,9 +192,27 @@ def split_pasted(text: str) -> list[str]:
     return [p.strip() for p in parts if p.strip()]
 
 
+#: a trial prompt: the built-in Science one is about 96 KB
+MAX_PROMPT_CHARS = 200_000
+
+
+def _check_prompt(prompt: str) -> None:
+    if len(prompt or "") > MAX_PROMPT_CHARS:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY,
+                            f"the prompt is over {MAX_PROMPT_CHARS} characters")
+
+
+@router.get("/prompt")
+def built_in_prompt(subject_code: str = "X.SST") -> dict:
+    """The prompt the mapper uses for a subject, to start a trial prompt from."""
+    profile = ocr_mapper_v2.profile_for(subject_code)
+    return {"subject": profile.name, "prompt": profile.rules, "self_contained": profile.self_contained}
+
+
 class PasteBody(BaseModel):
     text: str = Field(min_length=1, max_length=200_000)
     subject_code: str = "X.SST"
+    prompt: str = Field("", max_length=MAX_PROMPT_CHARS)
 
 
 @router.post("/paste", status_code=status.HTTP_202_ACCEPTED)
@@ -202,6 +222,7 @@ def paste(body: PasteBody, request: Request, background_tasks: BackgroundTasks) 
     settings = get_settings()
     if not settings.anthropic_api_key:
         raise HTTPException(status.HTTP_409_CONFLICT, "no YAADHUM_ANTHROPIC_API_KEY: mapping needs it")
+    _check_prompt(body.prompt)
     texts = split_pasted(body.text)
     if not texts:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "no question found in the pasted text")
@@ -213,11 +234,11 @@ def paste(body: PasteBody, request: Request, background_tasks: BackgroundTasks) 
     job_id = uuid.uuid4().hex
     _write(job_id, status="mapping", created=time.time(), pages=0, route="paste", phase="mapping topics",
            done=0, total=len(texts))
-    background_tasks.add_task(_run_paste, job_id, texts, body.subject_code)
+    background_tasks.add_task(_run_paste, job_id, texts, body.subject_code, body.prompt)
     return {"job_id": job_id, "questions": len(texts)}
 
 
-def _run_paste(job_id: str, texts: list[str], subject_code: str) -> None:
+def _run_paste(job_id: str, texts: list[str], subject_code: str, prompt: str = "") -> None:
     """The background job for pasted questions. Never raises: a failure is written to the state."""
     try:
         questions = [
@@ -235,7 +256,7 @@ def _run_paste(job_id: str, texts: list[str], subject_code: str) -> None:
             "questions": [_row(q) for q in questions], "mapping": None,
         }
         _write(job_id, result=result)
-        result["mapping"] = _map(questions, set(), {}, get_settings(), subject_code)
+        result["mapping"] = _map(questions, set(), {}, get_settings(), subject_code, prompt)
         _write(job_id, result=result, status="done", phase="done")
     except Exception as exc:  # noqa: BLE001 -- the job's state is the only place it can be seen
         _write(job_id, status="failed", error=f"{type(exc).__name__}: {str(exc)[:400]}")
@@ -253,7 +274,8 @@ def poll(job_id: str) -> dict:
     return state
 
 
-def _run(job_id: str, text_extract, needs_vision: bool, subject_code: str, map_topics: bool) -> None:
+def _run(job_id: str, text_extract, needs_vision: bool, subject_code: str, map_topics: bool,
+         prompt: str = "") -> None:
     """The background job. Never raises: any failure is written to the job's state."""
     settings = get_settings()
     paper = _job_dir(job_id) / "paper.pdf"
@@ -291,7 +313,7 @@ def _run(job_id: str, text_extract, needs_vision: bool, subject_code: str, map_t
 
         if map_topics:
             _write(job_id, status="mapping", phase="mapping topics")
-            result["mapping"] = _map(questions, context, passage_of, settings, subject_code)
+            result["mapping"] = _map(questions, context, passage_of, settings, subject_code, prompt)
             _write(job_id, result=result)
         _write(job_id, status="done", phase="done")
     except Exception as exc:  # noqa: BLE001 -- the job's state is the only place it can be seen
@@ -357,11 +379,13 @@ def _looks_cut_off(text: str) -> bool:
     )
 
 
-def _map(questions, context: set, passage_of: dict, settings, subject_code: str = "X.SST") -> dict:
+def _map(questions, context: set, passage_of: dict, settings, subject_code: str = "X.SST",
+         prompt: str = "") -> dict:
     """Map every real question (not a shared passage) with the prompt mapper."""
     from app.api import prompt_lab
 
-    profile = ocr_mapper_v2.profile_for(subject_code)
+    base = ocr_mapper_v2.profile_for(subject_code)
+    profile = ocr_mapper_v2.with_prompt(base, prompt)
     taxonomy = profile.taxonomy()
     model = settings.model_high_volume
     client = prompt_lab._client(settings)
@@ -411,7 +435,8 @@ def _map(questions, context: set, passage_of: dict, settings, subject_code: str 
                            cache_write_tokens=u["cache_write_tokens"]) for m, u in usage_by_model.items())
     mapped_n = sum(1 for r in results.values() if r["topic"])
     return {
-        "subject": profile.name, "model": model, "second_reader_model": settings.model_high_stakes,
+        "subject": profile.name, "custom_prompt": profile is not base, "model": model,
+        "second_reader_model": settings.model_high_stakes,
         "calls": calls, "errors": errors, "by_address": results,
         "summary": {
             "questions": len(real), "mapped": mapped_n,

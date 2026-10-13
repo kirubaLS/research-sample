@@ -1711,6 +1711,8 @@ export interface OcrLabResult {
   mapping: {
     /** "social", "science" or "maths": which topic list the questions were mapped against */
     subject?: string;
+    /** true when a trial prompt, not the built-in one, was used for this run */
+    custom_prompt?: boolean;
     model: string;
     second_reader_model?: string;
     calls: number;
@@ -2513,8 +2515,15 @@ export const api = {
 
   /** Read a paper (PDF or photographs) the way the teacher flow does, then map its questions.
    *  Returns the job to poll; nothing is stored. */
-  ocrLabStart: async (key: string, files: File[], mapTopics: boolean, subject: "X.SST" | "X.SCI" | "X.MATH" = "X.SST") => {
+  ocrLabStart: async (
+    key: string,
+    files: File[],
+    mapTopics: boolean,
+    subject: "X.SST" | "X.SCI" | "X.MATH" = "X.SST",
+    prompt = "",
+  ) => {
     const body = new FormData();
+    if (prompt.trim()) body.append("prompt", prompt);
     files.forEach((f) => body.append("files", f));
     body.append("subject_code", subject);
     body.append("map_topics", mapTopics ? "true" : "false");
@@ -2533,11 +2542,18 @@ export const api = {
   },
 
   /** Map pasted questions (no paper to read): one or many, split by number or blank line. */
-  ocrLabPaste: (key: string, text: string, subject: "X.SST" | "X.SCI" | "X.MATH" = "X.SST") =>
+  ocrLabPaste: (key: string, text: string, subject: "X.SST" | "X.SCI" | "X.MATH" = "X.SST", prompt = "") =>
     operator<{ job_id: string; questions: number }>("/platform/ocr-lab/paste", key, {
       method: "POST",
-      body: JSON.stringify({ text, subject_code: subject }),
+      body: JSON.stringify({ text, subject_code: subject, prompt }),
     }),
+
+  /** The prompt the mapper uses for a subject: the starting point for a trial prompt. */
+  ocrLabPrompt: (key: string, subject: "X.SST" | "X.SCI" | "X.MATH") =>
+    operator<{ subject: string; prompt: string; self_contained: boolean }>(
+      `/platform/ocr-lab/prompt?subject_code=${subject}`,
+      key,
+    ),
 
   ocrLabPoll: (key: string, jobId: string) =>
     operator<OcrLabState>(`/platform/ocr-lab/jobs/${jobId}`, key),
