@@ -374,3 +374,30 @@ def test_a_trial_prompt_also_reaches_the_second_reader(operator):
     assert v2.with_prompt(v2.MATHS, "  ") is v2.MATHS and v2.with_prompt(v2.MATHS, v2.MATHS.rules) is v2.MATHS
     social = v2.with_prompt(v2.SOCIAL, "TRIAL")
     assert social.rules == "TRIAL" and social.verify == v2.SOCIAL.verify
+
+
+def test_pasted_english_questions_use_the_english_prompt(client, operator, monkeypatch):
+    seen = []
+
+    class Stub:
+        def parse(self, **kw):
+            seen.append(kw["system"])
+            body = kw["messages"][0]["content"]
+            rows = json.loads(body.split("<questions>\n")[1].split("\n</questions>")[0])
+            assert all("candidates" not in r and "section" not in r for r in rows)
+            out = [pl._Row(row=r["row"], chapter_id="FF1", topic_id="FF1.3", confidence="high",
+                           syllabus_status="in_syllabus", reason="second letter") for r in rows]
+            usage = SimpleNamespace(input_tokens=1, output_tokens=1, cache_read_input_tokens=0,
+                                    cache_creation_input_tokens=0)
+            return SimpleNamespace(parsed_output=pl._Out(mappings=out), usage=usage)
+
+    monkeypatch.setattr(pl, "_client", lambda settings: SimpleNamespace(messages=Stub()))
+    r = client.post("/platform/ocr-lab/paste", headers=HEAD, json={
+        "text": "Why did Lencho write a second letter to God?", "subject_code": "X.ENG"})
+    job = client.get(f"/platform/ocr-lab/jobs/{r.json()['job_id']}", headers=HEAD).json()
+    assert job["status"] == "done", job
+    mapping = job["result"]["mapping"]
+    assert mapping["subject"] == "english" and mapping["summary"]["mapped"] == 1
+    assert len(seen[0]) == 1 and "English Language and Literature" in seen[0][0]["text"]
+    built_in = client.get("/platform/ocr-lab/prompt", params={"subject_code": "X.ENG"}, headers=HEAD).json()
+    assert built_in["subject"] == "english" and built_in["prompt"] == seen[0][0]["text"]

@@ -30,6 +30,7 @@ from pydantic import BaseModel, Field
 
 from app.api import prompt_lab as pl
 from app.llm import output_config
+from app.mapping import english_taxonomy as et
 from app.mapping import math_taxonomy as mt
 from app.mapping import prompt_taxonomy as pt
 from app.mapping import science_taxonomy as st
@@ -148,7 +149,7 @@ def _list_resolve(taxonomy: pt.Taxonomy, row, section=None) -> dict:
             continue
         secondary.append({"id": t.id, "title": t.title, "chapter": c.title, "number": t.number})
     major = major_title = None
-    if topic is not None:
+    if topic is not None and topic.number:
         major = ".".join(topic.number.split(".")[:2])
         major_topic = taxonomy.topic(f"{topic.chapter_id}.{major}")
         major_title = major_topic.title if major_topic else None
@@ -184,6 +185,10 @@ class Profile:
     #: the structured answer the model fills, and the name its question text goes under
     output: type = pl._Out
     question_key: str = "text"
+    #: False when the book text cannot say where a question comes from (English: unseen passages,
+    #: grammar and writing have no section). The candidates are then not sent to the first reader
+    #: or used to decide which answers the second reader rechecks.
+    use_retrieval: bool = True
 
 
 SOCIAL = Profile(
@@ -228,12 +233,28 @@ def with_prompt(profile: Profile, prompt: str | None) -> Profile:
     return replace(profile, rules=prompt, verify=verify)
 
 
+ENGLISH_PROMPT = et.prompt_text()
+ENGLISH = Profile(
+    "english", et.build, sr.english_index, ENGLISH_PROMPT,
+    verify_rules("English Language and Literature", "Ignore a section letter: it names the question type, not the text.")
+    + "\n\n# The prompt the first reader followed\nApply the same taxonomy, mapping rules and decision rules.\n\n"
+    + ENGLISH_PROMPT,
+    lambda section: None,
+    lambda taxonomy, row, section: _list_resolve(taxonomy, row, section),
+    ignore_section=True,
+    self_contained=True,
+    use_retrieval=False,
+)
+
+
 def profile_for(subject_code: str | None) -> Profile:
     code = (subject_code or "").upper()
     if code.startswith("X.SCI"):
         return SCIENCE
     if code.startswith("X.MATH"):
         return MATHS
+    if code.startswith("X.ENG"):
+        return ENGLISH
     return SOCIAL
 
 
@@ -294,7 +315,8 @@ def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None
     with_candidates = [
         {**{("question" if k == "text" and profile.question_key == "question" else k): v
             for k, v in r.items() if not (k == "section" and profile.ignore_section)},
-         "candidates": [_candidate(ix, taxonomy, h) for h in hits[r["row"]]]} for r in rows]
+         **({"candidates": [_candidate(ix, taxonomy, h) for h in hits[r["row"]]]} if profile.use_retrieval else {})}
+        for r in rows]
     by_row = {r["row"]: r for r in with_candidates}
     text_of = {r["row"]: r["text"] for r in rows}
 
@@ -344,9 +366,13 @@ def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None
         chosen = a.topic_id if a else None
         in_top = chosen in ids[:SUPPORT_TOP]
         in_any = chosen in ids
-        meta[i] = {"candidates": ids[:CANDIDATES], "supported_by_book": in_top, "first_pass": chosen,
-                   "verified": False, "changed": False}
+        meta[i] = {"candidates": ids[:CANDIDATES] if profile.use_retrieval else [], "supported_by_book": in_top if profile.use_retrieval else None,
+                   "first_pass": chosen, "verified": False, "changed": False}
         if a is None:
+            continue
+        if not profile.use_retrieval:       # the book text cannot vouch for or against this answer
+            if a.confidence != "high" or a.syllabus_status != "in_syllabus":
+                doubtful.append((3, i))
             continue
         chosen_score = next((h.score for h in hits[i] if h.topic_id == chosen), 0.0)
         top = hits[i][0] if hits[i] else None

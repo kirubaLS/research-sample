@@ -358,3 +358,81 @@ def test_the_science_answer_carries_the_prompts_fields_and_checks_the_quote(v2):
     assert r["needs_review"] and any("evidence quote" in p for p in r["problems"])
     flagged = row.model_copy(update={"needs_review": True, "evidence_source": "none"})
     assert v2.SCIENCE.resolve(v2.SCIENCE.taxonomy(), flagged, None)["needs_review"]
+
+
+# ---------------------------------------------------------------------------- English
+ENGLISH_CASES = [
+    ("Why did Lencho write a second letter to God asking for the rest of the money?", "FF1.3"),
+    ("What does Valli's refusal of the drink tell you about her?", "FF7.3"),
+    ("Hari Singh hesitates at the station and the train leaves. Why does he go back to Anil?", "FW2.2"),
+    ("Report the dialogue: He said, \"I will come tomorrow.\"", "G5.1"),
+    ("Write a letter to the editor of a national daily about noise pollution.", "W1.4"),
+    ("Mrs Pumphrey sends eggs, wine and brandy to build up Tricki's strength.", "FW1.2"),
+]
+
+
+def test_the_english_list_is_read_from_the_prompt_and_complete(v2):
+    from app.mapping import english_taxonomy as et
+
+    t = et.build()
+    assert len(t.chapters) == 38 and [c.id for c in t.chapters][:3] == ["R1", "R2", "G1"]
+    assert t.topic("FF7.3").title == "Valli's careful plans and the visit to town"
+    assert t.topic("FF2.3").chapter_id == "FF2" and t.topic("FP10.2").chapter_id == "FP10"
+    # 113 listed topics, plus G1 to G4 (answered as the chapter ID) and G5 (answered as the parent)
+    assert sum(len(c.topics) for c in t.chapters) == 113 + 5
+    for tid in ("G1", "G2", "G3", "G4", "G5"):
+        assert t.topic(tid) is not None and t.topic(tid).chapter_id == tid
+    assert t.topic("R1") is None and t.topic("W1") is None, "chapters with sub-topics are not answers"
+    assert "Hope for rain" in t.topic("FF1.1").title
+    assert any("seventy pesos" in k for k in t.topic("FF1.2").keywords)
+
+
+def test_the_english_valid_ids_list_agrees_with_the_taxonomy(v2):
+    import re
+
+    from app.mapping import english_taxonomy as et
+
+    text = et.prompt_text()
+    block = text.split("## Valid IDs")[1].split("## Before you answer")[0]
+    listed = set(re.findall(r"\b([A-Z]{1,2}\d+\.\d+)\b", block.split("R1:")[1]))
+    t = et.build()
+    in_list = {x.id for c in t.chapters for x in c.topics if "." in x.id}
+    assert listed == in_list, sorted(listed ^ in_list)
+
+
+def test_the_english_prompt_is_used_exactly_as_written(v2):
+    from app.mapping import english_taxonomy as et
+
+    text = et.prompt_text()
+    assert v2.ENGLISH.rules == text and v2.ENGLISH.self_contained and not v2.ENGLISH.use_retrieval
+    for part in ("## How to map a question", "## Mapping rules", "## Content that is not in the prescribed books",
+                 "## Valid IDs", "Mijbil the Otter is FF6, never FW6"):
+        assert part in text, part
+    assert text.count("\nTAXONOMY\n") == 1
+    assert v2.ENGLISH.rules in v2.ENGLISH.verify and "second reader" in v2.ENGLISH.verify
+    assert v2.profile_for("X.ENG") is v2.ENGLISH and v2.profile_for("X.ENG.FF") is v2.ENGLISH
+
+
+def test_english_search_finds_the_part_for_the_second_reader(sr):
+    ix = sr.english_index()
+    found = sum(want in [h.topic_id for h in ix.search(q, None, 5)] for q, want in ENGLISH_CASES)
+    assert found >= len(ENGLISH_CASES) - 2, f"{found} of {len(ENGLISH_CASES)} in the top five"
+
+
+def test_an_english_first_reader_gets_no_candidates_and_a_chapter_answer_resolves(v2):
+    client = _Client("G3", "G3")
+    rows = [{"row": 0, "text": "Choose the correct verb: The board (invite / invites) applications.", "section": "B"}]
+    answers, _usage, _calls, errors, meta = v2.map_rows_v2(client, _settings(), rows, profile=v2.ENGLISH)
+    _model, sent, rules = client.calls[0]
+    assert "candidates" not in sent[0] and "section" not in sent[0] and "CBSE Class X English" in rules
+    assert errors == [] and answers[0].topic_id == "G3" and meta[0]["candidates"] == []
+    r = v2.ENGLISH.resolve(v2.ENGLISH.taxonomy(), answers[0], None)
+    assert r["topic"]["id"] == "G3" and r["chapter"]["title"] == "Subject–Verb Concord"
+    assert r["topic"]["major_number"] is None and r["problems"] == []
+    # a passage-only row: the chapter, no topic, not flagged
+    from app.api import prompt_lab as pl
+
+    only = pl._Row(row=0, chapter_id="FF1", topic_id=None, confidence="high",
+                   syllabus_status="in_syllabus", reason="passage only")
+    r = v2.ENGLISH.resolve(v2.ENGLISH.taxonomy(), only, None)
+    assert r["chapter"]["id"] == "FF1" and r["topic"] is None and r["needs_review"] is False
