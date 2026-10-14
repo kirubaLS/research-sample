@@ -23,7 +23,7 @@ export default function OcrLabPage() {
   const [mode, setMode] = useState<"upload" | "paste">("upload");
   const [pasted, setPasted] = useState("");
   const [mapTopics, setMapTopics] = useState(true);
-  const [subject, setSubject] = useState<"X.SST" | "X.SCI" | "X.MATH">("X.SST");
+  const [subject, setSubject] = useState<"X.SST" | "X.SCI" | "X.MATH" | "X.ENG">("X.SST");
   // a trial prompt per subject, kept in this browser only; used for the next run when switched on
   const [trial, setTrial] = useState<Record<string, string>>({});
   const [useTrial, setUseTrial] = useState(false);
@@ -199,11 +199,12 @@ export default function OcrLabPage() {
               <label htmlFor="ocr-subject">Subject</label>
               <select
                 id="ocr-subject" className="select" value={subject} disabled={running}
-                onChange={(e) => setSubject(e.target.value as "X.SST" | "X.SCI" | "X.MATH")}
+                onChange={(e) => setSubject(e.target.value as "X.SST" | "X.SCI" | "X.MATH" | "X.ENG")}
               >
                 <option value="X.SST">Social Science</option>
                 <option value="X.SCI">Science (Chemistry, Biology, Physics, Environment)</option>
                 <option value="X.MATH">Mathematics</option>
+                <option value="X.ENG">English (First Flight, Footprints, Reading, Grammar, Writing)</option>
               </select>
             </div>
 

@@ -2519,7 +2519,7 @@ export const api = {
     key: string,
     files: File[],
     mapTopics: boolean,
-    subject: "X.SST" | "X.SCI" | "X.MATH" = "X.SST",
+    subject: "X.SST" | "X.SCI" | "X.MATH" | "X.ENG" = "X.SST",
     prompt = "",
   ) => {
     const body = new FormData();
@@ -2542,14 +2542,14 @@ export const api = {
   },
 
   /** Map pasted questions (no paper to read): one or many, split by number or blank line. */
-  ocrLabPaste: (key: string, text: string, subject: "X.SST" | "X.SCI" | "X.MATH" = "X.SST", prompt = "") =>
+  ocrLabPaste: (key: string, text: string, subject: "X.SST" | "X.SCI" | "X.MATH" | "X.ENG" = "X.SST", prompt = "") =>
     operator<{ job_id: string; questions: number }>("/platform/ocr-lab/paste", key, {
       method: "POST",
       body: JSON.stringify({ text, subject_code: subject, prompt }),
     }),
 
   /** The prompt the mapper uses for a subject: the starting point for a trial prompt. */
-  ocrLabPrompt: (key: string, subject: "X.SST" | "X.SCI" | "X.MATH") =>
+  ocrLabPrompt: (key: string, subject: "X.SST" | "X.SCI" | "X.MATH" | "X.ENG") =>
     operator<{ subject: string; prompt: string; self_contained: boolean }>(
       `/platform/ocr-lab/prompt?subject_code=${subject}`,
       key,

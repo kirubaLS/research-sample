@@ -167,3 +167,11 @@ def math_index() -> SectionIndex:
     from app.mapping import math_taxonomy
 
     return SectionIndex(math_taxonomy.docs())
+
+
+@lru_cache(maxsize=1)
+def english_index() -> SectionIndex:
+    """English, by the English topic list's IDs (searched on titles and key terms)."""
+    from app.mapping import english_taxonomy
+
+    return SectionIndex(english_taxonomy.docs())
