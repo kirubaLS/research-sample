@@ -1,12 +1,13 @@
 """The teacher dashboard's map step, decided by the OCR mapper's pipeline.
 
-``map_paper`` is what ``app.api.marks._map_paper`` runs (when ``ocr_mapper_pipeline`` is on and
-the subject has an OCR mapper list) in place of the older retrieval plus chapter and topic
-judges. It sends the staged questions through the SAME code the admin OCR mapper uses
-(``app.api.ocr_lab._map`` -> ``app.mapping.ocr_mapper_v2``): the book's own text finds candidate
-sections, a cheap model chooses with those passages in view using the subject's prompt, and a
-strong model rereads the doubtful answers. Then each answer is written exactly where the older
-step wrote its own: a ``Question`` with its chapter, board unit, section and concept family, a
+These helpers serve ``app.api.marks._map_paper_ocr_mapper``, the teacher reader's map step: the
+OCR mapper's pipeline is the only thing that decides a question's chapter and topic (the older
+retrieval plus chapter and topic judges were removed). The staged questions go through the SAME
+code the admin OCR mapper uses (``app.api.ocr_lab._map`` -> ``app.mapping.ocr_mapper_v2``): the
+book's own text finds candidate sections, a cheap model chooses with those passages in view using
+the subject's prompt, and a strong model rereads the doubtful answers. Then each answer is
+written where the map step always wrote its own: a ``Question`` with its chapter, board unit,
+section and concept family, a
 ``QuestionPlacement`` carrying the reasoning, and the topic in the Q-matrix. Reading the paper,
 saving it, the original file in S3, duplicate checks and answer sheets are not touched.
 
@@ -141,10 +142,3 @@ def review_reason(result: dict) -> str:
     if result.get("confidence") == "low":
         return "low_confidence"
     return "topic_unverified"
-
-
-def uses_ocr_mapper(assessment) -> bool:
-    """Whether this paper is mapped by the OCR mapper's pipeline."""
-    from app.config import get_settings
-
-    return bool(get_settings().ocr_mapper_pipeline and profile_for_assessment(assessment.subject_code))

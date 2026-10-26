@@ -6,10 +6,8 @@ app/api/placement.py's _chapters_in_subjects and group_subjects).
 
 from __future__ import annotations
 
-import io
 import uuid
 
-import pymupdf
 import pytest
 from sqlalchemy import select
 
@@ -149,128 +147,6 @@ def test_place_retrieves_book_chunks_across_the_whole_group(school, english_book
         assert {c.subject_code for c in chunks} == {"X.ENG.FF", "X.ENG.FWF"}
     finally:
         db.close()
-
-
-def test_place_scores_a_group_paper_against_the_second_books_chapter_too(
-    client, school, english_paper, english_books,
-):
-    """A question phrased to match Footprints without Feet must actually be placeable
-    there, not silently restricted to whichever book is first in the group."""
-    from app.api.placement import _run_placement_job
-    from app.config import get_settings
-    from app.db import SessionLocal
-    from app.models import PlacementJob, Question, QuestionPlacement
-
-    settings = get_settings()
-    before_key = settings.anthropic_api_key
-    settings.anthropic_api_key = "test-key"
-
-    class StubJudge:
-        """A real judge reads the passages retrieval found; this stub reproduces its
-        answer for each of the two fixture questions, one per book."""
-
-        def classify(self, question, evidence):
-            from app.classify.judge import Classification
-
-            if "mandela" in question.lower():
-                return Classification(
-                    chapter=english_books["ff_chapter"], tier="Understanding",
-                    curriculum_section="1.1", skill_required="",
-                    reasoning="mandela chapter", confidence=0.9,
-                )
-            return Classification(
-                chapter=english_books["fwf_chapter"], tier="Understanding",
-                curriculum_section="1.1", skill_required="",
-                reasoning="tricki the dog", confidence=0.9,
-            )
-
-    class StubJudgeFactory:
-        def __new__(cls, *a, **kw):
-            return StubJudge()
-
-    from app.classify import anthropic_judge as anthropic_judge_module
-
-    db = SessionLocal()
-    try:
-        job = PlacementJob(school_id=school["school_id"], assessment_id=english_paper)
-        db.add(job)
-        db.commit()
-        job_id = job.id
-    finally:
-        db.close()
-
-    original = anthropic_judge_module.AnthropicJudge
-    try:
-        anthropic_judge_module.AnthropicJudge = StubJudgeFactory
-        _run_placement_job(job_id)
-    finally:
-        settings.anthropic_api_key = before_key
-        anthropic_judge_module.AnthropicJudge = original
-
-    db = SessionLocal()
-    try:
-        job = db.get(PlacementJob, job_id)
-        assert job.status == "succeeded", job.error_detail
-
-        questions = {
-            q.question_no: q
-            for q in db.scalars(
-                select(Question).where(Question.assessment_id == english_paper)
-            )
-        }
-        from app.models import TaxonomyNode
-
-        q1_chapter = db.get(TaxonomyNode, questions["1"].chapter_id)
-        q2_chapter = db.get(TaxonomyNode, questions["2"].chapter_id)
-        assert q1_chapter.label == "Nelson Mandela: Long Walk to Freedom"
-        # The second book's chapter, actually reached -- not silently restricted to the
-        # first book in the group.
-        assert q2_chapter.label == "A Triumph of Surgery"
-        assert q1_chapter.id != q2_chapter.id
-
-        # A 3-book group's retrieval pool is every chapter of every book combined, so the
-        # judge showing only the single-book default of candidate chapters starves a weak
-        # lexical/semantic match of ever surfacing its true chapter -- see the comment in
-        # app/api/placement.py next to where evidence_chapters is widened.
-        from app.config import get_settings
-
-        assert job.result["spend"]["chapters_shown"] == 3 * get_settings().classifier_evidence_chapters
-    finally:
-        db.close()
-
-
-def test_map_retrieves_book_chunks_across_the_whole_group(client, school, english_books):
-    """/map (the older, non-LLM lexical route) has to expand a group code the same way
-    /place does -- a query for BookChunk.subject_code == 'X.ENG' matches nothing, since
-    every chunk is filed under its own book (X.ENG.FF, X.ENG.FWF, ...), which is exactly
-    what produced 'no book is loaded for X.ENG' on a real paper with books plainly loaded.
-    """
-    doc = pymupdf.open()
-    page = doc.new_page(width=595, height=842)
-    mark_x = 595 * 0.87
-    page.insert_text((60, 90), "SECTION A")
-    page.insert_text((60, 120), "1. Why did Mandela describe deep down in every human")
-    page.insert_text((60, 134), "heart there is mercy and generosity?")
-    page.insert_text((mark_x, 120), "2")
-    data = doc.tobytes()
-    doc.close()
-
-    created = client.post(
-        "/assessments", headers=_auth(school),
-        json={"subject_code": "X.ENG", "title": "English group map test", "total_marks": 2},
-    )
-    aid = created.json()["assessment_id"]
-    up = client.post(
-        f"/assessments/{aid}/scan", headers=_auth(school),
-        files=[("files", ("paper.pdf", io.BytesIO(data), "application/pdf"))],
-    )
-    assert up.status_code == 201, up.text
-    confirmed = client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
-    assert confirmed.status_code == 200, confirmed.text
-
-    mapped = _map(client, f"/assessments/{aid}/map", headers=_auth(school))
-    assert mapped.status_code == 200, mapped.text
-    assert "no book is loaded" not in mapped.text
 
 
 def _map(client, url: str, headers: dict):

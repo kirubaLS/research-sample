@@ -116,35 +116,6 @@ def _classify(school, aid, monkeypatch, *, chapter="Surface Areas and Volumes",
         db.close()
 
 
-def test_a_confident_mapping_survives_a_classifier_that_disagrees(client, school, book, monkeypatch):
-    aid = _paper(client, school)
-    _seed_mapping(aid)
-    before = _state(aid)
-    assert before["chapter"] == "Statistics" and before["section"] == "13.3"
-
-    status, error, result = _classify(school, aid, monkeypatch)
-    assert status == "succeeded", error
-    after = _state(aid)
-    assert (after["chapter"], after["section"]) == ("Statistics", "13.3"), "the mapping stands"
-    source, flagged, reason, tier, reasoning = after["placements"][-1]
-    assert flagged and reason == "classifier_differs"
-    assert tier == "Applying", "the classifier's tier is still recorded"
-    assert "Kept the mapping's Statistics" in reasoning and "Surface Areas and Volumes" in reasoning
-    assert result["kept_mapping"] == 1 and result["kept_mapping_addresses"]
-
-
-def test_clicking_classify_again_does_not_overwrite_the_held_disagreement(
-    client, school, book, monkeypatch,
-):
-    aid = _paper(client, school)
-    _seed_mapping(aid)
-    _classify(school, aid, monkeypatch)
-    _classify(school, aid, monkeypatch)
-    after = _state(aid)
-    assert (after["chapter"], after["section"]) == ("Statistics", "13.3")
-    assert after["placements"][-1][2] == "classifier_differs"
-
-
 def test_an_agreeing_classifier_changes_nothing_it_should_not(client, school, book, monkeypatch):
     aid = _paper(client, school)
     _seed_mapping(aid)
@@ -155,18 +126,6 @@ def test_an_agreeing_classifier_changes_nothing_it_should_not(client, school, bo
     assert _state(aid)["chapter"] == "Statistics"
 
 
-def test_a_mapping_the_map_step_doubted_is_still_for_the_classifier_to_settle(
-    client, school, book, monkeypatch,
-):
-    aid = _paper(client, school)
-    _seed_mapping(aid, flagged=True)
-    status, error, result = _classify(school, aid, monkeypatch, chapter="Statistics",
-                                      section="13.2", topic="13.2")
-    assert status == "succeeded", error
-    assert result.get("kept_mapping", 0) == 0
-    assert _state(aid)["section"] == "13.2", "the doubted mapping was refined"
-
-
 def test_a_persons_placement_is_never_overwritten(client, school, book, monkeypatch):
     aid = _paper(client, school)
     _seed_mapping(aid, source="human")
@@ -175,32 +134,12 @@ def test_a_persons_placement_is_never_overwritten(client, school, book, monkeypa
     assert (after["chapter"], after["section"]) == ("Statistics", "13.3")
 
 
-def test_with_the_guard_off_classify_overwrites_as_it_used_to(client, school, book, monkeypatch):
-    aid = _paper(client, school)
-    _seed_mapping(aid)
-    status, error, _ = _classify(school, aid, monkeypatch, chapter="Statistics", section="13.2",
-                                 topic="13.2", protect=False)
-    assert status == "succeeded", error
-    assert _state(aid)["section"] == "13.2", "no guard: the classifier's section replaced it"
-
-
 def test_the_reason_is_a_stored_review_code():
     from app.classify.review_rule import REASONS, ReviewInputs, review_reasons
 
     assert "classifier_differs" in REASONS
     assert review_reasons(ReviewInputs(classifier_differs=True)) == ["classifier_differs"]
     assert review_reasons(ReviewInputs()) == []
-
-
-def test_a_different_topic_in_the_same_chapter_is_held_too(client, school, book, monkeypatch):
-    aid = _paper(client, school)
-    _seed_mapping(aid)
-    status, error, result = _classify(school, aid, monkeypatch, chapter="Statistics",
-                                      section="13.2", topic="13.2")
-    assert status == "succeeded", error
-    after = _state(aid)
-    assert (after["chapter"], after["section"]) == ("Statistics", "13.3")
-    assert result["kept_mapping"] == 1
 
 
 def test_a_sub_section_of_the_mapped_topic_is_a_refinement_not_a_disagreement(

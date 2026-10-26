@@ -249,55 +249,6 @@ def _map_capturing_scope(client, school, aid, monkeypatch):
     return captured
 
 
-def test_map_with_the_flag_on_reads_section_titles_not_letters(client, school, sst_world, monkeypatch):
-    monkeypatch.setattr(get_settings(), "sst_unified_scope", True)
-    aid = _sst_paper(client, school, {"section_titles": {
-        "A": "Geography : Minerals and Energy Resources",   # deliberately not History
-        "B": "Multiple Choice Questions",
-        "C": "Political Science",
-    }})
-    captured = _map_capturing_scope(client, school, aid, monkeypatch)
-    every = set(CHAPTERS)
-    assert captured["History question stem, section A."] == {"X.GEO.MINERALSENERGY"}
-    assert captured["Geography question stem, section B."] == every, "a type title narrows nothing"
-    assert captured["Political science question stem, section C."] == {"X.POL.PARTIES"}
-    assert captured["Economics question stem, section D."] == every, "a bare letter means nothing"
-    assert captured["No section printed at all on this one."] == every
-
-
-def test_map_with_the_flag_on_never_forces_a_board_section_a_into_history(
-    client, school, sst_world, monkeypatch,
-):
-    monkeypatch.setattr(get_settings(), "sst_unified_scope", True)
-    aid = _sst_paper(client, school, None)
-    captured = _map_capturing_scope(client, school, aid, monkeypatch)
-    assert captured["History question stem, section A."] == set(CHAPTERS)
-
-
-def test_map_with_the_flag_off_keeps_the_letter_convention(client, school, sst_world, monkeypatch):
-    monkeypatch.setattr(get_settings(), "sst_unified_scope", False)
-    aid = _sst_paper(client, school, {"section_titles": {"A": "Economics"}})
-    captured = _map_capturing_scope(client, school, aid, monkeypatch)
-    assert captured["History question stem, section A."] == {
-        "X.HIST.PRINTCULTURE", "X.HIST.NATIONALISM_EUROPE",
-    }
-
-
-def test_map_with_the_flag_on_honours_the_teacher_scope(client, school, sst_world, monkeypatch):
-    from app.db import SessionLocal
-    from app.models import Assessment
-
-    monkeypatch.setattr(get_settings(), "sst_unified_scope", True)
-    aid = _sst_paper(client, school, {"section_titles": {"B": "Geography"}})
-    db = SessionLocal()
-    db.get(Assessment, aid).syllabus_scope = ["X.GEO.RESOURCES", "X.POL.PARTIES"]
-    db.commit()
-    db.close()
-    captured = _map_capturing_scope(client, school, aid, monkeypatch)
-    assert captured["Geography question stem, section B."] == {"X.GEO.RESOURCES"}
-    assert captured["History question stem, section A."] == {"X.GEO.RESOURCES", "X.POL.PARTIES"}
-
-
 #: words each place-job stem carries, so stub retrieval has something to find
 PLACE_WORDS = {
     "A": "printing press manuscripts readers",
@@ -365,38 +316,6 @@ def _place_capturing_scope(school, aid, monkeypatch):
     db.close()
     _run_placement_job(job_id)
     return seen
-
-
-def test_place_with_the_flag_on_scopes_each_question_by_its_title(school, sst_world, monkeypatch):
-    monkeypatch.setattr(get_settings(), "sst_unified_scope", True)
-    aid, ids = _placed_paper(school, {"section_titles": {
-        "A": "Short Answer Questions", "B": "Geography : Minerals and Energy Resources",
-    }})
-    seen = _place_capturing_scope(school, aid, monkeypatch)
-    assert seen["scope"] is None, "nothing paper-wide was declared, so inference may run"
-    assert seen["scope_of"][ids["Geography question stem, section B."]] == {
-        "Minerals and Energy Resources"}
-    assert seen["scope_of"][ids["History question stem, section A."]] is None
-
-
-def test_place_with_the_flag_on_passes_syllabus_lines_as_the_paper_scope(
-    school, sst_world, monkeypatch,
-):
-    monkeypatch.setattr(get_settings(), "sst_unified_scope", True)
-    aid, ids = _placed_paper(school, {"syllabus_lines": ["Political Science Ch 4, Economics Ch 4"]})
-    seen = _place_capturing_scope(school, aid, monkeypatch)
-    expected = {"Political Parties", "Globalisation and the Indian Economy"}
-    assert seen["scope"] == expected
-    assert all(v == expected for v in seen["scope_of"].values())
-
-
-def test_place_with_the_flag_off_keeps_the_letter_convention(school, sst_world, monkeypatch):
-    monkeypatch.setattr(get_settings(), "sst_unified_scope", False)
-    aid, ids = _placed_paper(school, {"section_titles": {"A": "Economics"}})
-    seen = _place_capturing_scope(school, aid, monkeypatch)
-    history = seen["scope_of"][ids["History question stem, section A."]]
-    assert "Print Culture and the Modern World" in history
-    assert "Globalisation and the Indian Economy" not in history
 
 
 # --- 1.6-1.7 through the place job -----------------------------------------------------------
@@ -498,80 +417,6 @@ TITLED = {"section_titles": {
 }}
 
 
-def test_place_skips_the_chapter_judge_for_a_single_chapter_and_takes_the_topic_judges_tier(
-    school, sst_world, monkeypatch,
-):
-    from app.models import QuestionPlacement, QuestionTier
-
-    for flag in ("sst_unified_scope", "skip_single_chapter_judge"):
-        monkeypatch.setattr(get_settings(), flag, True)
-    seen = _stub_judges(monkeypatch)
-    aid, ids = _placed_paper(school, TITLED)
-    job = _run_place(school, aid, monkeypatch)
-    assert job.status == "succeeded", job.error_detail
-
-    judged_stems = {stem.split(".")[0] for stem, _ in seen["chapter"]}
-    assert judged_stems == {"No section printed at all on this one"}, (
-        "only the question with no single-chapter scope reaches the chapter judge")
-    geo = ids["Geography question stem, section B."]
-    placement = _latest(QuestionPlacement, geo)
-    assert placement.source == "scope" and not placement.needs_review
-    assert placement.tier == "Remembering & Understanding"
-    assert _latest(QuestionTier, geo).tier == "R&U"
-    tiered = [t for t in seen["topic"] if t[0].startswith("Geography") and t[2] == "answer"]
-    assert tiered and tiered[0][3] is True
-    assert job.result["spend"]["calls"] >= 0
-
-
-def test_place_moves_an_unanswerable_single_chapter_question_out_of_scope_and_says_so(
-    school, sst_world, monkeypatch,
-):
-    from app.db import SessionLocal
-    from app.models import Question, QuestionPlacement, TaxonomyNode
-
-    for flag in ("sst_unified_scope", "skip_single_chapter_judge", "cross_scope_fallback"):
-        monkeypatch.setattr(get_settings(), flag, True)
-    seen = _stub_judges(monkeypatch, answerable_unless="Geography")
-    aid, ids = _placed_paper(school, TITLED)
-    job = _run_place(school, aid, monkeypatch)
-    assert job.status == "succeeded", job.error_detail
-
-    geo = ids["Geography question stem, section B."]
-    placement = _latest(QuestionPlacement, geo)
-    assert placement.cross_scope is True and placement.review_reason == "cross_scope"
-    assert placement.needs_review
-    db = SessionLocal()
-    parties = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.POL.PARTIES"))
-    assert placement.chapter_id == parties.id
-    assert db.get(Question, geo).chapter_id == parties.id
-    db.close()
-    # the re-read searched the whole Social Science group, nothing else
-    wide = [shown for stem, shown in seen["chapter"] if stem.startswith("Geography")]
-    from app.curriculum import CURRICULA
-
-    sst_labels = {
-        ch.label for code in ("X.HIST", "X.GEO", "X.POL", "X.ECO")
-        for ch in CURRICULA[code].chapters
-    }
-    assert wide and wide[0] <= sst_labels
-    # every other single-chapter question stayed where its title put it, unflagged
-    other = _latest(QuestionPlacement, ids["Political science question stem, section C."])
-    assert not other.cross_scope and not other.needs_review
-
-
-def test_place_with_every_new_flag_off_writes_no_new_columns(school, sst_world, monkeypatch):
-    from app.models import QuestionPlacement
-
-    seen = _stub_judges(monkeypatch)
-    aid, ids = _placed_paper(school, TITLED)
-    job = _run_place(school, aid, monkeypatch)
-    assert job.status == "succeeded", job.error_detail
-    assert len(seen["chapter"]) == len(ROWS), "every question went to the chapter judge"
-    for qid in ids.values():
-        row = _latest(QuestionPlacement, qid)
-        assert row.cross_scope is None and row.review_reason is None and row.source == "model"
-
-
 # --- a section title outside the teacher's scope ---------------------------------------------
 
 
@@ -586,42 +431,6 @@ def test_a_title_outside_the_teacher_scope_is_ignored_with_a_warning():
     assert "X.GEO.MINERALSENERGY" in decision.warning and "teacher" in decision.warning
     assert scope.for_section("C").warning == ""
     assert len(scope.warnings()) == 1 and scope.warnings()[0].startswith("section B")
-
-
-def test_map_and_place_report_the_overruled_title_in_the_job_result(
-    client, school, sst_world, monkeypatch,
-):
-    from app.db import SessionLocal
-    from app.models import Assessment, PlacementJob
-
-    monkeypatch.setattr(get_settings(), "sst_unified_scope", True)
-    aid = _sst_paper(client, school, {"section_titles": {
-        "B": "Geography : Minerals and Energy Resources", "C": "Political Science",
-    }})
-    db = SessionLocal()
-    db.get(Assessment, aid).syllabus_scope = ["X.POL.PARTIES"]
-    db.commit()
-    db.close()
-    captured = _map_capturing_scope(client, school, aid, monkeypatch)
-    assert captured["Geography question stem, section B."] == {"X.POL.PARTIES"}
-
-    db = SessionLocal()
-    map_job = db.scalars(select(PlacementJob).where(
-        PlacementJob.assessment_id == aid, PlacementJob.kind == "map")).first()
-    warnings = map_job.result["scope_warnings"]
-    db.close()
-    assert len(warnings) == 1 and "X.GEO.MINERALSENERGY" in warnings[0]
-
-    _stub_judges(monkeypatch)
-    place_aid, _ = _placed_paper(school, {"section_titles": {
-        "B": "Geography : Minerals and Energy Resources"}})
-    db = SessionLocal()
-    db.get(Assessment, place_aid).syllabus_scope = ["X.POL.PARTIES"]
-    db.commit()
-    db.close()
-    job = _run_place(school, place_aid, monkeypatch)
-    assert job.status == "succeeded", job.error_detail
-    assert len(job.result["scope_warnings"]) == 1
 
 
 def test_with_the_flag_off_no_scope_warnings_key_is_added(school, sst_world, monkeypatch):

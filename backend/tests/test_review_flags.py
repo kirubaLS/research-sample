@@ -180,21 +180,6 @@ def test_the_stored_reason_is_whole_codes_in_priority_order_within_the_column():
     assert reason_code([]) is None
 
 
-def test_the_map_step_uses_the_rule_and_a_provisional_topic_is_no_doubt(monkeypatch):
-    from app.api.marks import _map_review
-    from app.classify.topic import TopicPick
-
-    pick = TopicPick("4.2", "h", "judge", False, "4.1", "r", verified=None)
-    on = types.SimpleNamespace(review_flag_rule=True)
-    assert _map_review(on, pick, False, family_unsettled=False, old=False) == {
-        "needs_review": True, "review_reason": "topic_differs"}
-    assert _map_review(on, pick, True, family_unsettled=False, old=True) == {
-        "needs_review": False, "review_reason": None}
-    assert _map_review(on, pick, True, family_unsettled=True, old=True)["review_reason"] == "family"
-    off = types.SimpleNamespace(review_flag_rule=False)
-    assert _map_review(off, pick, False, family_unsettled=False, old=True) == {"needs_review": True}
-
-
 def test_the_pipeline_records_the_chapter_judges_own_confidence_and_choice():
     from tests.test_judge_options import _PlainJudge, _run
 
