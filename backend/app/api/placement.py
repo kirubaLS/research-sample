@@ -251,6 +251,18 @@ def _run_placement_job(job_id: str) -> None:  # noqa: PLR0915 -- one linear run,
 
         settings = for_subject(get_settings(), a.subject_code)
 
+        from app.mapping.teacher_map import uses_ocr_mapper
+
+        if uses_ocr_mapper(a):
+            # the map step already decided each chapter and topic with the OCR mapper's pipeline
+            _finish_placement_job(
+                job_id, status_value="succeeded", result={
+                    "assessment_id": a.id, "placed": 0, "pipeline": "ocr_mapper",
+                    "note": "chapter and topic were decided by the OCR mapper's pipeline in the map step",
+                },
+            )
+            return
+
         questions = db.scalars(
             select(Question).where(Question.assessment_id == a.id).order_by(Question.address)
         ).all()
@@ -1261,7 +1273,9 @@ def place(
         .where(BookChunk.subject_code.in_(group_subjects(a.subject_code)))
         .limit(1)
     )
-    if not has_book:
+    from app.mapping.teacher_map import uses_ocr_mapper
+
+    if not has_book and not uses_ocr_mapper(a):
         raise HTTPException(409, f"no book loaded for {a.subject_code}")
 
     # One classify job per paper at a time -- see marks.running_job for why.

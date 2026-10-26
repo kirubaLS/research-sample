@@ -2081,7 +2081,9 @@ def _map_inputs(db: Session, assessment: Assessment) -> tuple[list, list]:
     chunks = list(db.scalars(
         select(BookChunk).where(BookChunk.subject_code.in_(group_subjects(assessment.subject_code)))
     ))
-    if not chunks:
+    from app.mapping.teacher_map import uses_ocr_mapper
+
+    if not chunks and not uses_ocr_mapper(assessment):
         raise HTTPException(
             422,
             f"no book is loaded for {assessment.subject_code}, so there is nothing to map "
@@ -2346,6 +2348,10 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
 
     settings = for_subject(get_settings(), assessment.subject_code)
     staged, chunks = _map_inputs(db, assessment)
+    from app.mapping.teacher_map import uses_ocr_mapper
+
+    if uses_ocr_mapper(assessment):
+        return _map_paper_ocr_mapper(db, assessment, staged, on_progress)
     book_subject_codes = group_subjects(assessment.subject_code)
     is_book_map_subject = bool(_BOOK_MAP_SUBJECTS.intersection(book_subject_codes))
 
@@ -3034,6 +3040,216 @@ def _map_paper(db: Session, assessment: Assessment, on_progress=None) -> dict:
         **({"scope_warnings": paper_scope.warnings()} if paper_scope is not None else {}),
         #: subpart_chapter_agreement: sub-parts held to the chapter their siblings agree on
         **({"subpart_overrides": sorted(sibling_override)} if sibling_override else {}),
+        "needs_review": db.scalar(select(func.count(QuestionPlacement.id)).where(
+            QuestionPlacement.needs_review.is_(True),
+            QuestionPlacement.question_id.in_(
+                select(Question.id).where(Question.assessment_id == assessment.id)
+            ),
+        )) or 0,
+        "next": f"Review at GET /assessments/{assessment.id}/scan.",
+    }
+
+
+def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_progress=None) -> dict:
+    """The map step decided by the OCR mapper's pipeline (app.mapping.teacher_map).
+
+    The same code the admin OCR mapper runs reads every question; each answer is then filed the
+    way ``_map_paper`` files its own: a Question with chapter, board unit, section and concept
+    family, a QuestionPlacement carrying the reasoning, and the topic in the Q-matrix. A
+    question the mapper cannot place in a chapter of this curriculum stays staged with the
+    reason, as before."""
+    from app.api import ocr_lab
+    from app.api.books import clean_sections
+    from app.classify.review_rule import REASON_WIDTH
+    from app.curriculum import CURRICULA, group_subjects
+    from app.extraction.paper import context_addresses
+    from app.mapping import teacher_map as tm
+
+    settings = get_settings()
+    profile = tm.profile_for_assessment(assessment.subject_code)
+    assert profile is not None
+    book_subject_codes = group_subjects(assessment.subject_code)
+    context = context_addresses(staged)
+    passage_of = {
+        (r.section, r.question_no): (r.stem_text or "").strip()
+        for r in staged if r.address in context and (r.stem_text or "").strip()
+    }
+    blocked: list[str] = []
+    eligible = []
+    context_kept = 0
+    for row in staged:
+        if row.address in context:
+            row.blocked_reason = None
+            context_kept += 1
+        elif not (row.stem_text or "").strip():
+            row.blocked_reason = "no stem text was extracted, so there is nothing to place"
+            blocked.append(row.address)
+        elif row.max_marks is None:
+            row.blocked_reason = "no mark label was read; supply the marks before mapping"
+            blocked.append(row.address)
+        else:
+            eligible.append(row)
+    if on_progress is not None:
+        on_progress(0, len(staged))
+    if not settings.anthropic_api_key and eligible:
+        raise HTTPException(409, "no classifier key configured. Set YAADHUM_ANTHROPIC_API_KEY.")
+    mapping = (
+        ocr_lab._map(eligible, context, passage_of, settings, assessment.subject_code, dedupe=False)
+        if eligible else {"by_address": {}, "spend": {"estimated_usd": 0.0}, "calls": 0, "errors": []}
+    )
+    taxonomy = profile.taxonomy()
+
+    nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
+    chapter_by_code = {n.code: n for n in nodes.values() if n.kind == "chapter"}
+    units = {
+        row.chapter_id: row.board_unit_id
+        for row in db.scalars(select(ChapterBoardUnit).where(
+            ChapterBoardUnit.curriculum_version == assessment.curriculum_version
+        ))
+    }
+    families: dict[str, list[TaxonomyNode]] = {}
+    for node in nodes.values():
+        if node.kind == "concept_family" and node.parent_id:
+            families.setdefault(node.parent_id, []).append(node)
+    sections_of = {
+        row.code: set(clean_sections(row.from_sections))
+        for row in db.scalars(select(ConceptFamilyProposal).where(
+            ConceptFamilyProposal.subject_code.in_(book_subject_codes)
+        ))
+    }
+    mapped, with_topic = 0, 0
+    topic_written: list[str] = []
+    for done, row in enumerate(eligible, start=1):
+        if on_progress is not None:
+            on_progress(done, len(eligible))
+        result = mapping["by_address"].get(row.address)
+        if result is None or not result.get("chapter"):
+            row.blocked_reason = (
+                "the OCR mapper found no chapter of this book that teaches it"
+                if result is None or result.get("syllabus_status") == "not_found"
+                else "the OCR mapper gave no chapter for this question"
+            )
+            blocked.append(row.address)
+            continue
+        list_chapter = taxonomy.chapter(result["chapter"]["id"])
+        code = tm.chapter_code(profile, list_chapter, CURRICULA) if list_chapter else None
+        chapter = chapter_by_code.get(code) if code else None
+        if chapter is None:
+            row.blocked_reason = (
+                f"the OCR mapper placed this in {result['chapter']['title']!r}, which is not a "
+                f"chapter of the {assessment.subject_code} curriculum"
+            )[:500]
+            blocked.append(row.address)
+            continue
+        unit_id = units.get(chapter.id)
+        if unit_id is None:
+            row.blocked_reason = (
+                f"{chapter.label} is not mapped to a board unit, so its marks have nowhere to count"
+            )
+            blocked.append(row.address)
+            continue
+
+        cap = _section_cap(chapter)
+        topic_info = result.get("topic")
+        section = fine_section = heading = None
+        if topic_info:
+            fine_section = tm.section_of(profile, topic_info["id"], topic_info["number"])
+            section = cap(fine_section) if fine_section else None
+            heading = topic_info["title"]
+        secondaries = []
+        for other in result.get("secondary") or []:
+            other_topic = taxonomy.topic(other["id"])
+            if other_topic is None or other_topic.chapter_id != (list_chapter.id if list_chapter else None):
+                continue                     # a secondary in another chapter has no node under this one
+            other_section = tm.section_of(profile, other["id"], other["number"])
+            if other_section:
+                secondaries.append((cap(other_section), other["title"]))
+
+        candidates = families.get(chapter.id, [])
+        family = None
+        if candidates:
+            from app.mapping.family import choose_family
+
+            choice = choose_family(candidates, sections_of, section, chapter.label, prefer_label=heading)
+            family = choice.family
+        if family is None:
+            family = _ensure_family(db, chapter, section, heading, families, sections_of, book_subject_codes)
+
+        question = Question(
+            assessment_id=assessment.id, address=row.address, section=row.section,
+            question_no=row.question_no, sub_part=row.sub_part, choice_alt=row.choice_alt,
+            attempt_required=row.attempt_required,
+            max_marks=row.max_marks, stem_text=row.stem_text,
+            stem_hash=stem_hash(row.stem_text), logical_page=row.logical_page,
+            board_unit_id=unit_id, chapter_id=chapter.id, curriculum_section=section,
+            concept_family_id=family.id,
+            concept_variant=row.stem_text[:200],
+            variant_hash=variant_hash(row.stem_text[:200]),
+            verified_against=f"ocr_mapper:{profile.name}",
+        )
+        db.add(question)
+        db.flush()
+        book = result.get("book_check") or {}
+        reasoning = " ".join(x for x in (
+            f"OCR mapper ({profile.name}): {result.get('reason') or ''}".strip(),
+            "; ".join(result.get("problems") or []),
+        ) if x)
+        db.add(QuestionPlacement(
+            question_id=question.id, chapter_id=chapter.id, board_unit_id=unit_id,
+            curriculum_section=section, confidence=tm.CONFIDENCE.get(result.get("confidence"), 0.3),
+            curriculum_section_fine=fine_section if fine_section and fine_section != section else None,
+            source="model", needs_review=bool(result.get("needs_review")),
+            review_reason=tm.review_reason(result)[:REASON_WIDTH] if result.get("needs_review") else None,
+            reasoning=reasoning[:1000],
+            evidence=[],
+            candidates=[c for c in (book.get("candidates") or [])][:4],
+        ))
+        db.add(QuestionTier(
+            question_id=question.id, tier=None, source="ensemble", model_version=mapping.get("model"),
+            rationale="the OCR mapper decides chapter and topic, not a tier",
+        ))
+        if section and heading:
+            set_question_topic(
+                db, question.id, chapter, section, heading, source="model",
+                confidence=tm.CONFIDENCE.get(result.get("confidence"), 0.3), secondaries=secondaries,
+            )
+            topic_written.append(question.id)
+            with_topic += 1
+        row.question_id = question.id
+        row.blocked_reason = None
+        mapped += 1
+
+    db.flush()
+    assert_topic_matches_section(db, topic_written)
+    db.commit()
+
+    frequency = None
+    if assessment.paper_kind == "board" and mapped:
+        from app.curriculum.board_frequency import recompute as recompute_frequency
+        from app.curriculum.board_frequency import stream_of
+
+        frequency = recompute_frequency(db, assessment.subject_code, stream=stream_of(assessment))
+
+    spend = mapping.get("spend") or {}
+    return {
+        "assessment_id": assessment.id,
+        "retrieval": f"ocr_mapper:{profile.name}",
+        "mapped": mapped,
+        "board_frequency": frequency,
+        "blocked": len(blocked),
+        "context_stems": context_kept,
+        "with_topic": with_topic,
+        "topics_deferred_to_classify": False,
+        "spend": {
+            "model": mapping.get("model") or settings.model_high_volume,
+            "second_reader_model": mapping.get("second_reader_model") or settings.model_high_stakes,
+            "calls": mapping.get("calls", 0), **{
+                k: spend.get(k, 0) for k in
+                ("input_tokens", "output_tokens", "cache_read_tokens", "cache_write_tokens", "estimated_usd")
+            },
+        },
+        "errors": mapping.get("errors", []),
+        "blocked_addresses": blocked[:20],
         "needs_review": db.scalar(select(func.count(QuestionPlacement.id)).where(
             QuestionPlacement.needs_review.is_(True),
             QuestionPlacement.question_id.in_(

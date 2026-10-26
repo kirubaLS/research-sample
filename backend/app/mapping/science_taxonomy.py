@@ -101,6 +101,24 @@ def _match_unit(title: str, units: list[dict], used: set[int]) -> dict | None:
 
 
 @lru_cache(maxsize=1)
+def unit_numbers() -> dict[str, str]:
+    """``topic id -> the textbook section number`` of the unit the topic was matched to by title.
+    The teacher dashboard files a question under the book's own section numbers, which are not
+    this list's. A topic with no matching unit is absent."""
+    chapters_src = _units_by_chapter()
+    out: dict[str, str] = {}
+    lines = _parse()
+    for index, (_s, cid, _t0, _ct, _k) in enumerate(x for x in lines if x[1] == x[2]):
+        units = chapters_src[index].get("units", [])
+        used: set[int] = set()
+        for _, _, tid, title, _terms in (x for x in lines if x[1] == cid and x[2] != cid):
+            unit = _match_unit(title, units, used)
+            if unit and unit.get("number"):
+                out[tid] = str(unit["number"])
+    return out
+
+
+@lru_cache(maxsize=1)
 def _built() -> tuple[pt.Taxonomy, dict[str, tuple[str, str]]]:
     """The taxonomy, and ``topic id -> (subject, section text)`` for retrieval."""
     lines = _parse()

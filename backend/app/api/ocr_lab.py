@@ -380,7 +380,7 @@ def _looks_cut_off(text: str) -> bool:
 
 
 def _map(questions, context: set, passage_of: dict, settings, subject_code: str = "X.SST",
-         prompt: str = "") -> dict:
+         prompt: str = "", dedupe: bool = True) -> dict:
     """Map every real question (not a shared passage) with the prompt mapper."""
     from app.api import prompt_lab
 
@@ -389,15 +389,16 @@ def _map(questions, context: set, passage_of: dict, settings, subject_code: str 
     taxonomy = profile.taxonomy()
     model = settings.model_high_volume
     client = prompt_lab._client(settings)
-    real = [q for q in questions if q.address not in context and not q.is_context]
+    real = [q for q in questions if q.address not in context and not getattr(q, "is_context", False)]
     # The reader sometimes returns the same question twice (one copy without its statements or
     # options). Map the fuller one; the other would only overwrite it under the same address.
     fullest: dict[tuple, object] = {}
-    for q in real:
+    for q in real if dedupe else []:
         k = (q.section, q.question_no, q.sub_part, q.choice_alt)
         if k not in fullest or len(q.stem_text or "") > len(fullest[k].stem_text or ""):
             fullest[k] = q
-    real = [q for q in real if fullest[(q.section, q.question_no, q.sub_part, q.choice_alt)] is q]
+    if dedupe:
+        real = [q for q in real if fullest[(q.section, q.question_no, q.sub_part, q.choice_alt)] is q]
     rows = [
         {"row": i, "text": _mapping_text(q, passage_of).strip()[:4000],
          **({"section": q.section.strip().upper()} if q.section and q.section.strip() else {})}
