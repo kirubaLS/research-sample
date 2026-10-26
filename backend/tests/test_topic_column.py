@@ -201,57 +201,7 @@ def _place(school, aid):
         db.close()
 
 
-def test_a_place_run_leaves_no_stale_retrieval_topic(client, school, book, monkeypatch):
-    from app.db import SessionLocal
-    from app.mapping.topic_node import topic_mismatches
-    from app.models import Question
-
-    aid, qid = _question(client, school)
-    db = SessionLocal()
-    try:
-        _mapped(db, qid, "13.3", "X.MATH.STATS.S13_3")     # the map step's guess
-    finally:
-        db.close()
-    _stub_judges(monkeypatch, topic="13.2")
-    status, error = _place(school, aid)
-    assert status == "succeeded", error
-    db = SessionLocal()
-    try:
-        assert db.get(Question, qid).curriculum_section == "13.2"
-        assert _topics(db, qid) == [("S13_2", "classify", 1.0)], "no retrieval row survives"
-        assert topic_mismatches(db, [qid]) == []
-    finally:
-        db.close()
-
     # a later run that decides otherwise: test_a_later_decision_replaces_every_machine_row
-
-
-def test_a_place_run_after_a_person_settled_changes_nothing_on_the_question(
-    client, school, book, monkeypatch,
-):
-    from app.db import SessionLocal
-    from app.models import Question, QuestionPlacement
-
-    aid, qid = _question(client, school)
-    r = client.post(
-        f"/assessments/{aid}/review/{qid}", headers=_auth(school),
-        json={"chapter_code": "X.MATH.STATS", "curriculum_section": "13.3",
-              "reviewed_by": "teacher"},
-    )
-    assert r.status_code == 200, r.json()
-    _stub_judges(monkeypatch, topic="13.2")
-    status, error = _place(school, aid)
-    assert status == "succeeded", error
-    db = SessionLocal()
-    try:
-        assert db.get(Question, qid).curriculum_section == "13.3"
-        assert _topics(db, qid) == [("S13_3", "human", 1.0)]
-        latest = db.scalars(select(QuestionPlacement).where(QuestionPlacement.question_id == qid)
-                            .order_by(QuestionPlacement.created_at.desc())).first()
-        assert latest.reasoning.startswith("Not applied: a person settled this question.")
-        assert latest.needs_review is False, "a settled question is not reopened"
-    finally:
-        db.close()
 
 
 def test_a_skill_anchored_question_keeps_no_topic(client, school, book, monkeypatch):

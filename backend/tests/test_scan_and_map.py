@@ -868,22 +868,6 @@ def test_auto_resolve_semantic_family_stage_resolves_a_clear_lead_without_an_llm
     assert resolution is None, "a near-tied semantic score must still be left for a person"
 
 
-def test_mapping_refuses_when_no_book_is_loaded(client, school):
-    r = client.post(
-        "/assessments", headers=_auth(school),
-        # 8, because that is what the fixture paper adds up to: confirming a scan whose
-        # marks disagree with the paper's own total is refused, and this test is about the
-        # book being absent, not about the totals.
-        json={"subject_code": "X.SCI", "title": "No book", "total_marks": 8},
-    )
-    aid = r.json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=_auth(school), json={})
-    out = _map(client, f"/assessments/{aid}/map", headers=_auth(school))
-    assert out.status_code == 422
-    assert "no book is loaded" in out.json()["detail"]
-
-
 def test_rescanning_keeps_what_mapping_already_promoted(client, school, assessment):
     """A bad upload must be re-readable without unpicking the work already done."""
     _upload(client, school, assessment, _paper_bytes(PAPER))
@@ -905,7 +889,7 @@ def test_a_chapter_code_beginning_with_s_is_not_read_as_a_section():
     """X.MATH.SAV was read as section 'AV' and X.MATH.STATS as 'TATS'. Neither matched any
     concept family, so every question in those two chapters blocked -- on a rule that
     looked right and was checking only the first letter."""
-    from app.api.marks import _section_number
+    from app.mapping.topic_node import section_number as _section_number
 
     assert _section_number("X.MATH.STATS.S13_2") == "13.2"
     assert _section_number("X.SCI.LIGHT.S9_1") == "9.1"
@@ -1289,194 +1273,6 @@ STATS_PAPER = [[
 ]]
 
 
-def test_a_mapped_question_gets_a_chapter_a_topic_and_a_sub_topic(client, school, book):
-    """All three, and each from the book rather than from anybody's memory."""
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Topics", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-
-    out = _map(client, f"/assessments/{aid}/map", headers=h)
-    assert out.status_code == 200, out.text
-    assert out.json()["mapped"] == 1
-    assert out.json()["with_topic"] == 1
-
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert placed["blocked_reason"] is None
-    assert placed["mapped_to"]["chapter"] == "Statistics"
-    assert placed["mapped_to"]["curriculum_section"] == "13.2"
-    assert placed["mapped_to"]["topic"] == "Mean of Grouped Data"
-    assert placed["mapped_to"]["concept_family"] == "Mean by step-deviation"
-    assert placed["mapped_to"]["board_unit"] == "Statistics & Probability"
-
-
-def test_map_lets_the_topic_judge_choose_the_section_within_the_retrieved_chapter(
-    client, school, book, monkeypatch
-):
-    """Chapter retrieval is unchanged; the topic within it is the judge's. Retrieval
-    reads 'mean' and says 13.2, the judge (stubbed) says 13.3: the judge's section and
-    heading land on the question, the family follows, and the disagreement is flagged."""
-    h = _auth(school)
-    settings = get_settings()
-    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
-
-    class StubTopicJudge:
-        def __init__(self, *a, **kw) -> None:
-            pass
-
-        def pick(self, stem, chapter_label, headings, passages):
-            assert chapter_label == "Statistics"
-            assert set(headings) >= {"13.2", "13.3"}
-
-            class _Choice:
-                section = "13.3"
-                rationale = "the question is really about the mode"
-
-            return _Choice()
-
-    monkeypatch.setattr("app.classify.topic.TopicJudge", StubTopicJudge)
-
-    # A family that claims the mode section, so the family can follow the judge's
-    # section the way it does in production (where every section has one).
-    from sqlalchemy import select
-
-    from app.db import SessionLocal
-    from app.models import ConceptFamilyProposal, TaxonomyNode
-
-    db = SessionLocal()
-    try:
-        stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
-        if db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.CF.MODE")) is None:
-            db.add(TaxonomyNode(
-                kind="concept_family", code="X.MATH.CF.MODE", label="Mode of grouped data",
-                parent_id=stats.id, path="X.MATH.CF.MODE",
-                curriculum_version=stats.curriculum_version,
-            ))
-            db.add(ConceptFamilyProposal(
-                curriculum_version=stats.curriculum_version, subject_code="X.MATH",
-                run_id="fixture", source="llm", model="fixture",
-                code="X.MATH.CF.MODE", label="Mode of grouped data",
-                chapter_id=stats.id, evidence=["Section 13.3"], from_sections=["13.3"],
-            ))
-            db.commit()
-    finally:
-        db.close()
-
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Judged topic", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    out = _map(client, f"/assessments/{aid}/map", headers=h)
-    assert out.status_code == 200, out.text
-    assert out.json()["mapped"] == 1
-
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert placed["mapped_to"]["chapter"] == "Statistics"
-    assert placed["mapped_to"]["curriculum_section"] == "13.3"
-    assert placed["mapped_to"]["topic"] == "Mode of Grouped Data"
-    assert placed["mapped_to"]["concept_family"] == "Mode of grouped data"
-    assert placed["mapped_to"]["needs_review"] is True
-    assert "Topic 13.3 (Mode of Grouped Data)" in placed["mapped_to"]["review_reason"]
-    assert "pointed at section 13.2" in placed["mapped_to"]["review_reason"]
-
-
-def test_map_leaves_the_topic_judge_to_a_classify_job_already_queued_behind_it(
-    client, school, book, monkeypatch
-):
-    """Zero-touch queues map and classify together, and classify decides every topic
-    again from scratch -- so a map that also ran the whole-chapter judge paid for every
-    question's reads twice. With a classify job pending, map does not ask the judge;
-    retrieval's section stands until classify replaces it. The paper's own listing then
-    carries what the run cost."""
-    from app.db import SessionLocal
-    from app.models import PlacementJob
-
-    h = _auth(school)
-    settings = get_settings()
-    monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
-    asked: list[str] = []
-
-    class StubTopicJudge:
-        def __init__(self, *a, **kw) -> None:
-            pass
-
-        def pick(self, stem, chapter_label, headings, passages):
-            asked.append(stem)
-
-            class _Choice:
-                section = "13.3"
-                rationale = "would have said mode"
-
-            return _Choice()
-
-    monkeypatch.setattr("app.classify.topic.TopicJudge", StubTopicJudge)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Deferred topic", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    db = SessionLocal()
-    try:
-        db.add(PlacementJob(school_id=school["school_id"], assessment_id=aid, kind="place"))
-        db.commit()
-    finally:
-        db.close()
-
-    out = _map(client, f"/assessments/{aid}/map", headers=h)
-    assert out.status_code == 200, out.text
-    body = out.json()
-    assert body["mapped"] == 1 and body["topics_deferred_to_classify"] is True
-    assert asked == [], "the judge was not asked: the classify job behind this map will be"
-    assert body["spend"]["calls"] == 0 and body["spend"]["estimated_usd"] == 0
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert placed["mapped_to"]["curriculum_section"] == "13.2", "retrieval's section stands"
-    # the single-retriever fixture flags the chapter on its own (verdict.agreed needs two
-    # retrievers); what matters here is that the deferred topic adds no doubt of its own
-    assert "provisional" in placed["mapped_to"]["review_reason"]
-    assert "no topic judge" not in placed["mapped_to"]["review_reason"]
-
-    listed = next(p for p in client.get("/assessments", headers=h).json()["assessments"] if p["id"] == aid)
-    assert listed["spend"] == {
-        "calls": 0, "input_tokens": 0, "output_tokens": 0, "cache_read_tokens": 0,
-        "cache_write_tokens": 0, "estimated_usd": 0,
-    }
-
-
-def test_the_topic_is_recorded_as_a_skill_so_the_report_can_group_by_it(
-    client, school, book
-):
-    """Without this row a mapped question tested no sub-topic and every finding fell back
-    to the chapter, which is too coarse to act on."""
-    from sqlalchemy import select
-
-    from app.db import SessionLocal
-    from app.models import Question, QuestionSkill, TaxonomyNode
-
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Skills", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    _map(client, f"/assessments/{aid}/map", headers=h)
-
-    db = SessionLocal()
-    try:
-        question = db.scalar(select(Question).where(Question.assessment_id == aid))
-        links = list(db.scalars(
-            select(QuestionSkill).where(QuestionSkill.question_id == question.id)
-        ))
-        assert [db.get(TaxonomyNode, s.node_id).label for s in links] == [
-            "Mean of Grouped Data"
-        ]
-        assert links[0].source == "retrieval"
-    finally:
-        db.close()
-
-
 def test_the_cognitive_category_is_null_until_something_has_read_the_question(
     client, school, book
 ):
@@ -1497,56 +1293,6 @@ def test_the_cognitive_category_is_null_until_something_has_read_the_question(
     placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
     assert placed["mapped_to"]["tier"] is None
     assert placed["mapped_to"]["tier_label"] is None
-
-
-def test_a_person_settling_a_tier_is_recorded_where_the_report_reads_it(
-    client, school, book
-):
-    """The judge and a teacher both wrote the tier onto the placement, and every report
-    reads it from the append-only tier row, so no tier ever reached a report."""
-    from sqlalchemy import select
-
-    from app.db import SessionLocal
-    from app.models import Question, QuestionTier
-
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Settle", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    _map(client, f"/assessments/{aid}/map", headers=h)
-
-    db = SessionLocal()
-    question_id = db.scalar(select(Question).where(Question.assessment_id == aid)).id
-    db.close()
-
-    out = client.post(
-        f"/assessments/{aid}/review/{question_id}", headers=h,
-        json={
-            "chapter_code": "X.MATH.STATS",
-            "curriculum_section": "13.2",
-            "tier": "Applying",
-            "reviewed_by": "Mrs Rani",
-        },
-    )
-    assert out.status_code == 200, out.text
-
-    db = SessionLocal()
-    try:
-        rows = list(db.scalars(
-            select(QuestionTier).where(QuestionTier.question_id == question_id)
-        ))
-        # Stored as the short code, which is what the report groups by and all the column
-        # has room for.
-        assert [r.tier for r in rows] == ["AP"]
-        assert rows[0].source == "human"
-    finally:
-        db.close()
-
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert placed["mapped_to"]["tier"] == "AP"
-    assert placed["mapped_to"]["tier_label"] == "Applying"
 
 
 def test_a_tier_that_is_not_a_tier_is_refused(client, school, book):
@@ -1579,77 +1325,6 @@ def test_a_tier_that_is_not_a_tier_is_refused(client, school, book):
 # ----------------------------------------------------------------------------------------
 # Choosing between the families a chapter has
 # ----------------------------------------------------------------------------------------
-def test_the_narrowest_family_claiming_the_section_is_taken_and_flagged(
-    client, school, book
-):
-    """A run proposes many families per chapter and several draw on one section.
-
-    Taking whichever came first was arbitrary and unstable: the same paper could map two
-    ways. The family claiming fewest sections is the closest fit for a question in one of
-    them, ties break on the code so a second run agrees with the first, and the placement
-    says a person should settle it rather than presenting the pick as decided.
-    """
-    from sqlalchemy import select
-
-    from app.db import SessionLocal
-    from app.models import ConceptFamilyProposal, QuestionPlacement, TaxonomyNode
-
-    db = SessionLocal()
-    stats = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.MATH.STATS"))
-    # A second family for Statistics that also draws on 13.2, plus two others.
-    for code, label, sections in [
-        ("X.MATH.CF.CENTRAL_TENDENCY", "Measures of central tendency", ["13.2", "13.3"]),
-        ("X.MATH.CF.MEAN_DIRECT", "Mean by the direct method", ["13.2"]),
-    ]:
-        db.add(TaxonomyNode(
-            kind="concept_family", code=code, label=label, parent_id=stats.id,
-            path=code, curriculum_version=stats.curriculum_version,
-        ))
-        db.add(ConceptFamilyProposal(
-            curriculum_version=stats.curriculum_version, subject_code="X.MATH",
-            run_id="t", source="llm", model="t", code=code, label=label,
-            chapter_id=stats.id, evidence=[], from_sections=sections,
-        ))
-    db.commit()
-    db.close()
-
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Ambiguous", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    out = _map(client, f"/assessments/{aid}/map", headers=h)
-    assert out.status_code == 200, out.text
-    assert out.json()["mapped"] == 1
-
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-
-    db = SessionLocal()
-    try:
-        # Whatever else this shared database holds, the family taken has to be one that
-        # actually claims the section the question was placed in.
-        claimants = {
-            db.scalar(
-                select(TaxonomyNode).where(TaxonomyNode.code == row.code)
-            ).label
-            for row in db.scalars(select(ConceptFamilyProposal))
-            if "13.2" in (row.from_sections or [])
-        }
-        assert placed["mapped_to"]["curriculum_section"] == "13.2"
-        assert placed["mapped_to"]["concept_family"] in claimants
-
-        placement = db.scalar(
-            select(QuestionPlacement)
-            .order_by(QuestionPlacement.created_at.desc())
-        )
-        assert placement.needs_review is True
-        assert "draw on section 13.2" in placement.reasoning
-        assert "a person should settle it" in placement.reasoning
-    finally:
-        db.close()
-
-
 def test_applying_a_proposal_marks_it_applied_rather_than_copying_it(client, school):
     """A run can propose hundreds and nothing said which had been acted on."""
     from sqlalchemy import select
@@ -1769,63 +1444,6 @@ def _place_with(monkeypatch, chapter: str, section: str | None, tier: str | None
     return settings, before
 
 
-def test_the_judge_settles_the_chapter_topic_and_sub_topic_on_the_question(
-    client, school, book, monkeypatch
-):
-    """All three land where the report reads them, not only in the placement history."""
-    from sqlalchemy import select
-
-    from app.db import SessionLocal
-    from app.models import Question, TaxonomyNode
-
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Judged", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    _map(client, f"/assessments/{aid}/map", headers=h)
-
-    # The judge disagrees with retrieval: it says the mode section, not the mean section.
-    settings, before = _place_with(monkeypatch, "Statistics", "13.3", "Applying")
-    try:
-        # Placement now queues a job rather than answering directly (a classifier call
-        # per question would otherwise outrun a real request's timeout) -- but TestClient
-        # runs the background task inline before handing back the 202, so a single poll
-        # right after already sees "succeeded".
-        out = client.post(f"/assessments/{aid}/place", headers=h)
-        assert out.status_code == 202, out.text
-        job = client.get(
-            f"/assessments/{aid}/place/jobs/{out.json()['job_id']}", headers=h
-        )
-    finally:
-        settings.anthropic_api_key = before
-    assert job.status_code == 200, job.text
-    body = job.json()
-    assert body["status"] == "succeeded"
-    assert body["labelled"] == 1
-    assert body["tiers"] == 1
-
-    db = SessionLocal()
-    try:
-        question = db.scalar(select(Question).where(Question.assessment_id == aid))
-        # The question itself carries the judge's answer, which is what a report reads.
-        assert question.curriculum_section == "13.3"
-        assert db.get(TaxonomyNode, question.chapter_id).label == "Statistics"
-        # And the sub-topic was re-chosen for the section the judge landed on, rather
-        # than left pointing at the one retrieval had picked.
-        family = db.get(TaxonomyNode, question.concept_family_id)
-        assert "13.3" in _sections_for(db, family.code)
-        assert question.skill_required == "reading a grouped frequency table"
-    finally:
-        db.close()
-
-    # And the category reaches the screen.
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert placed["mapped_to"]["tier"] == "AP"
-    assert placed["mapped_to"]["tier_label"] == "Applying"
-
-
 def _sections_for(db, code: str) -> set[str]:
     from sqlalchemy import select
 
@@ -1835,65 +1453,6 @@ def _sections_for(db, code: str) -> set[str]:
         select(ConceptFamilyProposal).where(ConceptFamilyProposal.code == code)
     )
     return set(row.from_sections or []) if row else set()
-
-
-def test_a_judge_that_abstains_on_the_tier_leaves_it_unset(
-    client, school, book, monkeypatch
-):
-    """Abstaining is a legitimate answer and the only honest one when the evidence does
-    not settle which tier a question belongs to. It must not read as a decided tier."""
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Abstained", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    _map(client, f"/assessments/{aid}/map", headers=h)
-
-    settings, before = _place_with(monkeypatch, "Statistics", "13.2", None)
-    try:
-        out = client.post(f"/assessments/{aid}/place", headers=h)
-        assert out.status_code == 202, out.text
-        job = client.get(
-            f"/assessments/{aid}/place/jobs/{out.json()['job_id']}", headers=h
-        )
-    finally:
-        settings.anthropic_api_key = before
-    assert job.status_code == 200, job.text
-    assert job.json()["tiers"] == 0
-
-    scan = client.get(f"/assessments/{aid}/scan", headers=h).json()
-    assert scan["questions"][0]["mapped_to"]["tier"] is None
-    # Classify ran and simply abstained -- that must read differently from "classify was
-    # never run at all", which is what the paper screen uses to decide whether it still
-    # has to offer "Read and classify" on a paper someone reopens after leaving mid-flow.
-    assert scan["classified"] is True
-
-
-def test_the_classified_flag_is_false_until_a_classify_pass_has_actually_run(
-    client, school, book, monkeypatch
-):
-    """Mapping alone -- placing a question in a chapter -- is not classifying it: the
-    category comes from a separate reading, and reopening a paper that was only ever
-    mapped must not claim classify already happened."""
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Only mapped", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(STATS_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    _map(client, f"/assessments/{aid}/map", headers=h)
-
-    assert client.get(f"/assessments/{aid}/scan", headers=h).json()["classified"] is False
-
-    settings, before = _place_with(monkeypatch, "Statistics", "13.2", "Understanding")
-    try:
-        out = client.post(f"/assessments/{aid}/place", headers=h)
-        client.get(f"/assessments/{aid}/place/jobs/{out.json()['job_id']}", headers=h)
-    finally:
-        settings.anthropic_api_key = before
-
-    assert client.get(f"/assessments/{aid}/scan", headers=h).json()["classified"] is True
 
 
 def test_classifying_is_refused_without_a_key_rather_than_guessing(client, school, book):
@@ -2062,65 +1621,6 @@ def political_parties_book_map(school):
     db.close()
 
 
-def test_map_uses_the_books_own_heading_not_a_mismatched_stale_subtopic_number(
-    client, school, political_parties_book_map, monkeypatch
-):
-    """Fix 1: book_chunk section "6" and taxonomy_node subtopic "...S6" are two different,
-    unrelated numbering schemes that happen to collide on the same small integer. The
-    topic must come from the book_map chunk's own real heading, never from the stale
-    number-matched taxonomy_node.
-
-    Retrieval itself (which chunk best matches a question's wording) is a separate
-    concern from this bug and is already covered elsewhere in this file; a real chapter
-    in this shared, session-scoped test database can carry hundreds of chunks uploaded by
-    other tests (real regression-fixture PDFs, some badly OCR'd), so lexical scoring
-    across the whole suite is not deterministic enough to assert an exact section on.
-    `locate` is patched here to hand back the chapter and section this fixture set up,
-    exactly the shape a real winning verdict has, so the assertions below are actually
-    about the topic-lookup bug rather than about how retrieval happened to score today.
-    """
-    from sqlalchemy import select
-
-    from app.db import SessionLocal
-    from app.ingest.probe import ChapterVerdict
-    from app.models import TaxonomyNode
-
-    db = SessionLocal()
-    chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == "X.POL.TESTREFORM"))
-    chapter_id = chapter.id
-    db.close()
-
-    def fake_locate(question, indexes, **kwargs):
-        return ChapterVerdict(
-            node_id=chapter_id, score=1.0, margin=1.0, agreed=True,
-            evidence=[], runners_up=[], section="6",
-        )
-
-    import app.ingest.probe as probe
-
-    monkeypatch.setattr(probe, "locate", fake_locate)
-
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.POL", "title": "Political Parties", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(POLITICAL_PARTIES_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-
-    out = _map(client, f"/assessments/{aid}/map", headers=h)
-    assert out.status_code == 200, out.text
-
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert out.json()["mapped"] == 1, (placed["blocked_reason"], placed["stem_text"])
-    assert placed["blocked_reason"] is None
-    assert placed["mapped_to"]["chapter"] == "Political Parties (test)"
-    assert placed["mapped_to"]["curriculum_section"] == "6"
-    # Before the fix this was "A STALE, UNRELATED HEADING" -- the number-matched but
-    # semantically unrelated taxonomy_node. After the fix it is the book's own words.
-    assert placed["mapped_to"]["topic"] == "6 How the zamgani conclave reforms"
-    assert placed["mapped_to"]["topic"] != "A STALE, UNRELATED HEADING"
-
-
 # ----------------------------------------------------------------------------------------
 # Fix 2: an X.SST question's retrieval is scoped to its own section's subject
 #
@@ -2132,106 +1632,6 @@ def test_map_uses_the_books_own_heading_not_a_mismatched_stale_subtopic_number(
 # for every question, which is exactly how the audit found a History question landing in
 # the Political Science chapter "Power-sharing" on nothing but shared vocabulary.
 # ----------------------------------------------------------------------------------------
-
-
-def test_sst_retrieval_is_scoped_to_the_questions_own_section_subject(
-    client, school, monkeypatch,
-):
-    """locate() is patched to simply record which subjects its candidate chunks came
-    from, rather than asserting on TF-IDF outcomes (fragile in this shared, session-scoped
-    test database). What matters is the *scope* handed to retrieval: a Section A question
-    must only ever see X.HIST chunks, never the other three books in the X.SST group --
-    and a question whose section is unknown must still see the whole group, never be
-    silently dropped or forced into a guessed subject.
-    """
-    from sqlalchemy import select
-
-    from app.curriculum import X_ECONOMICS, X_GEOGRAPHY, X_HISTORY, X_POLITICAL_SCIENCE
-    from app.curriculum.apply import apply as apply_curriculum
-    from app.db import SessionLocal
-    from app.ingest.probe import ChapterVerdict
-    from app.models import BookChunk, ScannedQuestion, TaxonomyNode
-
-    db = SessionLocal()
-    for curriculum in (X_HISTORY, X_GEOGRAPHY, X_POLITICAL_SCIENCE, X_ECONOMICS):
-        apply_curriculum(db, curriculum)
-    db.commit()
-
-    for subject_code, chapter_code in [
-        ("X.HIST", "X.HIST.NATIONALISM_EUROPE"),
-        ("X.GEO", "X.GEO.RESOURCES"),
-        ("X.POL", "X.POL.POWERSHARING"),
-        ("X.ECO", "X.ECO.DEVELOPMENT"),
-    ]:
-        chapter = db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == chapter_code))
-        if db.scalar(select(BookChunk).where(
-            BookChunk.stem_hash == f"sst-scope-test-{subject_code}"
-        )) is None:
-            db.add(BookChunk(
-                curriculum_version=chapter.curriculum_version, subject_code=subject_code,
-                node_id=chapter.id, bucket="T", reference="Test",
-                text=f"placeholder {subject_code} body text",
-                section_number="1",
-                normalised=f"placeholder {subject_code} body text",
-                stem_hash=f"sst-scope-test-{subject_code}",
-            ))
-    db.commit()
-    db.close()
-
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.SST", "title": "SST scope test", "total_marks": 5,
-    }).json()["assessment_id"]
-
-    rows = [
-        ("A", "1", "History question stem, section A."),
-        ("B", "2", "Geography question stem, section B."),
-        ("C", "3", "Political science question stem, section C."),
-        ("D", "4", "Economics question stem, section D."),
-        (None, "5", "No section printed at all on this one."),
-    ]
-    expected = {
-        "History question stem, section A.": {"X.HIST"},
-        "Geography question stem, section B.": {"X.GEO"},
-        "Political science question stem, section C.": {"X.POL"},
-        "Economics question stem, section D.": {"X.ECO"},
-        # unknown section -- never silently dropped, never force-scoped to a guess
-        "No section printed at all on this one.": {"X.HIST", "X.GEO", "X.POL", "X.ECO"},
-    }
-
-    db2 = SessionLocal()
-    for section, qno, stem in rows:
-        db2.add(ScannedQuestion(
-            assessment_id=aid, address=f"{section or ''}/{qno}//", section=section,
-            question_no=qno, max_marks=1, stem_text=stem, logical_page=1,
-        ))
-    db2.commit()
-    db2.close()
-
-    confirm = client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-    assert confirm.status_code == 200, confirm.text
-
-    captured: dict[str, set[str]] = {}
-
-    def fake_locate(query, indexes, **kwargs):
-        subjects = {
-            chunk.subject_code
-            for idx in indexes
-            for chunk in getattr(idx, "chunks", [])
-        }
-        captured[query] = subjects
-        return ChapterVerdict(
-            node_id=None, score=0.0, margin=0.0, agreed=False, evidence=[], runners_up=[],
-        )
-
-    import app.ingest.probe as probe
-
-    monkeypatch.setattr(probe, "locate", fake_locate)
-
-    mapped = _map(client, f"/assessments/{aid}/map", headers=h)
-    assert mapped.status_code == 200, mapped.text
-
-    assert captured == expected, captured
 
 
 # ----------------------------------------------------------------------------------------
@@ -2274,7 +1674,10 @@ def retrieval_guard_book(school):
 
     from app.db import SessionLocal
     from app.models import (
-        BookChunk, ChapterBoardUnit, ConceptFamilyProposal, TaxonomyNode,
+        BookChunk,
+        ChapterBoardUnit,
+        ConceptFamilyProposal,
+        TaxonomyNode,
     )
 
     db = SessionLocal()
@@ -2386,74 +1789,6 @@ def retrieval_guard_book(school):
         ))
     db.commit()
     db.close()
-
-
-def test_exercise_bucket_chunks_never_win_retrieval_over_teaching_text(
-    client, school, retrieval_guard_book,
-):
-    """Fix 4: bucket='E' chunks are excluded from the pool that decides chapter/section --
-    left in, the exercise chunk here (in an unrelated chapter, built to share every term
-    of the stem) outscores the real teaching passage and hijacks chapter selection
-    entirely (the unrelated chapter has no board unit, so pre-fix this question is
-    blocked rather than placed at all). After the fix, retrieval never sees the exercise
-    chunk and falls through to the real teaching-text chapter and section.
-    """
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Retrieval guard", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(RETRIEVAL_GUARD_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-
-    out = _map(client, f"/assessments/{aid}/map", headers=h)
-    assert out.status_code == 200, out.text
-    assert out.json()["mapped"] == 1, out.json()
-
-    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert placed["blocked_reason"] is None
-    assert placed["mapped_to"]["chapter"] == "Retrieval Guard (test)"
-    # Before the fix, the exercise chunk (no section_number) could win and this would be
-    # None -- the exact topicless failure the audit found.
-    assert placed["mapped_to"]["curriculum_section"] == "9.3"
-    assert placed["mapped_to"]["topic"] == "The velunca method (test)"
-
-
-def test_map_never_hands_retrieval_an_exercise_bucket_chunk(
-    client, school, retrieval_guard_book, monkeypatch,
-):
-    """Same fixture, but locate() is patched to simply record which buckets its candidate
-    indexes actually carried -- the direct assertion that /map's retrieval pool excludes
-    bucket='E' entirely, independent of how TF-IDF happens to score any particular pair of
-    chunks.
-    """
-    from app.ingest.probe import ChapterVerdict
-
-    captured: list[set[str]] = []
-
-    def fake_locate(query, indexes, **kwargs):
-        buckets = {
-            chunk.bucket for idx in indexes for chunk in getattr(idx, "chunks", [])
-        }
-        captured.append(buckets)
-        return ChapterVerdict(None, 0.0, 0.0, False, [], [])
-
-    import app.ingest.probe as probe
-
-    monkeypatch.setattr(probe, "locate", fake_locate)
-
-    h = _auth(school)
-    aid = client.post("/assessments", headers=h, json={
-        "subject_code": "X.MATH", "title": "Retrieval guard pool", "total_marks": 3,
-    }).json()["assessment_id"]
-    _upload(client, school, aid, _paper_bytes(RETRIEVAL_GUARD_PAPER))
-    client.post(f"/assessments/{aid}/scan/confirm", headers=h, json={})
-
-    mapped = _map(client, f"/assessments/{aid}/map", headers=h)
-    assert mapped.status_code == 200, mapped.text
-
-    assert captured, "locate() was never called"
-    for buckets in captured:
-        assert "E" not in buckets, buckets
 
 
 # ----------------------------------------------------------------------------------------

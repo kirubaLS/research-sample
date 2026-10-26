@@ -67,7 +67,6 @@ class _Stub:
 @pytest.fixture
 def ocr_on(monkeypatch):
     settings = get_settings()
-    monkeypatch.setattr(settings, "ocr_mapper_pipeline", True)
     monkeypatch.setattr(settings, "anthropic_api_key", "test-key")
     return settings
 
@@ -201,13 +200,13 @@ def test_a_secondary_topic_in_another_chapter_is_recorded_beside_the_primary(
     assert json.dumps(codes)
 
 
-def test_the_older_path_is_untouched_when_the_setting_is_off(client, school, book, monkeypatch):
-    settings = get_settings()
-    monkeypatch.setattr(settings, "ocr_mapper_pipeline", False)
-    aid, h = _stage(client, school, "X.MATH", STATS)
+def test_a_subject_without_an_ocr_mapper_list_is_left_staged_with_the_reason(client, school, book, ocr_on):
+    aid, h = _stage(client, school, "X.TAM", STATS)
     out = _run_map(client, aid, h)
     result = out.json().get("result") or out.json()
-    assert out.status_code == 200 and str(result["retrieval"]) in {"lexical", "hybrid"}, out.text
+    assert out.status_code == 200 and result["mapped"] == 0 and result["blocked"] == 1, out.text
+    placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
+    assert "no topic list or prompt for X.TAM" in placed["blocked_reason"]
 
 
 def test_subjects_without_an_ocr_mapper_list_keep_the_older_path():

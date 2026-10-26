@@ -133,14 +133,6 @@ class Settings(BaseSettings):
     #: nothing waits on a review. Off only for a deployment that wants a person in the
     #: loop (and in the test suite, which exercises each step on its own).
     auto_pipeline: bool = True
-    #: The teacher dashboard's question paper reader decides each question's chapter and topic
-    #: with the OCR mapper's pipeline (app.mapping.ocr_mapper_v2: the book's own text finds
-    #: candidate sections, a cheap model chooses with those passages in view, a strong model
-    #: rechecks the doubtful ones, with the per-subject prompts) instead of the older retrieval
-    #: plus chapter and topic judges. Reading, saving, the original file, duplicate checks and
-    #: answer sheets are unchanged. Subjects without an OCR mapper list (Hindi, Tamil) keep the
-    #: older path. Off: the older path for every subject. YAADHUM_OCR_MAPPER_PIPELINE.
-    ocr_mapper_pipeline: bool = True
     #: Classify never silently replaces a chapter and topic the mapping step settled without
     #: doubt: where its judges disagree, the mapping's placement stays on the question and
     #: the row is flagged "classifier_differs" with both answers in its reasoning, for a

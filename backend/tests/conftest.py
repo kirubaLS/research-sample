@@ -15,8 +15,6 @@ def _tmp_db():
     os.environ["YAADHUM_DATABASE_URL"] = f"sqlite+pysqlite:///{path}"
     # each step is exercised on its own here; the zero-touch chain has its own tests
     os.environ["YAADHUM_AUTO_PIPELINE"] = "false"
-    # the older map and classify steps have their own tests; the OCR mapper pipeline's are separate
-    os.environ["YAADHUM_OCR_MAPPER_PIPELINE"] = "false"
     # the live client, so a stubbed anthropic module's messages.parse is what gets called
     os.environ["YAADHUM_BATCH_CLASSIFY"] = "false"
     yield
@@ -79,7 +77,7 @@ def school(_tmp_db):
 
 
 @pytest.fixture
-def book(school):
+def book(school, monkeypatch):
     """A minimal loaded book: one chunk under a chapter, and a family applied to it.
 
     Mapping needs all three -- a chapter to retrieve, a board unit for its marks to count
@@ -88,9 +86,12 @@ def book(school):
     """
     from sqlalchemy import select
 
+    from app.config import get_settings
     from app.db import SessionLocal
     from app.models import BookChunk, ConceptFamilyProposal, TaxonomyNode
 
+    # mapping needs a model key; the model itself is the stub every test gets (_ocr_mapper_model)
+    monkeypatch.setattr(get_settings(), "anthropic_api_key", "test-key")
     db = SessionLocal()
 
     # Several chunks across several chapters, because one chunk cannot be retrieved
@@ -165,3 +166,49 @@ def book(school):
     db.close()
 
 
+
+
+class _OcrMapperModel:
+    """The model behind the map step, for every test that maps a paper: it answers from the
+    stem's own words (Mathematics) or takes the first candidate section (other subjects), so a
+    test that needs a mapped paper does not call a paid API. A test that cares about the
+    model's answer replaces ``prompt_lab._client`` with its own stub."""
+
+    MATHS = (
+        ("tangent", "M10", "M10.1"), ("composite", "M1", "M1.1"), ("prime", "M1", "M1.1"),
+        ("arithmetic progression", "M5", "M5.1"), ("nth term", "M5", "M5.1"),
+        ("mode", "M13", "M13.2"), ("median", "M13", "M13.3"), ("mean", "M13", "M13.1"),
+    )
+
+    def __init__(self):
+        self.messages = self
+
+    def parse(self, **kw):
+        import json
+        from types import SimpleNamespace
+
+        from app.api import prompt_lab as pl
+
+        rows = json.loads(kw["messages"][0]["content"].split("<questions>\n")[1].split("\n</questions>")[0])
+        maths = "Mathematics" in kw["system"][0]["text"]
+        out = []
+        for r in rows:
+            text = (r.get("text") or r.get("question") or "").lower()
+            chapter = topic = None
+            if maths:
+                chapter, topic = next(((c, t) for w, c, t in self.MATHS if w in text), ("M13", "M13.1"))
+            elif r.get("candidates"):
+                topic = r["candidates"][0]["id"]
+                chapter = topic.split(".")[0]
+            out.append(pl._Row(row=r["row"], chapter_id=chapter, topic_id=topic, confidence="high",
+                               syllabus_status="in_syllabus" if topic else "not_found", reason="test model"))
+        usage = SimpleNamespace(input_tokens=1, output_tokens=1, cache_read_input_tokens=0,
+                                cache_creation_input_tokens=0)
+        return SimpleNamespace(parsed_output=pl._Out(mappings=out), usage=usage)
+
+
+@pytest.fixture(autouse=True)
+def _ocr_mapper_model(_tmp_db, monkeypatch):
+    from app.api import prompt_lab
+
+    monkeypatch.setattr(prompt_lab, "_client", lambda settings: _OcrMapperModel())
