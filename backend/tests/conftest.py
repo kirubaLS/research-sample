@@ -15,6 +15,8 @@ def _tmp_db():
     os.environ["YAADHUM_DATABASE_URL"] = f"sqlite+pysqlite:///{path}"
     # each step is exercised on its own here; the zero-touch chain has its own tests
     os.environ["YAADHUM_AUTO_PIPELINE"] = "false"
+    # the older map and classify steps have their own tests; the OCR mapper pipeline's are separate
+    os.environ["YAADHUM_OCR_MAPPER_PIPELINE"] = "false"
     # the live client, so a stubbed anthropic module's messages.parse is what gets called
     os.environ["YAADHUM_BATCH_CLASSIFY"] = "false"
     yield
