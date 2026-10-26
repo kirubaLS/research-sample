@@ -3064,6 +3064,7 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
     from app.curriculum import CURRICULA, group_subjects
     from app.extraction.paper import context_addresses
     from app.mapping import teacher_map as tm
+    from app.mapping.topic_node import SECONDARY_WEIGHT
 
     settings = get_settings()
     profile = tm.profile_for_assessment(assessment.subject_code)
@@ -3099,6 +3100,8 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
     )
     taxonomy = profile.taxonomy()
 
+    if profile.name == "english":
+        tm.ensure_english_chapters(db, assessment.curriculum_version)
     nodes = {n.id: n for n in db.scalars(select(TaxonomyNode))}
     chapter_by_code = {n.code: n for n in nodes.values() if n.kind == "chapter"}
     units = {
@@ -3157,13 +3160,23 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
             section = cap(fine_section) if fine_section else None
             heading = topic_info["title"]
         secondaries = []
+        elsewhere = []                       # secondaries that sit in another chapter
         for other in result.get("secondary") or []:
             other_topic = taxonomy.topic(other["id"])
-            if other_topic is None or other_topic.chapter_id != (list_chapter.id if list_chapter else None):
-                continue                     # a secondary in another chapter has no node under this one
+            if other_topic is None:
+                continue
             other_section = tm.section_of(profile, other["id"], other["number"])
-            if other_section:
+            if not other_section:
+                continue
+            if list_chapter and other_topic.chapter_id == list_chapter.id:
                 secondaries.append((cap(other_section), other["title"]))
+            else:
+                other_list = taxonomy.chapter(other_topic.chapter_id)
+                other_code = tm.chapter_code(profile, other_list, CURRICULA) if other_list else None
+                other_chapter = chapter_by_code.get(other_code) if other_code else None
+                if other_chapter is not None:
+                    capped_section = _section_cap(other_chapter)(other_section)
+                    elsewhere.append((other_chapter, capped_section, other["title"]))
 
         candidates = families.get(chapter.id, [])
         family = None
@@ -3215,6 +3228,15 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
             )
             topic_written.append(question.id)
             with_topic += 1
+        for other_chapter, other_section, other_title in elsewhere:
+            other_node = topic_node(db, other_chapter, other_section, other_title)
+            if db.scalar(select(QuestionSkill.id).where(
+                QuestionSkill.question_id == question.id, QuestionSkill.node_id == other_node.id,
+            )) is None:
+                db.add(QuestionSkill(
+                    question_id=question.id, node_id=other_node.id, weight=SECONDARY_WEIGHT,
+                    source="model", confidence=tm.CONFIDENCE.get(result.get("confidence"), 0.3),
+                ))
         row.question_id = question.id
         row.blocked_reason = None
         mapped += 1

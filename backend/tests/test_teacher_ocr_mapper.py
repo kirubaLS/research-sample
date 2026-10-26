@@ -131,18 +131,74 @@ def test_the_classify_step_leaves_the_ocr_mappers_placement_alone(client, school
     assert placement.source == "model" and "OCR mapper (maths)" in placement.reasoning
 
 
-def test_an_english_poem_has_no_curriculum_chapter_and_stays_staged(
+def _english_book():
+    """The English books' subject and unit nodes, as set up for a school."""
+    from app.curriculum import CURRICULA
+    from app.curriculum.apply import apply
+    from app.db import SessionLocal
+
+    db = SessionLocal()
+    for code in ("X.ENG.FF", "X.ENG.FWF", "X.ENG.WB"):
+        apply(db, CURRICULA[code])
+    db.close()
+
+
+def test_an_english_poem_is_filed_under_a_first_flight_chapter_made_on_first_use(
     client, school, book, ocr_on, monkeypatch,
 ):
     from app.api import prompt_lab as pl
+    from app.db import SessionLocal
+    from app.models import ChapterBoardUnit, TaxonomyNode
 
+    _english_book()
     monkeypatch.setattr(pl, "_client", lambda settings: _Stub("FP1", "FP1.1"))
     aid, h = _stage(client, school, "X.ENG.FF", POEM)
     out = _run_map(client, aid, h)
     result = out.json().get("result") or out.json()
-    assert out.status_code == 200 and result["mapped"] == 0 and result["blocked"] == 1, out.text
+    assert out.status_code == 200 and result["mapped"] == 1 and result["blocked"] == 0, out.text
     placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert "not a chapter of the X.ENG.FF curriculum" in placed["blocked_reason"]
+    assert placed["mapped_to"]["chapter"] == "Dust of Snow (Robert Frost)"
+    assert placed["mapped_to"]["curriculum_section"] == "1.1"
+    assert placed["mapped_to"]["topic"] == "Meaning, imagery and theme"
+    db = SessionLocal()
+    chapter = db.scalars(select(TaxonomyNode).where(TaxonomyNode.code == "X.ENG.FF.FP1")).one()
+    assert db.scalars(select(ChapterBoardUnit).where(ChapterBoardUnit.chapter_id == chapter.id)).one()
+    db.close()
+    # a second run makes no second chapter
+    from app.mapping import teacher_map as tm
+
+    db = SessionLocal()
+    assert tm.ensure_english_chapters(db, chapter.curriculum_version) == 0
+    db.close()
+
+
+def test_a_secondary_topic_in_another_chapter_is_recorded_beside_the_primary(
+    client, school, book, ocr_on, monkeypatch,
+):
+    import json
+
+    from app.api import prompt_lab as pl
+    from app.db import SessionLocal
+    from app.models import Question, QuestionSkill, TaxonomyNode
+
+    class Two(_Stub):
+        def parse(self, **kw):
+            out = super().parse(**kw)
+            for m in out.parsed_output.mappings:
+                m.secondary_topic_ids = ["M10.1"]
+            return out
+
+    monkeypatch.setattr(pl, "_client", lambda settings: Two("M13", "M13.1"))
+    aid, h = _stage(client, school, "X.MATH", STATS)
+    assert _run_map(client, aid, h).status_code == 200
+    db = SessionLocal()
+    q = db.scalars(select(Question).where(Question.assessment_id == aid)).one()
+    rows = db.scalars(select(QuestionSkill).where(QuestionSkill.question_id == q.id)).all()
+    codes = {db.get(TaxonomyNode, r.node_id).code: r.weight for r in rows}
+    db.close()
+    assert codes.get("X.MATH.STATS.S13_1") == 1.0, codes
+    assert codes.get("X.MATH.CIRCLE.S10_1") == 0.5, codes
+    assert json.dumps(codes)
 
 
 def test_the_older_path_is_untouched_when_the_setting_is_off(client, school, book, monkeypatch):
@@ -181,7 +237,8 @@ def test_list_chapters_translate_to_the_curriculums(school):
     assert maths == [c.code for c in CURRICULA["X.MATH"].chapters]
     english = {c.id: tm.chapter_code(v2.ENGLISH, c, CURRICULA) for c in et.build().chapters}
     assert english["FF1"] == "X.ENG.FF.LETTERTOGOD" and english["FW9"] == "X.ENG.FWF.SAVEDTHEEARTH"
-    assert all(english[c] is None for c in ("FP1", "R1", "G3", "W1"))
+    assert english["FP1"] == "X.ENG.FF.FP1" and english["R1"] == "X.ENG.WB.R1"
+    assert english["G3"] == "X.ENG.WB.G3" and english["W1"] == "X.ENG.WB.W1"
     assert tm.section_of(v2.MATHS, "M13.1", "1") == "13.1"
     assert tm.section_of(v2.ENGLISH, "FF2.3", "3") == "2.3"
     assert tm.section_of(v2.SOCIAL, "H5.3.2", "3.2") == "3.2"
