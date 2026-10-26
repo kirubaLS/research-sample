@@ -18,9 +18,11 @@ The mapper's IDs are its own lists', so they are translated to the database's:
 * Mathematics: the 14 list chapters are the curriculum's 14, in order. A topic is filed under the
   list's own number, with the list's title as its heading.
 * English: FF1..FF9 and FW1..FW9 are the curriculum's chapters of First Flight and Footprints
-  without Feet, in order. Reading, Grammar, Writing and the poems (R, G, W, FP) have no chapter
-  in the curriculum, so those questions are left staged with that reason rather than filed
-  under a chapter they do not belong to.
+  without Feet, in order. The curriculum has no chapter for the First Flight poems or for
+  Reading, Grammar and Writing, so those list chapters are created on first use
+  (``ensure_english_chapters``): the poems FP1..FP10 as chapters of First Flight, and R1..W2 as
+  chapters of Words and Expressions (the workbook that drills them), each counting towards its
+  book's board unit, so every part of an English paper can be filed.
 
 No tier is decided here (the OCR mapper does not decide one); an abstaining tier row is written
 so the paper still reads as classified.
@@ -61,7 +63,47 @@ def chapter_code(profile: v2.Profile, taxonomy_chapter, curricula: dict) -> str 
                 chapters = curricula[book].chapters
                 n = int(taxonomy_chapter.id[len(prefix):])
                 return chapters[n - 1].code if 1 <= n <= len(chapters) else None
+        if taxonomy_chapter.id.startswith("FP"):
+            return f"X.ENG.FF.{taxonomy_chapter.id}"
+        return f"X.ENG.WB.{taxonomy_chapter.id}"
     return None
+
+
+def ensure_english_chapters(db, version: str) -> int:
+    """Create the English chapters the curriculum does not list (the First Flight poems, and
+    Reading, Grammar and Writing), under First Flight and Words and Expressions, each counting
+    towards that book's board unit. Idempotent; returns how many chapters it created. Needs the
+    English books to be set up already (their subject and unit nodes)."""
+    from sqlalchemy import select
+
+    from app.mapping import english_taxonomy as et
+    from app.models import ChapterBoardUnit, TaxonomyNode
+
+    def node(code):
+        return db.scalar(select(TaxonomyNode).where(TaxonomyNode.code == code))
+
+    made = 0
+    for chapter in et.build().chapters:
+        if chapter.id.startswith(("FF", "FW")):
+            continue
+        book = "X.ENG.FF" if chapter.id.startswith("FP") else "X.ENG.WB"
+        subject, unit = node(book), node(f"{book}.U.WHOLE")
+        if subject is None or unit is None:
+            continue
+        code = f"{book}.{chapter.id}"
+        row = node(code)
+        if row is None:
+            row = TaxonomyNode(kind="chapter", code=code, label=chapter.title, parent_id=subject.id,
+                               path=code, curriculum_version=version)
+            db.add(row)
+            db.flush()
+            made += 1
+        if db.scalar(select(ChapterBoardUnit).where(
+            ChapterBoardUnit.chapter_id == row.id, ChapterBoardUnit.curriculum_version == version,
+        )) is None:
+            db.add(ChapterBoardUnit(curriculum_version=version, chapter_id=row.id, board_unit_id=unit.id))
+    db.flush()
+    return made
 
 
 def section_of(profile: v2.Profile, topic_id: str, number: str) -> str | None:
