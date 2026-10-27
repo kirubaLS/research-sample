@@ -46,7 +46,7 @@ import {
 } from "@/lib/api";
 import { Stat } from "@/components/Stat";
 import { usePaperScan } from "@/lib/usePaperScan";
-import { fallbackTitle, findExistingTest, matchSubject, summarise, today, type Detected } from "@/lib/paperIntake";
+import { fallbackTitle, findExistingTest, matchSubject, today, type Detected } from "@/lib/paperIntake";
 import { usePageHeader } from "@/lib/pageHeader";
 import { ChapterPicker } from "@/components/ChapterPicker";
 import { SubjectRoster } from "@/components/SubjectRoster";
@@ -280,6 +280,8 @@ function PapersTab({ examCell }: { examCell: boolean }) {
   const [tests, setTests] = useState<TestRow[]>([]);
   const [examsLoading, setExamsLoading] = useState(true);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** the test a paper was just dropped into: shown first until the list is reloaded by hand */
+  const [pinnedExam, setPinnedExam] = useState<string | null>(null);
 
   const loadExams = useCallback(async () => {
     const key = getApiKey();
@@ -298,7 +300,8 @@ function PapersTab({ examCell }: { examCell: boolean }) {
       const upcoming: TestRow[] = exams.upcoming.map((e: ScheduledExam) => ({
         id: e.id, name: e.name, date: e.scheduled_date, status: "Scheduled",
       }));
-      setTests([...conducted, ...awaiting, ...upcoming].sort((a, b) => (a.date ?? "").localeCompare(b.date ?? "")));
+      // most recent first
+      setTests([...conducted, ...awaiting, ...upcoming].sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "")));
     } catch {
       /* the flat papers list below still works without the test grouping */
     } finally {
@@ -349,12 +352,19 @@ function PapersTab({ examCell }: { examCell: boolean }) {
 
   // A paper that was never attached to a test (made before the standalone form was taken
   // off this screen) stays reachable as one more card, with no way to make new ones.
-  const testsView = useMemo<TestRow[]>(
-    () => (papersByExam.has(UNSCHEDULED_ID)
-      ? [...tests, { id: UNSCHEDULED_ID, name: "Unscheduled papers", date: null, status: "Scheduled" }]
-      : tests),
-    [tests, papersByExam],
-  );
+  const testsView = useMemo<TestRow[]>(() => {
+    const all = papersByExam.has(UNSCHEDULED_ID)
+      ? [...tests, { id: UNSCHEDULED_ID, name: "Unscheduled papers", date: null, status: "Scheduled" as const }]
+      : tests;
+    // the test a paper was just dropped into goes first, then the most recent date first
+    return all
+      .map((t, i) => ({ t, i }))
+      .sort((a, b) =>
+        Number(b.t.id === pinnedExam) - Number(a.t.id === pinnedExam)
+        || Number(a.t.id === UNSCHEDULED_ID) - Number(b.t.id === UNSCHEDULED_ID)
+        || a.i - b.i)
+      .map(({ t }) => t);
+  }, [tests, papersByExam, pinnedExam]);
 
   // Paper authoring/upload/status is open to every teacher key for every subject this
   // deployment carries now, exam cell or not -- see require_paper_scope. A subject
@@ -471,8 +481,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
   async function buildFromPaper(files: File[], subjectCode: string, title: string, date: string, detected: Detected) {
     const key = getApiKey();
     if (!key) return;
-    const subjectLabel = pickableSubjects.find((s) => s.subject_code === subjectCode)?.label ?? subjectCode;
-    setIntake({ phase: "building", message: "Making the exam card…" });
+    setIntake({ phase: "building", message: "" });
     try {
       const existing = findExistingTest(title, detected.date ? date : null, tests);
       const examId = existing?.id ?? (await api.createExam(key, { name: title, scheduled_date: date })).id;
@@ -480,9 +489,11 @@ function PapersTab({ examCell }: { examCell: boolean }) {
       const spare = (papersByExam.get(examId) ?? []).find((p) => p.subject_code === subjectCode && p.stage === "empty");
       const assessmentId = spare?.id ?? (await api.createAssessment(key, { subject_code: subjectCode, title, exam_id: examId })).assessment_id;
       setExpanded((prev) => new Set(prev).add(examId));
+      setPinnedExam(examId);
       await Promise.all([loadExams(), scan.loadPapers()]);
-      setIntake({ phase: "done", message: `Exam card ready: ${summarise({ ...detected, title, date }, subjectLabel)}. Reading the questions now.` });
-      await scan.submitScan(subjectCode, title, assessmentId, files, null);
+      // the paper is read by itself, in its own row: no second upload, and nothing to watch
+      setIntake({ phase: "idle" });
+      void uploader.upload({ id: assessmentId } as PaperSummary, files);
     } catch (err) {
       setIntake({ phase: "failed", message: err instanceof ApiError ? `Could not make the exam card: ${err.message}` : "Could not reach the API." });
     }
@@ -506,8 +517,8 @@ function PapersTab({ examCell }: { examCell: boolean }) {
     const date = detected.date ?? today();
     const label = pickableSubjects.find((s) => s.subject_code === subject)?.label;
     const title = detected.title ?? (label ? fallbackTitle(label, date) : "");
-    // sure enough to go straight on: the subject was found and the heading gave a test name
-    if (subject && detected.title) {
+    // go straight on once the subject is known: a heading with no test name gets a fallback one
+    if (subject) {
       await buildFromPaper(files, subject, title, date, detected);
       return;
     }
@@ -580,11 +591,6 @@ function PapersTab({ examCell }: { examCell: boolean }) {
             </div>
           </div>
 
-          {intake.phase === "reading" && (
-            <p className="small muted" style={{ marginTop: 10 }}><Loader2 size={13} className="spin" /> Reading the heading of {intake.names}…</p>
-          )}
-          {intake.phase === "building" && <p className="small muted" style={{ marginTop: 10 }}><Loader2 size={13} className="spin" /> {intake.message}</p>}
-          {intake.phase === "done" && <div className="evidence" style={{ marginTop: 10 }}><div>{intake.message}</div></div>}
           {intake.phase === "failed" && (
             <div className="evidence evidence--gold" style={{ marginTop: 10 }}><AlertTriangle size={16} /><div>{intake.message}</div></div>
           )}
@@ -721,7 +727,7 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                       const up = uploader.states[p.id];
                                       const uploading = up?.phase === "reading" || up?.phase === "matching" || up?.phase === "classifying";
                                       const st = uploading
-                                        ? { label: up.phase === "reading" ? "Reading…" : up.phase === "matching" ? "Matching…" : "Classifying…", cls: "pm-pill--busy" }
+                                        ? { label: "Reading…", cls: "pm-pill--busy" }
                                         : statusTag(p);
                                       const pct = coveragePct(p);
                                       const drawerOpen = uploadFor === p.id;

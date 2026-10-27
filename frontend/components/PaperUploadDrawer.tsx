@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
-import { AlertTriangle, CheckCircle2, FileUp, Loader2 } from "lucide-react";
+import { AlertTriangle, CheckCircle2, FileUp } from "lucide-react";
 import { api, ApiError, ApiUnreachable, type JobProgress, type PaperSummary } from "@/lib/api";
 import { clearJob, setJob } from "@/lib/jobStore";
 import { getApiKey } from "@/lib/session";
@@ -32,12 +32,6 @@ export function explainUploadError(err: unknown): string {
   if (err.status === 404) return "That key was not recognised. Please sign in again.";
   return `The API returned ${err.status}.`;
 }
-
-const STEPS: { phase: UploadPhase; label: string }[] = [
-  { phase: "reading", label: "Reading the paper" },
-  { phase: "matching", label: "Matching to the book" },
-  { phase: "classifying", label: "Classifying topics" },
-];
 
 /** Uploads a question paper straight into a paper row of the list, without leaving it:
  * the file is read, and the server's own pipeline (confirm, map, classify) is followed to
@@ -126,8 +120,9 @@ export function usePaperUploader(onChanged: () => void) {
   return { states, upload, clear };
 }
 
-/** The upload panel that opens under a paper's row: drop files or pick them, watch the
- * three real stages go by. Plain buttons and inputs inside -- no 3D context here, since
+/** The upload panel that opens under a paper's row: drop files or pick them. While the paper is
+ * being read, mapped and classified the panel shows nothing about the stages (the row's own
+ * status says it is working); a failure or a duplicate hold is still said in words. Plain buttons and inputs inside -- no 3D context here, since
  * perspective on a surface that holds a file input is what once swallowed its clicks. */
 export function PaperUploadDrawer({
   paper, state, onFiles, onRetry, onClose,
@@ -143,9 +138,6 @@ export function PaperUploadDrawer({
   const inputRef = useRef<HTMLInputElement>(null);
   const [over, setOver] = useState(false);
   const working = state?.phase === "reading" || state?.phase === "matching" || state?.phase === "classifying";
-  const stepIndex = state
-    ? STEPS.findIndex((s) => s.phase === (state.phase === "error" ? state.at ?? "reading" : state.phase))
-    : -1;
   const finished = state?.phase === "done" || state?.phase === "held";
 
   function pick(list: FileList | File[] | null) {
@@ -198,41 +190,6 @@ export function PaperUploadDrawer({
         </div>
       )}
 
-      {state && (
-        <div className="pu__steps" aria-live="polite">
-          {STEPS.map((s, i) => {
-            const failed = state.phase === "error" && i === Math.max(stepIndex, 0);
-            const isDone = finished || (!failed && i < stepIndex);
-            const active = working && i === stepIndex;
-            return (
-              <motion.div
-                key={s.phase}
-                className={`pu__step ${isDone ? "pu__step--done" : ""} ${active ? "pu__step--active" : ""} ${failed ? "pu__step--failed" : ""}`}
-                initial={reduce ? false : { opacity: 0, rotateX: -50, y: 8 }}
-                animate={{ opacity: 1, rotateX: 0, y: 0 }}
-                transition={{ duration: 0.4, delay: i * 0.08, ease: [0.22, 1, 0.36, 1] }}
-                style={{ transformPerspective: 700 }}
-              >
-                <span className="pu__dot">
-                  {active ? <Loader2 size={14} className="spin" /> : isDone ? <CheckCircle2 size={14} /> : failed ? <AlertTriangle size={14} /> : i + 1}
-                </span>
-                <span>
-                  {s.label}
-                  {active && state.total != null && (
-                    <span className="small muted"> · {state.done ?? "…"} of {state.total}</span>
-                  )}
-                </span>
-              </motion.div>
-            );
-          })}
-        </div>
-      )}
-
-      {working && (
-        <p className="small muted" style={{ margin: "10px 0 0" }}>
-          This runs on the server, so you can keep working. Closing the tab does not stop it.
-        </p>
-      )}
       {state?.message && (
         <div className={`pu__note ${state.phase === "error" ? "pu__note--error" : ""}`}>
           {state.phase === "error" ? <AlertTriangle size={15} /> : <CheckCircle2 size={15} />} {state.message}
