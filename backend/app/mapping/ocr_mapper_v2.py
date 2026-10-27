@@ -95,6 +95,43 @@ class _ScienceOut(BaseModel):
     mappings: list[_ScienceRow]
 
 
+TIERS = ("Remembering & Understanding", "Applying", "Analysing, Evaluating & Creating")
+
+
+def _tier_block() -> str:
+    from app.classify.judge import TIER_GUIDE
+
+    return (
+        "## Competency tier (asked of every row)\n"
+        "Besides the fields above, set `cognitive_tier` on every row to exactly one of: "
+        + "; ".join(f'"{t}"' for t in TIERS) + ". Choose it from what the student has to DO, not from the "
+        "chapter. Use null only when the question text is too short to tell.\n" + TIER_GUIDE
+    )
+
+
+class _TieredRow(pl._Row):
+    """The Social, Mathematics and English answer, plus the competency tier."""
+
+    cognitive_tier: Literal["Remembering & Understanding", "Applying", "Analysing, Evaluating & Creating"] | None = None
+
+
+class _TieredOut(BaseModel):
+    mappings: list[_TieredRow]
+
+
+class _TieredScienceRow(_ScienceRow):
+    cognitive_tier: Literal["Remembering & Understanding", "Applying", "Analysing, Evaluating & Creating"] | None = None
+
+
+class _TieredScienceOut(BaseModel):
+    mappings: list[_TieredScienceRow]
+
+
+def tiered(output: type) -> type:
+    """``output`` with a competency tier on every row."""
+    return _TieredScienceOut if output is _ScienceOut else _TieredOut
+
+
 def _norm(text: str) -> str:
     return " ".join(re.findall(r"[a-z0-9]+", (text or "").lower()))
 
@@ -268,7 +305,8 @@ def _candidate(ix: sr.SectionIndex, taxonomy: pt.Taxonomy, hit: sr.Hit, full: bo
 
 
 def _call(client, model: str, system_rules: str, taxonomy: pt.Taxonomy, subjects: set[str] | None,
-          rows: list[dict], settings, self_contained: bool = False, output=pl._Out):
+          rows: list[dict], settings, self_contained: bool = False, output=pl._Out,
+          extra_rules: str | None = None):
     extra = {"output_config": cfg} if (cfg := output_config(model, settings.model_effort)) else {}
     if self_contained:
         # the prompt carries its own topic list: one cached block, sent as written
@@ -279,6 +317,9 @@ def _call(client, model: str, system_rules: str, taxonomy: pt.Taxonomy, subjects
             {"type": "text", "text": "## TAXONOMY\n" + pt.render(taxonomy, subjects),
              "cache_control": {"type": "ephemeral"}},
         ]
+    if extra_rules:
+        # the same words on every call, so they are cached with the prompt
+        system = [*system, {"type": "text", "text": extra_rules, "cache_control": {"type": "ephemeral"}}]
     response = client.messages.parse(
         model=model, max_tokens=8000, system=system,
         messages=[{"role": "user", "content": "Map the following questions.\n\n<questions>\n"
@@ -299,7 +340,7 @@ def _family(a: str | None, b: str | None) -> bool:
 
 
 def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None = None,
-                profile: Profile = SOCIAL):
+                profile: Profile = SOCIAL, tier: bool = False):
     """Map ``rows`` (``{"row", "text", "section"?}``).
 
     Returns ``(answers by row, usage by model, calls, errors, meta by row)``."""
@@ -322,10 +363,14 @@ def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None
     by_row = {r["row"]: r for r in with_candidates}
     text_of = {r["row"]: r["text"] for r in rows}
 
+    out_cls = tiered(profile.output) if tier else profile.output
+    tier_rules = _tier_block() if tier else None
+
     def run(model, rules, chunk, subjects, label):
         nonlocal calls
         try:
-            mapped, u = _call(client, model, rules, taxonomy, subjects, chunk, settings, profile.self_contained, profile.output)
+            mapped, u = _call(client, model, rules, taxonomy, subjects, chunk, settings, profile.self_contained,
+                              out_cls, tier_rules)
         except Exception as exc:  # noqa: BLE001 -- one batch failing must not lose the others
             errors.append(f"{label}: {type(exc).__name__}: {str(exc)[:200]}")
             return []
@@ -408,6 +453,8 @@ def map_rows_v2(client, settings, rows: list[dict], taxonomy: pt.Taxonomy | None
                 if first is None or m.row not in chunk_ids or pl.invalid_ids(taxonomy, m):
                     continue
                 meta[m.row]["verified"] = True
+                if tier and getattr(m, "cognitive_tier", None) is None:
+                    m.cognitive_tier = getattr(first, "cognitive_tier", None)
                 if m.topic_id != first.topic_id:
                     meta[m.row]["changed"] = True
                     meta[m.row]["second_reader_confidence"] = m.confidence

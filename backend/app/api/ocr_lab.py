@@ -382,7 +382,8 @@ def _looks_cut_off(text: str) -> bool:
 
 
 def _map(questions, context: set, passage_of: dict, settings, subject_code: str = "X.SST",
-         prompt: str = "", dedupe: bool = True, strict_flags: bool = True) -> dict:
+         prompt: str = "", dedupe: bool = True, strict_flags: bool = True,
+         tier: bool = False) -> dict:
     """Map every real question (not a shared passage) with the prompt mapper."""
     from app.api import prompt_lab
 
@@ -409,12 +410,13 @@ def _map(questions, context: set, passage_of: dict, settings, subject_code: str 
     # the book's own text finds candidate sections, a cheap model chooses among them, and a strong
     # model rereads the doubtful answers (app.mapping.ocr_mapper_v2)
     answers, usage_by_model, calls, errors, meta = ocr_mapper_v2.map_rows_v2(
-        client, settings, rows, taxonomy, profile)
+        client, settings, rows, taxonomy, profile, tier=tier)
     results = {
         q.address: profile.resolve(taxonomy, answers.get(i), q.section) for i, q in enumerate(real)
     }
     for i, q in enumerate(real):
         r = results[q.address]
+        r["tier"] = getattr(answers.get(i), "cognitive_tier", None)
         m = meta.get(i, {})
         r["book_check"] = {
             "candidates": m.get("candidates", []), "supported_by_book": m.get("supported_by_book"),

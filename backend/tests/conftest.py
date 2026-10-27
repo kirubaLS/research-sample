@@ -168,6 +168,18 @@ def book(school, monkeypatch):
 
 
 
+def _tiered_out():
+    from app.mapping import ocr_mapper_v2
+
+    return ocr_mapper_v2._TieredOut
+
+
+def _tiered_row():
+    from app.mapping import ocr_mapper_v2
+
+    return ocr_mapper_v2._TieredRow
+
+
 class _OcrMapperModel:
     """The model behind the map step, for every test that maps a paper: it answers from the
     stem's own words (Mathematics) or takes the first candidate section (other subjects), so a
@@ -200,11 +212,15 @@ class _OcrMapperModel:
             elif r.get("candidates"):
                 topic = r["candidates"][0]["id"]
                 chapter = topic.split(".")[0]
-            out.append(pl._Row(row=r["row"], chapter_id=chapter, topic_id=topic, confidence="high",
-                               syllabus_status="in_syllabus" if topic else "not_found", reason="test model"))
+            fields = dict(row=r["row"], chapter_id=chapter, topic_id=topic, confidence="high",
+                          syllabus_status="in_syllabus" if topic else "not_found", reason="test model")
+            wants_tier = any("cognitive_tier" in b["text"] for b in kw["system"])
+            out.append(pl._Row(**fields) if not wants_tier else _tiered_row()(
+                **fields, cognitive_tier="Applying"))
         usage = SimpleNamespace(input_tokens=1, output_tokens=1, cache_read_input_tokens=0,
                                 cache_creation_input_tokens=0)
-        return SimpleNamespace(parsed_output=pl._Out(mappings=out), usage=usage)
+        out_cls = _tiered_out() if any("cognitive_tier" in b["text"] for b in kw["system"]) else pl._Out
+        return SimpleNamespace(parsed_output=out_cls(mappings=out), usage=usage)
 
 
 @pytest.fixture(autouse=True)

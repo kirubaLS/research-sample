@@ -1273,15 +1273,9 @@ STATS_PAPER = [[
 ]]
 
 
-def test_the_cognitive_category_is_null_until_something_has_read_the_question(
-    client, school, book
-):
-    """Which tier a question sits in is not visible in its address or its marks.
-
-    Retrieval places a question in the book; it does not judge what the question asks a
-    student to DO. Reporting a tier here would be inventing one, so the field stays null
-    and the screen says it is not classified rather than showing a plausible letter.
-    """
+def test_the_cognitive_category_comes_from_the_model_in_the_map_call(client, school, book):
+    """The map step asks the model for the tier along with the chapter and topic (one call), so
+    a mapped question has the tier the model gave, in the board's words."""
     h = _auth(school)
     aid = client.post("/assessments", headers=h, json={
         "subject_code": "X.MATH", "title": "Tier", "total_marks": 3,
@@ -1291,8 +1285,7 @@ def test_the_cognitive_category_is_null_until_something_has_read_the_question(
     _map(client, f"/assessments/{aid}/map", headers=h)
 
     placed = client.get(f"/assessments/{aid}/scan", headers=h).json()["questions"][0]
-    assert placed["mapped_to"]["tier"] is None
-    assert placed["mapped_to"]["tier_label"] is None
+    assert placed["mapped_to"]["tier_label"] == "Applying"
 
 
 def test_a_tier_that_is_not_a_tier_is_refused(client, school, book):

@@ -70,7 +70,7 @@ from app.models import (
     StudentReport,
     TaxonomyNode,
 )
-from app.models.assessment import TIER_ALIASES
+from app.models.assessment import TIER_ALIASES, tier_code
 from app.taxonomy.variants import ServedVariant, VariantReuseError, enforce, variant_hash
 
 router = APIRouter(prefix="/assessments", tags=["marks-engine"])
@@ -2308,7 +2308,7 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
         raise HTTPException(409, "no classifier key configured. Set YAADHUM_ANTHROPIC_API_KEY.")
     mapping = (
         ocr_lab._map(eligible, context, passage_of, settings, assessment.subject_code, dedupe=False,
-                     strict_flags=False)
+                     strict_flags=False, tier=True)
         if eligible else {"by_address": {}, "spend": {"estimated_usd": 0.0}, "calls": 0, "errors": []}
     )
     taxonomy = profile.taxonomy()
@@ -2426,6 +2426,7 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
         db.add(QuestionPlacement(
             question_id=question.id, chapter_id=chapter.id, board_unit_id=unit_id,
             curriculum_section=section, confidence=tm.CONFIDENCE.get(result.get("confidence"), 0.3),
+            tier=result.get("tier"),
             curriculum_section_fine=fine_section if fine_section and fine_section != section else None,
             source="model", needs_review=bool(result.get("needs_review")),
             review_reason=tm.review_reason(result)[:REASON_WIDTH] if result.get("needs_review") else None,
@@ -2433,9 +2434,13 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
             evidence=[],
             candidates=[c for c in (book.get("candidates") or [])][:4],
         ))
+        board_tier = result.get("tier")
         db.add(QuestionTier(
-            question_id=question.id, tier=None, source="ensemble", model_version=mapping.get("model"),
-            rationale="the OCR mapper decides chapter and topic, not a tier",
+            question_id=question.id, tier=tier_code(board_tier), source="ensemble",
+            model_version=mapping.get("model"),
+            confidence=tm.CONFIDENCE.get(result.get("confidence"), 0.3) if board_tier else None,
+            rationale=("decided in the same call as the chapter and topic" if board_tier
+                       else "the model abstained"),
         ))
         if section and heading:
             set_question_topic(

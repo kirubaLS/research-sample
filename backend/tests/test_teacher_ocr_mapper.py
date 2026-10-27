@@ -171,6 +171,35 @@ def test_an_english_poem_is_filed_under_a_first_flight_chapter_made_on_first_use
     db.close()
 
 
+def test_the_tier_is_decided_in_the_same_call_and_stored(client, school, book, ocr_on, monkeypatch):
+    from app.api import prompt_lab as pl
+    from app.classify.current_tier import current_tiers
+    from app.db import SessionLocal
+    from app.mapping import ocr_mapper_v2 as v2
+    from app.models import Question, QuestionPlacement
+
+    class Tiered(_Stub):
+        def parse(self, **kw):
+            out = super().parse(**kw)
+            rows = [v2._TieredRow(**m.model_dump(), cognitive_tier="Analysing, Evaluating & Creating")
+                    for m in out.parsed_output.mappings]
+            return SimpleNamespace(parsed_output=v2._TieredOut(mappings=rows), usage=out.usage)
+
+    stub = Tiered("M13", "M13.1")
+    monkeypatch.setattr(pl, "_client", lambda settings: stub)
+    aid, h = _stage(client, school, "X.MATH", STATS)
+    assert _run_map(client, aid, h).status_code == 200
+    assert len(stub.systems) == 1, "mapping and the tier are one call, not two"
+    tier_rules = stub.systems[0][-1]["text"]
+    assert "cognitive_tier" in tier_rules and "Remembering & Understanding" in tier_rules
+    db = SessionLocal()
+    q = db.scalars(select(Question).where(Question.assessment_id == aid)).one()
+    tiers, _seen = current_tiers(db, [q.id])
+    placement = db.scalars(select(QuestionPlacement).where(QuestionPlacement.question_id == q.id)).one()
+    db.close()
+    assert tiers[q.id] == "AEC" and placement.tier == "Analysing, Evaluating & Creating"
+
+
 def test_a_secondary_topic_in_another_chapter_is_recorded_beside_the_primary(
     client, school, book, ocr_on, monkeypatch,
 ):
