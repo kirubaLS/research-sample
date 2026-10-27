@@ -1089,7 +1089,13 @@ function PapersTab({ examCell }: { examCell: boolean }) {
                                   <span className="small muted">
                                     {autoResolved
                                       ? "Placed automatically from the book -- worth a glance, not necessarily wrong."
-                                      : "A family/mapping problem -- fix the concept-family data, or settle it here."}
+                                      : q.mapped_to.review_reason === "low_confidence"
+                                        ? "The model was not sure of this one -- check the chapter and topic, or settle it here."
+                                        : q.mapped_to.review_reason === "topic_differs"
+                                          ? "Two reads of this question disagreed -- check the topic, or settle it here."
+                                          : q.mapped_to.review_reason === "topic_unverified"
+                                            ? "The question fits no topic of this book clearly -- check it, or settle it here."
+                                            : "A family/mapping problem -- fix the concept-family data, or settle it here."}
                                   </span>
                                 </div>
                               ) : "—"}

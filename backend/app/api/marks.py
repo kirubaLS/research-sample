@@ -2307,7 +2307,8 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
     if not settings.anthropic_api_key and eligible:
         raise HTTPException(409, "no classifier key configured. Set YAADHUM_ANTHROPIC_API_KEY.")
     mapping = (
-        ocr_lab._map(eligible, context, passage_of, settings, assessment.subject_code, dedupe=False)
+        ocr_lab._map(eligible, context, passage_of, settings, assessment.subject_code, dedupe=False,
+                     strict_flags=False)
         if eligible else {"by_address": {}, "spend": {"estimated_usd": 0.0}, "calls": 0, "errors": []}
     )
     taxonomy = profile.taxonomy()
@@ -2371,6 +2372,9 @@ def _map_paper_ocr_mapper(db: Session, assessment: Assessment, staged: list, on_
             fine_section = tm.section_of(profile, topic_info["id"], topic_info["number"])
             section = cap(fine_section) if fine_section else None
             heading = topic_info["title"]
+        for other in tm.topics_named_in(result, taxonomy):
+            if all(other["id"] != x["id"] for x in result.get("secondary") or []):
+                result.setdefault("secondary", []).append(other)
         secondaries = []
         elsewhere = []                       # secondaries that sit in another chapter
         for other in result.get("secondary") or []:

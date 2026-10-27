@@ -372,15 +372,17 @@ def _read_with_vision(job_id: str, paper: Path, settings):
 def _looks_cut_off(text: str) -> bool:
     """A stem that stops on a lone letter or a bare list marker ("IV. E"): the read lost its end."""
     t = text.rstrip()
+    # "III, IV, I": the last item of a list of roman numerals or options is not a lost word
+    lone_letter = re.search(r"(^|\s)[A-Za-z]$", t) and not re.search(r",\s*[A-Za-z]$", t)
     return bool(
-        re.search(r"(^|\s)[A-Za-z]$", t)
+        lone_letter
         or re.search(r"(^|\s)([IVXivx]+|[A-Da-d])[.)]$", t)
         or re.search(r"\([a-dA-D]\)$", t)
     )
 
 
 def _map(questions, context: set, passage_of: dict, settings, subject_code: str = "X.SST",
-         prompt: str = "", dedupe: bool = True) -> dict:
+         prompt: str = "", dedupe: bool = True, strict_flags: bool = True) -> dict:
     """Map every real question (not a shared passage) with the prompt mapper."""
     from app.api import prompt_lab
 
@@ -422,10 +424,11 @@ def _map(questions, context: set, passage_of: dict, settings, subject_code: str 
         if m.get("changed") and m.get("second_reader_confidence") != "high":
             r["problems"].append("the two readers disagreed and the second is not sure")
             r["needs_review"] = True
-        elif m.get("candidates") and not m.get("supported_by_book") and not m.get("verified"):
+        elif (strict_flags and m.get("candidates") and not m.get("supported_by_book")
+              and not m.get("verified")):
             r["problems"].append("the textbook text does not clearly point to this topic")
             r["needs_review"] = True
-    for q in real:
+    for q in real if strict_flags else []:
         if _looks_cut_off(q.stem_text or ""):
             r = results[q.address]
             r["problems"].append("the question text looks cut off; check the scan")

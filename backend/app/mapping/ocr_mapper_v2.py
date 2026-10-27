@@ -161,6 +161,8 @@ def _list_resolve(taxonomy: pt.Taxonomy, row, section=None) -> dict:
         "considered": [tid for tid in row.considered if taxonomy.topic(tid) is not None][:8],
         "secondary": secondary, "confidence": row.confidence, "syllabus_status": row.syllabus_status,
         "reason": (row.reason or "")[:300],
+        #: the whole sentence, for a reader that looks in it for the topics it names
+        "reason_full": row.reason or "",
         "needs_review": bool(problems) or row.confidence == "low" or row.syllabus_status != "in_syllabus",
         "problems": problems,
     }

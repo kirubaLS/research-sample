@@ -242,3 +242,37 @@ def test_list_chapters_translate_to_the_curriculums(school):
     assert tm.section_of(v2.ENGLISH, "FF2.3", "3") == "2.3"
     assert tm.section_of(v2.SOCIAL, "H5.3.2", "3.2") == "3.2"
     assert tm.section_of(v2.SCIENCE, "C2.10", "10") == st.unit_numbers()["C2.10"]
+
+
+def test_topics_the_model_names_in_its_reason_are_kept_as_matching_topics():
+    from app.mapping import prompt_taxonomy as pt
+    from app.mapping import teacher_map as tm
+
+    result = {"topic": {"id": "H5.2.1"}, "secondary": [{"id": "H5.9"}], "reason_full": (
+        "tests four events: Gutenberg (H5.2.1), Marco Polo (H5.2), Bengal Gazette (H5.6.2), "
+        "Vernacular Press Act (H5.9) and a made-up ZZ9.9")}
+    named = tm.topics_named_in(result, pt.build())
+    # the primary, one already listed and an unknown ID are left out
+    assert [x["id"] for x in named] == ["H5.2", "H5.6.2"]
+
+
+def test_a_list_of_roman_numerals_ending_in_i_is_not_a_cut_off_stem():
+    from app.api.ocr_lab import _looks_cut_off
+
+    assert not _looks_cut_off("Options : (A) III, II, IV, I (B) II, III, I, IV (D) II, III, IV, I")
+    assert _looks_cut_off("Match the following: I. Tilak II. Gandhi III. Nehru IV. E")
+
+
+def test_the_teacher_flow_does_not_flag_thin_book_support(client, school, book, ocr_on, monkeypatch):
+    from app.api import prompt_lab as pl
+    from app.db import SessionLocal
+    from app.models import Question, QuestionPlacement
+
+    monkeypatch.setattr(pl, "_client", lambda settings: _Stub("M13", "M13.1"))
+    aid, h = _stage(client, school, "X.MATH", STATS)
+    assert _run_map(client, aid, h).status_code == 200
+    db = SessionLocal()
+    q = db.scalars(select(Question).where(Question.assessment_id == aid)).one()
+    placement = db.scalars(select(QuestionPlacement).where(QuestionPlacement.question_id == q.id)).one()
+    db.close()
+    assert placement.needs_review is False, "a confident answer is not flagged for the book-text check"

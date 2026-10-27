@@ -31,6 +31,8 @@ so the paper still reads as classified.
 
 from __future__ import annotations
 
+import re
+
 from app.mapping import ocr_mapper_v2 as v2
 
 #: certainty written on the placement for each of the model's labels
@@ -142,3 +144,23 @@ def review_reason(result: dict) -> str:
     if result.get("confidence") == "low":
         return "low_confidence"
     return "topic_unverified"
+
+
+_ID = re.compile(r"\b[A-Z]{1,2}\d+(?:\.\d+)*\b")
+
+
+def topics_named_in(result: dict, taxonomy) -> list[dict]:
+    """The other topics the model named by ID in its own reason ("tests four events: H5.2.1,
+    H5.2, H5.6.2, H5.9") that exist in the list, as secondary topics: the question is about all of
+    them, and the model said so in words without always listing them. Only IDs of the closed list
+    count; the primary and anything already listed are left out."""
+    topic = (result.get("topic") or {}).get("id")
+    have = {topic} | {s["id"] for s in result.get("secondary") or []}
+    out = []
+    for tid in dict.fromkeys(_ID.findall(result.get("reason_full") or "")):
+        t = taxonomy.topic(tid)
+        chapter = taxonomy.chapter(t.chapter_id) if t else None
+        if t is None or chapter is None or tid in have:
+            continue
+        out.append({"id": t.id, "title": t.title, "chapter": chapter.title, "number": t.number})
+    return out
